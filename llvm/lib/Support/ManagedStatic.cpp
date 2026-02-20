@@ -15,6 +15,7 @@
 #include "llvm/Support/Threading.h"
 #include <cassert>
 #include <mutex>
+
 using namespace llvm;
 
 static const ManagedStaticBase *StaticList = nullptr;

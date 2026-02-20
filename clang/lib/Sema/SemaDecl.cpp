@@ -14159,6 +14159,20 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
     }
 
     Init = Result.getAs<Expr>();
+
+    if (VDecl && Init) {
+      QualType VDeclType = VDecl->getType();
+      if (auto Nullability = VDeclType->getNullability()) {
+        if (*Nullability == NullabilityKind::NonNull) {
+          if (Init->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNotNull)) {
+            Diag(Init->getBeginLoc(), diag::warn_null_arg)
+                << Init->getSourceRange();
+          }
+        }
+      }
+
+    }
+
     IsParenListInit = !InitSeq.steps().empty() &&
                       InitSeq.step_begin()->Kind ==
                           InitializationSequence::SK_ParenthesizedListInit;
@@ -16498,6 +16512,12 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
       // a null pointer value below; that is expected.
       getCurFunction()->SYCLKernelLaunchIdExpr = LaunchIdExpr.get();
     }
+  }
+
+  if (getLangOpts().FlowSensitiveNullability) {
+    FlowSensitiveNullabilityEnabled =
+        PP.getPragmaAssumeNonNullLoc().isValid() ||
+        getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified;
   }
 
   return D;

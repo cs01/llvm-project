@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./test_null_safety.sh:*)",
+      "Bash(clang --version:*)",
+      "Bash(clang:*)",
+      "Bash(locate:*)",
+      "Bash(find:*)",
+      "Bash(./build/bin/clang:*)",
+      "Bash(./safe-cc -c test_suite.c)",
+      "Bash(./run_tests.sh:*)",
+      "Bash(./safe-cc:*)",
+      "Bash(chmod:*)",
+      "Bash(./show_results.sh:*)",
+      "Bash(./bin/clang:*)",
+      "Bash(/tmp/null_safety_test/test_valid:*)",
+      "Bash(cmake:*)",
+      "Bash(./bin/cbang:*)",
+      "Bash(/tmp/test_cbang)",
+      "Bash(/data/users/cssmith/git/llvm-project/build/bin/cbang -c cJSON.c -o /tmp/cJSON.o)",
+      "Bash(/data/users/cssmith/git/llvm-project/build/bin/cbang:*)",
+      "Bash(/data/users/cssmith/git/llvm-project/build/bin/clangd:*)",
+      "Bash(/data/users/cssmith/git/llvm-project/build/bin/clang:*)",
+      "Bash(tee:*)",
+      "Bash(for file in /data/users/cssmith/git/sqlite/tool/{libvers,max-limits,enlargedb,checkSpacing}.c)",
+      "Bash(done)",
+      "Bash(/data/users/cssmith/git/llvm-project/build/bin/clang++:*)",
+      "Bash(timeout 5 /data/users/cssmith/git/llvm-project/build/bin/clangd:*)",
+      "Bash(echo:*)",
+      "Bash(ninja -C build:*)",
+      "Bash(build/bin/llvm-lit:*)",
+      "Bash(build/bin/clang:*)",
+      "Bash(../build/bin/clang:*)",
+      "Bash(/opt/llvm/bin/clang:*)",
+      "Bash(gdb:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

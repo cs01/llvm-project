@@ -58,6 +58,11 @@
 #define CLANG_ABI LLVM_ATTRIBUTE_VISIBILITY_DEFAULT
 #define CLANG_TEMPLATE_ABI
 #define CLANG_EXPORT_TEMPLATE
+#else
+// Default: no visibility attributes (e.g., for WASI)
+#define CLANG_ABI
+#define CLANG_TEMPLATE_ABI
+#define CLANG_EXPORT_TEMPLATE
 #endif
 #endif
 

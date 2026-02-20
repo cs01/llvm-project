@@ -1,0 +1,192 @@
+name: Build Null-Safe Clang Binaries
+
+on:
+  push:
+    branches:
+      - null-safe-c-dev
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake build-essential ccache
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-linux-${{ github.sha }}
+          restore-keys: |
+            ccache-linux-
+
+      - name: Configure build
+        run: |
+          mkdir -p build
+          cd build
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
+            -DLLVM_TARGETS_TO_BUILD="X86" \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DCMAKE_INSTALL_PREFIX=../install \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            ../llvm
+
+      - name: Build Clang and clangd
+        run: |
+          cd build
+          ninja clang clangd
+
+      - name: Install Clang and clangd
+        run: |
+          cd build
+          ninja install-clang
+          ninja install-clang-headers
+          ninja install-clangd
+
+      - name: Package binaries
+        run: |
+          cd install
+          tar -czf clang-nullsafe-linux-x86_64.tar.gz bin/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-nullsafe-linux-x86_64
+          path: install/clang-nullsafe-linux-x86_64.tar.gz
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install ninja cmake ccache
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-macos-${{ github.sha }}
+          restore-keys: |
+            ccache-macos-
+
+      - name: Configure build
+        run: |
+          mkdir -p build
+          cd build
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;X86" \
+            -DLLVM_ENABLE_ASSERTIONS=OFF \
+            -DCMAKE_INSTALL_PREFIX=../install \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            ../llvm
+
+      - name: Build Clang and clangd
+        run: |
+          cd build
+          ninja clang clangd
+
+      - name: Install Clang and clangd
+        run: |
+          cd build
+          ninja install-clang
+          ninja install-clang-headers
+          ninja install-clangd
+
+      - name: Package binaries
+        run: |
+          cd install
+          tar -czf clang-nullsafe-macos-universal.tar.gz bin/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-nullsafe-macos-universal
+          path: install/clang-nullsafe-macos-universal.tar.gz
+
+  build-wasm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 'latest'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake ccache
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-wasm-${{ github.sha }}
+          restore-keys: |
+            ccache-wasm-
+
+      - name: Configure WASM build
+        run: |
+          mkdir -p build-wasm
+          cd build-wasm
+          emcmake cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_PROJECTS="clang" \
+            -DLLVM_TARGETS_TO_BUILD="WebAssembly" \
+            -DLLVM_ENABLE_THREADS=OFF \
+            -DLLVM_ENABLE_EH=OFF \
+            -DLLVM_ENABLE_RTTI=OFF \
+            -DLLVM_BUILD_TOOLS=OFF \
+            -DLLVM_BUILD_UTILS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_EXE_LINKER_FLAGS="-sEXPORTED_RUNTIME_METHODS=callMain -sEXIT_RUNTIME=0 -sALLOW_MEMORY_GROWTH=1" \
+            ../llvm
+
+      - name: Build WASM
+        run: |
+          cd build-wasm
+          ninja clang
+
+      - name: Package WASM artifacts
+        run: |
+          mkdir -p wasm-artifacts
+          cp build-wasm/bin/clang.wasm wasm-artifacts/clang-nullsafe.wasm
+          cp build-wasm/bin/clang.js wasm-artifacts/clang-nullsafe.js
+          gzip -k wasm-artifacts/clang-nullsafe.wasm
+          gzip -k wasm-artifacts/clang-nullsafe.js
+          cd wasm-artifacts
+          tar -czf clang-nullsafe-wasm.tar.gz *.wasm *.js *.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-nullsafe-wasm
+          path: wasm-artifacts/clang-nullsafe-wasm.tar.gz
