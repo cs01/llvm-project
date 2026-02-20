@@ -12997,7 +12997,10 @@ def err_nullability_nonpointer : Error<
 def warn_nullability_lost : Warning<
   "implicit conversion from nullable pointer %0 to non-nullable pointer "
   "type %1">,
-  InGroup<NullableToNonNullConversion>, DefaultIgnore;
+  InGroup<NullableToNonNullConversion>;
+def warn_strict_nullability_dereference : Warning<
+  "dereferencing nullable pointer of type %0">,
+  InGroup<FlowNullableDereference>;
 def warn_zero_as_null_pointer_constant : Warning<
   "zero as null pointer constant">,
   InGroup<DiagGroup<"zero-as-null-pointer-constant">>, DefaultIgnore;

@@ -1,0 +1,90 @@
+name: Create Clang Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Linux artifact
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-clang.yml
+          commit: ${{ github.sha }}
+          name: clang-nullsafe-linux-x86_64
+          path: artifacts/
+
+      - name: Download macOS artifact
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-clang.yml
+          commit: ${{ github.sha }}
+          name: clang-nullsafe-macos-universal
+          path: artifacts/
+
+      - name: Download WASM artifact
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-clang.yml
+          commit: ${{ github.sha }}
+          name: clang-nullsafe-wasm
+          path: artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/clang-nullsafe-linux-x86_64.tar.gz
+            artifacts/clang-nullsafe-macos-universal.tar.gz
+            artifacts/clang-nullsafe-wasm.tar.gz
+          body: |
+            ## Null-Safe Clang Release
+
+            This release contains the Null-Safe Clang compiler for all platforms.
+
+            ### What's included:
+
+            **Native Binaries (Linux/macOS):**
+            - `clang` - The Null-Safe C compiler
+            - `clangd` - Language server for IDE integration (VSCode, vim, etc.)
+
+            **WebAssembly:**
+            - `clang-nullsafe.wasm` - WebAssembly compiler for browser playground
+            - `clang-nullsafe.js` - JavaScript glue code
+
+            ### Installation:
+
+            **Quick install (Linux/macOS):**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/null-safe-c-dev/install.sh | bash
+            ```
+
+            **Manual install:**
+            ```bash
+            tar -xzf clang-nullsafe-<platform>.tar.gz
+            export PATH=$PWD/bin:$PATH
+            clang --version
+            ```
+
+            ### Usage:
+            ```bash
+            # Enable flow-sensitive nullability with nullable-by-default
+            clang -fflow-sensitive-nullability -fnullability-default=nullable mycode.c
+
+            # Gradual migration mode (no warnings on unannotated code)
+            clang -fflow-sensitive-nullability -fnullability-default=unknown mycode.c
+
+            # Promote warnings to errors
+            clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=nullability mycode.c
+            ```
+
+            ### Try it online:
+            Interactive WebAssembly playground: https://cs01.github.io/llvm-project/
+
+            See the [README](https://github.com/cs01/llvm-project/blob/null-safe-c-dev/README.md) for full documentation.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

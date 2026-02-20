@@ -7325,6 +7325,11 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
 
     checkFortifiedBuiltinMemoryFunction(FDecl, TheCall);
 
+    // Function calls don't invalidate narrowing since the function receives
+    // a copy of the pointer and cannot modify the original pointer variable.
+    // The only way to modify a pointer is via pointer-to-pointer (int**),
+    // which users can handle explicitly if needed.
+
     if (BuiltinID)
       return CheckBuiltinFunctionCall(FDecl, BuiltinID, TheCall);
   } else if (NDecl) {
@@ -14726,6 +14731,8 @@ static QualType CheckIncrementDecrementOperand(Sema &S, Expr *Op,
   // Now make sure the operand is a modifiable lvalue.
   if (CheckForModifiableLvalue(Op, OpLoc, S))
     return QualType();
+
+
   if (S.getLangOpts().CPlusPlus20 && ResType.isVolatileQualified()) {
     // C++2a [expr.pre.inc]p1, [expr.post.inc]p1:
     //   An operand with volatile-qualified type is deprecated
@@ -21218,6 +21225,7 @@ Sema::ConditionResult Sema::ActOnCondition(Scope *S, SourceLocation Loc,
     Cond = CheckSwitchCondition(Loc, SubExpr);
     break;
   }
+
   if (Cond.isInvalid()) {
     Cond = CreateRecoveryExpr(SubExpr->getBeginLoc(), SubExpr->getEndLoc(),
                               {SubExpr}, PreferredConditionType(CK));

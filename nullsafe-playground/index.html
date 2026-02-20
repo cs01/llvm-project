@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nullsafe C Playground</title>
+
+    <!-- Monaco Editor from CDN (cached by browser) -->
+    <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/editor/editor.main.min.css">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #252526;
+            --bg-tertiary: #2d2d30;
+            --border-color: #3e3e42;
+            --text-primary: #d4d4d4;
+            --text-secondary: #cccccc;
+            --text-muted: #888;
+            --accent-blue: #4a90e2;
+            --success: #4ec9b0;
+            --warning: #ffb84d;
+            --error: #ff5252;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow: hidden;
+        }
+
+        .header {
+            background: var(--accent-blue);
+            padding: 24px 32px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+            position: relative;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .header-links {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .header-link {
+            color: white;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .header-link:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .header h1 {
+            color: white;
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: -0.8px;
+            margin-bottom: 6px;
+        }
+
+        .header p {
+            color: rgba(255,255,255,0.95);
+            font-size: 15px;
+            font-weight: 400;
+        }
+
+        .controls {
+            padding: 16px 32px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            border: none;
+            padding: 10px 24px;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .btn-primary {
+            background: var(--accent-blue);
+            color: white;
+            box-shadow: 0 2px 8px rgba(74, 144, 226, 0.3);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.4);
+        }
+
+        .btn-primary:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #3a3a3d;
+            border-color: #4e4e52;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .examples-dropdown {
+            position: relative;
+        }
+
+        .examples-select {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+            padding: 10px 16px;
+            font-size: 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 200px;
+        }
+
+        .examples-select:hover {
+            background: #3a3a3d;
+            border-color: #4e4e52;
+        }
+
+        .status {
+            color: var(--text-primary);
+            font-size: 13px;
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            font-weight: 500;
+        }
+
+        .status.ready {
+            background: rgba(78, 201, 176, 0.15);
+            border-color: rgba(78, 201, 176, 0.3);
+            color: var(--success);
+        }
+
+        .status.compiling {
+            background: rgba(255, 184, 77, 0.15);
+            border-color: rgba(255, 184, 77, 0.3);
+            color: var(--warning);
+        }
+
+        .status.error {
+            background: rgba(255, 82, 82, 0.15);
+            border-color: rgba(255, 82, 82, 0.3);
+            color: var(--error);
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            position: relative;
+            transform: rotate(-90deg);
+        }
+
+        .loading-spinner::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border: 2px solid rgba(128, 128, 128, 0.25);
+            border-radius: 50%;
+        }
+
+        .loading-spinner::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: conic-gradient(
+                from 0deg,
+                currentColor 0deg,
+                currentColor var(--progress, 0deg),
+                transparent var(--progress, 0deg),
+                transparent 360deg
+            );
+            mask: radial-gradient(circle, transparent 4px, black 4px);
+            -webkit-mask: radial-gradient(circle, transparent 4px, black 4px);
+            transition: --progress 0.2s ease-out;
+        }
+
+        @keyframes spinner-rotate {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .pane {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .pane:first-child {
+            flex: 0 0 50%;
+        }
+
+        .pane:last-child {
+            flex: 0 0 50%;
+        }
+
+        .pane-header {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            padding: 12px 20px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .pane-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .icon-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .divider {
+            width: 5px;
+            background: var(--border-color);
+            cursor: col-resize;
+            position: relative;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+
+        .divider:hover {
+            background: var(--accent-blue);
+        }
+
+
+        #editor-wrapper {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #editor {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        #output {
+            flex: 1;
+            padding: 20px;
+            font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.7;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        #output:empty::before {
+            content: 'Compiler output will appear here...';
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .output-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .output-section {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .output-section:first-child {
+            flex: 0 0 50%;
+        }
+
+        .output-section:last-child {
+            flex: 0 0 50%;
+        }
+
+        .output-section-header {
+            background: var(--bg-tertiary);
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+
+        .output-content {
+            flex: 1;
+            padding: 20px;
+            font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.7;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .output-content:empty::before {
+            content: 'Output will appear here...';
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .output-divider {
+            height: 5px;
+            background: var(--border-color);
+            cursor: row-resize;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .output-divider:hover {
+            background: var(--accent-blue);
+        }
+
+        .error { color: var(--error); }
+        .warning { color: var(--warning); }
+        .success { color: var(--success); }
+
+        .loading-bar {
+            height: 3px;
+            background: var(--accent-blue);
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 0;
+            transition: width 0.3s ease;
+            opacity: 0;
+        }
+
+        .loading-bar.active {
+            opacity: 1;
+            animation: loading 2s ease-in-out infinite;
+        }
+
+        @keyframes loading {
+            0% { width: 0%; }
+            50% { width: 70%; }
+            100% { width: 100%; }
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            border: 1px solid var(--border-color);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                height: auto;
+                min-height: 100vh;
+                overflow-y: auto;
+            }
+
+            .main-container {
+                flex-direction: column;
+                min-height: 500px;
+                height: auto;
+            }
+
+            .pane {
+                min-height: 300px;
+            }
+
+            .pane:first-child,
+            .pane:last-child {
+                flex: 1 1 auto;
+                height: auto;
+                min-height: 300px;
+            }
+
+            #editor-wrapper {
+                min-height: 250px;
+            }
+
+            .output-container {
+                min-height: 250px;
+            }
+
+            .output-section:first-child,
+            .output-section:last-child {
+                flex: 1 1 auto;
+                min-height: 150px;
+            }
+
+            .divider {
+                width: 100%;
+                height: 5px;
+                cursor: row-resize;
+            }
+
+            .header {
+                padding: 16px 20px;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+                margin-bottom: 4px;
+            }
+
+            .header p {
+                font-size: 14px;
+            }
+
+            .header-links {
+                align-self: flex-start;
+            }
+
+            .controls {
+                padding: 12px 20px;
+            }
+
+            .status {
+                margin-left: 0;
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-bar" id="loadingBar"></div>
+
+    <div class="header">
+        <div class="header-content">
+            <h1>Nullsafe C Playground</h1>
+            <p>An experimental Clang fork with strict null checking</p>
+        </div>
+        <div class="header-links">
+            <button id="reportBugBtn" class="header-link" style="background: none; border: none; cursor: pointer;" title="Report a bug or issue with the playground or compiler">
+                <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: text-bottom;">
+                    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                    <path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z"/>
+                </svg>
+                Report Bug
+            </button>
+            <a href="https://github.com/cs01/llvm-project/" target="_blank" class="header-link" title="View the Nullsafe C source code on GitHub">
+                <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: text-bottom;">
+                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+                GitHub
+            </a>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="compileBtn" class="btn btn-primary" disabled title="Compile the code and show warnings (Ctrl+Enter)">
+            <span>▶</span> Compile
+        </button>
+
+        <select id="examplesSelect" class="examples-select" title="Load example code to see Nullsafe C in action">
+            <option value="null-check" selected>1. Raw pointer Dereference</option>
+            <option value="early-return">2. Early Return</option>
+            <option value="and-pattern">3. AND Pattern Narrowing</option>
+            <option value="else-branch">4. Else Branch Narrowing</option>
+            <option value="nonnull-annotation">5. _Nonnull Annotations</option>
+            <option value="function-invalidates">6. Function Invalidates Narrowing</option>
+            <option value="multi-level">7. Multi-Level Pointers</option>
+        </select>
+
+        <button id="shareBtn" class="btn btn-secondary" title="Copy a shareable link with your code to clipboard">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: text-bottom;">
+                <path d="M13.5 1a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM11 2.5a2.5 2.5 0 1 1 .603 1.628l-6.718 3.12a2.499 2.499 0 0 1 0 1.504l6.718 3.12a2.5 2.5 0 1 1-.488.876l-6.718-3.12a2.5 2.5 0 1 1 0-3.256l6.718-3.12A2.5 2.5 0 0 1 11 2.5zm-8.5 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm11 5.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/>
+            </svg>
+            Share
+        </button>
+
+        <span id="status" class="status">
+            <span class="loading-spinner"></span>
+            Initializing compiler...
+        </span>
+    </div>
+
+    <div class="main-container">
+        <div class="pane">
+            <div class="pane-header">
+                <span>Source Code</span>
+                <div class="pane-actions">
+                    <button class="icon-btn" title="Keyboard shortcut: Cmd/Ctrl+Enter">Ctrl+Enter to compile</button>
+                </div>
+            </div>
+            <div id="editor-wrapper">
+                <div id="editor"></div>
+            </div>
+        </div>
+
+        <div class="divider" id="divider"></div>
+
+        <div class="pane">
+            <div class="pane-header">
+                <span>Compiler Output</span>
+            </div>
+            <div class="output-container">
+                <div class="output-section">
+                    <div class="output-section-header">With Null Warnings</div>
+                    <div id="output-nullsafe" class="output-content"></div>
+                </div>
+                <div class="output-divider" id="outputDivider"></div>
+                <div class="output-section">
+                    <div class="output-section-header">Without Null Warnings</div>
+                    <div id="output-mainline" class="output-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <!-- Load Monaco Editor from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+    <script>
+        // Configure Monaco loader
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
+    </script>
+
+    <script src="playground.js"></script>
+</body>
+</html>

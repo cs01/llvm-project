@@ -76,7 +76,7 @@ Expected<unsigned> Process::getPageSize() {
 #elif defined(HAVE_SYSCONF)
   static long page_size = ::sysconf(_SC_PAGE_SIZE);
 #else
-#error Cannot get the page size on this machine
+#error Cannot get system page size
 #endif
   if (page_size == -1)
     return errorCodeToError(errnoAsErrorCode());
@@ -114,9 +114,6 @@ size_t Process::GetMallocUsage() {
     return EndOfMemory - StartOfMemory;
   return 0;
 #else
-#ifndef __MVS__ // Exclude for MVS in case -pedantic is used
-#warning Cannot get malloc info on this platform
-#endif
   return 0;
 #endif
 }

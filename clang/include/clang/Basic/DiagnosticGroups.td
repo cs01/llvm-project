@@ -526,6 +526,8 @@ def CXX26Compat : DiagGroup<"c++2c-compat", [DeleteIncomplete]>;
 
 def ExitTimeDestructors : DiagGroup<"exit-time-destructors">;
 def FlexibleArrayExtensions : DiagGroup<"flexible-array-extensions">;
+def FlowNullableDereference : DiagGroup<"flow-nullable-dereference">;
+def FlowNullability : DiagGroup<"flow-nullability", [FlowNullableDereference]>;
 def FourByteMultiChar : DiagGroup<"four-char-constants">;
 def GlobalConstructors : DiagGroup<"global-constructors"> {
  code Documentation = [{

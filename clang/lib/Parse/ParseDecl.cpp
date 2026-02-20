@@ -6503,6 +6503,7 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
                          : AR_GNUAttributesParsedAndRejected);
     ParseTypeQualifierListOpt(DS, Reqs, /*AtomicOrPtrauthAllowed=*/true,
                               !D.mayOmitIdentifier());
+
     D.ExtendWithDeclSpec(DS);
 
     // Recursively parse the declarator.

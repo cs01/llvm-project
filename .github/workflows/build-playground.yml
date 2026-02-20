@@ -1,0 +1,108 @@
+name: Build Playground WASM
+
+on:
+  push:
+    branches:
+      - null-safe-c-dev
+    tags:
+      - 'playground-v*'
+  workflow_dispatch:
+
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 'latest'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake ccache
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-wasm-${{ github.sha }}
+          restore-keys: |
+            ccache-wasm-
+
+      - name: Configure WASM build (Null-Safe Clang)
+        run: |
+          mkdir -p build-wasm
+          cd build-wasm
+          emcmake cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_PROJECTS="clang" \
+            -DLLVM_TARGETS_TO_BUILD="WebAssembly" \
+            -DLLVM_ENABLE_THREADS=OFF \
+            -DLLVM_ENABLE_EH=OFF \
+            -DLLVM_ENABLE_RTTI=OFF \
+            -DLLVM_BUILD_TOOLS=OFF \
+            -DLLVM_BUILD_UTILS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_EXE_LINKER_FLAGS="-sEXPORTED_RUNTIME_METHODS=callMain -sEXIT_RUNTIME=0 -sALLOW_MEMORY_GROWTH=1" \
+            ../llvm
+
+      - name: Build Null-Safe Clang WASM
+        run: |
+          cd build-wasm
+          ninja clang
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts
+          cp build-wasm/bin/clang.wasm artifacts/clang-nullsafe.wasm
+          cp build-wasm/bin/clang.js artifacts/clang-nullsafe.js
+
+          # Compress for better download speeds
+          gzip -k artifacts/clang-nullsafe.wasm
+          gzip -k artifacts/clang-nullsafe.js
+
+          ls -lh artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: playground-wasm-files
+          path: artifacts/*
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/clang-nullsafe.wasm
+            artifacts/clang-nullsafe.js
+            artifacts/clang-nullsafe.wasm.gz
+            artifacts/clang-nullsafe.js.gz
+          body: |
+            ## Null-Safe Clang Playground WASM Files
+
+            This release contains the WebAssembly build of Null-Safe Clang for use in the browser playground.
+
+            ### Files:
+            - `clang-nullsafe.wasm` - WebAssembly compiler binary (~63MB)
+            - `clang-nullsafe.js` - Emscripten JavaScript glue code
+            - `*.gz` - Compressed versions for faster downloads
+
+            ### Usage:
+            These files power the interactive playground at:
+            https://cs01.github.io/llvm-project/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
