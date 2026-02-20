@@ -99,7 +99,7 @@ private:
 template <bool mt_only> class SmartRWMutex {
 #if !defined(LLVM_USE_RW_MUTEX_IMPL)
   std::shared_mutex impl;
-#else
+#elif defined(LLVM_USE_RW_MUTEX_IMPL)
   RWMutexImpl impl;
 #endif
   unsigned readers = 0;
@@ -131,7 +131,9 @@ public:
     return true;
   }
 
-  bool try_lock_shared() { return impl.try_lock_shared(); }
+  bool try_lock_shared() {
+    return impl.try_lock_shared();
+  }
 
   bool lock() {
     if (!mt_only || llvm_is_multithreaded()) {
@@ -159,7 +161,9 @@ public:
     return true;
   }
 
-  bool try_lock() { return impl.try_lock(); }
+  bool try_lock() {
+    return impl.try_lock();
+  }
 };
 
 using RWMutex = SmartRWMutex<false>;

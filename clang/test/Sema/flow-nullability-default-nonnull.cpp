@@ -1,0 +1,49 @@
+// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nonnull -std=c++17 %s -verify
+
+struct Entity {
+    int x;
+};
+
+Entity* _Nullable getNullable();
+Entity* getUnannotated();
+
+#pragma clang assume_nonnull begin
+
+void test_unannotated_param_no_warn(Entity* p) {
+    p->x = 1; // OK - parameter gets _Nonnull from assume_nonnull pragma
+}
+
+void test_unannotated_star(Entity* p) {
+    (*p).x = 1; // OK - parameter gets _Nonnull from pragma
+}
+
+void test_explicit_nullable_warns(Entity* _Nullable p) {
+    p->x = 1; // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+}
+
+void test_explicit_nullable_after_check(Entity* _Nullable p) {
+    if (p) {
+        p->x = 1; // OK - narrowed
+    }
+}
+
+void test_return_nullable_warns() {
+    Entity* e = getNullable();
+    e->x = 1; // expected-warning{{dereferencing nullable pointer}}
+}
+
+// With -fnullability-default=nonnull, local variables don't receive nullability
+// inference from the assume_nonnull pragma (only params/returns do).
+// The strict check warns on any pointer without explicit _Nonnull.
+void test_return_unannotated_warns() {
+    Entity* e = getUnannotated();
+    e->x = 1; // expected-warning{{dereferencing nullable pointer of type 'Entity *'}}
+}
+
+void test_local_nonnull_ok() {
+    Entity stack;
+    Entity* _Nonnull p = &stack;
+    p->x = 1; // OK - explicit _Nonnull
+}
+
+#pragma clang assume_nonnull end

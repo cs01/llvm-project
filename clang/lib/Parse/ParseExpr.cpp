@@ -411,6 +411,7 @@ Parser::ParseRHSOfBinaryExpression(ExprResult LHS, prec::Level MinPrec) {
         //   logical-OR-expression '?' expression ':' conditional-expression
         // In particular, the RHS of the '?' is 'expression', not
         // 'logical-OR-expression' as we might expect.
+
         TernaryMiddle = ParseExpression();
       } else {
         // Special case handling of "X ? Y : Z" where Y is empty:
@@ -456,6 +457,7 @@ Parser::ParseRHSOfBinaryExpression(ExprResult LHS, prec::Level MinPrec) {
 
     PreferredType.enterBinary(Actions, Tok.getLocation(), LHS.get(),
                               OpToken.getKind());
+
     // Parse another leaf here for the RHS of the operator.
     // ParseCastExpression works here because all RHS expressions in C have it
     // as a prefix, at least. However, in C++, an assignment-expression could

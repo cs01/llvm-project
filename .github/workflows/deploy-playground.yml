@@ -1,0 +1,90 @@
+name: Deploy Playground to GitHub Pages
+
+on:
+  push:
+    branches:
+      - null-safe-c-dev
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-gh-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download latest WASM files from release
+        run: |
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r '.tag_name')
+
+          echo "Latest release: $LATEST_RELEASE"
+
+          if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" = "null" ]; then
+            echo "No release found"
+            exit 1
+          fi
+
+          mkdir -p /tmp/wasm-files
+          cd /tmp/wasm-files
+
+          # Download the tar.gz file
+          curl -L -o clang-nullsafe-wasm.tar.gz "https://github.com/${{ github.repository }}/releases/download/${LATEST_RELEASE}/clang-nullsafe-wasm.tar.gz"
+
+          # Extract the tar.gz
+          tar -xzf clang-nullsafe-wasm.tar.gz
+
+          # The tar.gz contains: clang-nullsafe.wasm, clang-nullsafe.js, and their .gz versions
+          # Rename to the expected names (clang.wasm and clang.js)
+          if [ -f clang-nullsafe.wasm ]; then
+            mv clang-nullsafe.wasm clang.wasm
+          fi
+          if [ -f clang-nullsafe.js ]; then
+            mv clang-nullsafe.js clang.js
+          fi
+
+          # Clean up
+          rm -f *.gz *.tar
+
+          echo "Extracted files:"
+          ls -lh
+
+      - name: Deploy to gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin gh-pages; then
+            git fetch origin gh-pages
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+          fi
+
+          git rm -rf . 2>/dev/null || true
+
+          git checkout null-safe-c-dev -- nullsafe-playground
+          mv nullsafe-playground/* .
+          rm -rf nullsafe-playground
+
+          cp /tmp/wasm-files/* .
+
+          touch .nojekyll
+
+          git add -A
+
+          if git diff --staged --quiet; then
+            echo "No changes to deploy"
+          else
+            git commit -m "Deploy playground from ${{ github.sha }}"
+            git push origin gh-pages
+          fi
+

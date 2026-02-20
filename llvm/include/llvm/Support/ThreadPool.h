@@ -23,7 +23,6 @@
 #include "llvm/Support/thread.h"
 
 #include <future>
-
 #include <condition_variable>
 #include <deque>
 #include <functional>
