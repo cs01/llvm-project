@@ -1,0 +1,23 @@
+{
+  "name": "null-safe-clang-playground",
+  "version": "1.0.0",
+  "description": "Interactive playground for Null-Safe C with real-time diagnostics",
+  "main": "index.html",
+  "scripts": {
+    "serve": "python3 serve.py",
+    "dev": "python3 serve.py"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.45.0"
+  },
+  "devDependencies": {},
+  "keywords": [
+    "clang",
+    "null-safety",
+    "webassembly",
+    "monaco",
+    "language-server"
+  ],
+  "author": "Chad Smith",
+  "license": "Apache-2.0"
+}

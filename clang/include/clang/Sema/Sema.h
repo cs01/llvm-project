@@ -1188,7 +1188,13 @@ public:
   /// Warn if we're implicitly casting from a _Nullable pointer type to a
   /// _Nonnull one.
   void diagnoseNullableToNonnullConversion(QualType DstType, QualType SrcType,
-                                           SourceLocation Loc);
+                                           SourceLocation Loc,
+                                           Expr *SrcExpr = nullptr);
+
+  /// Check if a function has any nullability annotations on its parameters or return type.
+  bool FunctionHasNullabilityAnnotations(const FunctionDecl *FD) const;
+
+  bool FlowSensitiveNullabilityEnabled = false;
 
   /// Warn when implicitly casting 0 to nullptr.
   void diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E);
