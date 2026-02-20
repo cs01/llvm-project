@@ -480,9 +480,10 @@ bool CrashRecoveryContext::throwIfCrash(int RetCode) {
     return false;
 #if defined(_WIN32)
   ::RaiseException(RetCode, 0, 0, NULL);
-#else
+#elif true
   llvm::sys::unregisterHandlers();
   raise(RetCode - 128);
+#else
 #endif
   return true;
 }

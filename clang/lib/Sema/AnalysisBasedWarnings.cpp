@@ -31,6 +31,7 @@
 #include "clang/Analysis/Analyses/CFGReachabilityAnalysis.h"
 #include "clang/Analysis/Analyses/CalledOnceCheck.h"
 #include "clang/Analysis/Analyses/Consumed.h"
+#include "clang/Analysis/Analyses/FlowNullability.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeSafety.h"
 #include "clang/Analysis/Analyses/ReachableCode.h"
@@ -3042,6 +3043,50 @@ LifetimeSafetyTUAnalysis(Sema &S, TranslationUnitDecl *TU,
   }
 }
 
+namespace {
+class FlowNullabilityReporter : public FlowNullabilityHandler {
+  Sema &S;
+
+public:
+  FlowNullabilityReporter(Sema &S) : S(S) {}
+
+  void handleNullableDereference(const Expr *DerefExpr,
+                                 QualType PtrType) override {
+    S.Diag(DerefExpr->getExprLoc(), diag::warn_strict_nullability_dereference)
+        << PtrType;
+  }
+};
+
+static bool FunctionHasNullabilityAnnotations(const FunctionDecl *FD) {
+  if (!FD || FD->isInvalidDecl())
+    return false;
+
+  QualType ReturnType = FD->getReturnType();
+  if (!ReturnType.isNull() && !ReturnType->isDependentType())
+    if (ReturnType->getNullability())
+      return true;
+
+  if (!FD->param_empty()) {
+    for (unsigned i = 0; i < FD->getNumParams(); ++i) {
+      const ParmVarDecl *Param = FD->getParamDecl(i);
+      if (!Param)
+        continue;
+      QualType ParamType = Param->getType();
+      if (!ParamType.isNull() && !ParamType->isDependentType())
+        if (ParamType->getNullability())
+          return true;
+    }
+  }
+
+  return false;
+}
+
+static bool shouldEnableFlowNullability(Sema &S, const Decl *D) {
+  return S.FlowSensitiveNullabilityEnabled;
+}
+} // anonymous namespace
+
+
 void clang::sema::AnalysisBasedWarnings::IssueWarnings(
      TranslationUnitDecl *TU) {
   if (!TU)
@@ -3174,9 +3219,15 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   // prototyping, but we need a way for analyses to say what expressions they
   // expect to always be CFGElements and then fill in the BuildOptions
   // appropriately.  This is essentially a layering violation.
+  bool EnableFlowNullability =
+      S.getLangOpts().FlowSensitiveNullability &&
+      !Diags.isIgnored(diag::warn_strict_nullability_dereference,
+                        D->getBeginLoc());
+
   if (P.enableCheckUnreachable || P.enableThreadSafetyAnalysis ||
-      P.enableConsumedAnalysis || EnableLifetimeSafetyAnalysis) {
-    // Unreachable code analysis and thread safety require a linearized CFG.
+      P.enableConsumedAnalysis || EnableLifetimeSafetyAnalysis ||
+      EnableFlowNullability) {
+    // These analyses require a linearized CFG with all statements visible.
     AC.getCFGBuildOptions().setAllAlwaysAdd();
   } else {
     AC.getCFGBuildOptions()
@@ -3242,6 +3293,19 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     threadSafety::runThreadSafetyAnalysis(AC, Reporter,
                                           &S.ThreadSafetyDeclCache);
     Reporter.emitDiagnostics();
+  }
+
+  if (S.getLangOpts().FlowSensitiveNullability &&
+      !Diags.isIgnored(diag::warn_strict_nullability_dereference,
+                        D->getBeginLoc())) {
+    if (shouldEnableFlowNullability(S, D)) {
+      if (AC.getCFG()) {
+        FlowNullabilityReporter Reporter(S);
+        bool StrictMode = (S.getLangOpts().getNullabilityDefault() !=
+                           NullabilityKind::Unspecified);
+        runFlowNullabilityAnalysis(AC, Reporter, StrictMode);
+      }
+    }
   }
 
   // Check for violations of consumed properties.

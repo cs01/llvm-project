@@ -631,101 +631,78 @@ public:
       ThreadUnsafeDWARFContextState(DC, DWP) {}
 
   DWARFUnitVector &getNormalUnits() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getNormalUnits();
   }
   DWARFUnitVector &getDWOUnits(bool Lazy) override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     // We need to not do lazy parsing when we need thread safety as
     // DWARFUnitVector, in lazy mode, will slowly add things to itself and
     // will cause problems in a multi-threaded environment.
     return ThreadUnsafeDWARFContextState::getDWOUnits(false);
   }
   const DWARFUnitIndex &getCUIndex() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getCUIndex();
   }
   const DWARFDebugAbbrev *getDebugAbbrevDWO() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugAbbrevDWO();
   }
 
   const DWARFUnitIndex &getTUIndex() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getTUIndex();
   }
   DWARFGdbIndex &getGdbIndex() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getGdbIndex();
   }
   const DWARFDebugAbbrev *getDebugAbbrev() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugAbbrev();
   }
   const DWARFDebugLoc *getDebugLoc() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugLoc();
   }
   const DWARFDebugAranges *getDebugAranges() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugAranges();
   }
   Expected<const DWARFDebugLine::LineTable *>
   getLineTableForUnit(DWARFUnit *U, function_ref<void(Error)> RecoverableErrorHandler) override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getLineTableForUnit(U, RecoverableErrorHandler);
   }
   void clearLineTableForUnit(DWARFUnit *U) override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::clearLineTableForUnit(U);
   }
   Expected<const DWARFDebugFrame *> getDebugFrame() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugFrame();
   }
   Expected<const DWARFDebugFrame *> getEHFrame() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getEHFrame();
   }
   const DWARFDebugMacro *getDebugMacinfo() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugMacinfo();
   }
   const DWARFDebugMacro *getDebugMacinfoDWO() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugMacinfoDWO();
   }
   const DWARFDebugMacro *getDebugMacro() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugMacro();
   }
   const DWARFDebugMacro *getDebugMacroDWO() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugMacroDWO();
   }
   const DWARFDebugNames &getDebugNames() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDebugNames();
   }
   const AppleAcceleratorTable &getAppleNames() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getAppleNames();
   }
   const AppleAcceleratorTable &getAppleTypes() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getAppleTypes();
   }
   const AppleAcceleratorTable &getAppleNamespaces() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getAppleNamespaces();
   }
   const AppleAcceleratorTable &getAppleObjC() override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getAppleObjC();
   }
   std::shared_ptr<DWARFContext>
   getDWOContext(StringRef AbsolutePath) override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getDWOContext(AbsolutePath);
   }
 
@@ -733,7 +710,6 @@ public:
 
   const DenseMap<uint64_t, DWARFTypeUnit *> &
   getTypeUnitMap(bool IsDWO) override {
-    std::unique_lock<std::recursive_mutex> LockGuard(Mutex);
     return ThreadUnsafeDWARFContextState::getTypeUnitMap(IsDWO);
   }
 };

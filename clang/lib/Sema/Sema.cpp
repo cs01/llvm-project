@@ -679,7 +679,8 @@ void Sema::PrintStats() const {
 
 void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
                                                QualType SrcType,
-                                               SourceLocation Loc) {
+                                               SourceLocation Loc,
+                                               Expr *SrcExpr) {
   std::optional<NullabilityKind> ExprNullability = SrcType->getNullability();
   if (!ExprNullability || (*ExprNullability != NullabilityKind::Nullable &&
                            *ExprNullability != NullabilityKind::NullableResult))
@@ -689,7 +690,43 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
   if (!TypeNullability || *TypeNullability != NullabilityKind::NonNull)
     return;
 
+  // If we got here, both src and dst have nullability annotations.
+  // Even in unknown mode, explicit annotations should be respected.
+  // (unknown mode only affects inference, not checking of explicit annotations)
+
+  // Warn about nullable→nonnull conversions.
   Diag(Loc, diag::warn_nullability_lost) << SrcType << DstType;
+}
+
+
+bool Sema::FunctionHasNullabilityAnnotations(const FunctionDecl *FD) const {
+  if (!FD || FD->isInvalidDecl())
+    return false;
+
+  // Check return type
+  QualType ReturnType = FD->getReturnType();
+  if (!ReturnType.isNull() && !ReturnType->isDependentType()) {
+    if (ReturnType->getNullability())
+      return true;
+  }
+
+  // Check parameters - but only if they're available
+  // During early function processing, parameters might not be set yet
+  if (!FD->param_empty()) {
+    for (unsigned i = 0; i < FD->getNumParams(); ++i) {
+      const ParmVarDecl *Param = FD->getParamDecl(i);
+      if (!Param)
+        continue;
+
+      QualType ParamType = Param->getType();
+      if (!ParamType.isNull() && !ParamType->isDependentType()) {
+        if (ParamType->getNullability())
+          return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 // Generate diagnostics when adding or removing effects in a type conversion.
@@ -781,7 +818,8 @@ ExprResult Sema::ImpCastExprToType(Expr *E, QualType Ty,
          "can't cast prvalue to glvalue");
 #endif
 
-  diagnoseNullableToNonnullConversion(Ty, E->getType(), E->getBeginLoc());
+  // can check if the variable has been narrowed to non-null by flow analysis.
+  diagnoseNullableToNonnullConversion(Ty, E->getType(), E->getBeginLoc(), E);
   diagnoseZeroToNullptrConversion(Kind, E);
   if (Context.hasAnyFunctionEffects() && !isCast(CCK) &&
       Kind != CK_NullToPointer && Kind != CK_NullToMemberPointer)

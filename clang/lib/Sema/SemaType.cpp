@@ -4504,12 +4504,16 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         break;
 
       case PointerDeclaratorKind::SingleLevelPointer:
-        // Infer _Nonnull if we are in an assumes-nonnull region.
-        if (inAssumeNonNullRegion) {
+        // Infer nullability based on pragma or default mode
+        // Pragma takes precedence and works in all modes (including unspecified)
+        if (inAssumeNonNullRegion || S.getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified) {
           complainAboutInferringWithinChunk = wrappingKind;
-          inferNullability = NullabilityKind::NonNull;
-          inferNullabilityCS = (context == DeclaratorContext::ObjCParameter ||
-                                context == DeclaratorContext::ObjCResult);
+          if (inAssumeNonNullRegion) {
+            inferNullability = NullabilityKind::NonNull;
+          } else {
+            inferNullability = S.getLangOpts().getNullabilityDefault();
+          }
+          inferNullabilityCS = false;
         }
         break;
 
@@ -4568,9 +4572,32 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     case DeclaratorContext::TypeName:
     case DeclaratorContext::FunctionalCast:
     case DeclaratorContext::RequiresExpr:
-    case DeclaratorContext::Association:
-      // Don't infer in these contexts.
+    case DeclaratorContext::Association: {
+      complainAboutMissingNullability = CAMN_Yes;
+
+      auto wrappingKind = PointerWrappingDeclaratorKind::None;
+      switch (classifyPointerDeclarator(S, T, D, wrappingKind)) {
+      case PointerDeclaratorKind::NonPointer:
+      case PointerDeclaratorKind::MultiLevelPointer:
+        break;
+
+      case PointerDeclaratorKind::SingleLevelPointer:
+        complainAboutInferringWithinChunk = wrappingKind;
+        // For local variables and similar contexts, don't apply pragma.
+        // Pragma should only affect API boundaries (function signatures).
+        // This enables gradual adoption without overwhelming noise from locals.
+        if (!inAssumeNonNullRegion) {
+          inferNullability = NullabilityKind::Nullable;
+        }
+        // If in pragma region, leave unspecified (don't infer for locals)
+        inferNullabilityCS = false;
+        break;
+
+      default:
+        break;
+      }
       break;
+    }
     }
   }
 
