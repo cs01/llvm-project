@@ -1,16 +1,61 @@
-# Contributing to LLVM
+# Contributing to Null-Safe Clang
 
-Thank you for your interest in contributing to LLVM! There are many ways to
-contribute, and we appreciate all contributions.
+Development branch: `null-safe-c-dev`
 
-To get started with contributing, please take a look at the
-[Contributing to LLVM](https://llvm.org/docs/Contributing.html) guide. It
-describes how to get involved, raise issues and submit patches.
+## Building
 
-## Getting in touch
+### Standard (x86)
 
-Join the [LLVM Discourse forums](https://discourse.llvm.org/) or [Discord
-chat](https://discord.gg/xS7Z362).
+**Clang only:**
+```bash
+mkdir build && cd build
+cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang" ../llvm
+ninja clang
+```
 
-The LLVM project has adopted a [code of conduct](https://llvm.org/docs/CodeOfConduct.html) for
-participants to all modes of communication within the project.
+**Clang + clangd (language server):**
+```bash
+mkdir build && cd build
+cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" ../llvm
+ninja clang clangd
+```
+
+### WASM (playground)
+```bash
+# Clone and setup Emscripten (first time only)
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk
+./emsdk install latest
+./emsdk activate latest
+source ./emsdk_env.sh
+cd ..
+
+# Build WASM
+mkdir build-wasm && cd build-wasm
+export PATH="/path/to/emsdk/upstream/emscripten:$PATH"
+emcmake cmake -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_ENABLE_PROJECTS="clang" -DLLVM_TARGETS_TO_BUILD="WebAssembly" \
+  -DLLVM_ENABLE_THREADS=OFF \
+  -DCMAKE_EXE_LINKER_FLAGS="-sEXPORTED_RUNTIME_METHODS=callMain -sEXIT_RUNTIME=0 -sALLOW_MEMORY_GROWTH=1" \
+  ../llvm
+ninja clang
+
+# Output: bin/clang.wasm and bin/clang.js
+```
+
+## Testing
+```bash
+cd build
+ninja FileCheck count not split-file llvm-config
+./bin/llvm-lit -v ../clang/test/Sema/strict-nullability.c
+```
+
+## Releases
+
+**Playground:** Push to `null-safe-c-dev` → deploys GitHub Pages automatically.
+
+**WASM files:** `git tag playground-v1.0 && git push origin playground-v1.0`
+
+**Binaries:** `git tag v1.0.0 && git push origin v1.0.0`
+
+Downloads: https://github.com/cs01/llvm-project/releases

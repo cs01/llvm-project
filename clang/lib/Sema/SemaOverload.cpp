@@ -15724,7 +15724,7 @@ ExprResult Sema::CreateOverloadedBinOp(SourceLocation OpLoc,
         // the assignment operator is not marked nonnull.
         if (Op == OO_Equal)
           diagnoseNullableToNonnullConversion(Args[0]->getType(),
-                                              Args[1]->getType(), OpLoc);
+                                              Args[1]->getType(), OpLoc, Args[1]);
 
         // Convert the arguments.
         if (CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(FnDecl)) {

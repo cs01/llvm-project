@@ -48,6 +48,9 @@
 #define BIG_ENDIAN 4321
 #define LITTLE_ENDIAN 1234
 #define BYTE_ORDER BIG_ENDIAN
+#elif defined(__wasi__)
+/* WASI SDK already defines these in endian.h, so just include it */
+#include <endian.h>
 #else
 #if !defined(BYTE_ORDER) && !defined(_WIN32)
 #include <machine/endian.h>

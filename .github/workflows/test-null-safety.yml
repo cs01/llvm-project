@@ -1,0 +1,70 @@
+name: Test Null-Safety
+
+on:
+  push:
+    branches:
+      - null-safe-c-dev
+  pull_request:
+    branches:
+      - null-safe-c-dev
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake build-essential ccache
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ github.job }}-${{ runner.os }}
+          max-size: 2G
+
+      - name: Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+          key: ${{ runner.os }}-clang-build-${{ hashFiles('llvm/**', 'clang/**') }}
+          restore-keys: |
+            ${{ runner.os }}-clang-build-
+
+      - name: Configure build
+        run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          mkdir -p build
+          cd build
+          cmake -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DLLVM_ENABLE_PROJECTS="clang" \
+            -DLLVM_TARGETS_TO_BUILD="X86" \
+            -DLLVM_ENABLE_ASSERTIONS=ON \
+            -DLLVM_OPTIMIZED_TABLEGEN=ON \
+            -DLLVM_INCLUDE_TESTS=ON \
+            ../llvm
+
+      - name: Build Clang and test tools
+        run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          cd build
+          ninja clang FileCheck count not llvm-config
+
+      - name: Run null-safety tests
+        run: |
+          cd build
+          ./bin/llvm-lit -v ../clang/test/Sema/flow-nullability-*.cpp ../clang/test/Sema/flow-nullability-*.c ../clang/test/Driver/nullsafe-flags.c
+
+      - name: Test results
+        if: success()
+        run: |
+          echo "All null-safety tests passed"
