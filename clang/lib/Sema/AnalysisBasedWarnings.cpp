@@ -3301,9 +3301,9 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     if (shouldEnableFlowNullability(S, D)) {
       if (AC.getCFG()) {
         FlowNullabilityReporter Reporter(S);
-        bool StrictMode = (S.getLangOpts().getNullabilityDefault() !=
-                           NullabilityKind::Unspecified);
-        runFlowNullabilityAnalysis(AC, Reporter, StrictMode);
+        NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
+        bool StrictMode = (Default != NullabilityKind::Unspecified);
+        runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default);
       }
     }
   }
