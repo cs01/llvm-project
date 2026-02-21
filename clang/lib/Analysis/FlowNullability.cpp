@@ -89,10 +89,10 @@ static const Expr *getTerminalCondition(const Expr *E) {
 
 static bool isNullableType(QualType Ty, bool StrictMode) {
   auto Nullability = Ty->getNullability();
-  if (StrictMode)
-    return !Nullability || *Nullability == NullabilityKind::Nullable ||
-           *Nullability == NullabilityKind::Unspecified;
-  return Nullability && *Nullability == NullabilityKind::Nullable;
+  if (!Nullability)
+    return StrictMode;
+  return *Nullability == NullabilityKind::Nullable ||
+         (StrictMode && *Nullability == NullabilityKind::Unspecified);
 }
 
 static bool isNonnullType(QualType Ty) {
@@ -281,7 +281,7 @@ private:
           if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
             if (UO->getOpcode() == UO_AddrOf)
               State.NarrowedVars.insert(VD);
-          } else if (isNonnullInit(Init)) {
+          } else if (isNonnullInit(Init) || isNonnullType(Init->getType())) {
             State.NarrowedVars.insert(VD);
           }
         }
@@ -400,17 +400,19 @@ private:
 
   void handleArraySubscript(const ArraySubscriptExpr *ASE) {
     const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
-    QualType BaseTy;
+    if (const auto *UO = dyn_cast<UnaryOperator>(Base))
+      if (UO->getOpcode() == UO_AddrOf)
+        return;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Base)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-        if (!isNarrowed(VD))
-          BaseTy = VD->getType();
+        if (!isNarrowed(VD) && !VD->getType()->isArrayType())
+          checkDeref(ASE, VD->getType());
       }
     } else {
-      BaseTy = Base->getType();
+      QualType BaseTy = Base->getType();
+      if (!BaseTy->isArrayType())
+        checkDeref(ASE, BaseTy);
     }
-    if (!BaseTy.isNull() && !BaseTy->isArrayType())
-      checkDeref(ASE, BaseTy);
   }
 
   void handleCallExpr(const CallExpr *CE) {
@@ -461,7 +463,8 @@ private:
 
 void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                                        FlowNullabilityHandler &Handler,
-                                       bool StrictMode) {
+                                       bool StrictMode,
+                                       NullabilityKind Default) {
   CFG *cfg = AC.getCFG();
   if (!cfg)
     return;
@@ -481,9 +484,14 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
 
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl())) {
     for (const auto *Param : FD->parameters()) {
-      if (Param->getType()->isPointerType() &&
-          isNonnullType(Param->getType()))
+      if (!Param->getType()->isPointerType())
+        continue;
+      if (isNonnullType(Param->getType())) {
         InitState.NarrowedVars.insert(Param);
+      } else if (Default == NullabilityKind::NonNull &&
+                 !Param->getType()->getNullability()) {
+        InitState.NarrowedVars.insert(Param);
+      }
     }
   }
 
