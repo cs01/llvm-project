@@ -14,6 +14,8 @@
 #ifndef LLVM_CLANG_ANALYSIS_ANALYSES_FLOWNULLABILITY_H
 #define LLVM_CLANG_ANALYSIS_ANALYSES_FLOWNULLABILITY_H
 
+#include "clang/Basic/Specifiers.h"
+
 namespace clang {
 
 class AnalysisDeclContext;
@@ -29,7 +31,8 @@ public:
 
 void runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                                 FlowNullabilityHandler &Handler,
-                                bool StrictMode);
+                                bool StrictMode,
+                                NullabilityKind Default);
 
 } // namespace clang
 
