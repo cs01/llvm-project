@@ -41,11 +41,13 @@ struct NullState {
   llvm::DenseSet<const VarDecl *> NarrowedVars;
   llvm::DenseSet<MemberKey> NarrowedMembers;
   llvm::DenseSet<const FieldDecl *> NarrowedThisMembers;
+  llvm::DenseSet<const VarDecl *> NullableVars;
 
   bool operator==(const NullState &Other) const {
     return NarrowedVars == Other.NarrowedVars &&
            NarrowedMembers == Other.NarrowedMembers &&
-           NarrowedThisMembers == Other.NarrowedThisMembers;
+           NarrowedThisMembers == Other.NarrowedThisMembers &&
+           NullableVars == Other.NullableVars;
   }
   bool operator!=(const NullState &Other) const { return !(*this == Other); }
 };
@@ -61,6 +63,10 @@ static NullState intersect(const NullState &A, const NullState &B) {
   for (const auto *FD : A.NarrowedThisMembers)
     if (B.NarrowedThisMembers.count(FD))
       Result.NarrowedThisMembers.insert(FD);
+  for (const auto *VD : A.NullableVars)
+    Result.NullableVars.insert(VD);
+  for (const auto *VD : B.NullableVars)
+    Result.NullableVars.insert(VD);
   return Result;
 }
 
@@ -87,10 +93,14 @@ static const Expr *getTerminalCondition(const Expr *E) {
   return E;
 }
 
-static bool isNullableType(QualType Ty, bool StrictMode) {
+static bool isNullableType(QualType Ty, bool StrictMode,
+                           NullabilityKind Default) {
   auto Nullability = Ty->getNullability();
-  if (!Nullability)
-    return StrictMode;
+  if (!Nullability) {
+    if (StrictMode)
+      return Default != NullabilityKind::NonNull;
+    return false;
+  }
   return *Nullability == NullabilityKind::Nullable ||
          (StrictMode && *Nullability == NullabilityKind::Unspecified);
 }
@@ -218,6 +228,7 @@ class TransferFunctions {
   FlowNullabilityHandler &Handler;
   ASTContext &Ctx;
   bool StrictMode;
+  NullabilityKind Default;
 
   bool isNarrowed(const VarDecl *VD) const {
     return State.NarrowedVars.count(VD);
@@ -232,8 +243,16 @@ class TransferFunctions {
   }
 
   void checkDeref(const Expr *DerefExpr, QualType PtrType) {
-    if (isNullableType(PtrType, StrictMode))
+    if (isNullableType(PtrType, StrictMode, Default))
       Handler.handleNullableDereference(DerefExpr, PtrType);
+  }
+
+  void checkVarDeref(const Expr *DerefExpr, const VarDecl *VD) {
+    QualType Ty = VD->getType();
+    if (isNullableType(Ty, StrictMode, Default))
+      return Handler.handleNullableDereference(DerefExpr, Ty);
+    if (State.NullableVars.count(VD))
+      return Handler.handleNullableDereference(DerefExpr, Ty);
   }
 
   void invalidateMembersFor(const VarDecl *VD) {
@@ -247,8 +266,9 @@ class TransferFunctions {
 
 public:
   TransferFunctions(NullState &State, FlowNullabilityHandler &Handler,
-                    ASTContext &Ctx, bool StrictMode)
-      : State(State), Handler(Handler), Ctx(Ctx), StrictMode(StrictMode) {}
+                    ASTContext &Ctx, bool StrictMode, NullabilityKind Default)
+      : State(State), Handler(Handler), Ctx(Ctx), StrictMode(StrictMode),
+        Default(Default) {}
 
   void visit(const Stmt *S) {
     if (!S)
@@ -283,6 +303,8 @@ private:
               State.NarrowedVars.insert(VD);
           } else if (isNonnullInit(Init) || isNonnullType(Init->getType())) {
             State.NarrowedVars.insert(VD);
+          } else if (isNullableType(Init->getType(), StrictMode, Default)) {
+            State.NullableVars.insert(VD);
           }
         }
       }
@@ -309,6 +331,7 @@ private:
           if (!VD->getType()->isPointerType())
             return;
           State.NarrowedVars.erase(VD);
+          State.NullableVars.erase(VD);
           invalidateMembersFor(VD);
 
           if (BO->getOpcode() == BO_Assign) {
@@ -327,8 +350,12 @@ private:
                 }
               }
             }
-            if (isNonnullType(BO->getRHS()->getType()))
+            if (isNonnullType(BO->getRHS()->getType())) {
               State.NarrowedVars.insert(VD);
+            } else if (isNullableType(BO->getRHS()->getType(), StrictMode,
+                                      Default)) {
+              State.NullableVars.insert(VD);
+            }
           }
         }
       }
@@ -342,7 +369,7 @@ private:
       if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (!VD->isImplicit() && !isNarrowed(VD))
-            checkDeref(UO, VD->getType());
+            checkVarDeref(UO, VD);
         }
       } else if (const auto *ME = dyn_cast<MemberExpr>(SubExpr)) {
         const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
@@ -389,7 +416,7 @@ private:
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Base)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
         if (!isNarrowed(VD))
-          checkDeref(ME, VD->getType());
+          checkVarDeref(ME, VD);
       }
     } else if (const auto *BaseME = dyn_cast<MemberExpr>(Base)) {
       checkMemberExprDeref(ME, BaseME);
@@ -406,7 +433,7 @@ private:
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Base)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
         if (!isNarrowed(VD) && !VD->getType()->isArrayType())
-          checkDeref(ASE, VD->getType());
+          checkVarDeref(ASE, VD);
       }
     } else {
       QualType BaseTy = Base->getType();
@@ -484,14 +511,9 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
 
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl())) {
     for (const auto *Param : FD->parameters()) {
-      if (!Param->getType()->isPointerType())
-        continue;
-      if (isNonnullType(Param->getType())) {
+      if (Param->getType()->isPointerType() &&
+          isNonnullType(Param->getType()))
         InitState.NarrowedVars.insert(Param);
-      } else if (Default == NullabilityKind::NonNull &&
-                 !Param->getType()->getNullability()) {
-        InitState.NarrowedVars.insert(Param);
-      }
     }
   }
 
@@ -534,7 +556,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
       OldEntry = OldIt->second;
     BlockEntryStates[BlockID] = State;
 
-    TransferFunctions TF(State, Handler, Ctx, StrictMode);
+    TransferFunctions TF(State, Handler, Ctx, StrictMode, Default);
     for (const auto &Elem : *Block) {
       if (auto CS = Elem.getAs<CFGStmt>())
         TF.visit(CS->getStmt());
