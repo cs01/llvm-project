@@ -341,7 +341,7 @@ private:
 
       if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-          if (!isNarrowed(VD))
+          if (!VD->isImplicit() && !isNarrowed(VD))
             checkDeref(UO, VD->getType());
         }
       } else if (const auto *ME = dyn_cast<MemberExpr>(SubExpr)) {
@@ -400,14 +400,17 @@ private:
 
   void handleArraySubscript(const ArraySubscriptExpr *ASE) {
     const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
+    QualType BaseTy;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Base)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
         if (!isNarrowed(VD))
-          checkDeref(ASE, VD->getType());
+          BaseTy = VD->getType();
       }
     } else {
-      checkDeref(ASE, Base->getType());
+      BaseTy = Base->getType();
     }
+    if (!BaseTy.isNull() && !BaseTy->isArrayType())
+      checkDeref(ASE, BaseTy);
   }
 
   void handleCallExpr(const CallExpr *CE) {
