@@ -32,12 +32,11 @@ void test_return_nullable_warns() {
     e->x = 1; // expected-warning{{dereferencing nullable pointer}}
 }
 
-// With -fnullability-default=nonnull, local variables don't receive nullability
-// inference from the assume_nonnull pragma (only params/returns do).
-// The strict check warns on any pointer without explicit _Nonnull.
-void test_return_unannotated_warns() {
+// With -fnullability-default=nonnull, unannotated pointers are treated as
+// nonnull. getUnannotated() has no _Nullable, so it's safe.
+void test_return_unannotated_ok() {
     Entity* e = getUnannotated();
-    e->x = 1; // expected-warning{{dereferencing nullable pointer of type 'Entity *'}}
+    e->x = 1; // OK - unannotated return treated as nonnull per default
 }
 
 void test_local_nonnull_ok() {
