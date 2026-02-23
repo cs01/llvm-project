@@ -160,6 +160,23 @@ namespace {
             castExpr, nullptr, castExpr->getValueKind(),
             Self.CurFPFeatureOverrides());
       }
+      // Propagate nullability through explicit casts when the dest type
+      // has no explicit annotation and the source does. We use
+      // IgnoreParenImpCasts() because cast checking may wrap the source in
+      // implicit casts that strip nullability before we get here.
+      if (Self.getLangOpts().FlowSensitiveNullability &&
+          ResultType->isPointerType() && !ResultType->getNullability()) {
+        QualType SrcType =
+            SrcExpr.get()->IgnoreParenImpCasts()->getType();
+        if (auto SrcNull = SrcType->getNullability()) {
+          attr::Kind AttrKind =
+              *SrcNull == NullabilityKind::NonNull ? attr::TypeNonNull
+                                                   : attr::TypeNullable;
+          ResultType = Self.Context.getAttributedType(AttrKind, ResultType,
+                                                      ResultType);
+          castExpr->setType(ResultType);
+        }
+      }
       updatePartOfExplicitCastFlags(castExpr);
       return castExpr;
     }

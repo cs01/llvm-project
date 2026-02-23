@@ -15084,7 +15084,11 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
 
   CheckAddressOfPackedMember(op);
 
-  return Context.getPointerType(op->getType());
+  QualType PtrTy = Context.getPointerType(op->getType());
+  // Address-of always produces a valid pointer; mark it _Nonnull.
+  if (getLangOpts().FlowSensitiveNullability)
+    PtrTy = Context.getAttributedType(attr::TypeNonNull, PtrTy, PtrTy);
+  return PtrTy;
 }
 
 static void RecordModifiableNonNullParam(Sema &S, const Expr *Exp) {

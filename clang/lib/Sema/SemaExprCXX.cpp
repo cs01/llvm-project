@@ -2647,6 +2647,20 @@ ExprResult Sema::BuildCXXNew(SourceRange Range, bool UseGlobal,
         CCE->getConstructor()->getParent());
   }
 
+  // Non-nothrow operator new throws on failure, so it never returns null.
+  // Mirror the logic in CXXNewExpr::shouldNullCheckAllocation() (inverted):
+  // that returns true for nothrow-can-return-null; we mark _Nonnull otherwise.
+  if (getLangOpts().FlowSensitiveNullability && OperatorNew) {
+    bool IsNothrow =
+        !OperatorNew->hasAttr<ReturnsNonNullAttr>() &&
+        OperatorNew->getType()->castAs<FunctionProtoType>()->isNothrow() &&
+        !OperatorNew->isReservedGlobalPlacementOperator();
+    if (!IsNothrow) {
+      ResultType = Context.getAttributedType(attr::TypeNonNull,
+                                             ResultType, ResultType);
+    }
+  }
+
   return CXXNewExpr::Create(Context, UseGlobal, OperatorNew, OperatorDelete,
                             IAP, UsualArrayDeleteWantsSize, PlacementArgs,
                             TypeIdParens, ArraySize, InitStyle, Initializer,
