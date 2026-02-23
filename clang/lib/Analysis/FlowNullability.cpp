@@ -320,6 +320,14 @@ private:
         if (isNonnullType(VD->getType()) || isNarrowed(VD))
           return true;
     }
+    // Throwing operator new never returns null.
+    if (const auto *NE = dyn_cast<CXXNewExpr>(Init)) {
+      if (!NE->shouldNullCheckAllocation())
+        return true;
+    }
+    // Look through explicit casts — they don't change null/nonnull status.
+    if (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
+      return isNonnullInit(CE->getSubExpr());
     return false;
   }
 
@@ -349,6 +357,10 @@ private:
                   return;
                 }
               }
+            }
+            if (isNonnullInit(RHS)) {
+              State.NarrowedVars.insert(VD);
+              return;
             }
             if (isNonnullType(BO->getRHS()->getType())) {
               State.NarrowedVars.insert(VD);
