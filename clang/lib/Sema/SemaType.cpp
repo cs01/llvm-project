@@ -4506,7 +4506,12 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       case PointerDeclaratorKind::SingleLevelPointer:
         // Infer nullability based on pragma or default mode
         // Pragma takes precedence and works in all modes (including unspecified)
-        if (inAssumeNonNullRegion || S.getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified) {
+        // Skip -fnullability-default for system headers to avoid false positives
+        // on std library code (e.g. std::chrono, vsnprintf). Explicit #pragma
+        // clang assume_nonnull still works in system headers.
+        if (inAssumeNonNullRegion ||
+            (!S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
+             S.getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified)) {
           complainAboutInferringWithinChunk = wrappingKind;
           if (inAssumeNonNullRegion) {
             inferNullability = NullabilityKind::NonNull;
