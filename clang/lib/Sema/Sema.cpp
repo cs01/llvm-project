@@ -677,6 +677,46 @@ void Sema::PrintStats() const {
   AnalysisWarnings.PrintStats();
 }
 
+/// Check if an expression is provably non-null by tracing through casts and
+/// pointer arithmetic back to a known non-null source (CXXThisExpr, _Nonnull
+/// annotated, operator new, address-of). Used to suppress false positive
+/// nullable-to-nonnull warnings on patterns like reinterpret_cast<T*>(this)+n.
+static bool isExprProvablyNonnull(const Expr *E) {
+  if (!E)
+    return false;
+  E = E->IgnoreParenImpCasts();
+  if (isa<CXXThisExpr>(E))
+    return true;
+  if (isa<CXXNewExpr>(E))
+    return true;
+  if (const auto *UO = dyn_cast<UnaryOperator>(E))
+    if (UO->getOpcode() == UO_AddrOf)
+      return true;
+  // Look through explicit casts (static_cast, reinterpret_cast, C-style).
+  if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
+    return isExprProvablyNonnull(CE->getSubExpr());
+  // Trace through local variable references to their initializer.
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      if (VD->hasLocalStorage() && VD->hasInit())
+        return isExprProvablyNonnull(VD->getInit()->IgnoreParenImpCasts());
+  }
+  // Pointer arithmetic on a non-null pointer is non-null.
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
+      if (BO->getLHS()->getType()->isPointerType())
+        return isExprProvablyNonnull(BO->getLHS());
+      if (BO->getRHS()->getType()->isPointerType())
+        return isExprProvablyNonnull(BO->getRHS());
+    }
+  }
+  // Check if the type itself is _Nonnull.
+  if (auto Null = E->getType()->getNullability())
+    if (*Null == NullabilityKind::NonNull)
+      return true;
+  return false;
+}
+
 void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
                                                QualType SrcType,
                                                SourceLocation Loc,
@@ -690,9 +730,13 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
   if (!TypeNullability || *TypeNullability != NullabilityKind::NonNull)
     return;
 
-  // If we got here, both src and dst have nullability annotations.
-  // Even in unknown mode, explicit annotations should be respected.
-  // (unknown mode only affects inference, not checking of explicit annotations)
+  // Suppress when the expression is provably non-null despite its type.
+  // This handles patterns like reinterpret_cast<T*>(this) + offset where
+  // the type system infers _Nullable on the cast destination but the value
+  // is clearly non-null (derived from this, new, address-of, etc).
+  if (getLangOpts().FlowSensitiveNullability && SrcExpr &&
+      isExprProvablyNonnull(SrcExpr))
+    return;
 
   // Warn about nullable→nonnull conversions.
   Diag(Loc, diag::warn_nullability_lost) << SrcType << DstType;
