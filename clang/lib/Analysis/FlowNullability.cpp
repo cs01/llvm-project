@@ -480,6 +480,18 @@ private:
     // Look through explicit casts — they don't change null/nonnull status.
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
       return isNonnullInit(CE->getSubExpr());
+    // this is always non-null.
+    if (isa<CXXThisExpr>(Init))
+      return true;
+    // Pointer arithmetic on a non-null pointer is non-null.
+    if (const auto *BO = dyn_cast<BinaryOperator>(Init)) {
+      if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
+        if (BO->getLHS()->getType()->isPointerType())
+          return isNonnullInit(BO->getLHS()->IgnoreParenImpCasts());
+        if (BO->getRHS()->getType()->isPointerType())
+          return isNonnullInit(BO->getRHS()->IgnoreParenImpCasts());
+      }
+    }
     return false;
   }
 
