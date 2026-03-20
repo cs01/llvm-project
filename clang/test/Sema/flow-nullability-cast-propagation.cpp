@@ -44,4 +44,26 @@ void test_explicit_nonnull_dest() {
     d->y = 1; // OK - explicit _Nonnull on dest type
 }
 
+// --- reinterpret_cast on this + pointer arithmetic ---
+
+typedef unsigned char uint8_t;
+
+struct Foo {
+    int x;
+    void test_cast_this() {
+        auto* p = reinterpret_cast<uint8_t*>(this) + 4;
+        *p = 0; // OK — this is always non-null, arithmetic preserves it
+    }
+};
+
+void test_ptr_arith_nonnull(int* p) {
+    auto* q = p + 1;
+    *q = 0; // OK — p is nonnull (assume_nonnull), arithmetic preserves it
+}
+
+void test_ptr_arith_nullable(int* _Nullable p) {
+    auto* q = p + 1;
+    *q = 0; // expected-warning{{dereferencing nullable pointer}}
+}
+
 #pragma clang assume_nonnull end
