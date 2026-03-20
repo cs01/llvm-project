@@ -42,12 +42,17 @@ struct NullState {
   llvm::DenseSet<MemberKey> NarrowedMembers;
   llvm::DenseSet<const FieldDecl *> NarrowedThisMembers;
   llvm::DenseSet<const VarDecl *> NullableVars;
+  // Smart pointer this-members known to be nullable in the current function
+  // (e.g., after reset() or std::move()). Used to avoid false positives on
+  // member smart pointers that are always initialized in the constructor.
+  llvm::DenseSet<const FieldDecl *> NullableThisMembers;
 
   bool operator==(const NullState &Other) const {
     return NarrowedVars == Other.NarrowedVars &&
            NarrowedMembers == Other.NarrowedMembers &&
            NarrowedThisMembers == Other.NarrowedThisMembers &&
-           NullableVars == Other.NullableVars;
+           NullableVars == Other.NullableVars &&
+           NullableThisMembers == Other.NullableThisMembers;
   }
   bool operator!=(const NullState &Other) const { return !(*this == Other); }
 };
@@ -67,6 +72,11 @@ static NullState intersect(const NullState &A, const NullState &B) {
     Result.NullableVars.insert(VD);
   for (const auto *VD : B.NullableVars)
     Result.NullableVars.insert(VD);
+  // Union: if nullable on either path, it's nullable
+  for (const auto *FD : A.NullableThisMembers)
+    Result.NullableThisMembers.insert(FD);
+  for (const auto *FD : B.NullableThisMembers)
+    Result.NullableThisMembers.insert(FD);
   return Result;
 }
 
@@ -108,6 +118,82 @@ static bool isNullableType(QualType Ty, bool StrictMode,
 static bool isNonnullType(QualType Ty) {
   auto Nullability = Ty->getNullability();
   return Nullability && *Nullability == NullabilityKind::NonNull;
+}
+
+/// Check if a type is std::unique_ptr, std::shared_ptr, or std::weak_ptr.
+static bool isSmartPointerType(QualType Ty) {
+  const auto *RD = Ty->getAsCXXRecordDecl();
+  if (!RD)
+    return false;
+  const auto *DC = RD->getDeclContext();
+  if (!DC || !DC->isStdNamespace())
+    return false;
+  StringRef Name = RD->getName();
+  return Name == "unique_ptr" || Name == "shared_ptr" || Name == "weak_ptr";
+}
+
+/// Check if a smart pointer expression (the implicit object of operator->)
+/// is narrowed in the current state.
+static bool isSmartPointerNarrowed(const Expr *E, const NullState &State) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      return State.NarrowedVars.count(VD);
+  } else if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+      const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+      if (isa<CXXThisExpr>(Base))
+        return State.NarrowedThisMembers.count(FD);
+      if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
+        if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
+          return State.NarrowedMembers.count({BaseVD, FD});
+    }
+  }
+  return false;
+}
+
+/// Check if a callee is std::make_unique or std::make_shared.
+static bool isMakeSmartPtrCall(const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  // Look through CXXConstructExpr wrapping the call (implicit conversion)
+  if (const auto *CE = dyn_cast<CXXConstructExpr>(E)) {
+    if (CE->getNumArgs() == 1)
+      return isMakeSmartPtrCall(CE->getArg(0));
+  }
+  if (const auto *CE = dyn_cast<CallExpr>(E)) {
+    if (const auto *Callee = CE->getDirectCallee()) {
+      const auto *DC = Callee->getDeclContext();
+      if (DC && DC->isStdNamespace()) {
+        StringRef Name = Callee->getName();
+        return Name == "make_unique" || Name == "make_shared";
+      }
+    }
+  }
+  return false;
+}
+
+/// Get the VarDecl from a smart pointer expression, if it's a simple
+/// DeclRefExpr to a VarDecl.
+static const VarDecl *getSmartPtrVarDecl(const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      if (isSmartPointerType(VD->getType()))
+        return VD;
+  return nullptr;
+}
+
+/// Get the FieldDecl from a smart pointer this->member expression.
+static const FieldDecl *getSmartPtrThisMemberDecl(const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+    if (isa<CXXThisExpr>(Base))
+      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+        if (isSmartPointerType(FD->getType()))
+          return FD;
+  }
+  return nullptr;
 }
 
 struct ConditionResult {
@@ -221,6 +307,40 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       }
     }
   }
+
+  // Handle smart pointer implicit bool conversion: if (sp) { ... }
+  // The AST represents this as a CXXMemberCallExpr to operator bool().
+  if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(E)) {
+    if (const auto *CD = dyn_cast_or_null<CXXConversionDecl>(MCE->getMethodDecl())) {
+      if (CD->getConversionType()->isBooleanType()) {
+        const Expr *Obj = MCE->getImplicitObjectArgument();
+        if (Obj && isSmartPointerType(Obj->getType())) {
+          Obj = Obj->IgnoreParenImpCasts();
+          if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
+            if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+              Results.push_back({VD, nullptr, false, Negated});
+              return;
+            }
+          }
+          if (const auto *ObjME = dyn_cast<MemberExpr>(Obj)) {
+            if (const auto *FD = dyn_cast<FieldDecl>(ObjME->getMemberDecl())) {
+              const Expr *ObjBase = ObjME->getBase()->IgnoreParenImpCasts();
+              if (isa<CXXThisExpr>(ObjBase)) {
+                Results.push_back({nullptr, FD, true, Negated});
+                return;
+              }
+              if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(ObjBase)) {
+                if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
+                  Results.push_back({BaseVD, FD, false, Negated});
+                  return;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 class TransferFunctions {
@@ -253,6 +373,26 @@ class TransferFunctions {
       return Handler.handleNullableDereference(DerefExpr, Ty);
     if (State.NullableVars.count(VD))
       return Handler.handleNullableDereference(DerefExpr, Ty);
+  }
+
+  /// Warn on smart pointer dereference. For local vars/params, always warn
+  /// (they're nullable by default). For this->member smart pointers, only warn
+  /// if there's evidence of nullability in the current function (reset, move,
+  /// or null check) to avoid false positives on members set in constructors.
+  void warnSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
+    Obj = Obj->IgnoreParenImpCasts();
+    // Local variable or parameter — always warn when not narrowed
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+        Handler.handleNullableDereference(DerefExpr, VD->getType());
+        return;
+      }
+    }
+    // this->member — only warn if known nullable in current function
+    if (const auto *FD = getSmartPtrThisMemberDecl(Obj)) {
+      if (State.NullableThisMembers.count(FD))
+        Handler.handleNullableDereference(DerefExpr, FD->getType());
+    }
   }
 
   void invalidateMembersFor(const VarDecl *VD) {
@@ -292,20 +432,32 @@ private:
   void handleDeclStmt(const DeclStmt *DS) {
     for (const auto *D : DS->decls()) {
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
-        if (!VD->getType()->isPointerType())
-          continue;
-        if (isNonnullType(VD->getType())) {
-          State.NarrowedVars.insert(VD);
-        } else if (VD->hasInit()) {
-          const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
-          if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
-            if (UO->getOpcode() == UO_AddrOf)
-              State.NarrowedVars.insert(VD);
-          } else if (isNonnullInit(Init) || isNonnullType(Init->getType())) {
+        // Track raw pointer initialization
+        if (VD->getType()->isPointerType()) {
+          if (isNonnullType(VD->getType())) {
             State.NarrowedVars.insert(VD);
-          } else if (isNullableType(Init->getType(), StrictMode, Default)) {
-            State.NullableVars.insert(VD);
+          } else if (VD->hasInit()) {
+            const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
+            if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
+              if (UO->getOpcode() == UO_AddrOf)
+                State.NarrowedVars.insert(VD);
+            } else if (isNonnullInit(Init) || isNonnullType(Init->getType())) {
+              State.NarrowedVars.insert(VD);
+            } else if (isNullableType(Init->getType(), StrictMode, Default)) {
+              State.NullableVars.insert(VD);
+            }
           }
+          continue;
+        }
+
+        // Track smart pointer initialization
+        if (isSmartPointerType(VD->getType()) && VD->hasInit()) {
+          const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
+          if (isMakeSmartPtrCall(Init)) {
+            // make_unique/make_shared always return non-null
+            State.NarrowedVars.insert(VD);
+          }
+          // Default-constructed, nullptr, or moved-from → nullable (don't narrow)
         }
       }
     }
@@ -421,9 +573,21 @@ private:
     if (isa<CXXThisExpr>(Base))
       return;
 
-    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(Base))
-      if (OCE->getOperator() == OO_Arrow)
+    // Handle overloaded operator-> (smart pointers, iterators, etc.)
+    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(Base)) {
+      if (OCE->getOperator() == OO_Arrow) {
+        // For smart pointers, warn if not narrowed.
+        // For non-smart-pointer types (iterators etc), skip as before.
+        if (OCE->getNumArgs() >= 1) {
+          const Expr *Obj = OCE->getArg(0);
+          if (isSmartPointerType(Obj->getType())) {
+            if (!isSmartPointerNarrowed(Obj, State))
+              warnSmartPtrDeref(ME, Obj);
+          }
+        }
         return;
+      }
+    }
 
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Base)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
@@ -475,14 +639,87 @@ private:
         }
       }
     }
+
+    // Handle sp.reset() / sp.reset(ptr) — CXXMemberCallExpr
+    if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
+      const Expr *Obj = MCE->getImplicitObjectArgument();
+      if (Obj && isSmartPointerType(Obj->getType())) {
+        if (const auto *MD = MCE->getMethodDecl()) {
+          if (MD->getName() == "reset") {
+            // Local variable
+            if (const auto *VD = getSmartPtrVarDecl(Obj)) {
+              State.NarrowedVars.erase(VD);
+              if (MCE->getNumArgs() > 0)
+                State.NarrowedVars.insert(VD);
+            }
+            // this->member
+            if (const auto *FD = getSmartPtrThisMemberDecl(Obj)) {
+              State.NarrowedThisMembers.erase(FD);
+              if (MCE->getNumArgs() > 0) {
+                State.NarrowedThisMembers.insert(FD);
+                State.NullableThisMembers.erase(FD);
+              } else {
+                State.NullableThisMembers.insert(FD);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Handle sp = nullptr / sp = make_unique(...) / sp = std::move(other)
+    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
+      if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
+        const VarDecl *LhsVD = getSmartPtrVarDecl(OCE->getArg(0));
+        if (LhsVD) {
+          State.NarrowedVars.erase(LhsVD);
+          const Expr *RHS = OCE->getArg(1)->IgnoreParenImpCasts();
+
+          if (isMakeSmartPtrCall(RHS)) {
+            // sp = make_unique<T>(...) — non-null
+            State.NarrowedVars.insert(LhsVD);
+          } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
+            // sp = std::move(other) — LHS gets value, other becomes nullable
+            if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
+              State.NarrowedVars.insert(LhsVD);
+              if (const auto *SrcVD =
+                      getSmartPtrVarDecl(RhsCE->getArg(0))) {
+                State.NarrowedVars.erase(SrcVD);
+              }
+            }
+          }
+          // sp = nullptr or other — remains nullable (erased above)
+        }
+      }
+    }
+
+    // Handle std::move(sp) — marks the source as nullable
+    if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
+      if (const auto *VD = getSmartPtrVarDecl(CE->getArg(0))) {
+        State.NarrowedVars.erase(VD);
+      }
+      if (const auto *FD = getSmartPtrThisMemberDecl(CE->getArg(0))) {
+        State.NarrowedThisMembers.erase(FD);
+        State.NullableThisMembers.insert(FD);
+      }
+    }
   }
 
   void checkMemberExprDeref(const Expr *DerefExpr, const MemberExpr *ME) {
     const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
 
-    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(Base))
-      if (OCE->getOperator() == OO_Arrow)
+    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(Base)) {
+      if (OCE->getOperator() == OO_Arrow) {
+        if (OCE->getNumArgs() >= 1) {
+          const Expr *Obj = OCE->getArg(0);
+          if (isSmartPointerType(Obj->getType())) {
+            if (!isSmartPointerNarrowed(Obj, State))
+              warnSmartPtrDeref(DerefExpr, Obj);
+          }
+        }
         return;
+      }
+    }
 
     if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
       if (isa<CXXThisExpr>(Base)) {
@@ -527,6 +764,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
           isNonnullType(Param->getType()))
         InitState.NarrowedVars.insert(Param);
     }
+
   }
 
   BlockEntryStates[Entry.getBlockID()] = InitState;
