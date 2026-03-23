@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Analysis/Analyses/FlowNullability.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
@@ -106,13 +107,18 @@ static const Expr *getTerminalCondition(const Expr *E) {
 static bool isNullableType(QualType Ty, bool StrictMode,
                            NullabilityKind Default) {
   auto Nullability = Ty->getNullability();
-  if (!Nullability) {
-    if (StrictMode)
-      return Default != NullabilityKind::NonNull;
+  if (!Nullability)
     return false;
-  }
-  return *Nullability == NullabilityKind::Nullable ||
-         (StrictMode && *Nullability == NullabilityKind::Unspecified);
+  // Explicit _Nullable always triggers.
+  if (*Nullability == NullabilityKind::Nullable)
+    return true;
+  // _Null_unspecified means "not explicitly annotated — use the default".
+  // Under -fnullability-default=nullable, treat as nullable.
+  // Under -fnullability-default=nonnull, treat as nonnull (no warning).
+  if (*Nullability == NullabilityKind::Unspecified &&
+      Default == NullabilityKind::Nullable)
+    return true;
+  return false;
 }
 
 static bool isNonnullType(QualType Ty) {
@@ -362,9 +368,53 @@ class TransferFunctions {
     return State.NarrowedThisMembers.count(FD);
   }
 
+  /// Unwrap explicit casts and pointer arithmetic to find the original
+  /// pointer expression and whether a cast was traversed.  Template
+  /// instantiations can bake _Nullable into cast result types even when
+  /// the source is unannotated (e.g. reinterpret_cast<T*>(p) where T
+  /// is itself a pointer type).  When a cast is found, callers should
+  /// check nullability on the SOURCE type, not the cast result.
+  static const Expr *unwrapCastsAndArithmetic(const Expr *E,
+                                              bool &FoundCast) {
+    FoundCast = false;
+    for (;;) {
+      if (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
+        FoundCast = true;
+        E = CE->getSubExpr()->IgnoreParenImpCasts();
+      } else if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+        if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
+          E = BO->getLHS()->getType()->isPointerType()
+                  ? BO->getLHS()->IgnoreParenImpCasts()
+                  : BO->getRHS()->IgnoreParenImpCasts();
+        } else
+          break;
+      } else
+        break;
+    }
+    return E;
+  }
+
   void checkDeref(const Expr *DerefExpr, QualType PtrType) {
     if (isNullableType(PtrType, StrictMode, Default))
       Handler.handleNullableDereference(DerefExpr, PtrType);
+  }
+
+  /// Check dereference of a non-variable, non-member expression.
+  /// Unwraps casts/arithmetic to avoid template-instantiation false
+  /// positives where _Nullable is baked into cast result types.
+  void checkExprDeref(const Expr *DerefExpr, const Expr *PtrExpr) {
+    bool FoundCast = false;
+    const Expr *Origin = unwrapCastsAndArithmetic(PtrExpr, FoundCast);
+
+    // If the origin is inherently non-null, skip.
+    if (isa<CXXThisExpr>(Origin))
+      return;
+    if (const auto *UO = dyn_cast<UnaryOperator>(Origin))
+      if (UO->getOpcode() == UO_AddrOf)
+        return;
+
+    QualType CheckTy = FoundCast ? Origin->getType() : PtrExpr->getType();
+    checkDeref(DerefExpr, CheckTy);
   }
 
   void checkVarDeref(const Expr *DerefExpr, const VarDecl *VD) {
@@ -443,8 +493,26 @@ private:
                 State.NarrowedVars.insert(VD);
             } else if (isNonnullInit(Init) || isNonnullType(Init->getType())) {
               State.NarrowedVars.insert(VD);
-            } else if (isNullableType(Init->getType(), StrictMode, Default)) {
-              State.NullableVars.insert(VD);
+            } else {
+              // Unwrap explicit casts to check the SOURCE type, not the
+              // cast result type. Template instantiations can bake
+              // _Nullable into cast result types even when the source is
+              // unannotated (e.g. static_cast<T*>(void_ptr)).
+              const Expr *TypeExpr = Init;
+              bool HasCast = false;
+              while (const auto *CE = dyn_cast<ExplicitCastExpr>(TypeExpr)) {
+                HasCast = true;
+                TypeExpr = CE->getSubExpr()->IgnoreParenImpCasts();
+              }
+              if (isNullableType(TypeExpr->getType(), StrictMode, Default) ||
+                  isNullableInit(Init)) {
+                State.NullableVars.insert(VD);
+              } else if (HasCast) {
+                // The cast source is not nullable — narrow the var to
+                // override any _Nullable baked into the var's own type
+                // by template instantiation.
+                State.NarrowedVars.insert(VD);
+              }
             }
           }
           continue;
@@ -495,6 +563,32 @@ private:
     return false;
   }
 
+  /// Check if an init expression is nullable — either by type or because it
+  /// refers to a variable known to be nullable.  Unwraps casts to propagate
+  /// nullability through cast chains (e.g., `(Derived *)nullableBase`).
+  /// Check if an init expression is nullable — either by type or because it
+  /// refers to a variable known to be nullable.  Unwraps casts to propagate
+  /// nullability through cast chains (e.g., `(Derived *)nullableBase`).
+  bool isNullableInit(const Expr *Init) const {
+    if (!Init)
+      return false;
+    Init = Init->IgnoreParenImpCasts();
+    // Unwrap explicit casts first — template instantiations can bake
+    // _Nullable into cast result types.  Check the SOURCE type.
+    if (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
+      return isNullableInit(CE->getSubExpr());
+    if (isNullableType(Init->getType(), StrictMode, Default))
+      return true;
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+        return State.NullableVars.count(VD);
+    }
+    // nothrow new can return null.
+    if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
+      return NE->shouldNullCheckAllocation();
+    return false;
+  }
+
   void handleBinaryOperator(const BinaryOperator *BO) {
     if (BO->isAssignmentOp()) {
       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
@@ -529,7 +623,8 @@ private:
             if (isNonnullType(BO->getRHS()->getType())) {
               State.NarrowedVars.insert(VD);
             } else if (isNullableType(BO->getRHS()->getType(), StrictMode,
-                                      Default)) {
+                                      Default) ||
+                       isNullableInit(RHS)) {
               State.NullableVars.insert(VD);
             }
           }
@@ -558,7 +653,7 @@ private:
           checkMemberExprDeref(UO, ME);
         }
       } else if (!isa<CXXThisExpr>(SubExpr)) {
-        checkDeref(UO, SubExpr->getType());
+        checkExprDeref(UO, SubExpr);
       }
     }
 
@@ -609,7 +704,7 @@ private:
     } else if (const auto *BaseME = dyn_cast<MemberExpr>(Base)) {
       checkMemberExprDeref(ME, BaseME);
     } else {
-      checkDeref(ME, Base->getType());
+      checkExprDeref(ME, Base);
     }
   }
 
@@ -626,7 +721,7 @@ private:
     } else {
       QualType BaseTy = Base->getType();
       if (!BaseTy->isArrayType())
-        checkDeref(ASE, BaseTy);
+        checkExprDeref(ASE, Base);
     }
   }
 
@@ -647,6 +742,31 @@ private:
               State.NarrowedVars.insert(CR.VD);
             else
               State.NarrowedMembers.insert({CR.VD, CR.FD});
+          }
+        }
+      }
+    }
+
+    // Narrow pointers passed to _Nonnull parameters — surviving the call
+    // proves the pointer was non-null.  Recognizes both the Clang _Nonnull
+    // type qualifier and GCC-style __attribute__((nonnull)) on the function.
+    if (auto *Callee = CE->getDirectCallee()) {
+      const auto *NNAttr = Callee->getAttr<NonNullAttr>();
+      for (unsigned i = 0,
+                    n = std::min(CE->getNumArgs(), Callee->getNumParams());
+           i < n; ++i) {
+        const ParmVarDecl *Param = Callee->getParamDecl(i);
+        if (!Param->getType()->isPointerType())
+          continue;
+        bool ParamIsNonnull =
+            isNonnullType(Param->getType()) ||
+            (NNAttr && NNAttr->isNonNull(i));
+        if (ParamIsNonnull) {
+          const Expr *Arg = CE->getArg(i)->IgnoreParenImpCasts();
+          if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
+            if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+              if (VD->getType()->isPointerType())
+                State.NarrowedVars.insert(VD);
           }
         }
       }
@@ -686,21 +806,29 @@ private:
         if (LhsVD) {
           State.NarrowedVars.erase(LhsVD);
           const Expr *RHS = OCE->getArg(1)->IgnoreParenImpCasts();
+          // Strip MaterializeTemporaryExpr — move-assignment wraps the
+          // RHS in one (e.g. sp = foo() produces MTE around the call).
+          if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(RHS))
+            RHS = MTE->getSubExpr()->IgnoreParenImpCasts();
 
           if (isMakeSmartPtrCall(RHS)) {
             // sp = make_unique<T>(...) — non-null
             State.NarrowedVars.insert(LhsVD);
           } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
-            // sp = std::move(other) — LHS gets value, other becomes nullable
             if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
+              // sp = std::move(other) — LHS gets value, source nullable
               State.NarrowedVars.insert(LhsVD);
               if (const auto *SrcVD =
                       getSmartPtrVarDecl(RhsCE->getArg(0))) {
                 State.NarrowedVars.erase(SrcVD);
               }
+            } else {
+              // sp = someFunction() — functions returning unique_ptr
+              // by value produce a valid pointer in practice.
+              State.NarrowedVars.insert(LhsVD);
             }
           }
-          // sp = nullptr or other — remains nullable (erased above)
+          // sp = nullptr or non-call — remains nullable (erased above)
         }
       }
     }

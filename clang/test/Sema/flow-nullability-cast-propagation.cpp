@@ -66,4 +66,51 @@ void test_ptr_arith_nullable(int* _Nullable p) {
     *q = 0; // expected-warning{{dereferencing nullable pointer}}
 }
 
+// --- reinterpret_cast from this via Base* should not warn ---
+// ExplicitCastExpr is the base class for CXXStaticCastExpr and
+// CXXReinterpretCastExpr, so the unwrapCastsAndArithmetic helper handles both.
+
+struct DerivedReinterpret : Base {
+    void test_reinterpret_cast_this_to_base() {
+        // reinterpret_cast from this — this is always non-null, cast preserves it
+        Base *b = reinterpret_cast<Base*>(this);
+        b->x = 1; // OK — this is non-null
+
+        // pointer arithmetic on reinterpret_cast<uint8_t*>(this)
+        uint8_t *raw = reinterpret_cast<uint8_t*>(this) + 4;
+        *raw = 0; // OK — this is always non-null
+    }
+};
+
+// --- static_cast from this should not warn ---
+
+struct Bar {
+    int val;
+    void test_deref_static_cast_this() {
+        // static_cast<Base*>(this) — this is always non-null, cast preserves it
+        (*static_cast<Bar*>(this)).val = 42; // OK — this is non-null
+    }
+};
+
+struct DerivedBar : Base {
+    void test_deref_cast_this_to_base() {
+        (*static_cast<Base*>(this)).x = 1; // OK — this is non-null
+    }
+};
+
+// --- address-of through cast should not warn ---
+
+struct Baz {
+    int z;
+};
+
+void test_deref_cast_addr_of(Baz& other) {
+    // &other is always non-null; cast preserves that
+    (*static_cast<Baz*>(&other)).z = 1; // OK — address-of is non-null
+}
+
+void test_deref_cast_addr_of_different_type(Derived& d) {
+    (*static_cast<Base*>(&d)).x = 1; // OK — address-of is non-null
+}
+
 #pragma clang assume_nonnull end
