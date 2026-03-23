@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Nullsafe Clang Fork
 
 This is a fork of LLVM/Clang that adds compile-time null pointer dereference checking via flow-sensitive analysis. The fork lives on branch `null-safe-c-dev`.
@@ -45,6 +49,12 @@ Lit tests for nullsafe features:
 - `test/Sema/flow-nullability-and-shortcircuit.cpp` - `&&` short-circuit narrowing
 - `test/Sema/flow-nullability-array-subscript.cpp` - array subscript checked as dereference
 - `test/Sema/flow-nullability-c-basic.c` - basic narrowing in C mode
+- `test/Sema/flow-nullability-address-of.cpp` - address-of operator narrowing
+- `test/Sema/flow-nullability-cast-propagation.cpp` - nullability propagation through casts
+- `test/Sema/flow-nullability-conversion-op.cpp` - conversion operator handling
+- `test/Sema/flow-nullability-new-expr.cpp` - `new` expression produces nonnull
+- `test/Sema/flow-nullability-nullable-default-template.cpp` - nullable-default with template return types
+- `test/Sema/flow-nullability-range-for.cpp` - range-for loop narrowing
 - `test/Driver/nullsafe-flags.c` - driver flag forwarding
 
 Run a specific lit test:
