@@ -14,18 +14,11 @@
 
         // Map example numbers to names for URL parameters
         const exampleNumbers = {
-            '1': 'null-check',
-            '2': 'early-return',
-            '3': 'pure-function',
-            '4': 'function-invalidates',
-            '5': 'nonnull-annotation',
-            '6': 'multi-level',
-            '7': 'and-pattern',
-            '8': 'else-branch',
-            '9': 'loop-narrowing',
-            '10': 'dereference-context',
-            '11': 'redis-sds',
-            '12': 'cjson-escape'
+            '1': 'hero-bug',
+            '2': 'flow-narrowing',
+            '3': 'linked-list',
+            '4': 'function-contracts',
+            '5': 'standard-clang-gap'
         };
 
         // Reverse mapping from names to numbers
@@ -36,18 +29,11 @@
 
 const examples = {};
 const exampleFiles = {
-    'null-check': 'examples/null-check.c',
-    'early-return': 'examples/early-return.c',
-    'pure-function': 'examples/pure-function.c',
-    'function-invalidates': 'examples/function-invalidates.c',
-    'nonnull-annotation': 'examples/nonnull-annotation.c',
-    'multi-level': 'examples/multi-level.c',
-    'and-pattern': 'examples/and-pattern.c',
-    'else-branch': 'examples/else-branch.c',
-    'loop-narrowing': 'examples/loop-narrowing.c',
-    'dereference-context': 'examples/dereference-context.c',
-    'redis-sds': 'examples/redis-sds.c',
-    'cjson-escape': 'examples/cjson-escape.c'
+    'hero-bug': 'examples/hero-bug.c',
+    'flow-narrowing': 'examples/flow-narrowing.c',
+    'linked-list': 'examples/linked-list.c',
+    'function-contracts': 'examples/function-contracts.c',
+    'standard-clang-gap': 'examples/standard-clang-gap.c'
 };
 
 // Load all examples at startup
@@ -69,7 +55,7 @@ async function loadExamples() {
             return new Promise((resolve) => {
                 require(['vs/editor/editor.main'], function() {
                     editor = monaco.editor.create(editorElement, {
-                        value: examples['null-check'] || '// Loading...',
+                        value: examples['hero-bug'] || '// Loading...',
                         language: 'c',
                         theme: 'vs-dark',
                         automaticLayout: true,
@@ -405,8 +391,8 @@ async function loadExamples() {
             }
 
             // Priority 3: Default to first example (null-check)
-            if (examples['null-check']) {
-                setEditorValue(examples['null-check']);
+            if (examples['hero-bug']) {
+                setEditorValue(examples['hero-bug']);
                 examplesSelect.value = 'null-check';
             }
         }
