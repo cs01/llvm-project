@@ -28,50 +28,86 @@ Note that this does not change any of the generated code. There are no performan
 
 ## Examples
 
-With `-fflow-sensitive-nullability -fnullability-default=nullable`, unannotated pointers are treated as nullable:
+*[Try all examples in the interactive playground](https://cs01.github.io/llvm-project/)*
+
+### The bug standard Clang misses
+
+Standard Clang compiles this with **zero warnings**. But `malloc` can return NULL, and this code will crash:
 
 ```c
-void unsafe(int *data) {
-  *data = 42; // warning: dereferencing nullable pointer of type 'int * _Nullable'
+#include <stdlib.h>
+
+typedef struct {
+    int* data;
+    int size;
+} Buffer;
+
+Buffer* create_buffer(int n) {
+    Buffer* buf = malloc(sizeof(Buffer));
+    buf->data = malloc(n * sizeof(int));  // warning: buf might be NULL
+    buf->size = n;                        // warning: buf might be NULL
+    return buf;
 }
 ```
-*[Try it in the interactive playground](https://cs01.github.io/llvm-project/?code=dm9pZCB1bnNhZmUoaW50ICpkYXRhKSB7CiAgKmRhdGEgPSA0MjsgLy8gd2FybmluZzogZGVyZWZlcmVuY2luZyBudWxsYWJsZSBwb2ludGVyIG9mIHR5cGUgJ2ludCAqIF9OdWxsYWJsZScKfQ%3D%3D)*
 
-Type narrowing:
+Nullsafe C catches these at compile time. No annotations needed — it knows `malloc` returns a nullable pointer.
+
+### Flow-sensitive narrowing
+
+Once you check a pointer, the compiler knows it's safe. No redundant warnings:
+
 ```c
-void safe(int *data) {
-  if (data) {
-    *data = 42; // OK - data is non-null here
-  }
+void guard_clause(int* data) {
+    if (!data) return;
+    *data = 42;  // OK — data is proven non-null
+}
+
+void and_pattern(int* p, int* q) {
+    if (p && q) {
+        *p = *q;  // OK — both checked
+    }
 }
 ```
-*[Try it in the interactive playground](https://cs01.github.io/llvm-project/?code=dm9pZCBzYWZlKGludCAqZGF0YSkgewogIGlmIChkYXRhKSB7CiAgICAqZGF0YSA9IDQyOyAvLyBPSyAtIGRhdGEgaXMgbm9uLW51bGwgaGVyZQogIH0KfQ%3D%3D)*
 
-Annotated with `_Nonnull`:
+### Struct member tracking
+
+The compiler tracks nullability through struct member accesses — essential for linked lists and tree structures:
+
 ```c
-void safe_typed(int *_Nonnull data) {
-  *data = 42; // OK - we know data is not null so we can dereference it
+typedef struct Node {
+    int value;
+    struct Node* next;
+} Node;
+
+void traverse(Node* head) {
+    Node* p = head;
+    while (p) {
+        p->value = 0;  // OK — p checked by while
+        p = p->next;   // OK — p is non-null
+    }
+}
+
+void buggy(Node* head) {
+    if (head) {
+        head->next->value = 1;  // warning: head->next might be NULL
+    }
 }
 ```
-*[Try it in the interactive playground](https://cs01.github.io/llvm-project/?code=dm9pZCBzYWZlX3R5cGVkKGludCAqX05vbm51bGwgZGF0YSkgewogICpkYXRhID0gNDI7IC8vIE9LIC0gd2Uga25vdyBkYXRhIGlzIG5vdCBudWxsIHNvIHdlIGNhbiBkZXJlZmVybmNlIGl0Cn0%3D)*
 
-Arrow operator (C++):
-```cpp
-struct Entity {
-    int value() const { return 0; }
-};
+### Function contracts with `_Nonnull` and `_Nullable`
 
-Entity* _Nullable getHead();
+Annotations let you express intent. The compiler enforces them:
 
-void buggy() {
-    Entity* head = getHead();
-    head->value();  // warning: dereferencing nullable pointer
-}
+```c
+int* _Nullable find_item(int key);
 
-void fixed() {
-    Entity* head = getHead();
-    if (!head) return;
-    head->value();  // OK - narrowed to nonnull after check
+void use_result(void) {
+    int* item = find_item(42);
+    *item = 0;  // warning: find_item may return NULL
+
+    if (item) {
+        *item = 0;  // OK — checked
+    }
 }
 ```
 
