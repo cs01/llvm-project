@@ -181,10 +181,11 @@ void test_iterator_no_warn(Container c) {
     it->value = 1; // OK — iterator, not a smart pointer
 }
 
-// --- .get() still warns on the raw pointer (unchanged behavior) ---
+// --- .get() returns an unannotated raw pointer, no warning ---
+// (The smart pointer deref check via operator-> is the preferred warning path.)
 
-void test_get_still_warns(std::unique_ptr<Node> sp) {
-    sp.get()->value = 1; // expected-warning {{dereferencing nullable pointer}}
+void test_get_no_warning_unannotated(std::unique_ptr<Node> sp) {
+    sp.get()->value = 1; // OK — get() return type is unannotated
 }
 
 // --- Raw pointers still work as before ---

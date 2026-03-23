@@ -2,7 +2,7 @@
 
 struct Node {
     int value;
-    Node* next;
+    Node* _Nullable next;
 };
 
 [[noreturn]] void abort_handler(const char* msg);

@@ -4528,7 +4528,9 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
           if (inAssumeNonNullRegion) {
             inferNullability = NullabilityKind::NonNull;
           } else {
-            inferNullability = S.getLangOpts().getNullabilityDefault();
+            // Use Unspecified instead of the raw default so the flow checker
+            // can distinguish explicit _Nullable from default-inferred.
+            inferNullability = NullabilityKind::Unspecified;
           }
           inferNullabilityCS = false;
         }
@@ -4561,6 +4563,15 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
               inferNullabilityInnerOnly = true;
             }
           }
+        }
+        // For double-pointers (T**) without CF attrs, apply the same
+        // Unspecified default as SingleLevelPointer so the flow checker
+        // doesn't treat them as explicitly _Nullable.
+        if (!inferNullability &&
+            !inAssumeNonNullRegion &&
+            !S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
+            S.getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified) {
+          inferNullability = NullabilityKind::Unspecified;
         }
         break;
       }
@@ -4604,9 +4615,20 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         // Pragma should only affect API boundaries (function signatures).
         // This enables gradual adoption without overwhelming noise from locals.
         if (!inAssumeNonNullRegion) {
-          inferNullability = NullabilityKind::Nullable;
+          // Use Unspecified so the flow checker can distinguish from
+          // explicit _Nullable (same rationale as the function param path).
+          inferNullability = NullabilityKind::Unspecified;
         }
         // If in pragma region, leave unspecified (don't infer for locals)
+        inferNullabilityCS = false;
+        break;
+
+      case PointerDeclaratorKind::MaybePointerToCFRef:
+        // Double-pointers (T**) in casts/locals: use Unspecified so
+        // the flow checker doesn't treat them as explicitly _Nullable.
+        if (!inAssumeNonNullRegion) {
+          inferNullability = NullabilityKind::Unspecified;
+        }
         inferNullabilityCS = false;
         break;
 
