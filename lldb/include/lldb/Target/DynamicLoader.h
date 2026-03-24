@@ -345,6 +345,22 @@ public:
     return std::nullopt;
   }
 
+  /// Replace a placeholder module with a fully-loaded one. Called by the
+  /// unwinder (and potentially other subsystems) when a placeholder module is
+  /// encountered and real symbol/unwind data is needed. The default
+  /// implementation is a no-op that returns the input unchanged.
+  ///
+  /// \param[in] module_sp
+  ///     The module to hydrate. If it is not a placeholder, it is returned
+  ///     as-is.
+  ///
+  /// \return
+  ///     The hydrated (real) module on success, or the original module on
+  ///     failure.
+  virtual lldb::ModuleSP HydrateModule(lldb::ModuleSP module_sp) {
+    return module_sp;
+  }
+
   /// Returns a list of memory ranges that should be saved in the core file,
   /// specific for this dynamic loader.
   ///

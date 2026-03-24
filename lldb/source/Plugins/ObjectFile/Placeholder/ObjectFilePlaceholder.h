@@ -45,6 +45,7 @@ public:
   lldb_private::UUID GetUUID() override { return m_uuid; }
   void ParseSymtab(lldb_private::Symtab &symtab) override {}
   bool IsStripped() override { return true; }
+  bool IsPlaceholder() const override { return true; }
   lldb::ByteOrder GetByteOrder() const override {
     return m_arch.GetByteOrder();
   }

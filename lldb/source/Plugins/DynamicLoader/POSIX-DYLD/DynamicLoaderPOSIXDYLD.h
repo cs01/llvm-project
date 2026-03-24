@@ -11,6 +11,7 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
 
 #include "DYLDRendezvous.h"
 #include "Plugins/Process/Utility/AuxVector.h"
@@ -59,6 +60,8 @@ public:
                                      lldb::addr_t link_map_addr,
                                      lldb::addr_t base_addr,
                                      bool base_addr_is_offset) override;
+
+  lldb::ModuleSP HydrateModule(lldb::ModuleSP module_sp) override;
 
   void CalculateDynamicSaveCoreRanges(
       lldb_private::Process &process,
@@ -171,6 +174,18 @@ protected:
   void ResolveExecutableModule(lldb::ModuleSP &module_sp);
 
   bool AlwaysRelyOnEHUnwindInfo(lldb_private::SymbolContext &sym_ctx) override;
+
+  /// Info retained for each placeholder module so we can do a full load later.
+  struct PlaceholderInfo {
+    lldb::addr_t link_map_addr;
+    lldb::addr_t base_addr;
+    lldb_private::FileSpec file_spec;
+  };
+
+  /// Placeholder modules awaiting hydration, keyed by weak module pointer.
+  std::map<lldb::ModuleWP, PlaceholderInfo, std::owner_less<lldb::ModuleWP>>
+      m_placeholder_modules;
+  std::mutex m_placeholder_mutex;
 
 private:
   DynamicLoaderPOSIXDYLD(const DynamicLoaderPOSIXDYLD &) = delete;

@@ -758,6 +758,18 @@ std::shared_ptr<const UnwindPlan>
 RegisterContextUnwind::GetFastUnwindPlanForFrame() {
   ModuleSP pc_module_sp(m_current_pc.GetModule());
 
+  // If this module is a lazy-load placeholder, hydrate it now so we get
+  // real unwind tables. HydrateModule may replace the Module in the Target's
+  // image list and return a new ModuleSP.
+  if (pc_module_sp) {
+    if (ObjectFile *obj = pc_module_sp->GetObjectFile()) {
+      if (obj->IsPlaceholder()) {
+        if (DynamicLoader *loader = m_thread.GetProcess()->GetDynamicLoader())
+          pc_module_sp = loader->HydrateModule(pc_module_sp);
+      }
+    }
+  }
+
   if (!m_current_pc.IsValid() || !pc_module_sp ||
       pc_module_sp->GetObjectFile() == nullptr)
     return nullptr;
@@ -844,6 +856,17 @@ RegisterContextUnwind::GetFullUnwindPlanForFrame() {
 
   // No Module for the current pc, try using the architecture default unwind.
   ModuleSP pc_module_sp(m_current_pc.GetModule());
+
+  // Hydrate placeholder modules before checking for unwind data.
+  if (pc_module_sp) {
+    if (ObjectFile *obj = pc_module_sp->GetObjectFile()) {
+      if (obj->IsPlaceholder()) {
+        if (DynamicLoader *loader = process->GetDynamicLoader())
+          pc_module_sp = loader->HydrateModule(pc_module_sp);
+      }
+    }
+  }
+
   if (!m_current_pc.IsValid() || !pc_module_sp ||
       pc_module_sp->GetObjectFile() == nullptr) {
     m_frame_type = eNormalFrame;

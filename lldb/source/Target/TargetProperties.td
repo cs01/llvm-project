@@ -220,6 +220,10 @@ let Definition = "target", Path = "target" in {
   def ParallelModuleLoad: Property<"parallel-module-load", "Boolean">,
     DefaultTrue,
     Desc<"Enable loading of modules in parallel for the dynamic loader.">;
+  def LazyModuleLoad: Property<"lazy-module-load", "Boolean">,
+    DefaultFalse,
+    Desc<"Defer downloading shared library files from remote targets until needed. "
+         "Improves attach performance on targets with many shared libraries.">;
 }
 
 let Definition = "process_experimental", Path = "target.process.experimental" in {

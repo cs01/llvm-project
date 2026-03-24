@@ -528,6 +528,10 @@ void DynamicLoaderPOSIXDYLD::RefreshModules() {
       if (module_sp.get()) {
         old_modules.Append(module_sp);
         UnloadSections(module_sp);
+
+        // Remove from placeholder tracking if it was never hydrated.
+        std::lock_guard<std::mutex> lock(m_placeholder_mutex);
+        m_placeholder_modules.erase(module_sp);
       }
     }
     loaded_modules.Remove(old_modules);
@@ -684,6 +688,61 @@ ModuleSP DynamicLoaderPOSIXDYLD::LoadModuleAtAddress(const FileSpec &file,
   return nullptr;
 }
 
+ModuleSP DynamicLoaderPOSIXDYLD::HydrateModule(ModuleSP module_sp) {
+  if (!module_sp)
+    return module_sp;
+
+  ObjectFile *obj = module_sp->GetObjectFile();
+  if (!obj || !obj->IsPlaceholder())
+    return module_sp;
+
+  Log *log = GetLog(LLDBLog::DynamicLoader);
+
+  PlaceholderInfo info;
+  {
+    std::lock_guard<std::mutex> lock(m_placeholder_mutex);
+    auto it = m_placeholder_modules.find(module_sp);
+    if (it == m_placeholder_modules.end())
+      return module_sp; // Not one of our placeholders.
+    info = it->second;
+  }
+
+  LLDB_LOG(log, "Hydrating placeholder module: {0}",
+           info.file_spec.GetFilename());
+
+  // Do the real download + load via the normal path.
+  ModuleSP new_module_sp = DynamicLoader::LoadModuleAtAddress(
+      info.file_spec, info.link_map_addr, info.base_addr,
+      /*base_addr_is_offset=*/true);
+
+  if (!new_module_sp) {
+    LLDB_LOG(log, "Failed to hydrate module: {0}", info.file_spec.GetPath());
+    return module_sp;
+  }
+
+  Target &target = m_process->GetTarget();
+
+  // Swap the placeholder for the real module in the target image list.
+  // ReplaceModule handles breakpoint re-resolution internally.
+  UnloadSections(module_sp);
+  target.GetImages().ReplaceModule(module_sp, new_module_sp);
+  SetLoadedModule(new_module_sp, info.link_map_addr);
+
+  {
+    std::lock_guard<std::mutex> lock(m_placeholder_mutex);
+    m_placeholder_modules.erase(module_sp);
+  }
+
+  // Notify the target so breakpoints resolve and symbols preload.
+  ModuleList new_modules;
+  new_modules.Append(new_module_sp);
+  target.ModulesDidLoad(new_modules);
+
+  LLDB_LOG(log, "Successfully hydrated module: {0}",
+           info.file_spec.GetFilename());
+  return new_module_sp;
+}
+
 void DynamicLoaderPOSIXDYLD::LoadAllCurrentModules() {
   DYLDRendezvous::iterator I;
   DYLDRendezvous::iterator E;
@@ -712,10 +771,56 @@ void DynamicLoaderPOSIXDYLD::LoadAllCurrentModules() {
   m_process->PrefetchModuleSpecs(module_names,
                                  target.GetArchitecture().GetTriple());
 
-  auto load_module_fn = [this, &module_list, &target,
+  const bool lazy_load =
+      target.GetLazyModuleLoad() && m_process->IsLiveDebugSession();
+
+  auto load_module_fn = [this, &module_list, &target, lazy_load,
                          &log](const DYLDRendezvous::SOEntry &so_entry) {
-    ModuleSP module_sp = LoadModuleAtAddress(
-        so_entry.file_spec, so_entry.link_addr, so_entry.base_addr, true);
+    ModuleSP module_sp;
+
+    // When lazy loading is enabled, create lightweight placeholder modules
+    // instead of downloading the real binary from the remote target. The
+    // interpreter module is excluded because the rendezvous breakpoint
+    // mechanism needs it fully loaded.
+    if (lazy_load && so_entry.base_addr != m_interpreter_base) {
+      ModuleSpec module_spec(so_entry.file_spec, target.GetArchitecture());
+      if (UUID uuid = m_process->FindModuleUUID(so_entry.file_spec.GetPath()))
+        module_spec.GetUUID() = uuid;
+
+      // Use file_size from prefetched jModulesInfo data if available,
+      // otherwise fall back to a default.
+      uint64_t size = module_spec.GetObjectSize();
+      if (size == 0)
+        size = 512;
+
+      module_sp = Module::CreateModuleFromObjectFile<ObjectFilePlaceholder>(
+          module_spec, so_entry.base_addr, size);
+      if (module_sp) {
+        bool load_addr_changed = false;
+        target.GetImages().Append(module_sp, false);
+        module_sp->SetLoadAddress(target, so_entry.base_addr, false,
+                                  load_addr_changed);
+        SetLoadedModule(module_sp, so_entry.link_addr);
+
+        // Record the info needed to do a full load later (hydration).
+        {
+          std::lock_guard<std::mutex> lock(m_placeholder_mutex);
+          m_placeholder_modules[module_sp] = {so_entry.link_addr,
+                                              so_entry.base_addr,
+                                              so_entry.file_spec};
+        }
+
+        LLDB_LOG(log,
+                 "LoadAllCurrentModules created placeholder for module: {0}",
+                 so_entry.file_spec.GetFilename());
+        module_list.Append(module_sp);
+        return;
+      }
+      // Fall through to eager load if placeholder creation failed.
+    }
+
+    module_sp = LoadModuleAtAddress(so_entry.file_spec, so_entry.link_addr,
+                                   so_entry.base_addr, true);
     if (!module_sp && !m_process->IsLiveDebugSession()) {
       // Create placeholder modules for any modules we couldn't load from disk
       // or from memory.

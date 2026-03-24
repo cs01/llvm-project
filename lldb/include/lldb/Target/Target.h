@@ -123,6 +123,8 @@ public:
 
   bool GetParallelModuleLoad() const;
 
+  bool GetLazyModuleLoad() const;
+
   const char *GetDisassemblyFlavor() const;
 
   const char *GetDisassemblyCPU() const;

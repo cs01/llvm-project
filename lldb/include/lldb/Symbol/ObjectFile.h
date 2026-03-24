@@ -347,6 +347,10 @@ public:
   ///     symbols.
   virtual bool IsStripped() = 0;
 
+  /// Returns true if this is a lightweight placeholder that needs to be
+  /// replaced with a real ObjectFile before symbol/unwind data is available.
+  virtual bool IsPlaceholder() const { return false; }
+
   /// Frees the symbol table.
   ///
   /// This function should only be used when an object file is

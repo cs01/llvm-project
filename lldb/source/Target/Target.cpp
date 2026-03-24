@@ -4669,6 +4669,12 @@ bool TargetProperties::GetParallelModuleLoad() const {
       idx, g_target_properties[idx].default_uint_value != 0);
 }
 
+bool TargetProperties::GetLazyModuleLoad() const {
+  const uint32_t idx = ePropertyLazyModuleLoad;
+  return GetPropertyAtIndexAs<bool>(
+      idx, g_target_properties[idx].default_uint_value != 0);
+}
+
 const char *TargetProperties::GetDisassemblyFlavor() const {
   const uint32_t idx = ePropertyDisassemblyFlavor;
   const char *return_value;
