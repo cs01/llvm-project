@@ -280,6 +280,8 @@ These annotate functions like `malloc` as returning `_Nullable` and `free` as ac
 
 ## Architecture
 
+The compiler's normal pipeline is completely untouched — parsing, AST, type checking, codegen all work exactly the same. The compiled binary is bit-for-bit identical whether the analysis runs or not. This is purely additive: one more analysis in the existing "analysis-based warnings" phase where `-Wuninitialized` and `-Wthread-safety` already live.
+
 Three layers, following the same pattern as `-Wthread-safety`:
 
 | Layer | File | Role |
@@ -287,6 +289,8 @@ Three layers, following the same pattern as `-Wthread-safety`:
 | Analysis | `lib/Analysis/FlowNullability.cpp` | Forward dataflow on the CFG. Tracks narrowing sets, reports dereferences via callback |
 | Glue | `lib/Sema/AnalysisBasedWarnings.cpp` | Builds CFG, runs analysis, converts callbacks to diagnostics |
 | Gating | `lib/Sema/SemaDecl.cpp` | Decides per-function whether to enable analysis |
+
+No new AST nodes, no changes to type checking, no changes to codegen. The analysis walks CFG blocks in order, tracks which pointers have been null-checked, and calls `S.Diag()` when it sees an unchecked dereference — the same mechanism every other Clang warning uses.
 
 The analysis uses per-edge state tracking (`EdgeStates[{pred, succ}]`) so branch-refined narrowing propagates correctly. Entry state for each block is the intersection of all predecessor edge states — a pointer is only considered narrowed if ALL paths agree.
 
