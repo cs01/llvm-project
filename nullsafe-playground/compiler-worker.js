@@ -81,6 +81,8 @@ self.onmessage = function(e) {
             const args = [
                 '-fsyntax-only',
                 '--target=wasm32-unknown-emscripten',
+                '-fflow-sensitive-nullability',
+                '-fnullability-default=nullable',
                 ...extraFlags,
                 inputFile
             ];
