@@ -564,13 +564,11 @@
         </button>
 
         <select id="examplesSelect" class="examples-select" title="Load example code to see Nullsafe C in action">
-            <option value="null-check" selected>1. Raw pointer Dereference</option>
-            <option value="early-return">2. Early Return</option>
-            <option value="and-pattern">3. AND Pattern Narrowing</option>
-            <option value="else-branch">4. Else Branch Narrowing</option>
-            <option value="nonnull-annotation">5. _Nonnull Annotations</option>
-            <option value="function-invalidates">6. Function Invalidates Narrowing</option>
-            <option value="multi-level">7. Multi-Level Pointers</option>
+            <option value="hero-bug" selected>1. The Bug Standard Clang Misses</option>
+            <option value="flow-narrowing">2. Flow-Sensitive Narrowing</option>
+            <option value="linked-list">3. Linked List & Struct Members</option>
+            <option value="function-contracts">4. Function Contracts (_Nonnull)</option>
+            <option value="standard-clang-gap">5. The Gap in Standard Clang</option>
         </select>
 
         <button id="shareBtn" class="btn btn-secondary" title="Copy a shareable link with your code to clipboard">
