@@ -2,22 +2,19 @@
 // But there's a null pointer crash hiding here.
 // Nullsafe C catches it at compile time.
 
-#include <stdlib.h>
+typedef struct Config {
+    int timeout;
+    int retries;
+} Config;
 
-typedef struct {
-    int* data;
-    int size;
-} Buffer;
+Config* _Nullable load_config(const char* path);
 
-Buffer* create_buffer(int n) {
-    Buffer* buf = malloc(sizeof(Buffer));
-    buf->data = malloc(n * sizeof(int));  // warning: buf might be NULL
-    buf->size = n;                        // warning: buf might be NULL
-    return buf;
-}
-
-void fill_buffer(Buffer* buf) {
-    for (int i = 0; i < buf->size; i++) { // warning: buf might be NULL
-        buf->data[i] = i;                 // warning: buf->data might be NULL
+void apply_config(const char* path) {
+    Config* cfg = load_config(path);
+    if (!cfg) {
+        // Programmer thought they handled it...
+        // but forgot to return!
     }
+    cfg->timeout = 30;   // BUG: cfg can be NULL here
+    cfg->retries = 3;    // BUG: still nullable
 }
