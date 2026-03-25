@@ -1,30 +1,31 @@
-// Standard Clang has _Nullable and _Nonnull, but it only
-// checks them at assignment boundaries. It does NOT track
-// null checks through control flow.
-//
-// This means standard Clang:
-//   1. Misses bugs where unchecked pointers are dereferenced
-//   2. Cannot give you credit for null checks you already wrote
-//
-// Nullsafe C fills this gap with flow-sensitive analysis.
+// A real bug pattern: you check one pointer but use another.
+// Standard Clang sees nothing wrong. Nullsafe C catches it.
 
-void the_gap(int* _Nullable p) {
-    // Standard clang: no warning (it doesn't track dereferences)
-    // Nullsafe C: warning — p is nullable!
-    *p = 42;
+typedef struct {
+    int x, y;
+} Point;
+
+Point* _Nullable find_nearest(int x, int y);
+Point* _Nullable find_farthest(int x, int y);
+
+void draw_line(void) {
+    Point* start = find_nearest(0, 0);
+    Point* end = find_farthest(0, 0);
+
+    if (start) {
+        // Checked start, but forgot to check end.
+        int dx = end->x - start->x;  // BUG: end might be NULL
+        int dy = end->y - start->y;  // BUG: end might be NULL
+    }
 }
 
-void already_checked(int* _Nullable p) {
-    if (!p) return;
+// Fixed version:
+void draw_line_safe(void) {
+    Point* start = find_nearest(0, 0);
+    Point* end = find_farthest(0, 0);
 
-    // Standard clang: still considers p _Nullable (no flow tracking)
-    // Nullsafe C: knows p is non-null — no warning
-    *p = 42;
-}
-
-// The classic mistake: check one pointer, use another
-void wrong_check(int* _Nullable p, int* _Nullable q) {
-    if (p) {
-        *q = 0;  // Bug! Checked p but used q. Nullsafe C catches this.
+    if (start && end) {
+        int dx = end->x - start->x;  // OK — both checked
+        int dy = end->y - start->y;  // OK
     }
 }
