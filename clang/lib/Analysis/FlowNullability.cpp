@@ -169,7 +169,7 @@ static bool isMakeSmartPtrCall(const Expr *E) {
   if (const auto *CE = dyn_cast<CallExpr>(E)) {
     if (const auto *Callee = CE->getDirectCallee()) {
       const auto *DC = Callee->getDeclContext();
-      if (DC && DC->isStdNamespace()) {
+      if (DC && DC->isStdNamespace() && Callee->getDeclName().isIdentifier()) {
         StringRef Name = Callee->getName();
         return Name == "make_unique" || Name == "make_shared";
       }
@@ -777,7 +777,7 @@ private:
       const Expr *Obj = MCE->getImplicitObjectArgument();
       if (Obj && isSmartPointerType(Obj->getType())) {
         if (const auto *MD = MCE->getMethodDecl()) {
-          if (MD->getName() == "reset") {
+          if (MD->getDeclName().isIdentifier() && MD->getName() == "reset") {
             // Local variable
             if (const auto *VD = getSmartPtrVarDecl(Obj)) {
               State.NarrowedVars.erase(VD);
