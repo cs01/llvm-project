@@ -388,12 +388,8 @@
             overflow: hidden;
         }
 
-        .output-section:first-child {
-            flex: 0 0 50%;
-        }
-
-        .output-section:last-child {
-            flex: 0 0 50%;
+        .output-section {
+            flex: 1 1 0%;
         }
 
         .output-section-header {
@@ -409,14 +405,20 @@
         }
 
         /* Green accent for nullsafe panel */
-        .output-section:first-child .output-section-header {
+        .output-section:nth-child(1) .output-section-header {
             border-left: 3px solid var(--success);
             padding-left: 13px;
         }
 
-        /* Amber accent for without-warnings panel */
-        .output-section:last-child .output-section-header {
+        /* Amber accent for standard clang panel */
+        .output-section:nth-child(3) .output-section-header {
             border-left: 3px solid var(--warning);
+            padding-left: 13px;
+        }
+
+        /* Red accent for static analyzer panel */
+        .output-section:nth-child(5) .output-section-header {
+            border-left: 3px solid var(--error);
             padding-left: 13px;
         }
 
@@ -440,16 +442,9 @@
         }
 
         .output-divider {
-            height: 3px;
+            height: 2px;
             background: var(--border-color);
-            cursor: row-resize;
-            position: relative;
             flex-shrink: 0;
-            transition: background 0.15s;
-        }
-
-        .output-divider:hover {
-            background: var(--accent-blue);
         }
 
         .error { color: var(--error); }
@@ -533,10 +528,9 @@
                 min-height: 250px;
             }
 
-            .output-section:first-child,
-            .output-section:last-child {
+            .output-section {
                 flex: 1 1 auto;
-                min-height: 150px;
+                min-height: 120px;
             }
 
             .divider {
@@ -657,6 +651,11 @@
                 <div class="output-section">
                     <div class="output-section-header">Standard Clang</div>
                     <div id="output-mainline" class="output-content"></div>
+                </div>
+                <div class="output-divider" id="outputDivider2"></div>
+                <div class="output-section">
+                    <div class="output-section-header">Static Analyzer</div>
+                    <div id="output-analyzer" class="output-content"></div>
                 </div>
             </div>
         </div>

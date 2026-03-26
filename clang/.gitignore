@@ -12,6 +12,8 @@
 *.orig
 # Byte compiled python modules.
 *.pyc
+# Clang static analyzer output.
+*.plist
 # vim swap files
 .*.sw?
 .sw?
