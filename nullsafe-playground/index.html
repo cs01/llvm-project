@@ -420,10 +420,7 @@
 
         .info-icon .tooltip {
             display: none;
-            position: absolute;
-            left: 50%;
-            top: calc(100% + 8px);
-            transform: translateX(-50%);
+            position: fixed;
             background: var(--bg-tertiary);
             color: var(--text-secondary);
             border: 1px solid var(--border-color);
@@ -437,7 +434,7 @@
             width: 280px;
             white-space: normal;
             box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-            z-index: 100;
+            z-index: 1000;
             pointer-events: none;
         }
 
