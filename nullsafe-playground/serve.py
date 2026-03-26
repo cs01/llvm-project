@@ -11,6 +11,7 @@ class NoCacheHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 PORT = 9000
 
+socketserver.TCPServer.allow_reuse_address = True
 with socketserver.TCPServer(("127.0.0.1", PORT), NoCacheHTTPRequestHandler) as httpd:
     print(f"Serving HTTP on 127.0.0.1 port {PORT} (http://localhost:{PORT}/) ...")
     print("Cache-Control headers disabled for development")
