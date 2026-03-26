@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build script to generate clang.wasm and clang.js for the Null-Safe C Playground
+# Build script to generate clang.wasm and clang.js for the Nullsafe Clang Playground
 
 set -e
 
@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LLVM_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$LLVM_ROOT/build"
 
-echo "Building Clang WASM for Null-Safe C Playground..."
+echo "Building Clang WASM for Nullsafe Clang Playground..."
 echo "LLVM Root: $LLVM_ROOT"
 echo "Build Directory: $BUILD_DIR"
 

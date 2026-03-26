@@ -1,6 +1,6 @@
-# Null-Safe C Playground
+# Nullsafe Clang Playground
 
-An interactive web-based playground for experimenting with **Null-Safe C**, an experimental C compiler with strict nullability checking.
+An interactive web-based playground for experimenting with **Nullsafe Clang**, an experimental C compiler with strict nullability checking.
 
 ## Features
 
@@ -28,7 +28,7 @@ An interactive web-based playground for experimenting with **Null-Safe C**, an e
 
 ### Deployment to GitHub Pages
 
-The playground can be deployed to GitHub Pages. The WASM files are generated from the Null-Safe C compiler build and should not be committed to the repository due to their size (~64MB).
+The playground can be deployed to GitHub Pages. The WASM files are generated from the Nullsafe Clang compiler build and should not be committed to the repository due to their size (~64MB).
 
 For deployment:
 1. Build the WASM files using `build.sh`
@@ -45,7 +45,7 @@ For deployment:
 
 ## Building WASM Files
 
-The WASM files are generated from the Null-Safe C compiler using Emscripten:
+The WASM files are generated from the Nullsafe Clang compiler using Emscripten:
 
 ```bash
 # TODO: Document proper Emscripten build process
