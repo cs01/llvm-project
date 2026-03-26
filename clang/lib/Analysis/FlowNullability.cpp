@@ -48,12 +48,20 @@ struct NullState {
   // member smart pointers that are always initialized in the constructor.
   llvm::DenseSet<const FieldDecl *> NullableThisMembers;
 
+  // Maps bool variables to the null-check they capture.
+  // E.g., bool valid = (p != nullptr) → {valid → (p, false)}
+  // The bool is true when the bool being true means the pointer IS null.
+  using BoolGuardMap =
+      llvm::DenseMap<const VarDecl *, std::pair<const VarDecl *, bool>>;
+  BoolGuardMap BoolGuards;
+
   bool operator==(const NullState &Other) const {
     return NarrowedVars == Other.NarrowedVars &&
            NarrowedMembers == Other.NarrowedMembers &&
            NarrowedThisMembers == Other.NarrowedThisMembers &&
            NullableVars == Other.NullableVars &&
-           NullableThisMembers == Other.NullableThisMembers;
+           NullableThisMembers == Other.NullableThisMembers &&
+           BoolGuards == Other.BoolGuards;
   }
   bool operator!=(const NullState &Other) const { return !(*this == Other); }
 };
@@ -78,6 +86,12 @@ static NullState intersect(const NullState &A, const NullState &B) {
     Result.NullableThisMembers.insert(FD);
   for (const auto *FD : B.NullableThisMembers)
     Result.NullableThisMembers.insert(FD);
+  // BoolGuards: keep only entries present in both with the same mapping
+  for (const auto &[BoolVD, GuardInfo] : A.BoolGuards) {
+    auto It = B.BoolGuards.find(BoolVD);
+    if (It != B.BoolGuards.end() && It->second == GuardInfo)
+      Result.BoolGuards[BoolVD] = GuardInfo;
+  }
   return Result;
 }
 
@@ -210,7 +224,8 @@ struct ConditionResult {
 };
 
 static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
-                             SmallVectorImpl<ConditionResult> &Results) {
+                             SmallVectorImpl<ConditionResult> &Results,
+                             const NullState::BoolGuardMap *BoolGuards = nullptr) {
   if (!Cond)
     return;
 
@@ -223,6 +238,14 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       break;
     Negated = !Negated;
     E = UO->getSubExpr()->IgnoreParenImpCasts();
+  }
+
+  // After unwrapping !, follow through && / || to the terminal condition.
+  // Handles !(p && q) where the CFG decomposes the inner && into separate
+  // blocks — the leaf condition (q) is what this block actually tests.
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
+      E = getTerminalCondition(E);
   }
 
   if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
@@ -290,6 +313,16 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       if (VD->getType()->isPointerType()) {
         Results.push_back({VD, nullptr, false, Negated});
         return;
+      }
+      // Bool intermediary: if (valid) where valid = (p != nullptr)
+      if (BoolGuards && VD->getType()->isBooleanType()) {
+        auto It = BoolGuards->find(VD);
+        if (It != BoolGuards->end()) {
+          // XOR: outer ! flips the guard's sense
+          Results.push_back(
+              {It->second.first, nullptr, false, Negated != It->second.second});
+          return;
+        }
       }
     }
   }
@@ -445,6 +478,16 @@ class TransferFunctions {
     }
   }
 
+  /// Remove any BoolGuards that reference the given pointer variable.
+  void invalidateBoolGuardsFor(const VarDecl *VD) {
+    SmallVector<const VarDecl *, 2> ToRemove;
+    for (const auto &[BoolVD, GuardInfo] : State.BoolGuards)
+      if (GuardInfo.first == VD)
+        ToRemove.push_back(BoolVD);
+    for (const auto *BoolVD : ToRemove)
+      State.BoolGuards.erase(BoolVD);
+  }
+
   void invalidateMembersFor(const VarDecl *VD) {
     SmallVector<MemberKey, 4> ToRemove;
     for (const auto &MK : State.NarrowedMembers)
@@ -527,6 +570,19 @@ private:
           }
           // Default-constructed, nullptr, or moved-from → nullable (don't narrow)
         }
+
+        // Track bool variables assigned from null-comparisons so that
+        // boolean intermediaries like bool valid = (p != nullptr) can
+        // later narrow p when used as a condition.
+        if (VD->getType()->isBooleanType() && VD->hasInit()) {
+          const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
+          SmallVector<ConditionResult, 2> InitResults;
+          analyzeCondition(Init, Ctx, InitResults);
+          if (InitResults.size() == 1 && InitResults[0].VD &&
+              !InitResults[0].FD)
+            State.BoolGuards[VD] = {InitResults[0].VD,
+                                    InitResults[0].Negated};
+        }
       }
     }
   }
@@ -594,11 +650,17 @@ private:
       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
       if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS)) {
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+          // Bool reassignment invalidates any stored guard
+          if (VD->getType()->isBooleanType()) {
+            State.BoolGuards.erase(VD);
+            return;
+          }
           if (!VD->getType()->isPointerType())
             return;
           State.NarrowedVars.erase(VD);
           State.NullableVars.erase(VD);
           invalidateMembersFor(VD);
+          invalidateBoolGuardsFor(VD);
 
           if (BO->getOpcode() == BO_Assign) {
             const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
@@ -665,6 +727,7 @@ private:
           if (VD->getType()->isPointerType()) {
             State.NarrowedVars.erase(VD);
             invalidateMembersFor(VD);
+            invalidateBoolGuardsFor(VD);
           }
         }
       }
@@ -731,7 +794,7 @@ private:
           CE->getNumArgs() >= 1) {
         const Expr *Arg = CE->getArg(0)->IgnoreParenImpCasts();
         SmallVector<ConditionResult, 2> Results;
-        analyzeCondition(Arg, Ctx, Results);
+        analyzeCondition(Arg, Ctx, Results, &State.BoolGuards);
         for (const auto &CR : Results) {
           if (CR.Negated)
             continue;
@@ -974,7 +1037,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
 
       if (Cond) {
         SmallVector<ConditionResult, 2> Results;
-        analyzeCondition(Cond, Ctx, Results);
+        analyzeCondition(Cond, Ctx, Results, &State.BoolGuards);
         for (const auto &CR : Results) {
           NullState &Narrow = CR.Negated ? FalseState : TrueState;
           if (CR.IsThisMember) {
