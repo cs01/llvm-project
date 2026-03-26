@@ -24,37 +24,30 @@ jobs:
 
       - name: Download latest WASM files from release
         run: |
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r '.tag_name')
+          # Find the latest playground release (tagged playground-v*)
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
+            | jq -r '[.[] | select(.tag_name | startswith("playground-v"))][0].tag_name')
 
           echo "Latest release: $LATEST_RELEASE"
 
           if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" = "null" ]; then
-            echo "No release found"
+            echo "No playground release found"
             exit 1
           fi
 
           mkdir -p /tmp/wasm-files
           cd /tmp/wasm-files
 
-          # Download the tar.gz file
-          curl -L -o clang-nullsafe-wasm.tar.gz "https://github.com/${{ github.repository }}/releases/download/${LATEST_RELEASE}/clang-nullsafe-wasm.tar.gz"
+          # Download the compressed individual files from the release
+          # The build workflow uploads .wasm.gz and .js.gz (not a tar.gz)
+          curl -L -f -o clang.wasm.gz "https://github.com/${{ github.repository }}/releases/download/${LATEST_RELEASE}/clang-nullsafe.wasm.gz"
+          curl -L -f -o clang.js.gz "https://github.com/${{ github.repository }}/releases/download/${LATEST_RELEASE}/clang-nullsafe.js.gz"
 
-          # Extract the tar.gz
-          tar -xzf clang-nullsafe-wasm.tar.gz
+          # Decompress
+          gzip -d clang.wasm.gz
+          gzip -d clang.js.gz
 
-          # The tar.gz contains: clang-nullsafe.wasm, clang-nullsafe.js, and their .gz versions
-          # Rename to the expected names (clang.wasm and clang.js)
-          if [ -f clang-nullsafe.wasm ]; then
-            mv clang-nullsafe.wasm clang.wasm
-          fi
-          if [ -f clang-nullsafe.js ]; then
-            mv clang-nullsafe.js clang.js
-          fi
-
-          # Clean up
-          rm -f *.gz *.tar
-
-          echo "Extracted files:"
+          echo "Downloaded files:"
           ls -lh
 
       - name: Deploy to gh-pages
