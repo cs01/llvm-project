@@ -404,6 +404,19 @@
             letter-spacing: 0.3px;
         }
 
+        .info-icon {
+            cursor: help;
+            opacity: 0.4;
+            font-size: 14px;
+            vertical-align: middle;
+            margin-left: 4px;
+            transition: opacity 0.15s;
+        }
+
+        .info-icon:hover {
+            opacity: 0.9;
+        }
+
         /* Green accent for nullsafe panel */
         .output-section:nth-child(1) .output-section-header {
             border-left: 3px solid var(--success);
@@ -644,17 +657,17 @@
             </div>
             <div class="output-container">
                 <div class="output-section">
-                    <div class="output-section-header">Nullsafe Clang</div>
+                    <div class="output-section-header">Nullsafe Clang <span class="info-icon" title="This Clang fork with flow-sensitive nullability analysis. Treats all unannotated pointers as nullable and warns on unchecked dereferences. Runs as part of the normal compile — fast enough for every build and supported in clangd/IDEs.">&#9432;</span></div>
                     <div id="output-nullsafe" class="output-content"></div>
                 </div>
                 <div class="output-divider" id="outputDivider"></div>
                 <div class="output-section">
-                    <div class="output-section-header">Standard Clang</div>
+                    <div class="output-section-header">Standard Clang <span class="info-icon" title="Stock Clang with all nullability warnings disabled. This is what most C/C++ developers compile with today — no null safety checking at all.">&#9432;</span></div>
                     <div id="output-mainline" class="output-content"></div>
                 </div>
                 <div class="output-divider" id="outputDivider2"></div>
                 <div class="output-section">
-                    <div class="output-section-header">Static Analyzer</div>
+                    <div class="output-section-header">Static Analyzer <span class="info-icon" title="Clang's built-in static analyzer (clang --analyze) with core.NullDereference and nullability checkers enabled. This is the tool people typically suggest for finding null bugs. It uses symbolic execution — slower and separate from the normal compile. It only catches nulls when pointers are explicitly compared to null or annotated _Nullable in the source.">&#9432;</span></div>
                     <div id="output-analyzer" class="output-content"></div>
                 </div>
             </div>
