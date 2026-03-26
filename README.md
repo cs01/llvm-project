@@ -59,15 +59,21 @@ Checks **type conversions only** — warns when you pass a `_Nullable` pointer t
 
 ### Clang Static Analyzer (`--analyze` / clang-tidy)
 
-A separate tool that uses **symbolic execution** to explore paths. Its `nullability.NullableDereferenced` checker is actually quite good — **on annotated code, it catches the same bugs Nullsafe Clang does**, including flow-sensitive patterns like "checked the wrong pointer" and "forgot to return after null check." It understands flow narrowing and path conditions.
+The static analyzer is a separate tool (invoked via `clang --analyze` or through clang-tidy, which wraps the same engine) that uses **symbolic execution** to explore paths. It has two null-related checkers:
 
-The catch is bootstrapping. CSA's null checker only fires on pointers annotated `_Nullable`. On unannotated code — which is virtually all existing C/C++ — it finds almost nothing. There's no equivalent of `-fnullability-default=nullable` to treat unannotated pointers as nullable. You'd have to annotate your codebase first to benefit from the analysis, but you need the analysis to know where to annotate.
+- **`core.NullDereference`** — detects null dereferences by tracking pointer values through branches. This is what most people mean when they say "just use the static analyzer." However, it primarily catches cases where a pointer is **explicitly compared to null or assigned null** in the same function. It does not treat unannotated parameters as potentially null — an unannotated `int *p` that is never compared to null in the function body produces no warning when dereferenced, even though the caller could pass NULL.
+
+- **`nullability.NullableDereferenced`** — the annotation-aware checker. **On annotated code, this catches the same bugs Nullsafe Clang does**, including flow-sensitive patterns like "checked the wrong pointer" and "forgot to return after null check." It understands flow narrowing and path conditions.
+
+The catch is bootstrapping. Both checkers require something to trigger them — either explicit null comparisons in the code, or `_Nullable` annotations on the types. On unannotated code — which is virtually all existing C/C++ — they find almost nothing. There's no equivalent of `-fnullability-default=nullable` to treat unannotated pointers as nullable. You'd have to annotate your codebase first to benefit from the analysis, but you need the analysis to know where to annotate.
+
+You can see this for yourself in the **[interactive playground](https://cs01.github.io/llvm-project/)**, which runs all three side-by-side: Nullsafe Clang, standard Clang, and the static analyzer.
 
 Other limitations:
 
 - **Separate tool** — not part of the normal compile. You have to run `--analyze` or use clang-tidy, which wraps the same engine. Must be version-compatible with your project's compiler.
-- **Slow** — symbolic execution is too expensive for every build.
-- **Not in your IDE** — clangd doesn't run the static analyzer.
+- **Slow** — symbolic execution is too expensive for every build. It explores each possible path through the function, which grows exponentially with branching.
+- **Not in your IDE** — clangd doesn't run the static analyzer. You only see results when you explicitly run the analysis.
 
 ### ASan / TSan / UBSan
 

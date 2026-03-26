@@ -71,18 +71,22 @@ self.onmessage = function(e) {
         }
 
         try {
-            const { code, extraFlags = [] } = data;
+            const { code, extraFlags = [], baseFlags } = data;
             const inputFile = 'input.c';
 
             // Write source file
             FS.writeFile(inputFile, code);
 
-            // Build arguments
-            const args = [
+            // Build arguments: callers can override the default base flags
+            // (e.g. the static analyzer panel uses --analyze instead of -fsyntax-only)
+            const defaultBase = [
                 '-fsyntax-only',
                 '--target=wasm32-unknown-emscripten',
                 '-fflow-sensitive-nullability',
                 '-fnullability-default=nullable',
+            ];
+            const args = [
+                ...(baseFlags || defaultBase),
                 ...extraFlags,
                 inputFile
             ];
