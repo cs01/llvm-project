@@ -6,6 +6,7 @@
     <title>Nullsafe Clang Playground</title>
 
     <!-- Monaco Editor from CDN (cached by browser) -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/editor/editor.main.min.css">
 
     <style>
@@ -321,20 +322,10 @@
             gap: 8px;
         }
 
-        .icon-btn {
-            background: transparent;
-            border: none;
+        .pane-hint {
             color: var(--text-muted);
-            cursor: pointer;
             padding: 3px 8px;
-            border-radius: 4px;
             font-size: 11px;
-            transition: all 0.15s;
-        }
-
-        .icon-btn:hover {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
         }
 
         .divider {
@@ -643,7 +634,7 @@
             <div class="pane-header">
                 <span>Source Code</span>
                 <div class="pane-actions">
-                    <button class="icon-btn" title="Keyboard shortcut: Cmd/Ctrl+Enter">Ctrl+Enter to compile</button>
+                    <span class="pane-hint" title="Keyboard shortcut: Cmd/Ctrl+Enter">Ctrl+Enter to compile</span>
                 </div>
             </div>
             <div id="editor-wrapper">
@@ -659,12 +650,12 @@
             </div>
             <div class="output-container">
                 <div class="output-section">
-                    <div class="output-section-header">With Null Warnings</div>
+                    <div class="output-section-header">Nullsafe Clang</div>
                     <div id="output-nullsafe" class="output-content"></div>
                 </div>
                 <div class="output-divider" id="outputDivider"></div>
                 <div class="output-section">
-                    <div class="output-section-header">Without Null Warnings</div>
+                    <div class="output-section-header">Standard Clang</div>
                     <div id="output-mainline" class="output-content"></div>
                 </div>
             </div>
