@@ -664,6 +664,20 @@ async function loadExamples() {
 
         compileBtn.addEventListener('click', compile);
 
+        // Position fixed tooltips relative to their info icons
+        document.querySelectorAll('.info-icon').forEach(icon => {
+            icon.addEventListener('mouseenter', () => {
+                const tooltip = icon.querySelector('.tooltip');
+                if (!tooltip) return;
+                const rect = icon.getBoundingClientRect();
+                let left = rect.left + rect.width / 2 - 140; // 140 = half of 280px width
+                // Keep tooltip within viewport
+                left = Math.max(8, Math.min(left, window.innerWidth - 288));
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = (rect.bottom + 8) + 'px';
+            });
+        });
+
         // Auto-compile on load
         window.addEventListener('load', async () => {
             await loadExamples();  // Load all examples from files
