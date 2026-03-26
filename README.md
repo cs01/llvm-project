@@ -10,32 +10,42 @@ A fork of Clang that adds flow-sensitive nullability analysis to the compiler. I
 
 ## The problem
 
-Stock Clang compiles this with zero warnings, even with `-Wall -Wextra`:
+Can Clang catch a null pointer dereference? Try this with `-Wall -Wextra`:
 
 ```c
-struct Config { int timeout; };
-
-void apply(struct Config* _Nullable cfg) {
-    cfg->timeout = 30;  // crash if cfg is NULL
+int deref(int *p) {
+    return *p;  // crashes if p is NULL
 }
 ```
 
-The pointer is annotated `_Nullable`. The dereference is unchecked. No warning.
+Zero warnings.
 
-**With Nullsafe C:**
+OK, let's tell the compiler `p` can be null:
+
+```c
+int deref(int * _Nullable p) {
+    return *p;  // crashes if p is NULL
+}
+```
+
+Still zero warnings. Even with `-Wnullability`, `-Wnull-dereference`, every flag you can find. The annotation is right there. The dereference is unchecked. Clang doesn't care.
+
+**That's why this fork exists.**
 
 ```
-warning: dereferencing nullable pointer [-Wflow-nullable-dereference]
-    cfg->timeout = 30;
-         ^
+$ nullsafe-clang -fflow-sensitive-nullability -fnullability-default=nullable input.c
+
+warning: dereferencing nullable pointer of type 'int * _Nullable' [-Wflow-nullable-dereference]
+    return *p;
+            ^
 ```
 
 Add a null check, and the warning goes away:
 
 ```c
-void apply(struct Config* _Nullable cfg) {
-    if (!cfg) return;
-    cfg->timeout = 30;  // OK — cfg is proven non-null
+int deref(int * _Nullable p) {
+    if (!p) return 0;
+    return *p;  // OK — p is proven non-null
 }
 ```
 
