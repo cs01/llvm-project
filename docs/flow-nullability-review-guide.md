@@ -32,7 +32,7 @@ The analysis understands control flow. It doesn't just look at whether a null ch
 
 ### Layer 1: The Analysis Engine
 
-**`clang/lib/Analysis/FlowNullability.cpp`** (~1,010 lines)
+**`clang/lib/Analysis/FlowNullability.cpp`** (~1,100 lines)
 
 This is the brain. It's a forward dataflow analysis — meaning it walks the control flow graph (CFG) from the function entry to the exit, propagating facts about which pointers are known non-null.
 
@@ -52,7 +52,7 @@ void example(int * _Nullable p) {
 
 The `if (p)` block has two outgoing edges. A per-block analysis would give it one state — but the true and false edges need *different* states. Per-edge tracking (`EdgeStates[{PredBlockID, SuccBlockID}]`) solves this. This is the single most important architectural decision in the whole thing.
 
-#### The core loop (lines 880–1009)
+#### The core loop (`runFlowNullabilityAnalysis`)
 
 1. Initialize a worklist with the CFG entry block
 2. Dequeue a block
@@ -78,7 +78,7 @@ void loop_example(int * _Nullable p) {
 
 The worklist processes the loop body twice: once to discover the narrowing, once to reach the fixpoint after the reassignment invalidates it.
 
-#### NullState tracks five sets
+#### NullState tracks six sets
 
 | Set | What it tracks | Example trigger |
 |-----|---------------|-----------------|
@@ -87,19 +87,20 @@ The worklist processes the loop body twice: once to discover the narrowing, once
 | `NarrowedThisMembers` | `this->field` proven non-null | `if (this->data_)` on true edge |
 | `NullableVars` | Vars known to be nullable | `p = nullptr`, `p = nullable_func()` |
 | `NullableThisMembers` | Member smart ptrs with nullability evidence | `sp_.reset()`, `std::move(sp_)` |
+| `BoolGuards` | Bool vars assigned from null checks | `bool valid = (p != nullptr)` |
 
-#### Intersect semantics (lines 61–82)
+#### Intersect semantics (`intersect` function)
 
 At merge points (after if/else rejoins), narrowing uses **intersection** (conservative — only keep if ALL paths agree), while nullability uses **union** (any path can make it nullable).
 
 ```c
 void merge_example(int * _Nullable p, int * _Nullable q, bool cond) {
     if (cond) {
-        if (p) {}  // narrows p on this path
-        if (q) {}  // narrows q on this path
+        if (!p) return;  // narrows p after this point
+        if (!q) return;  // narrows q after this point
         // NarrowedVars = {p, q}
     } else {
-        if (p) {}  // narrows p on this path
+        if (!p) return;  // narrows p after this point
         // NarrowedVars = {p}
     }
     // MERGE POINT: intersection of {p, q} and {p} = {p}
@@ -122,7 +123,7 @@ void nullable_merge(int * _Nonnull p, bool cond) {
 }
 ```
 
-#### Transfer functions (the `TransferFunctions` class, lines 352–876)
+#### Transfer functions (the `TransferFunctions` class)
 
 Each statement type gets its own handler. Concrete examples:
 
@@ -187,7 +188,7 @@ void call_example(int * _Nullable p) {
 }
 ```
 
-#### Condition analysis (`analyzeCondition`, lines 212–349)
+#### Condition analysis (`analyzeCondition`)
 
 Figures out what a branch condition tells us about nullability. Every pattern, with examples:
 
@@ -212,7 +213,37 @@ void conditions(int * _Nullable p, std::unique_ptr<int> sp) {
 }
 ```
 
-#### `getTerminalCondition` (lines 98–105)
+**Boolean intermediary tracking** — when a bool is assigned from a null-comparison, the analysis remembers the relationship and uses it when the bool is later tested:
+
+```c
+void bool_intermediary(int * _Nullable p) {
+    bool valid = (p != nullptr);    // BoolGuards: valid → (p, non-negated)
+    if (valid) {
+        *p;                         // OK — tracked through bool guard
+    }
+    // Also works: bool isNull = (p == nullptr); if (!isNull) { *p; }
+    // Also works: bool ok = p; if (ok) { *p; }
+    // Guards are invalidated if either the bool or the pointer is reassigned.
+}
+```
+
+**Negated conjunction decomposition** (`!(p && q)`) — the CFG merges `&&` operand paths before the `if`-decision, losing per-variable narrowing at the merge. `analyzeCondition` detects `!(A && B)` and recursively decomposes the `&&`, narrowing ALL operands on the false edge (where `&&` was true → all pointers non-null):
+
+```c
+void negated_and(int * _Nullable p, int * _Nullable q, int * _Nullable r) {
+    if (!(p && q)) return;
+    *p;  // OK — decomposeAnd extracts both p and q
+    *q;  // OK
+
+    // Works with any depth: !(a && b && c) narrows all three
+    if (!(p && q && r)) return;
+    *r;  // OK
+}
+```
+
+This is logically equivalent to `!p || !q` (De Morgan), which the CFG handles natively. The fix makes `!(p && q)` match that behavior.
+
+#### `getTerminalCondition`
 
 This is subtle. The CFG decomposes `p && q` into separate blocks, but the terminator expression is the full `p && q`. This function follows the RHS chain to find the leaf being tested in each block:
 
@@ -455,7 +486,7 @@ class Widget {
 | File | Role |
 |------|------|
 | `include/clang/Analysis/Analyses/FlowNullability.h` | Public API (handler + entry point) |
-| `lib/Analysis/FlowNullability.cpp` | The analysis (~1,010 lines) |
+| `lib/Analysis/FlowNullability.cpp` | The analysis (~1,100 lines) |
 | `lib/Sema/AnalysisBasedWarnings.cpp` | Wiring into Sema (~60 lines changed) |
 | `lib/Sema/SemaDecl.cpp` | Per-function gating |
 | `lib/Sema/Sema.cpp` | Helper functions |
@@ -464,4 +495,4 @@ class Widget {
 | `include/clang/Basic/DiagnosticGroups.td` | Warning group |
 | `include/clang/Driver/Options.td` | Flag definitions |
 | `lib/Driver/ToolChains/Clang.cpp` | Driver flag forwarding |
-| `test/Sema/flow-nullability-*.cpp/.c` | 28+ lit tests |
+| `test/Sema/flow-nullability-*.cpp/.c` | 38 lit tests |
