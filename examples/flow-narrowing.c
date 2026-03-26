@@ -1,6 +1,24 @@
 // The compiler tracks null checks through control flow.
-// After you check a pointer, it knows it's safe — no
-// redundant warnings, no annotations needed.
+// It catches bugs when you forget a check, AND knows
+// when a check makes further warnings unnecessary.
+
+// Can you spot the bug?
+typedef struct { int id; int score; } Player;
+Player* _Nullable lookup_player(int id);
+
+int get_score(int id) {
+    Player* p = lookup_player(id);
+    if (!p)
+        return -1;
+
+    Player* opponent = lookup_player(p->id + 1);
+    if (!p)          // BUG: copy-paste — checks p again instead of opponent
+        return -1;
+
+    return p->score - opponent->score;  // opponent might be NULL!
+}
+
+// --- Safe patterns the compiler recognizes ---
 
 void guard_clause(int* data) {
     if (!data) return;
