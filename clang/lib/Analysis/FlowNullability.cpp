@@ -223,9 +223,30 @@ struct ConditionResult {
   bool Negated = false;
 };
 
+// Forward declaration — decomposeAnd calls analyzeCondition on leaves.
 static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                              SmallVectorImpl<ConditionResult> &Results,
-                             const NullState::BoolGuardMap *BoolGuards = nullptr) {
+                             const NullState::BoolGuardMap *BoolGuards = nullptr);
+
+/// Recursively flatten a chain of && operators and analyze each leaf.
+/// Used by analyzeCondition to handle !(A && B && C).
+static void decomposeAnd(const Expr *E, ASTContext &Ctx,
+                         SmallVectorImpl<ConditionResult> &Results,
+                         const NullState::BoolGuardMap *BoolGuards) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_LAnd) {
+      decomposeAnd(BO->getLHS(), Ctx, Results, BoolGuards);
+      decomposeAnd(BO->getRHS(), Ctx, Results, BoolGuards);
+      return;
+    }
+  }
+  analyzeCondition(E, Ctx, Results, BoolGuards);
+}
+
+static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
+                             SmallVectorImpl<ConditionResult> &Results,
+                             const NullState::BoolGuardMap *BoolGuards) {
   if (!Cond)
     return;
 
@@ -240,12 +261,27 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
     E = UO->getSubExpr()->IgnoreParenImpCasts();
   }
 
-  // After unwrapping !, follow through && / || to the terminal condition.
-  // Handles !(p && q) where the CFG decomposes the inner && into separate
-  // blocks — the leaf condition (q) is what this block actually tests.
-  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
-    if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
-      E = getTerminalCondition(E);
+  // !(A && B): the CFG merges the && operand paths before the if-decision,
+  // so individual narrowing from the && blocks is lost at the merge.
+  // Recursively decompose the && to narrow ALL operands on the false edge
+  // (where && was true → all operands are true → all pointers non-null).
+  if (Negated) {
+    if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+      if (BO->getOpcode() == BO_LAnd) {
+        // Flatten nested && and analyze each leaf
+        decomposeAnd(BO, Ctx, Results, BoolGuards);
+        // Keep only sub-conditions where the pointer is non-null when the
+        // sub-condition is true (Negated=false). Flip to Negated=true so
+        // narrowing lands on the false edge of the outer !.
+        Results.erase(
+            std::remove_if(Results.begin(), Results.end(),
+                           [](const ConditionResult &CR) { return CR.Negated; }),
+            Results.end());
+        for (auto &CR : Results)
+          CR.Negated = true;
+        return;
+      }
+    }
   }
 
   if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
