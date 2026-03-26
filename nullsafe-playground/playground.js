@@ -545,9 +545,17 @@ async function loadExamples() {
 
                 // Update headers with version and timing
                 const headers = document.querySelectorAll('.output-section-header');
-                headers[0].innerHTML = `Nullsafe Clang ${clangVersion} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
-                headers[1].innerHTML = `Standard Clang ${clangVersion} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
-                headers[2].innerHTML = `Static Analyzer ${clangVersion} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
+                // Update header text while preserving info icons
+                const headerLabels = [
+                    `Nullsafe Clang ${clangVersion}`,
+                    `Standard Clang ${clangVersion}`,
+                    `Static Analyzer ${clangVersion}`,
+                ];
+                for (let i = 0; i < 3; i++) {
+                    const infoIcon = headers[i].querySelector('.info-icon');
+                    headers[i].innerHTML = `${headerLabels[i]} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
+                    if (infoIcon) headers[i].insertBefore(infoIcon, headers[i].querySelector('span'));
+                }
 
                 // Count nullability warnings to detect missed bugs
                 const nullWarningCount = (nullsafeResult.stderr.match(/\[-W(?:flow-)?null(?:ability|able-dereference)\]/g) || []).length;
