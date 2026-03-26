@@ -159,8 +159,9 @@ def compile_and_measure(clang, source_path, trace_path, enable_nullsafe):
         source_path,
     ]
     if enable_nullsafe:
-        cmd.extend(["-fflow-sensitive-nullability", "-fnullability-default=nullable",
-                     "-Wno-flow-nullable-dereference"])  # suppress warnings, just measure perf
+        # Keep warnings enabled so the analysis actually runs (the analysis
+        # is gated on !Diags.isIgnored), but we don't care about the output.
+        cmd.extend(["-fflow-sensitive-nullability", "-fnullability-default=nullable"])
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
