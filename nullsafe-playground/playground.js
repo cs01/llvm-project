@@ -1,6 +1,7 @@
         const editorElement = document.getElementById('editor');
         const outputNullsafe = document.getElementById('output-nullsafe');
         const outputMainline = document.getElementById('output-mainline');
+        const outputAnalyzer = document.getElementById('output-analyzer');
         const compileBtn = document.getElementById('compileBtn');
         const status = document.getElementById('status');
         const examplesSelect = document.getElementById('examplesSelect');
@@ -8,7 +9,6 @@
         const loadingBar = document.getElementById('loadingBar');
         const toast = document.getElementById('toast');
         const divider = document.getElementById('divider');
-        const outputDivider = document.getElementById('outputDivider');
 
         let editor = null; // Monaco editor instance
 
@@ -186,17 +186,9 @@ async function loadExamples() {
             }
         }
 
-        // Resizable panes
-        let isDraggingOutput = false;
-
+        // Resizable editor/output panes
         divider.addEventListener('mousedown', (e) => {
             isDragging = true;
-            e.preventDefault();
-        });
-
-        // Output divider resizing
-        outputDivider.addEventListener('mousedown', (e) => {
-            isDraggingOutput = true;
             e.preventDefault();
         });
 
@@ -213,24 +205,10 @@ async function loadExamples() {
                     panes[1].style.flex = '0 0 ' + (100 - percentage) + '%';
                 }
             }
-
-            if (isDraggingOutput) {
-                const container = document.querySelector('.output-container');
-                const containerRect = container.getBoundingClientRect();
-                const offsetY = e.clientY - containerRect.top;
-                const percentage = (offsetY / containerRect.height) * 100;
-
-                if (percentage > 20 && percentage < 80) {
-                    const sections = document.querySelectorAll('.output-section');
-                    sections[0].style.flex = '0 0 ' + percentage + '%';
-                    sections[1].style.flex = '0 0 ' + (100 - percentage) + '%';
-                }
-            }
         });
 
         document.addEventListener('mouseup', () => {
             isDragging = false;
-            isDraggingOutput = false;
         });
 
         // Examples dropdown
@@ -285,6 +263,7 @@ async function loadExamples() {
             const code = getEditorValue();
             const nullsafeOutput = outputNullsafe.textContent || '(no output yet)';
             const mainlineOutput = outputMainline.textContent || '(no output yet)';
+            const analyzerOutput = outputAnalyzer.textContent || '(no output yet)';
 
             // Get browser info - parse user agent for readability
             const ua = navigator.userAgent;
@@ -337,6 +316,9 @@ async function loadExamples() {
                 '#### Without Null Warnings\n' +
                 '\x60\x60\x60\n' +
                 mainlineOutput + '\x60\x60\x60\n' +
+                '#### Static Analyzer\n' +
+                '\x60\x60\x60\n' +
+                analyzerOutput + '\x60\x60\x60\n' +
                 '### Expected Behavior\n' +
                 '<!-- Please describe what you expected to happen -->\n\n\n' +
                 '### Actual Behavior\n' +
@@ -518,6 +500,7 @@ async function loadExamples() {
             if (!scriptUrl) {
                 outputNullsafe.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
                 outputMainline.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
+                outputAnalyzer.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
                 return;
             }
 
@@ -527,17 +510,29 @@ async function loadExamples() {
             status.className = 'status compiling';
             outputNullsafe.innerHTML = '';
             outputMainline.innerHTML = '';
+            outputAnalyzer.innerHTML = '';
             loadingBar.classList.add('active');
 
             const startTime = performance.now();
 
+            // Base flags for the static analyzer: no nullsafe features, all
+            // null-related checkers turned on. This simulates what a careful
+            // user of standard clang would get if they ran --analyze.
+            const analyzerBaseFlags = [
+                '--analyze',
+                '--target=wasm32-unknown-emscripten',
+                '-Xanalyzer', '-analyzer-checker=core.NullDereference',
+                '-Xanalyzer', '-analyzer-checker=nullability',
+            ];
+
             try {
                 const code = getEditorValue();
 
-                // Compile both versions in parallel
-                const [nullsafeResult, mainlineResult] = await Promise.all([
+                // Compile all three versions in parallel
+                const [nullsafeResult, mainlineResult, analyzerResult] = await Promise.all([
                     compileCode(code, []),
-                    compileCode(code, ['-Wno-nullability', '-Wno-flow-nullability'])
+                    compileCode(code, ['-Wno-nullability', '-Wno-flow-nullability']),
+                    compileCode(code, [], analyzerBaseFlags)
                 ]);
 
                 const duration = (performance.now() - startTime).toFixed(0);
@@ -546,11 +541,13 @@ async function loadExamples() {
                 const baseArgs = '-fsyntax-only --target=wasm32-unknown-emscripten';
                 const nullsafeCmd = `$ clang ${baseArgs} input.c`;
                 const mainlineCmd = `$ clang ${baseArgs} -Wno-nullability -Wno-flow-nullability input.c`;
+                const analyzerCmd = `$ clang --analyze -analyzer-checker=core.NullDereference,nullability input.c`;
 
                 // Update headers with version and timing
                 const headers = document.querySelectorAll('.output-section-header');
                 headers[0].innerHTML = `Nullsafe Clang ${clangVersion} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
                 headers[1].innerHTML = `Standard Clang ${clangVersion} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
+                headers[2].innerHTML = `Static Analyzer ${clangVersion} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
 
                 // Count nullability warnings to detect missed bugs
                 const nullWarningCount = (nullsafeResult.stderr.match(/\[-W(?:flow-)?null(?:ability|able-dereference)\]/g) || []).length;
@@ -566,11 +563,21 @@ async function loadExamples() {
                 if (mainlineResult.stdout || mainlineResult.stderr) {
                     outputMainline.textContent = mainlineCmd + '\n' + mainlineResult.stderr + mainlineResult.stdout;
                 } else {
-                    // No warnings suppressed, but check if null-safe had warnings
                     if (nullWarningCount > 0) {
-                        outputMainline.textContent = mainlineCmd + '\n✓ No errors or warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' (see above)';
+                        outputMainline.textContent = mainlineCmd + '\n✓ No errors or warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' (see Nullsafe panel)';
                     } else {
                         outputMainline.textContent = mainlineCmd + '\n✓ No errors or warnings';
+                    }
+                }
+
+                // Display analyzer results
+                if (analyzerResult.stdout || analyzerResult.stderr) {
+                    outputAnalyzer.textContent = analyzerCmd + '\n' + analyzerResult.stderr + analyzerResult.stdout;
+                } else {
+                    if (nullWarningCount > 0) {
+                        outputAnalyzer.textContent = analyzerCmd + '\n✓ No warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' that Nullsafe Clang caught';
+                    } else {
+                        outputAnalyzer.textContent = analyzerCmd + '\n✓ No warnings';
                     }
                 }
 
@@ -580,6 +587,7 @@ async function loadExamples() {
                 const errorMsg = error.message || String(error);
                 outputNullsafe.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
                 outputMainline.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
+                outputAnalyzer.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
                 status.textContent = 'Compilation error';
                 status.className = 'status error';
                 console.error('Compilation error:', error);
@@ -590,7 +598,7 @@ async function loadExamples() {
             }
         }
 
-        async function compileCode(code, extraFlags = []) {
+        async function compileCode(code, extraFlags = [], baseFlags = null) {
             return new Promise((resolve, reject) => {
                 const worker = new Worker('compiler-worker.js');
 
@@ -610,11 +618,9 @@ async function loadExamples() {
 
                     if (type === 'ready') {
                         // Worker is ready, send compile request
-                        worker.postMessage({
-                            type: 'compile',
-                            code,
-                            extraFlags
-                        });
+                        const msg = { type: 'compile', code, extraFlags };
+                        if (baseFlags) msg.baseFlags = baseFlags;
+                        worker.postMessage(msg);
                     } else if (type === 'stdout') {
                         stdout += text + '\n';
                     } else if (type === 'stderr') {
