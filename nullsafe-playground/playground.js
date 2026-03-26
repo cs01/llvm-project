@@ -323,9 +323,9 @@ async function loadExamples() {
             // Build the issue body
             const issueBody = '## Bug Report from Playground\n\n' +
                 '### Environment\n' +
-                '- **Compiler Version:** ' + (clangVersion || 'not loaded') + '\x60\x60\x60\n' +
-                '- **Browser:** ' + formattedBrowser + '\x60\x60\x60\n' +
-                '- **User Agent:** ' + ua + '\x60\x60\x60\n' +
+                '- **Compiler Version:** `' + (clangVersion || 'not loaded') + '`\n' +
+                '- **Browser:** `' + formattedBrowser + '`\n' +
+                '- **User Agent:** `' + ua + '`\n' +
                 '- **Playground URL:** ' + window.location.href + '\n\n' +
                 '### Code\n' +
                 '\x60\x60\x60c\n' +
@@ -474,8 +474,6 @@ async function loadExamples() {
                 const versionMatch = versionOutput.match(/clang version ([^\s]+)/);
                 if (versionMatch) {
                     clangVersion = versionMatch[1];
-                    document.querySelector('.output-section-header').textContent =
-                        `Null-Safe Clang ${clangVersion}`;
                 }
 
                 status.textContent = 'Ready to compile';
@@ -539,7 +537,7 @@ async function loadExamples() {
                 // Compile both versions in parallel
                 const [nullsafeResult, mainlineResult] = await Promise.all([
                     compileCode(code, []),
-                    compileCode(code, ['-Wno-nullability'])
+                    compileCode(code, ['-Wno-nullability', '-Wno-flow-nullability'])
                 ]);
 
                 const duration = (performance.now() - startTime).toFixed(0);
@@ -547,15 +545,15 @@ async function loadExamples() {
                 // Build command strings
                 const baseArgs = '-fsyntax-only --target=wasm32-unknown-emscripten';
                 const nullsafeCmd = `$ clang ${baseArgs} input.c`;
-                const mainlineCmd = `$ clang ${baseArgs} -Wno-nullability input.c`;
+                const mainlineCmd = `$ clang ${baseArgs} -Wno-nullability -Wno-flow-nullability input.c`;
 
-                // Update headers with clearer titles and timing
+                // Update headers with version and timing
                 const headers = document.querySelectorAll('.output-section-header');
-                headers[0].innerHTML = `<strong>With</strong> Null Warnings (clang v${clangVersion}) <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
-                headers[1].innerHTML = `<strong>Without</strong> Null Warnings (clang v${clangVersion}) <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
+                headers[0].innerHTML = `Nullsafe Clang ${clangVersion} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
+                headers[1].innerHTML = `Standard Clang ${clangVersion} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
 
                 // Count nullability warnings to detect missed bugs
-                const nullWarningCount = (nullsafeResult.stderr.match(/\[-Wnullability\]/g) || []).length;
+                const nullWarningCount = (nullsafeResult.stderr.match(/\[-W(?:flow-)?null(?:ability|able-dereference)\]/g) || []).length;
 
                 // Display null-safe results with command
                 if (nullsafeResult.stdout || nullsafeResult.stderr) {
