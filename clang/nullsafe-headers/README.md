@@ -1,6 +1,6 @@
-# Null-Safe C Standard Library Headers
+# Nullsafe Clang Standard Library Headers
 
-Nullability-annotated C standard library headers for use with Null-Safe Clang. Uses Clang's `_Nonnull` and `_Nullable` attributes to catch null pointer dereferences at compile time.
+Nullability-annotated C standard library headers for use with Nullsafe Clanglang. Uses Clang's `_Nonnull` and `_Nullable` attributes to catch null pointer dereferences at compile time.
 
 ## Quick Start
 
@@ -85,8 +85,8 @@ void read_config(const char* filename) {
 
 ## FAQ
 
-**Q: Does this require Null-Safe Clang?**
-A: No. Works with any Clang. Null-Safe Clang provides better flow-sensitive analysis.
+**Q: Does this require Nullsafe Clanglang?**
+A: No. Works with any Clang. Nullsafe Clanglang provides better flow-sensitive analysis.
 
 **Q: Do I need to recompile libc?**
 A: No. These are just declarations; links to system libc.
@@ -108,5 +108,5 @@ Guidelines for adding annotations:
 3. Return types default to `_Nullable` (conservative)
 4. Test against real libc to verify correctness
 
-See the [main README](../../README.md) for more information about Null-Safe Clang.
+See the [main README](../../README.md) for more information about Nullsafe Clanglang.
 

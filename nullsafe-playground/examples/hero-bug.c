@@ -1,6 +1,6 @@
 // Standard clang compiles this with ZERO warnings.
 // But there's a null pointer crash hiding here.
-// Nullsafe C catches it at compile time.
+// Nullsafe Clang catches it at compile time.
 
 typedef struct Config {
     int timeout;
