@@ -1,4 +1,4 @@
-# Nullsafe Clang
+# Nullsafe Clanglang
 
 **Compile-time null pointer dereference checking for C and C++.**
 
@@ -55,11 +55,11 @@ Partially. Clang has several null-related tools, but none of them do what this f
 
 ### `-Wnullability` (stock Clang)
 
-Checks **type conversions only** — warns when you pass a `_Nullable` pointer to a `_Nonnull` parameter. This is useful and Nullsafe C preserves it. But `-Wnullability` doesn't warn on *dereferences*. You can write `*p` where `p` is `_Nullable` and get zero warnings.
+Checks **type conversions only** — warns when you pass a `_Nullable` pointer to a `_Nonnull` parameter. This is useful and Nullsafe Clang preserves it. But `-Wnullability` doesn't warn on *dereferences*. You can write `*p` where `p` is `_Nullable` and get zero warnings.
 
 ### Clang Static Analyzer (`--analyze` / clang-tidy)
 
-A separate tool that uses **symbolic execution** to explore paths. Its `nullability.NullableDereferenced` checker is actually quite good — **on annotated code, it catches the same bugs Nullsafe C does**, including flow-sensitive patterns like "checked the wrong pointer" and "forgot to return after null check." It understands flow narrowing and path conditions.
+A separate tool that uses **symbolic execution** to explore paths. Its `nullability.NullableDereferenced` checker is actually quite good — **on annotated code, it catches the same bugs Nullsafe Clang does**, including flow-sensitive patterns like "checked the wrong pointer" and "forgot to return after null check." It understands flow narrowing and path conditions.
 
 The catch is bootstrapping. CSA's null checker only fires on pointers annotated `_Nullable`. On unannotated code — which is virtually all existing C/C++ — it finds almost nothing. There's no equivalent of `-fnullability-default=nullable` to treat unannotated pointers as nullable. You'd have to annotate your codebase first to benefit from the analysis, but you need the analysis to know where to annotate.
 
@@ -71,11 +71,11 @@ Other limitations:
 
 ### ASan / TSan / UBSan
 
-**Runtime** sanitizers. They find bugs by executing the code and observing crashes. They require test coverage to be effective and have runtime overhead. Nullsafe C catches bugs before the code ever runs.
+**Runtime** sanitizers. They find bugs by executing the code and observing crashes. They require test coverage to be effective and have runtime overhead. Nullsafe Clang catches bugs before the code ever runs.
 
-### What Nullsafe C adds
+### What Nullsafe Clang adds
 
-Where CSA uses symbolic execution (whole-program path exploration), Nullsafe C uses **forward dataflow analysis** — a single linear pass over the CFG, same algorithm as `-Wuninitialized`. This has three practical consequences:
+Where CSA uses symbolic execution (whole-program path exploration), Nullsafe Clang uses **forward dataflow analysis** — a single linear pass over the CFG, same algorithm as `-Wuninitialized`. This has three practical consequences:
 
 - **Fast enough to run on every build.** Dataflow analysis merges states at join points rather than exploring each path individually, so it doesn't explode with branching the way symbolic execution does. It runs inside the compiler as part of the normal compile, not as a separate tool.
 - **In your IDE.** Because it's part of the compiler, clangd picks it up. You get squiggly lines as you type.
@@ -111,7 +111,7 @@ This is **intraprocedural** — it analyzes one function at a time. This is what
 
 **Warnings (bugs found):**
 
-| Pattern | Stock Clang | Nullsafe C |
+| Pattern | Stock Clang | Nullsafe Clang |
 |---------|:-----------:|:----------:|
 | Passing `_Nullable` to `_Nonnull` param | **warns** | **warns** |
 | Deref of `_Nullable` pointer (`*p`, `p->x`, `p[i]`) | silent | **warns** |
@@ -120,7 +120,7 @@ This is **intraprocedural** — it analyzes one function at a time. This is what
 
 **No false positives (safe code recognized):**
 
-| Pattern | Nullsafe C |
+| Pattern | Nullsafe Clang |
 |---------|:----------:|
 | Deref after null check (`if (p)`) | ✅ no warning |
 | Deref after early return (`if (!p) return`) | ✅ no warning |

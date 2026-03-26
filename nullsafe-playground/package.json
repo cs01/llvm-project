@@ -1,7 +1,7 @@
 {
   "name": "null-safe-clang-playground",
   "version": "1.0.0",
-  "description": "Interactive playground for Null-Safe C with real-time diagnostics",
+  "description": "Interactive playground for Nullsafe Clang with real-time diagnostics",
   "main": "index.html",
   "scripts": {
     "serve": "python3 serve.py",
