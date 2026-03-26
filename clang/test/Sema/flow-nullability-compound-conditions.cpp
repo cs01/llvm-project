@@ -62,14 +62,13 @@ void test_triple_and(Node * _Nullable a, Node * _Nullable b, Node * _Nullable c)
     }
 }
 
-// === Negated && ===
+// === Negated && — both narrowed after early return ===
 
 void test_negated_and(Node * _Nullable p, Node * _Nullable q) {
     if (!(p && q)) return;
-    // Known limitation: !(p && q) is not decomposed into narrowing for both.
-    // The CFG decomposes this differently than !p || !q.
-    (void)p->value; // expected-warning{{dereferencing nullable pointer}}
-    (void)q->value; // expected-warning{{dereferencing nullable pointer}}
+    // De Morgan equivalent: both must be non-null to reach here
+    (void)p->value; // OK
+    (void)q->value; // OK
 }
 
 // === != nullptr with && ===
@@ -136,16 +135,84 @@ void test_multi_ternary(Node * _Nullable a, Node * _Nullable b) {
     int v = a ? a->value : (b ? b->value : 0); // OK — each narrowed in its branch
 }
 
-// === Boolean variable from null check (limitation test) ===
-// The analysis tracks narrowing directly — boolean intermediaries are
-// not tracked. This is a known limitation.
+// === Boolean intermediary from null check ===
 
 void test_bool_intermediary(Node * _Nullable p) {
     bool valid = (p != nullptr);
     if (valid) {
-        // The analysis may not track that 'valid' means p is non-null.
-        // This is a known limitation — we test the current behavior.
+        (void)p->value; // OK — tracked through bool guard
+    }
+}
+
+// === Boolean intermediary: equality check ===
+
+void test_bool_eq_null(Node * _Nullable p) {
+    bool isNull = (p == nullptr);
+    if (!isNull) {
+        (void)p->value; // OK — !isNull means p is non-null
+    }
+}
+
+// === Boolean intermediary: pointer truthiness ===
+
+void test_bool_truthiness(Node * _Nullable p) {
+    bool valid = p;
+    if (valid) {
+        (void)p->value; // OK — valid means p is truthy (non-null)
+    }
+}
+
+// === Boolean intermediary: negated pointer ===
+
+void test_bool_negated_ptr(Node * _Nullable p) {
+    bool isNull = !p;
+    if (!isNull) {
+        (void)p->value; // OK — !isNull means p is non-null
+    }
+    if (isNull) {
         (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    }
+}
+
+// === Boolean intermediary invalidated by pointer reassignment ===
+
+void test_bool_ptr_reassigned(Node * _Nullable p, Node * _Nullable q) {
+    bool valid = (p != nullptr);
+    p = q; // reassign p — guard is now stale
+    if (valid) {
+        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    }
+}
+
+// === Boolean intermediary invalidated by bool reassignment ===
+
+void test_bool_reassigned(Node * _Nullable p) {
+    bool valid = (p != nullptr);
+    valid = false; // reassign bool — guard is gone
+    if (valid) {
+        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    }
+}
+
+// === Negated && with triple condition ===
+
+void test_negated_triple_and(Node * _Nullable a, Node * _Nullable b, Node * _Nullable c) {
+    if (!(a && b && c)) return;
+    (void)a->value; // OK
+    (void)b->value; // OK
+    (void)c->value; // OK
+}
+
+// === Negated && in if-else (body should NOT narrow) ===
+
+void test_negated_and_body(Node * _Nullable p, Node * _Nullable q) {
+    if (!(p && q)) {
+        // At least one is null — can't narrow either
+        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    } else {
+        // Both non-null
+        (void)p->value; // OK
+        (void)q->value; // OK
     }
 }
 
