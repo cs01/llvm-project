@@ -3299,6 +3299,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
                         D->getBeginLoc())) {
     if (shouldEnableFlowNullability(S, D)) {
       if (AC.getCFG()) {
+        llvm::TimeTraceScope TimeProfile("FlowNullabilityAnalysis");
         FlowNullabilityReporter Reporter(S);
         NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
         bool StrictMode = (Default != NullabilityKind::Unspecified);
