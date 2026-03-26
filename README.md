@@ -310,6 +310,10 @@ No new AST nodes, no changes to type checking, no changes to codegen. The analys
 
 The analysis uses per-edge state tracking (`EdgeStates[{pred, succ}]`) so branch-refined narrowing propagates correctly. Entry state for each block is the intersection of all predecessor edge states — a pointer is only considered narrowed if ALL paths agree.
 
+For a deeper dive, see:
+- **[Architecture Diagrams](docs/flow-nullability-architecture.md)** — Mermaid flow diagrams of the three-layer design, worklist algorithm, state tracking, and transfer functions
+- **[Architecture Review Guide](docs/flow-nullability-review-guide.md)** — written walkthrough with concrete code examples for every concept
+
 ## Limitations
 
 - **Intraprocedural** — does not look inside called functions. This is by design: it's what makes the analysis fast, and it means you can reason about one function at a time. Cross-function contracts are expressed with `_Nonnull` and `_Nullable` annotations on function signatures.
