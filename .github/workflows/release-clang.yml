@@ -42,14 +42,14 @@ jobs:
             artifacts/clang-nullsafe-macos-universal.tar.gz
             artifacts/clang-nullsafe-wasm.tar.gz
           body: |
-            ## Null-Safe Clang Release
+            ## Nullsafe Clanglang Release
 
-            This release contains the Null-Safe Clang compiler for all platforms.
+            This release contains the Nullsafe Clanglang compiler for all platforms.
 
             ### What's included:
 
             **Native Binaries (Linux/macOS):**
-            - `clang` - The Null-Safe C compiler
+            - `clang` - The Nullsafe Clang compiler
             - `clangd` - Language server for IDE integration (VSCode, vim, etc.)
 
             **WebAssembly:**
