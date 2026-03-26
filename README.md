@@ -1,4 +1,4 @@
-# Nullsafe C
+# Nullsafe Clang
 
 **Compile-time null pointer dereference checking for C and C++.**
 
