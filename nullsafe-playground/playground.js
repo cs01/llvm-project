@@ -390,10 +390,11 @@ async function loadExamples() {
                 }
             }
 
-            // Priority 3: Default to first example (null-check)
-            if (examples['hero-bug']) {
-                setEditorValue(examples['hero-bug']);
-                examplesSelect.value = 'null-check';
+            // Priority 3: Default to the first real example option
+            const firstOption = examplesSelect.querySelector('option:not([disabled])');
+            if (firstOption && examples[firstOption.value]) {
+                setEditorValue(examples[firstOption.value]);
+                examplesSelect.value = firstOption.value;
             }
         }
 

@@ -16,17 +16,19 @@
         }
 
         :root {
-            --bg-primary: #1e1e1e;
-            --bg-secondary: #252526;
-            --bg-tertiary: #2d2d30;
-            --border-color: #3e3e42;
-            --text-primary: #d4d4d4;
-            --text-secondary: #cccccc;
-            --text-muted: #888;
-            --accent-blue: #4a90e2;
+            --bg-primary: #1a1b1e;
+            --bg-secondary: #22232a;
+            --bg-tertiary: #2a2b33;
+            --border-color: #363840;
+            --text-primary: #e0e0e6;
+            --text-secondary: #c8c8d0;
+            --text-muted: #6e7186;
+            --accent-blue: #5b8def;
+            --accent-gradient: linear-gradient(135deg, #4a6cf7 0%, #5b8def 50%, #6ea8fe 100%);
             --success: #4ec9b0;
-            --warning: #ffb84d;
-            --error: #ff5252;
+            --warning: #f0a050;
+            --error: #f05050;
+            --radius: 8px;
         }
 
         body {
@@ -40,13 +42,26 @@
         }
 
         .header {
-            background: var(--accent-blue);
-            padding: 24px 32px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+            background: var(--accent-gradient);
+            padding: 20px 32px;
+            box-shadow: 0 2px 24px rgba(74, 108, 247, 0.25);
             position: relative;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            overflow: hidden;
+        }
+
+        /* Subtle decorative pattern in header */
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -10%;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+            pointer-events: none;
         }
 
         .header-content {
@@ -56,75 +71,84 @@
 
         .header-links {
             display: flex;
-            gap: 16px;
+            gap: 8px;
             align-items: center;
+            position: relative;
+            z-index: 1;
         }
 
         .header-link {
-            color: white;
+            color: rgba(255,255,255,0.9);
             text-decoration: none;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
-            padding: 8px 16px;
-            border-radius: 4px;
-            transition: background 0.2s;
+            padding: 7px 14px;
+            border-radius: 6px;
+            transition: all 0.2s;
+            border: 1px solid rgba(255,255,255,0.15);
+            backdrop-filter: blur(4px);
         }
 
         .header-link:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255,255,255,0.3);
+            color: white;
         }
 
         .header h1 {
             color: white;
-            font-size: 32px;
+            font-size: 22px;
             font-weight: 700;
-            letter-spacing: -0.8px;
-            margin-bottom: 6px;
+            letter-spacing: -0.5px;
+            margin-bottom: 3px;
         }
 
         .header p {
-            color: rgba(255,255,255,0.95);
-            font-size: 15px;
+            color: rgba(255,255,255,0.8);
+            font-size: 13px;
             font-weight: 400;
+            letter-spacing: 0.2px;
         }
 
         .controls {
-            padding: 16px 32px;
+            padding: 12px 24px;
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             flex-wrap: wrap;
         }
 
         .btn {
             border: none;
-            padding: 10px 24px;
-            font-size: 14px;
+            padding: 8px 20px;
+            font-size: 13px;
             font-weight: 600;
-            border-radius: 6px;
+            border-radius: var(--radius);
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             white-space: nowrap;
         }
 
         .btn-primary {
-            background: var(--accent-blue);
+            background: var(--accent-gradient);
             color: white;
-            box-shadow: 0 2px 8px rgba(74, 144, 226, 0.3);
+            box-shadow: 0 2px 12px rgba(91, 141, 239, 0.3);
         }
 
         .btn-primary:hover:not(:disabled) {
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.4);
+            box-shadow: 0 4px 16px rgba(91, 141, 239, 0.45);
+            filter: brightness(1.08);
         }
 
         .btn-primary:active:not(:disabled) {
             transform: translateY(0);
+            filter: brightness(0.95);
         }
 
         .btn-secondary {
@@ -134,12 +158,12 @@
         }
 
         .btn-secondary:hover:not(:disabled) {
-            background: #3a3a3d;
-            border-color: #4e4e52;
+            background: #33343d;
+            border-color: #4a4c56;
         }
 
         .btn:disabled {
-            opacity: 0.5;
+            opacity: 0.4;
             cursor: not-allowed;
             transform: none;
         }
@@ -152,48 +176,60 @@
             background: var(--bg-tertiary);
             color: var(--text-secondary);
             border: 1px solid var(--border-color);
-            padding: 10px 16px;
-            font-size: 14px;
-            border-radius: 6px;
+            padding: 8px 14px;
+            font-size: 13px;
+            border-radius: var(--radius);
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.15s;
             min-width: 200px;
+            -webkit-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%236e7186' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14L2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 01.753 1.659l-4.796 5.48a1 1 0 01-1.506 0z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 32px;
         }
 
         .examples-select:hover {
-            background: #3a3a3d;
-            border-color: #4e4e52;
+            background-color: #33343d;
+            border-color: #4a4c56;
+        }
+
+        .examples-select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 2px rgba(91, 141, 239, 0.2);
         }
 
         .status {
-            color: var(--text-primary);
-            font-size: 13px;
+            color: var(--text-muted);
+            font-size: 12px;
             margin-left: auto;
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 6px 14px;
-            border-radius: 16px;
+            padding: 5px 12px;
+            border-radius: 20px;
             background: var(--bg-tertiary);
             border: 1px solid var(--border-color);
             font-weight: 500;
         }
 
         .status.ready {
-            background: rgba(78, 201, 176, 0.15);
-            border-color: rgba(78, 201, 176, 0.3);
+            background: rgba(78, 201, 176, 0.1);
+            border-color: rgba(78, 201, 176, 0.25);
             color: var(--success);
         }
 
         .status.compiling {
-            background: rgba(255, 184, 77, 0.15);
-            border-color: rgba(255, 184, 77, 0.3);
+            background: rgba(240, 160, 80, 0.1);
+            border-color: rgba(240, 160, 80, 0.25);
             color: var(--warning);
         }
 
         .status.error {
-            background: rgba(255, 82, 82, 0.15);
-            border-color: rgba(255, 82, 82, 0.3);
+            background: rgba(240, 80, 80, 0.1);
+            border-color: rgba(240, 80, 80, 0.25);
             color: var(--error);
         }
 
@@ -268,11 +304,11 @@
 
         .pane-header {
             background: var(--bg-secondary);
-            color: var(--text-secondary);
-            padding: 12px 20px;
-            font-size: 13px;
+            color: var(--text-muted);
+            padding: 10px 16px;
+            font-size: 11px;
             font-weight: 600;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.8px;
             text-transform: uppercase;
             border-bottom: 1px solid var(--border-color);
             display: flex;
@@ -290,10 +326,10 @@
             border: none;
             color: var(--text-muted);
             cursor: pointer;
-            padding: 4px 8px;
+            padding: 3px 8px;
             border-radius: 4px;
-            font-size: 12px;
-            transition: all 0.2s;
+            font-size: 11px;
+            transition: all 0.15s;
         }
 
         .icon-btn:hover {
@@ -302,12 +338,12 @@
         }
 
         .divider {
-            width: 5px;
+            width: 4px;
             background: var(--border-color);
             cursor: col-resize;
             position: relative;
             flex-shrink: 0;
-            transition: background 0.2s;
+            transition: background 0.15s;
         }
 
         .divider:hover {
@@ -331,9 +367,9 @@
 
         #output {
             flex: 1;
-            padding: 20px;
+            padding: 16px;
             font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
-            font-size: 13px;
+            font-size: 12px;
             line-height: 1.7;
             background: var(--bg-primary);
             color: var(--text-primary);
@@ -371,19 +407,33 @@
 
         .output-section-header {
             background: var(--bg-tertiary);
-            padding: 10px 16px;
-            font-size: 14px;
+            padding: 8px 16px;
+            font-size: 12px;
             font-weight: 600;
-            color: var(--text-primary);
+            color: var(--text-secondary);
             border-bottom: 1px solid var(--border-color);
             flex-shrink: 0;
+            position: relative;
+            letter-spacing: 0.3px;
+        }
+
+        /* Green accent for nullsafe panel */
+        .output-section:first-child .output-section-header {
+            border-left: 3px solid var(--success);
+            padding-left: 13px;
+        }
+
+        /* Amber accent for without-warnings panel */
+        .output-section:last-child .output-section-header {
+            border-left: 3px solid var(--warning);
+            padding-left: 13px;
         }
 
         .output-content {
             flex: 1;
-            padding: 20px;
+            padding: 16px;
             font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
-            font-size: 13px;
+            font-size: 12px;
             line-height: 1.7;
             background: var(--bg-primary);
             color: var(--text-primary);
@@ -399,11 +449,12 @@
         }
 
         .output-divider {
-            height: 5px;
+            height: 3px;
             background: var(--border-color);
             cursor: row-resize;
             position: relative;
             flex-shrink: 0;
+            transition: background 0.15s;
         }
 
         .output-divider:hover {
@@ -415,14 +466,15 @@
         .success { color: var(--success); }
 
         .loading-bar {
-            height: 3px;
-            background: var(--accent-blue);
+            height: 2px;
+            background: var(--accent-gradient);
             position: absolute;
             top: 0;
             left: 0;
             width: 0;
             transition: width 0.3s ease;
             opacity: 0;
+            z-index: 10;
         }
 
         .loading-bar.active {
@@ -438,18 +490,19 @@
 
         .toast {
             position: fixed;
-            bottom: 24px;
-            right: 24px;
-            background: var(--bg-secondary);
+            bottom: 20px;
+            right: 20px;
+            background: var(--bg-tertiary);
             color: var(--text-primary);
-            padding: 12px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+            padding: 10px 18px;
+            border-radius: var(--radius);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
             border: 1px solid var(--border-color);
-            transform: translateY(100px);
+            transform: translateY(80px);
             opacity: 0;
-            transition: all 0.3s ease;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 1000;
+            font-size: 13px;
         }
 
         .toast.show {
@@ -502,19 +555,19 @@
             }
 
             .header {
-                padding: 16px 20px;
+                padding: 14px 16px;
                 flex-direction: column;
                 align-items: flex-start;
-                gap: 12px;
+                gap: 10px;
             }
 
             .header h1 {
-                font-size: 24px;
-                margin-bottom: 4px;
+                font-size: 18px;
+                margin-bottom: 2px;
             }
 
             .header p {
-                font-size: 14px;
+                font-size: 12px;
             }
 
             .header-links {
@@ -522,7 +575,7 @@
             }
 
             .controls {
-                padding: 12px 20px;
+                padding: 10px 16px;
             }
 
             .status {
@@ -564,7 +617,8 @@
         </button>
 
         <select id="examplesSelect" class="examples-select" title="Load example code to see Nullsafe Clang in action">
-            <option value="hero-bug" selected>1. The Forgotten Return</option>
+            <option value="" disabled hidden>Custom Code</option>
+            <option value="hero-bug" selected>1. The Simplest Bug</option>
             <option value="flow-narrowing">2. Flow-Sensitive Narrowing</option>
             <option value="linked-list">3. Linked List & Struct Members</option>
             <option value="function-contracts">4. Function Contracts (_Nonnull)</option>
