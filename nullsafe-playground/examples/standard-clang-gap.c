@@ -1,5 +1,5 @@
 // A real bug pattern: you check one pointer but use another.
-// Standard Clang sees nothing wrong. Nullsafe C catches it.
+// Standard Clang sees nothing wrong. Nullsafe Clang catches it.
 
 typedef struct {
     int x, y;
