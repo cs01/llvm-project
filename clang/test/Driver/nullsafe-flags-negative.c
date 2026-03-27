@@ -18,12 +18,7 @@
 // RUN: %clang -### -fnullability-default=invalid %s 2>&1 | FileCheck -check-prefix=INVALID %s
 // INVALID: "-fnullability-default=invalid"
 
-// === -fstrict-nullability-inference forwarding ===
-// RUN: %clang -### -fstrict-nullability-inference %s 2>&1 | FileCheck -check-prefix=STRICT-ONLY %s
-// STRICT-ONLY: "-fstrict-nullability-inference"
-
 // === All flags together ===
-// RUN: %clang -### -fflow-sensitive-nullability -fnullability-default=nullable -fstrict-nullability-inference %s 2>&1 | FileCheck -check-prefix=ALL %s
+// RUN: %clang -### -fflow-sensitive-nullability -fnullability-default=nullable %s 2>&1 | FileCheck -check-prefix=ALL %s
 // ALL: "-fflow-sensitive-nullability"
-// ALL: "-fstrict-nullability-inference"
 // ALL: "-fnullability-default=nullable"

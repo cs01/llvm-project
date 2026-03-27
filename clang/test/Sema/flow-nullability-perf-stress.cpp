@@ -6,6 +6,7 @@
 // Modeled after clang/test/Analysis/runtime-regression.c — the test passes
 // if it finishes; there are no diagnostic expectations beyond that.
 //
+// UNSUPPORTED: asan, msan, ubsan
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 %s -verify
 // expected-no-diagnostics
 

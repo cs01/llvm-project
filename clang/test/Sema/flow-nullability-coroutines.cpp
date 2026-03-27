@@ -2,38 +2,10 @@
 // Coroutines introduce suspension points where control flow is non-obvious.
 // The analysis should handle co_await/co_yield/co_return without crashing
 // and without producing spurious warnings.
-// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++20 %s -verify
+// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++20 -I%S/../SemaCXX/Inputs %s -verify
 // expected-no-diagnostics
 
-// Minimal coroutine infrastructure (matches clang/test/SemaCXX/Inputs/std-coroutine.h)
-namespace std {
-template <class Ret, typename... T>
-struct coroutine_traits { using promise_type = typename Ret::promise_type; };
-
-template <class Promise = void>
-struct coroutine_handle {
-    static coroutine_handle from_address(void *) noexcept;
-    static coroutine_handle from_promise(Promise &promise);
-    constexpr void *address() const noexcept;
-};
-template <>
-struct coroutine_handle<void> {
-    template <class PromiseType>
-    coroutine_handle(coroutine_handle<PromiseType>) noexcept;
-    static coroutine_handle from_address(void *);
-    constexpr void *address() const noexcept;
-};
-struct suspend_always {
-    bool await_ready() noexcept { return false; }
-    void await_suspend(coroutine_handle<>) noexcept {}
-    void await_resume() noexcept {}
-};
-struct suspend_never {
-    bool await_ready() noexcept { return true; }
-    void await_suspend(coroutine_handle<>) noexcept {}
-    void await_resume() noexcept {}
-};
-} // namespace std
+#include "std-coroutine.h"
 
 struct Node {
     int value;

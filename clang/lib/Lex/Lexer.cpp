@@ -4163,8 +4163,7 @@ LexStart:
     }
     break;
   case '*':
-    Char = getCharAndSize(CurPtr, SizeTmp);
-    if (Char == '=') {
+    if (getCharAndSize(CurPtr, SizeTmp) == '=') {
       Kind = tok::starequal;
       CurPtr = ConsumeChar(CurPtr, SizeTmp, Result);
     } else {

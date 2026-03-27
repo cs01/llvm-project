@@ -66,16 +66,15 @@ build/bin/llvm-lit test/Sema/flow-nullability-arrow-deref.cpp -v
 
 - `-fflow-sensitive-nullability` - enables flow-sensitive nullability analysis
 - `-fnullability-default=nullable|nonnull|unspecified` - sets default nullability for unannotated pointers
-- `-fstrict-nullability-inference` - treats inferred nullability as explicit
 
 ## Key Files (Nullsafe Changes)
 
 - `lib/Analysis/FlowNullability.cpp` - CFG-based forward dataflow analysis: nullability narrowing, dereference checking, condition analysis, per-edge state tracking
 - `include/clang/Analysis/Analyses/FlowNullability.h` - analysis interface: `FlowNullabilityHandler` callback, `runFlowNullabilityAnalysis` entry point
-- `lib/Sema/AnalysisBasedWarnings.cpp` - wires the analysis into Clang's warning pipeline: `FlowNullabilityReporter`, `shouldEnableFlowNullability`, CFG build options
-- `lib/Sema/SemaDecl.cpp` - gradual adoption gating: sets `FlowSensitiveNullabilityEnabled` per-function in `ActOnStartOfFunctionDef`
-- `include/clang/Sema/Sema.h` - `FlowSensitiveNullabilityEnabled` flag, `FunctionHasNullabilityAnnotations`
-- `lib/Sema/Sema.cpp` - `FunctionHasNullabilityAnnotations`, `diagnoseNullableToNonnullConversion`
+- `lib/Sema/AnalysisBasedWarnings.cpp` - wires the analysis into Clang's warning pipeline: `FlowNullabilityReporter`, CFG build options
+- `lib/Sema/SemaDecl.cpp` - gradual adoption gating: sets flow nullability enabled per-function in `ActOnStartOfFunctionDef`
+- `include/clang/Sema/Sema.h` - `isFlowNullabilityEnabled()` accessor, `functionHasNullabilityAnnotations`
+- `lib/Sema/Sema.cpp` - `functionHasNullabilityAnnotations`, `diagnoseNullableToNonnullConversion`
 - `lib/Driver/ToolChains/Clang.cpp` - driver-to-cc1 flag forwarding
 - `include/clang/Driver/Options.td` - flag definitions
 - `include/clang/Basic/DiagnosticSemaKinds.td` - `warn_strict_nullability_dereference` diagnostic
@@ -89,7 +88,7 @@ The analysis follows the same pattern as Clang's ThreadSafety and UninitializedV
 
 **`lib/Analysis/FlowNullability.cpp`** — the analysis algorithm. Operates on the CFG (control flow graph), which Clang builds automatically from the AST. Uses `ForwardDataflowWorklist` for fixpoint iteration over CFG blocks in reverse-post-order. Tracks `NullState` (sets of narrowed variables and members) per edge, intersecting at merge points. Reports dereferences of nullable pointers via `FlowNullabilityHandler` callbacks.
 
-**`lib/Sema/AnalysisBasedWarnings.cpp`** — the glue layer. Builds the CFG, instantiates the analysis, and converts handler callbacks into `S.Diag()` calls. Also decides whether to run the analysis per-function via `shouldEnableFlowNullability`.
+**`lib/Sema/AnalysisBasedWarnings.cpp`** — the glue layer. Builds the CFG, instantiates the analysis, and converts handler callbacks into `S.Diag()` calls. Gated by `EnableFlowNullability` (precomputed from LangOpts and diagnostic state).
 
 **`test/Sema/flow-nullability-*.cpp`** — tests live in `test/Sema/` because the diagnostics are Sema diagnostics, even though the analysis itself is CFG-based. This matches how ThreadSafety tests live in `test/SemaCXX/`.
 
@@ -108,7 +107,7 @@ Transfer functions handle: `DeclStmt` (nonnull init), `BinaryOperator` (assignme
 
 ### Gradual adoption
 
-Flow-sensitive checking only activates per-function when inside a `#pragma clang assume_nonnull` region OR when `-fnullability-default` is set to something other than `unspecified`. This is determined in `SemaDecl.cpp:ActOnStartOfFunctionDef` and stored as `FlowSensitiveNullabilityEnabled` on the `Sema` instance.
+Flow-sensitive checking only activates per-function when inside a `#pragma clang assume_nonnull` region OR when `-fnullability-default` is set to something other than `unspecified`. This is determined in `SemaDecl.cpp:ActOnStartOfFunctionDef` and stored via `setFlowNullabilityEnabled()` on the `Sema` instance (private bool with public accessor `isFlowNullabilityEnabled()`).
 
 ### Design decisions
 
@@ -122,8 +121,8 @@ Flow-sensitive checking only activates per-function when inside a `#pragma clang
 
 Two branches are maintained:
 
-- **`nullsafe-clang-dev`** — the full fork with playground, install scripts, CI, WASM build, docs, etc. All development happens here.
-- **`nullsafe-upstream`** — clean branch with only the core compiler changes (68 files), used for the upstream PR to `llvm/llvm-project`.
+- **`nullsafe-clang-dev`** — the full fork with playground, install scripts, CI, WASM build, docs, etc. **All development happens here. Always work on this branch.**
+- **`nullsafe-upstream`** — clean branch with only the core compiler changes (68 files), used for the upstream PR to `llvm/llvm-project`. **Never work directly on this branch** — it is rebuilt from `nullsafe-clang-dev` via `sync-upstream.sh`.
 
 Run `./tools/sync-upstream.sh` to rebuild `nullsafe-upstream` from the current state of `nullsafe-clang-dev`. It filters out all fork-only files and creates a single commit on top of `llvm/main`.
 

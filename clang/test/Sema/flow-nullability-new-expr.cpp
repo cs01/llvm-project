@@ -2,7 +2,7 @@
 // while nothrow operator new is left nullable.
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 %s -verify
 
-#include <stddef.h>
+typedef __SIZE_TYPE__ size_t;
 
 namespace std {
   struct nothrow_t {};
