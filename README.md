@@ -4,36 +4,46 @@
 
 [![Test Null-Safety](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml/badge.svg)](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml) &nbsp; [![Try Online](https://img.shields.io/badge/try-online-brightgreen)](https://cs01.github.io/llvm-project/)
 
-A fork of Clang that adds flow-sensitive nullability analysis to the compiler. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++.
+A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++.
 
 > **[Try it in the interactive playground](https://cs01.github.io/llvm-project/)**
 
 ## The problem
 
-Can Clang catch a null pointer dereference? Try this with `-Wall -Wextra`:
+Can Clang catch a null pointer dereference? Try this with every warning flag you can find:
 
 ```c
+// file.c
 int deref(int *p) {
     return *p;  // crashes if p is NULL
 }
 ```
 
-Zero warnings.
+```bash
+$ clang -Wall -Wextra -Wnullability -Wnull-dereference -c file.c
+# zero warnings
+```
 
 OK, let's tell the compiler `p` can be null:
 
 ```c
+// file.c
 int deref(int * _Nullable p) {
     return *p;  // crashes if p is NULL
 }
 ```
 
-Still zero warnings. Even with `-Wnullability`, `-Wnull-dereference`, every flag you can find. The annotation is right there. The dereference is unchecked. Clang doesn't care.
+```bash
+$ clang -Wall -Wextra -Wnullability -c file.c
+# still zero warnings
+```
+
+The annotation is right there. The dereference is unchecked. Clang doesn't care.
 
 **That's why this fork exists.**
 
 ```
-$ nullsafe-clang -fflow-sensitive-nullability -fnullability-default=nullable input.c
+$ nullsafe-clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
 
 warning: dereferencing nullable pointer of type 'int * _Nullable' [-Wflow-nullable-dereference]
     return *p;
@@ -59,59 +69,93 @@ Checks **type conversions only** — warns when you pass a `_Nullable` pointer t
 
 ### Clang Static Analyzer (`--analyze` / clang-tidy)
 
-The static analyzer is a separate tool (invoked via `clang --analyze` or through clang-tidy, which wraps the same engine) that uses **symbolic execution** to explore paths. It has two null-related checkers:
+The static analyzer is a separate tool that uses **symbolic execution** to explore paths. It has two null-related checkers:
 
-- **`core.NullDereference`** — detects null dereferences by tracking pointer values through branches. This is what most people mean when they say "just use the static analyzer." However, it primarily catches cases where a pointer is **explicitly compared to null or assigned null** in the same function. It does not treat unannotated parameters as potentially null — an unannotated `int *p` that is never compared to null in the function body produces no warning when dereferenced, even though the caller could pass NULL.
+- **`core.NullDereference`** — tracks pointer values through branches. Primarily catches cases where a pointer is **explicitly compared to null or assigned null** in the same function. An unannotated `int *p` that is never compared to null produces no warning when dereferenced, even though the caller could pass NULL.
 
-- **`nullability.NullableDereferenced`** — the annotation-aware checker. **On annotated code, this catches the same bugs Nullsafe Clang does**, including flow-sensitive patterns like "checked the wrong pointer" and "forgot to return after null check." It understands flow narrowing and path conditions.
+- **`nullability.NullableDereferenced`** — the annotation-aware checker. **On annotated code, this catches the same bugs Nullsafe Clang does.** It understands flow narrowing and path conditions.
 
-The catch is bootstrapping. Both checkers require something to trigger them — either explicit null comparisons in the code, or `_Nullable` annotations on the types. On unannotated code — which is virtually all existing C/C++ — they find almost nothing. There's no equivalent of `-fnullability-default=nullable` to treat unannotated pointers as nullable. You'd have to annotate your codebase first to benefit from the analysis, but you need the analysis to know where to annotate.
+The catch is bootstrapping. Both checkers require something to trigger them — either explicit null comparisons or `_Nullable` annotations. On unannotated code — which is virtually all existing C/C++ — they find almost nothing. There's no equivalent of `-fnullability-default=nullable` to treat unannotated pointers as nullable.
 
 You can see this for yourself in the **[interactive playground](https://cs01.github.io/llvm-project/)**, which runs all three side-by-side: Nullsafe Clang, standard Clang, and the static analyzer.
 
 Other limitations:
 
-- **Separate tool** — not part of the normal compile. You have to run `--analyze` or use clang-tidy, which wraps the same engine. Must be version-compatible with your project's compiler.
-- **Slow** — symbolic execution is too expensive for every build. It explores each possible path through the function, which grows exponentially with branching.
+- **Separate tool** — not part of the normal compile. Must be version-compatible with your project's compiler.
+- **Slow** — symbolic execution explores each possible path through the function, which grows exponentially with branching.
 - **Not in your IDE** — clangd doesn't run the static analyzer. You only see results when you explicitly run the analysis.
 
 ### ASan / TSan / UBSan
 
-**Runtime** sanitizers. They find bugs by executing the code and observing crashes. They require test coverage to be effective and have runtime overhead. Nullsafe Clang catches bugs before the code ever runs.
+**Runtime** sanitizers. They find bugs by executing the code and observing crashes. They require test coverage and have runtime overhead. Nullsafe Clang catches bugs before the code ever runs.
 
 ### What Nullsafe Clang adds
 
-Where CSA uses symbolic execution (whole-program path exploration), Nullsafe Clang uses **forward dataflow analysis** — a single linear pass over the CFG, same algorithm as `-Wuninitialized`. This has three practical consequences:
+Where CSA uses symbolic execution (whole-program path exploration), Nullsafe Clang uses **forward dataflow analysis** — a single linear pass over the CFG. This makes it:
 
-- **Fast enough to run on every build.** Dataflow analysis merges states at join points rather than exploring each path individually, so it doesn't explode with branching the way symbolic execution does. It runs inside the compiler as part of the normal compile, not as a separate tool.
-- **In your IDE.** Because it's part of the compiler, clangd picks it up. You get squiggly lines as you type.
-- **Works on unannotated code.** With `-fnullability-default=nullable`, every unannotated pointer is treated as nullable. You don't need to annotate first — you can run the analysis against an existing codebase and fix incrementally.
+- **Fast enough to run on every build.** It runs inside the compiler as part of the normal compile, not as a separate tool.
+- **Available in your IDE.** clangd picks it up — you get squiggly lines as you type.
+- **Effective on unannotated code.** With `-fnullability-default=nullable`, every unannotated pointer is treated as nullable. You don't need to annotate first.
 
-## How it works
+## Installation
 
-The analysis runs at the same compiler layer as `-Wuninitialized` and `-Wthread-safety`: a forward dataflow pass over the control flow graph (CFG) during semantic analysis (Sema). It tracks which pointers have been null-checked and which haven't, updating that knowledge at branches, loops, and assignments.
-
-It understands:
-
-```c
-struct Node {
-    int value;
-    struct Node* _Nullable next;
-};
-
-void example(struct Node* _Nullable head) {
-    if (!head) return;       // early return narrows head to nonnull
-    head->value = 1;         // OK
-
-    head->next->value = 2;   // warning — next is _Nullable
-
-    if (head->next) {
-        head->next->value = 2;  // OK — checked
-    }
-}
+```bash
+curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/null-safe-c-dev/install.sh | bash
 ```
 
-This is **intraprocedural** — it analyzes one function at a time. This is what makes it fast, and it's also what makes it *useful*: you can look at a single function and know whether it's safe, without having to fit the whole program in your head. Function calls don't invalidate narrowing — if you proved `p != NULL` before a call, it's still non-null after. This is sound for pass-by-value (the common case), though a function receiving `&p` could theoretically null it.
+Or download from [releases](https://github.com/cs01/llvm-project/releases). Includes `clang` and `clangd`.
+
+### Build from source
+
+```bash
+git clone git@github.com:cs01/llvm-project.git
+cd llvm-project
+git checkout null-safe-c-dev
+cmake -S llvm -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
+  -DLLVM_TARGETS_TO_BUILD="X86" \
+  -DLLVM_USE_LINKER=lld
+ninja -C build clang clangd
+```
+
+## Usage
+
+```bash
+# Gradual: only check annotated regions (default, zero noise on legacy code)
+clang -fflow-sensitive-nullability file.c
+
+# Defensive: treat all pointers as nullable, force null checks everywhere
+clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
+
+# Treat warnings as errors
+clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-nullable-dereference file.c
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-fflow-sensitive-nullability` | Enable the analysis (required) |
+| `-fnullability-default=unspecified` | Default. Warnings only inside `#pragma assume_nonnull` regions |
+| `-fnullability-default=nullable` | All unannotated pointers are nullable. Maximum checking |
+| `-fnullability-default=nonnull` | All unannotated pointers are nonnull. Ergonomic mode |
+
+## IDE integration
+
+The fork includes `clangd`, so you get real-time warnings in your editor.
+
+**VS Code** — install the clangd extension, then:
+```json
+{ "clangd.path": "/path/to/null-safe-clang/bin/clangd" }
+```
+
+**Neovim** — via lspconfig:
+```lua
+require('lspconfig').clangd.setup({
+  cmd = { '/path/to/null-safe-clang/bin/clangd' }
+})
+```
 
 ## What it catches
 
@@ -166,69 +210,9 @@ void legacy_function(int* p) {
 clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
 ```
 
-This lets you migrate one function, one file, or one module at a time. Unannotated code in `unspecified` mode (the default) produces zero warnings.
+This lets you migrate one function, one file, or one module at a time.
 
-**Tip:** A powerful workflow is to run `-fnullability-default=nullable` against a compilation database (`compile_commands.json`) as an analysis step — like a linter — without blocking builds. This surfaces every potential null dereference in the codebase, and you can fix them incrementally without changing your build flags.
-
-## Usage
-
-```bash
-# Gradual: only check annotated regions (default, zero noise on legacy code)
-clang -fflow-sensitive-nullability file.c
-
-# Defensive: treat all pointers as nullable, force null checks everywhere
-clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
-
-# Treat warnings as errors
-clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-nullable-dereference file.c
-```
-
-### Flags
-
-| Flag | Description |
-|------|-------------|
-| `-fflow-sensitive-nullability` | Enable the analysis (required) |
-| `-fnullability-default=unspecified` | Default. Warnings only inside `#pragma assume_nonnull` regions |
-| `-fnullability-default=nullable` | All unannotated pointers are nullable. Maximum checking |
-| `-fnullability-default=nonnull` | All unannotated pointers are nonnull. Ergonomic mode |
-
-## IDE integration
-
-The fork includes `clangd`, so you get real-time warnings in your editor.
-
-**VS Code** — install the clangd extension, then:
-```json
-{ "clangd.path": "/path/to/null-safe-clang/bin/clangd" }
-```
-
-**Neovim** — via lspconfig:
-```lua
-require('lspconfig').clangd.setup({
-  cmd = { '/path/to/null-safe-clang/bin/clangd' }
-})
-```
-
-## Installation
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/null-safe-c-dev/install.sh | bash
-```
-
-Or download from [releases](https://github.com/cs01/llvm-project/releases). Includes `clang` and `clangd`.
-
-### Build from source
-
-```bash
-git clone git@github.com:cs01/llvm-project.git
-cd llvm-project
-git checkout null-safe-c-dev
-cmake -S llvm -B build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
-  -DLLVM_TARGETS_TO_BUILD="X86" \
-  -DLLVM_USE_LINKER=lld
-ninja -C build clang clangd
-```
+**Tip:** Run `-fnullability-default=nullable` against a compilation database (`compile_commands.json`) as an analysis step — like a linter — without blocking builds. This surfaces every potential null dereference in the codebase, and you can fix them incrementally.
 
 ## Advanced features
 
@@ -306,20 +290,19 @@ Three layers, following the same pattern as `-Wthread-safety`:
 | Glue | `lib/Sema/AnalysisBasedWarnings.cpp` | Builds CFG, runs analysis, converts callbacks to diagnostics |
 | Gating | `lib/Sema/SemaDecl.cpp` | Decides per-function whether to enable analysis |
 
-No new AST nodes, no changes to type checking, no changes to codegen. The analysis walks CFG blocks in order, tracks which pointers have been null-checked, and calls `S.Diag()` when it sees an unchecked dereference — the same mechanism every other Clang warning uses.
-
-The analysis uses per-edge state tracking (`EdgeStates[{pred, succ}]`) so branch-refined narrowing propagates correctly. Entry state for each block is the intersection of all predecessor edge states — a pointer is only considered narrowed if ALL paths agree.
+The analysis is **intraprocedural** — one function at a time. This is what makes it fast, and it means you can reason about a single function in isolation. Cross-function contracts are expressed with `_Nonnull` and `_Nullable` annotations on function signatures. It uses per-edge state tracking (`EdgeStates[{pred, succ}]`) so branch-refined narrowing propagates correctly. Entry state for each block is the intersection of all predecessor edge states — a pointer is only considered narrowed if ALL paths agree.
 
 For a deeper dive, see:
 - **[Architecture Diagrams](docs/flow-nullability-architecture.md)** — Mermaid flow diagrams of the three-layer design, worklist algorithm, state tracking, and transfer functions
 - **[Architecture Review Guide](docs/flow-nullability-review-guide.md)** — written walkthrough with concrete code examples for every concept
+- **[Performance Benchmarks](clang/BENCHMARKS.md)** — compile-time overhead measurements with statistical analysis (paired t-test, 95% confidence intervals)
 
 ## Limitations
 
-- **Intraprocedural** — does not look inside called functions. This is by design: it's what makes the analysis fast, and it means you can reason about one function at a time. Cross-function contracts are expressed with `_Nonnull` and `_Nullable` annotations on function signatures.
+- **Intraprocedural** — does not look inside called functions. Cross-function contracts are expressed with annotations on function signatures.
 - **No alias tracking** — if two pointers alias the same memory, modifying one won't invalidate the other's narrowing.
-- **No inferred return nullability** — the analysis doesn't infer that a function "always returns non-null" from its body. Annotate return types with `_Nonnull` or `_Nullable` to express that.
-- **Null dereferences only** — this doesn't catch buffer overflows, use-after-free, or other memory bugs. For those, consider sanitizers (ASan), `-fbounds-safety`, or a memory-safe language.
+- **No inferred return nullability** — annotate return types with `_Nonnull` or `_Nullable` to express return contracts.
+- **Null dereferences only** — doesn't catch buffer overflows, use-after-free, or other memory bugs.
 
 ## License
 
