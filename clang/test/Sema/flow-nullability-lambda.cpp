@@ -7,6 +7,8 @@ struct Node {
     int value;
 };
 
+Node * _Nullable getNode();
+
 #pragma clang assume_nonnull begin
 
 // === Capture nullable by value — warns inside lambda ===
@@ -122,6 +124,23 @@ void test_mutable_capture(Node * _Nullable p) {
     auto f = [p]() mutable {
         p = nullptr; // mutate the captured copy
         (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    };
+    f();
+}
+
+// === Init-capture (C++14) — captures are independent variables ===
+
+void test_init_capture_warns() {
+    auto f = [p = getNode()]() {
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    };
+    f();
+}
+
+void test_init_capture_with_check() {
+    auto f = [p = getNode()]() {
+        if (p)
+            (void)p->value; // OK — narrowed inside lambda
     };
     f();
 }
