@@ -153,6 +153,81 @@ python3 clang/test/Sema/flow-nullability-cross-analysis-benchmark.py \
 Both scripts use hand-rolled statistics (no numpy/scipy required).
 Output includes markdown reports and raw JSON for further analysis.
 
+## Clang Static Analyzer Comparison
+
+The Clang Static Analyzer (CSA) also catches null dereferences, using
+path-sensitive symbolic execution. It's more powerful (interprocedural,
+path-aware) but runs as a separate step (`--analyze`) on top of normal
+compilation. How does it actually compare?
+
+**Important:** CSA `--analyze` skips code generation — it only runs the
+analyzer. Flow-nullability runs as part of compilation. The total cost
+to get both a compiled object AND null-dereference checking is
+compile time + CSA time for the CSA workflow, vs just compile time
+(with analysis included) for flow-nullability.
+
+### Null-dereference patterns (null-check-and-use)
+
+| N functions | Baseline | Flow-Nullability | CSA (null checker only) | CSA (all checkers) |
+|------------:|---------:|-----------------:|------------------------:|-------------------:|
+| 50          | 69.7ms   | 72.7ms           | 32.4ms                  | 90.8ms             |
+| 100         | 91.8ms   | 115.9ms          | 37.9ms                  | 172.1ms            |
+| 200         | 162.1ms  | 183.5ms          | 55.1ms                  | 297.5ms            |
+| 500         | 373.5ms  | 418.3ms          | 107.5ms                 | 666.3ms            |
+| 1000        | 752.7ms  | 886.7ms          | 255.5ms                 | 1.38s              |
+
+CSA `--analyze` alone looks fast because it skips codegen. But you still
+need to compile. Total cost for N=500:
+- Flow-nullability: **418ms** (compile with analysis included)
+- CSA null-only: 374ms compile + 108ms analyze = **482ms**
+- CSA all checkers: 374ms compile + 666ms analyze = **1,040ms**
+
+### Deep branching (6 independent nullable pointers per function = 64 paths)
+
+This is where CSA's path-sensitive approach shows exponential cost.
+
+| N functions | Baseline | Flow-Nullability | CSA (null only) | CSA (all checkers) | CSA-all / Nullsafe |
+|------------:|---------:|-----------------:|----------------:|-------------------:|-------------------:|
+| 50          | 49.6ms   | 51.2ms           | 25.9ms          | 426.3ms            | **8.3x**           |
+| 100         | 65.4ms   | 71.2ms           | 36.8ms          | 770.6ms            | **10.8x**          |
+| 200         | 124.4ms  | 139.5ms          | 45.3ms          | 1.50s              | **10.7x**          |
+| 500         | 253.7ms  | 274.9ms          | 82.0ms          | 3.87s              | **14.1x**          |
+| 1000        | 490.5ms  | 517.7ms          | 154.6ms         | 7.51s              | **14.5x**          |
+
+At 1000 functions with branching, CSA takes 7.5 seconds vs 518ms for
+flow-nullability — a **14.5x** difference. The ratio grows with N
+because CSA explores paths per-function while dataflow merges states.
+
+### Loop traversal (linked-list walks)
+
+| N functions | Baseline | Flow-Nullability | CSA (null only) | CSA (all checkers) | CSA-all / Nullsafe |
+|------------:|---------:|-----------------:|----------------:|-------------------:|-------------------:|
+| 50          | 58.0ms   | 55.8ms           | 32.8ms          | 142.2ms            | **2.5x**           |
+| 100         | 89.1ms   | 99.3ms           | 44.7ms          | 262.1ms            | **2.6x**           |
+| 200         | 161.2ms  | 180.6ms          | 63.1ms          | 458.2ms            | **2.5x**           |
+| 500         | 332.2ms  | 365.2ms          | 120.7ms         | 1.06s              | **2.9x**           |
+| 1000        | 613.4ms  | 728.5ms          | 221.9ms         | 2.15s              | **3.0x**            |
+
+Loops are less dramatic (2.5-3x) because CSA caps loop unrolling at 4
+iterations by default, limiting path explosion.
+
+### Why CSA null-only is misleadingly fast
+
+The "CSA (null only)" column uses `-analyzer-disable-all-checks` plus
+`-analyzer-checker=core.NullDereference`. This disables CSA's other
+checkers but **also disables modeling** that those checkers depend on.
+In practice, nobody runs CSA with only one checker — you run the full
+suite. The "CSA (all checkers)" column is what users actually experience.
+
+### Reproducing
+
+```bash
+python3 clang/test/Sema/flow-nullability-csa-benchmark.py \
+    --clang-binary build/bin/clang \
+    --output-dir csa_benchmark_results \
+    --warmup 3 --iterations 10
+```
+
 ## Machine info
 
 Benchmarks run on the development machine. Results are relative (overhead
