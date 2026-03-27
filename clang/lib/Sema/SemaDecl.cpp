@@ -14143,17 +14143,17 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
 
     Init = Result.getAs<Expr>();
 
-    if (VDecl && Init) {
+    if (VDecl && Init && getLangOpts().FlowSensitiveNullability) {
       QualType VDeclType = VDecl->getType();
       if (auto Nullability = VDeclType->getNullability()) {
         if (*Nullability == NullabilityKind::NonNull) {
-          if (Init->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNotNull)) {
-            Diag(Init->getBeginLoc(), diag::warn_null_arg)
-                << Init->getSourceRange();
+          if (Init->isNullPointerConstant(Context,
+                                          Expr::NPC_ValueDependentIsNotNull)) {
+            Diag(Init->getBeginLoc(), diag::warn_null_init_nonnull)
+                << VDeclType << Init->getSourceRange();
           }
         }
       }
-
     }
 
     IsParenListInit = !InitSeq.steps().empty() &&
@@ -16475,10 +16475,10 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
   }
 
   if (getLangOpts().FlowSensitiveNullability) {
-    FlowSensitiveNullabilityEnabled =
+    setFlowNullabilityEnabled(
         PP.getPragmaAssumeNonNullLoc().isValid() ||
         getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified ||
-        FunctionHasNullabilityAnnotations(FD);
+        functionHasNullabilityAnnotations(FD));
   }
 
   return D;

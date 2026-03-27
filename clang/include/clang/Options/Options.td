@@ -1653,11 +1653,6 @@ defm flow_sensitive_nullability : BoolFOption<"flow-sensitive-nullability",
   PosFlag<SetTrue, [], [ClangOption, CC1Option],
           "Enable flow-sensitive nullability analysis">,
   NegFlag<SetFalse>>;
-defm strict_nullability_inference : BoolFOption<"strict-nullability-inference",
-  LangOpts<"StrictNullabilityInference">, DefaultTrue,
-  PosFlag<SetTrue, [], [ClangOption, CC1Option],
-          "Treat inferred nullability as explicit for diagnostics">,
-  NegFlag<SetFalse>>;
 defm xl_pragma_pack : BoolFOption<"xl-pragma-pack",
   LangOpts<"XLPragmaPack">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],

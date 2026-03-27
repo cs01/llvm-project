@@ -125,10 +125,6 @@ LANGOPT(PointerAuthIndirectGotos, 1, 0, NotCompatible, "indirect gotos pointer a
 LANGOPT(PointerAuthAuthTraps, 1, 0, NotCompatible, "pointer authentication failure traps")
 LANGOPT(PointerAuthVTPtrAddressDiscrimination, 1, 0, NotCompatible, "incorporate address discrimination in authenticated vtable pointers")
 LANGOPT(PointerAuthVTPtrTypeDiscrimination, 1, 0, NotCompatible, "incorporate type discrimination in authenticated vtable pointers")
-
-ENUM_LANGOPT(NullabilityDefault, NullabilityKind, 2, NullabilityKind::Unspecified, NotCompatible, "default nullability for unannotated pointers")
-LANGOPT(FlowSensitiveNullability, 1, 0, NotCompatible, "enable flow-sensitive nullability analysis")
-LANGOPT(StrictNullabilityInference, 1, 1, NotCompatible, "treat inferred nullability as explicit for diagnostics")
 LANGOPT(PointerAuthTypeInfoVTPtrDiscrimination, 1, 0, NotCompatible, "incorporate type and address discrimination in authenticated vtable pointers for std::type_info")
 LANGOPT(PointerAuthFunctionTypeDiscrimination, 1, 0, Benign,
         "Use type discrimination when signing function pointers")
@@ -144,6 +140,10 @@ LANGOPT(PointerAuthObjcInterfaceSelKey, 16, 0, NotCompatible, "authentication ke
 LANGOPT(PointerAuthObjcClassROPointers, 1, 0, Benign, "class_ro_t pointer authentication")
 
 LANGOPT(PointerAuthBlockDescriptorPointers, 1, 0, NotCompatible, "enable signed block descriptors")
+
+// Nullability options
+ENUM_LANGOPT(NullabilityDefault, NullabilityKind, 2, NullabilityKind::Unspecified, NotCompatible, "default nullability for unannotated pointers")
+LANGOPT(FlowSensitiveNullability, 1, 0, NotCompatible, "enable flow-sensitive nullability analysis")
 
 LANGOPT(DoubleSquareBracketAttributes, 1, 0, NotCompatible, "'[[]]' attributes extension for all language standard modes")
 LANGOPT(ExperimentalLateParseAttributes, 1, 0, NotCompatible, "experimental late parsing of attributes")

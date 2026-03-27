@@ -26,6 +26,7 @@
 #include "clang/Basic/Builtins.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include <optional>
 #include <utility>
@@ -66,16 +67,16 @@ struct NullState {
   bool operator!=(const NullState &Other) const { return !(*this == Other); }
 };
 
-static NullState intersect(const NullState &A, const NullState &B) {
+static NullState join(const NullState &A, const NullState &B) {
   NullState Result;
   for (const auto *VD : A.NarrowedVars)
-    if (B.NarrowedVars.count(VD))
+    if (B.NarrowedVars.contains(VD))
       Result.NarrowedVars.insert(VD);
   for (const auto &MK : A.NarrowedMembers)
-    if (B.NarrowedMembers.count(MK))
+    if (B.NarrowedMembers.contains(MK))
       Result.NarrowedMembers.insert(MK);
   for (const auto *FD : A.NarrowedThisMembers)
-    if (B.NarrowedThisMembers.count(FD))
+    if (B.NarrowedThisMembers.contains(FD))
       Result.NarrowedThisMembers.insert(FD);
   for (const auto *VD : A.NullableVars)
     Result.NullableVars.insert(VD);
@@ -120,7 +121,7 @@ static const Expr *getTerminalCondition(const Expr *E) {
 
 static bool isNullableType(QualType Ty, bool StrictMode,
                            NullabilityKind Default) {
-  auto Nullability = Ty->getNullability();
+  std::optional<NullabilityKind> Nullability = Ty->getNullability();
   if (!Nullability)
     return false;
   // Explicit _Nullable always triggers.
@@ -136,7 +137,7 @@ static bool isNullableType(QualType Ty, bool StrictMode,
 }
 
 static bool isNonnullType(QualType Ty) {
-  auto Nullability = Ty->getNullability();
+  std::optional<NullabilityKind> Nullability = Ty->getNullability();
   return Nullability && *Nullability == NullabilityKind::NonNull;
 }
 
@@ -158,15 +159,15 @@ static bool isSmartPointerNarrowed(const Expr *E, const NullState &State) {
   E = E->IgnoreParenImpCasts();
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      return State.NarrowedVars.count(VD);
+      return State.NarrowedVars.contains(VD);
   } else if (const auto *ME = dyn_cast<MemberExpr>(E)) {
     if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
       const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
       if (isa<CXXThisExpr>(Base))
-        return State.NarrowedThisMembers.count(FD);
+        return State.NarrowedThisMembers.contains(FD);
       if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
         if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
-          return State.NarrowedMembers.count({BaseVD, FD});
+          return State.NarrowedMembers.contains({BaseVD, FD});
     }
   }
   return false;
@@ -273,10 +274,8 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
         // Keep only sub-conditions where the pointer is non-null when the
         // sub-condition is true (Negated=false). Flip to Negated=true so
         // narrowing lands on the false edge of the outer !.
-        Results.erase(
-            std::remove_if(Results.begin(), Results.end(),
-                           [](const ConditionResult &CR) { return CR.Negated; }),
-            Results.end());
+        llvm::erase_if(Results,
+                       [](const ConditionResult &CR) { return CR.Negated; });
         for (auto &CR : Results)
           CR.Negated = true;
         return;
@@ -386,7 +385,8 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   // Handle smart pointer implicit bool conversion: if (sp) { ... }
   // The AST represents this as a CXXMemberCallExpr to operator bool().
   if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(E)) {
-    if (const auto *CD = dyn_cast_or_null<CXXConversionDecl>(MCE->getMethodDecl())) {
+    if (const auto *CD =
+            dyn_cast_or_null<CXXConversionDecl>(MCE->getMethodDecl())) {
       if (CD->getConversionType()->isBooleanType()) {
         const Expr *Obj = MCE->getImplicitObjectArgument();
         if (Obj && isSmartPointerType(Obj->getType())) {
@@ -405,7 +405,8 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                 return;
               }
               if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(ObjBase)) {
-                if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
+                if (const auto *BaseVD =
+                        dyn_cast<VarDecl>(BaseDRE->getDecl())) {
                   Results.push_back({BaseVD, FD, false, Negated});
                   return;
                 }
@@ -426,15 +427,15 @@ class TransferFunctions {
   NullabilityKind Default;
 
   bool isNarrowed(const VarDecl *VD) const {
-    return State.NarrowedVars.count(VD);
+    return State.NarrowedVars.contains(VD);
   }
 
   bool isMemberNarrowed(const VarDecl *BaseVD, const FieldDecl *FD) const {
-    return State.NarrowedMembers.count({BaseVD, FD});
+    return State.NarrowedMembers.contains({BaseVD, FD});
   }
 
   bool isThisMemberNarrowed(const FieldDecl *FD) const {
-    return State.NarrowedThisMembers.count(FD);
+    return State.NarrowedThisMembers.contains(FD);
   }
 
   /// Unwrap explicit casts and pointer arithmetic to find the original
@@ -455,10 +456,12 @@ class TransferFunctions {
           E = BO->getLHS()->getType()->isPointerType()
                   ? BO->getLHS()->IgnoreParenImpCasts()
                   : BO->getRHS()->IgnoreParenImpCasts();
-        } else
+        } else {
           break;
-      } else
+        }
+      } else {
         break;
+      }
     }
     return E;
   }
@@ -490,7 +493,7 @@ class TransferFunctions {
     QualType Ty = VD->getType();
     if (isNullableType(Ty, StrictMode, Default))
       return Handler.handleNullableDereference(DerefExpr, Ty);
-    if (State.NullableVars.count(VD))
+    if (State.NullableVars.contains(VD))
       return Handler.handleNullableDereference(DerefExpr, Ty);
   }
 
@@ -509,7 +512,7 @@ class TransferFunctions {
     }
     // this->member — only warn if known nullable in current function
     if (const auto *FD = getSmartPtrThisMemberDecl(Obj)) {
-      if (State.NullableThisMembers.count(FD))
+      if (State.NullableThisMembers.contains(FD))
         Handler.handleNullableDereference(DerefExpr, FD->getType());
     }
   }
@@ -658,9 +661,6 @@ private:
   /// Check if an init expression is nullable — either by type or because it
   /// refers to a variable known to be nullable.  Unwraps casts to propagate
   /// nullability through cast chains (e.g., `(Derived *)nullableBase`).
-  /// Check if an init expression is nullable — either by type or because it
-  /// refers to a variable known to be nullable.  Unwraps casts to propagate
-  /// nullability through cast chains (e.g., `(Derived *)nullableBase`).
   bool isNullableInit(const Expr *Init) const {
     if (!Init)
       return false;
@@ -673,7 +673,7 @@ private:
       return true;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        return State.NullableVars.count(VD);
+        return State.NullableVars.contains(VD);
     }
     // nothrow new can return null.
     if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
@@ -825,7 +825,8 @@ private:
   }
 
   void handleCallExpr(const CallExpr *CE) {
-    if (auto *Callee = CE->getDirectCallee()) {
+    if (const auto *Callee = CE->getDirectCallee()) {
+      // __builtin_assume(cond) narrows pointers mentioned in cond.
       if (Callee->getBuiltinID() == Builtin::BI__builtin_assume &&
           CE->getNumArgs() >= 1) {
         const Expr *Arg = CE->getArg(0)->IgnoreParenImpCasts();
@@ -844,24 +845,22 @@ private:
           }
         }
       }
-    }
 
-    // Narrow pointers passed to _Nonnull parameters — surviving the call
-    // proves the pointer was non-null.  Recognizes both the Clang _Nonnull
-    // type qualifier and GCC-style __attribute__((nonnull)) on the function.
-    if (auto *Callee = CE->getDirectCallee()) {
+      // Narrow pointers passed to _Nonnull parameters — surviving the call
+      // proves the pointer was non-null. Recognizes both Clang _Nonnull
+      // and GCC-style __attribute__((nonnull)).
       const auto *NNAttr = Callee->getAttr<NonNullAttr>();
-      for (unsigned i = 0,
-                    n = std::min(CE->getNumArgs(), Callee->getNumParams());
-           i < n; ++i) {
-        const ParmVarDecl *Param = Callee->getParamDecl(i);
+      for (unsigned I = 0,
+                    N = std::min(CE->getNumArgs(), Callee->getNumParams());
+           I < N; ++I) {
+        const ParmVarDecl *Param = Callee->getParamDecl(I);
         if (!Param->getType()->isPointerType())
           continue;
         bool ParamIsNonnull =
             isNonnullType(Param->getType()) ||
-            (NNAttr && NNAttr->isNonNull(i));
+            (NNAttr && NNAttr->isNonNull(I));
         if (ParamIsNonnull) {
-          const Expr *Arg = CE->getArg(i)->IgnoreParenImpCasts();
+          const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
           if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
               if (VD->getType()->isPointerType())
@@ -915,10 +914,12 @@ private:
             State.NarrowedVars.insert(LhsVD);
           } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
             if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
-              // sp = std::move(other) — LHS gets value, source nullable
-              State.NarrowedVars.insert(LhsVD);
+              // sp = std::move(other) — LHS inherits source's state
               if (const auto *SrcVD =
                       getSmartPtrVarDecl(RhsCE->getArg(0))) {
+                // Only narrow LHS if source was narrowed (known non-null)
+                if (State.NarrowedVars.contains(SrcVD))
+                  State.NarrowedVars.insert(LhsVD);
                 State.NarrowedVars.erase(SrcVD);
               }
             } else {
@@ -980,21 +981,19 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                                        FlowNullabilityHandler &Handler,
                                        bool StrictMode,
                                        NullabilityKind Default) {
-  CFG *cfg = AC.getCFG();
-  if (!cfg)
+  CFG *Cfg = AC.getCFG();
+  if (!Cfg)
     return;
 
   ASTContext &Ctx = AC.getASTContext();
-  unsigned NumBlocks = cfg->getNumBlockIDs();
-  (void)NumBlocks;
 
   using EdgeKey = std::pair<unsigned, unsigned>;
   llvm::DenseMap<EdgeKey, NullState> EdgeStates;
   llvm::DenseMap<unsigned, NullState> BlockEntryStates;
 
-  ForwardDataflowWorklist Worklist(*cfg, AC);
+  ForwardDataflowWorklist Worklist(*Cfg, AC);
 
-  const CFGBlock &Entry = cfg->getEntry();
+  const CFGBlock &Entry = Cfg->getEntry();
   NullState InitState;
 
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl())) {
@@ -1030,7 +1029,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
             State = It->second;
             FirstPred = false;
           } else {
-            State = intersect(State, It->second);
+            State = join(State, It->second);
           }
         }
       }
@@ -1039,15 +1038,20 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     if (FirstPred)
       continue;
 
-    NullState OldEntry;
-    auto OldIt = BlockEntryStates.find(BlockID);
-    if (OldIt != BlockEntryStates.end())
-      OldEntry = OldIt->second;
+    // Standard fixpoint check: skip re-processing if entry state is unchanged.
+    // This prevents duplicate warnings when the worklist re-visits a block.
+    // Skip this check for the entry block — its state is pre-seeded, so it
+    // would always match and prevent the first visit from propagating.
+    if (BlockID != Entry.getBlockID()) {
+      auto OldIt = BlockEntryStates.find(BlockID);
+      if (OldIt != BlockEntryStates.end() && OldIt->second == State)
+        continue;
+    }
     BlockEntryStates[BlockID] = State;
 
     TransferFunctions TF(State, Handler, Ctx, StrictMode, Default);
     for (const auto &Elem : *Block) {
-      if (auto CS = Elem.getAs<CFGStmt>())
+      if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
         TF.visit(CS->getStmt());
     }
 
@@ -1056,20 +1060,21 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
 
     if (const Stmt *Term = Block->getTerminatorStmt()) {
       const Expr *Cond = nullptr;
-      if (const auto *IS = dyn_cast<IfStmt>(Term))
+      if (const auto *IS = dyn_cast<IfStmt>(Term)) {
         Cond = getTerminalCondition(IS->getCond());
-      else if (const auto *WS = dyn_cast<WhileStmt>(Term))
+      } else if (const auto *WS = dyn_cast<WhileStmt>(Term)) {
         Cond = getTerminalCondition(WS->getCond());
-      else if (const auto *FS = dyn_cast<ForStmt>(Term)) {
+      } else if (const auto *FS = dyn_cast<ForStmt>(Term)) {
         if (FS->getCond())
           Cond = getTerminalCondition(FS->getCond());
-      } else if (const auto *DS = dyn_cast<DoStmt>(Term))
+      } else if (const auto *DS = dyn_cast<DoStmt>(Term)) {
         Cond = getTerminalCondition(DS->getCond());
-      else if (const auto *BO = dyn_cast<BinaryOperator>(Term)) {
+      } else if (const auto *BO = dyn_cast<BinaryOperator>(Term)) {
         if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
           Cond = getTerminalCondition(BO->getLHS());
-      } else if (const auto *CO = dyn_cast<ConditionalOperator>(Term))
+      } else if (const auto *CO = dyn_cast<ConditionalOperator>(Term)) {
         Cond = getTerminalCondition(CO->getCond());
+      }
 
       if (Cond) {
         SmallVector<ConditionResult, 2> Results;

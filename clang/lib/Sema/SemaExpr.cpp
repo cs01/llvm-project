@@ -7325,12 +7325,6 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
 
     checkFortifiedBuiltinMemoryFunction(FDecl, TheCall);
 
-    // Function calls don't invalidate narrowing. This is a pragmatic choice:
-    // while a call could theoretically modify a pointer through a reference,
-    // global, or member access, invalidating on every call would make the
-    // analysis too noisy to be useful. This matches the approach taken by
-    // other Clang analyses like ThreadSafety.
-
     if (BuiltinID)
       return CheckBuiltinFunctionCall(FDecl, BuiltinID, TheCall);
   } else if (NDecl) {
@@ -14732,8 +14726,6 @@ static QualType CheckIncrementDecrementOperand(Sema &S, Expr *Op,
   // Now make sure the operand is a modifiable lvalue.
   if (CheckForModifiableLvalue(Op, OpLoc, S))
     return QualType();
-
-
   if (S.getLangOpts().CPlusPlus20 && ResType.isVolatileQualified()) {
     // C++2a [expr.pre.inc]p1, [expr.post.inc]p1:
     //   An operand with volatile-qualified type is deprecated
@@ -21230,7 +21222,6 @@ Sema::ConditionResult Sema::ActOnCondition(Scope *S, SourceLocation Loc,
     Cond = CheckSwitchCondition(Loc, SubExpr);
     break;
   }
-
   if (Cond.isInvalid()) {
     Cond = CreateRecoveryExpr(SubExpr->getBeginLoc(), SubExpr->getEndLoc(),
                               {SubExpr}, PreferredConditionType(CK));

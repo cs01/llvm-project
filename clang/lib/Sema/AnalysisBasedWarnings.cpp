@@ -33,7 +33,6 @@
 #include "clang/Analysis/Analyses/CalledOnceCheck.h"
 #include "clang/Analysis/Analyses/Consumed.h"
 #include "clang/Analysis/Analyses/FlowNullability.h"
-#include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeSafety.h"
 #include "clang/Analysis/Analyses/ReachableCode.h"
 #include "clang/Analysis/Analyses/ThreadSafety.h"
@@ -2942,40 +2941,12 @@ public:
 
   void handleNullableDereference(const Expr *DerefExpr,
                                  QualType PtrType) override {
-    S.Diag(DerefExpr->getExprLoc(), diag::warn_strict_nullability_dereference);
+    S.Diag(DerefExpr->getExprLoc(), diag::warn_strict_nullability_dereference)
+        << PtrType;
     S.Diag(DerefExpr->getExprLoc(), diag::note_nullable_dereference_fix);
   }
 };
-
-static bool FunctionHasNullabilityAnnotations(const FunctionDecl *FD) {
-  if (!FD || FD->isInvalidDecl())
-    return false;
-
-  QualType ReturnType = FD->getReturnType();
-  if (!ReturnType.isNull() && !ReturnType->isDependentType())
-    if (ReturnType->getNullability())
-      return true;
-
-  if (!FD->param_empty()) {
-    for (unsigned i = 0; i < FD->getNumParams(); ++i) {
-      const ParmVarDecl *Param = FD->getParamDecl(i);
-      if (!Param)
-        continue;
-      QualType ParamType = Param->getType();
-      if (!ParamType.isNull() && !ParamType->isDependentType())
-        if (ParamType->getNullability())
-          return true;
-    }
-  }
-
-  return false;
-}
-
-static bool shouldEnableFlowNullability(Sema &S, const Decl *D) {
-  return S.FlowSensitiveNullabilityEnabled;
-}
 } // anonymous namespace
-
 
 void clang::sema::AnalysisBasedWarnings::IssueWarnings(
      TranslationUnitDecl *TU) {
@@ -3169,17 +3140,13 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     Reporter.emitDiagnostics();
   }
 
-  if (S.getLangOpts().FlowSensitiveNullability &&
-      !Diags.isIgnored(diag::warn_strict_nullability_dereference,
-                        D->getBeginLoc())) {
-    if (shouldEnableFlowNullability(S, D)) {
-      if (AC.getCFG()) {
-        llvm::TimeTraceScope TimeProfile("FlowNullabilityAnalysis");
-        FlowNullabilityReporter Reporter(S);
-        NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
-        bool StrictMode = (Default != NullabilityKind::Unspecified);
-        runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default);
-      }
+  if (EnableFlowNullability && S.isFlowNullabilityEnabled()) {
+    if (AC.getCFG()) {
+      llvm::TimeTraceScope TimeProfile("FlowNullabilityAnalysis");
+      FlowNullabilityReporter Reporter(S);
+      NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
+      bool StrictMode = (Default != NullabilityKind::Unspecified);
+      runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default);
     }
   }
 

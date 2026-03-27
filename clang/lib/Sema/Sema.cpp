@@ -682,8 +682,8 @@ void Sema::PrintStats() const {
 /// pointer arithmetic back to a known non-null source (CXXThisExpr, _Nonnull
 /// annotated, operator new, address-of). Used to suppress false positive
 /// nullable-to-nonnull warnings on patterns like reinterpret_cast<T*>(this)+n.
-static bool isExprProvablyNonnull(const Expr *E) {
-  if (!E)
+static bool isExprProvablyNonnull(const Expr *E, unsigned Depth = 0) {
+  if (!E || Depth > 16)
     return false;
   E = E->IgnoreParenImpCasts();
   if (isa<CXXThisExpr>(E))
@@ -695,20 +695,21 @@ static bool isExprProvablyNonnull(const Expr *E) {
       return true;
   // Look through explicit casts (static_cast, reinterpret_cast, C-style).
   if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
-    return isExprProvablyNonnull(CE->getSubExpr());
+    return isExprProvablyNonnull(CE->getSubExpr(), Depth + 1);
   // Trace through local variable references to their initializer.
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
       if (VD->hasLocalStorage() && VD->hasInit())
-        return isExprProvablyNonnull(VD->getInit()->IgnoreParenImpCasts());
+        return isExprProvablyNonnull(VD->getInit()->IgnoreParenImpCasts(),
+                                     Depth + 1);
   }
   // Pointer arithmetic on a non-null pointer is non-null.
   if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
     if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
       if (BO->getLHS()->getType()->isPointerType())
-        return isExprProvablyNonnull(BO->getLHS());
+        return isExprProvablyNonnull(BO->getLHS(), Depth + 1);
       if (BO->getRHS()->getType()->isPointerType())
-        return isExprProvablyNonnull(BO->getRHS());
+        return isExprProvablyNonnull(BO->getRHS(), Depth + 1);
     }
   }
   // Check if the type itself is _Nonnull.
@@ -739,12 +740,10 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
       isExprProvablyNonnull(SrcExpr))
     return;
 
-  // Warn about nullable→nonnull conversions.
   Diag(Loc, diag::warn_nullability_lost) << SrcType << DstType;
 }
 
-
-bool Sema::FunctionHasNullabilityAnnotations(const FunctionDecl *FD) const {
+bool Sema::functionHasNullabilityAnnotations(const FunctionDecl *FD) const {
   if (!FD || FD->isInvalidDecl())
     return false;
 

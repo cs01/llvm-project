@@ -7718,8 +7718,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.addOptInFlag(CmdArgs, options::OPT_fflow_sensitive_nullability,
                     options::OPT_fno_flow_sensitive_nullability);
-  Args.addOptInFlag(CmdArgs, options::OPT_fstrict_nullability_inference,
-                    options::OPT_fno_strict_nullability_inference);
   if (Arg *A = Args.getLastArg(options::OPT_fnullability_default_EQ))
     A->render(Args, CmdArgs);
 

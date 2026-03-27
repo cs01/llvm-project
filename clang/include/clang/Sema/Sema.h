@@ -1186,15 +1186,21 @@ public:
   NamedDecl *getCurFunctionOrMethodDecl() const;
 
   /// Warn if we're implicitly casting from a _Nullable pointer type to a
-  /// _Nonnull one.
+  /// _Nonnull one. If \p SrcExpr is provided and flow-sensitive nullability
+  /// is enabled, the warning is suppressed when the expression is provably
+  /// non-null despite its declared type.
   void diagnoseNullableToNonnullConversion(QualType DstType, QualType SrcType,
                                            SourceLocation Loc,
                                            Expr *SrcExpr = nullptr);
 
-  /// Check if a function has any nullability annotations on its parameters or return type.
-  bool FunctionHasNullabilityAnnotations(const FunctionDecl *FD) const;
+  /// Check if a function has any nullability annotations on its
+  /// parameters or return type.
+  bool functionHasNullabilityAnnotations(const FunctionDecl *FD) const;
 
-  bool FlowSensitiveNullabilityEnabled = false;
+  /// Whether flow-sensitive nullability analysis is active for the current
+  /// function. Set per-function in ActOnStartOfFunctionDef.
+  bool isFlowNullabilityEnabled() const { return FlowNullabilityEnabled; }
+  void setFlowNullabilityEnabled(bool V) { FlowNullabilityEnabled = V; }
 
   /// Warn when implicitly casting 0 to nullptr.
   void diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E);
@@ -1595,6 +1601,7 @@ protected:
 private:
   std::optional<std::unique_ptr<DarwinSDKInfo>> CachedDarwinSDKInfo;
   bool WarnedDarwinSDKInfoMissing = false;
+  bool FlowNullabilityEnabled = false;
 
   StackExhaustionHandler StackHandler;
 

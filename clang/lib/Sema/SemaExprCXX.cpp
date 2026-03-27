@@ -2667,11 +2667,11 @@ ExprResult Sema::BuildCXXNew(SourceRange Range, bool UseGlobal,
   // Mirror the logic in CXXNewExpr::shouldNullCheckAllocation() (inverted):
   // that returns true for nothrow-can-return-null; we mark _Nonnull otherwise.
   if (getLangOpts().FlowSensitiveNullability && OperatorNew) {
-    bool IsNothrow =
+    bool CanReturnNull =
         !OperatorNew->hasAttr<ReturnsNonNullAttr>() &&
         OperatorNew->getType()->castAs<FunctionProtoType>()->isNothrow() &&
         !OperatorNew->isReservedGlobalPlacementOperator();
-    if (!IsNothrow) {
+    if (!CanReturnNull) {
       ResultType = Context.getAttributedType(attr::TypeNonNull,
                                              ResultType, ResultType);
     }

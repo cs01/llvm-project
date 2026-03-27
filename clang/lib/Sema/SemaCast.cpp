@@ -161,9 +161,10 @@ namespace {
             Self.CurFPFeatureOverrides());
       }
       // Propagate nullability through explicit casts when the dest type
-      // has no explicit annotation and the source does. We use
-      // IgnoreParenImpCasts() because cast checking may wrap the source in
-      // implicit casts that strip nullability before we get here.
+      // has no explicit annotation and the source does. setType() is safe
+      // here because castExpr was just created and has no downstream
+      // consumers yet. We use IgnoreParenImpCasts() because cast checking
+      // may wrap the source in implicit casts that strip nullability.
       if (Self.getLangOpts().FlowSensitiveNullability &&
           ResultType->isPointerType() && !ResultType->getNullability()) {
         QualType SrcType =

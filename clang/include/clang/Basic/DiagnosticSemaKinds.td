@@ -12997,9 +12997,12 @@ def err_nullability_nonpointer : Error<
 def warn_nullability_lost : Warning<
   "implicit conversion from nullable pointer %0 to non-nullable pointer "
   "type %1">,
-  InGroup<NullableToNonNullConversion>;
+  InGroup<NullableToNonNullConversion>, DefaultIgnore;
 def warn_strict_nullability_dereference : Warning<
-  "dereference of nullable pointer">,
+  "dereference of nullable pointer %0">,
+  InGroup<FlowNullableDereference>;
+def warn_null_init_nonnull : Warning<
+  "null assigned to a variable of nonnull type %0">,
   InGroup<FlowNullableDereference>;
 def note_nullable_dereference_fix : Note<
   "add a null check before dereferencing, or annotate as '_Nonnull' if this "

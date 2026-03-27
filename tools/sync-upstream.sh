@@ -5,8 +5,9 @@
 # docs, benchmarks, etc.) are excluded.
 #
 # Usage:
-#   ./tools/sync-upstream.sh          # rebuild nullsafe-upstream from current HEAD
+#   ./tools/sync-upstream.sh            # rebuild, push, and return to dev branch
 #   ./tools/sync-upstream.sh --dry-run  # show what would be included without creating the branch
+#   ./tools/sync-upstream.sh --no-push  # rebuild but don't push
 
 set -euo pipefail
 
@@ -15,9 +16,13 @@ UPSTREAM_BRANCH="nullsafe-upstream"
 BASE_REF="llvm/main"
 
 DRY_RUN=false
-if [[ "${1:-}" == "--dry-run" ]]; then
-    DRY_RUN=true
-fi
+NO_PUSH=false
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --no-push) NO_PUSH=true ;;
+    esac
+done
 
 # files/patterns to EXCLUDE from the upstream branch
 EXCLUDE_PATTERNS=(
@@ -135,9 +140,16 @@ from AnalysisBasedWarnings.cpp, reporting via a handler interface.
 EOF
 )"
 
+# push and return to dev branch
+if [[ "$NO_PUSH" == "false" ]]; then
+    echo "=== Pushing $UPSTREAM_BRANCH ==="
+    git push --force-with-lease origin "$UPSTREAM_BRANCH"
+fi
+
+echo "=== Returning to $DEV_BRANCH ==="
+git checkout "$DEV_BRANCH"
+
 echo ""
 echo "=== Done ==="
-echo "Branch '$UPSTREAM_BRANCH' created with ${#INCLUDE_FILES[@]} files."
-echo ""
+echo "Branch '$UPSTREAM_BRANCH' synced with ${#INCLUDE_FILES[@]} files."
 echo "To inspect:  git diff $BASE_REF...$UPSTREAM_BRANCH --stat"
-echo "To go back:  git checkout $DEV_BRANCH"
