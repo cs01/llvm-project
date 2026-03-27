@@ -6,6 +6,11 @@ on:
       - nullsafe-clang-dev
   workflow_dispatch:
 
+# cancel in-flight builds when a new push arrives
+concurrency:
+  group: build-clang-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-linux:
     runs-on: ubuntu-latest
