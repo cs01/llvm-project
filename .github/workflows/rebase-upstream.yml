@@ -1,0 +1,95 @@
+# Automatically rebases nullsafe-clang-dev onto upstream llvm/main.
+# Runs weekly and can be triggered manually. Opens a GitHub issue on conflict.
+name: Rebase on Upstream LLVM
+
+on:
+  schedule:
+    # weekly on Monday at 7:13 AM UTC (off-minute to avoid GitHub cron stampede)
+    - cron: '13 7 * * 1'
+  workflow_dispatch:
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout nullsafe-clang-dev
+        uses: actions/checkout@v4
+        with:
+          ref: nullsafe-clang-dev
+          # full history needed for rebase
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/llvm/llvm-project.git
+
+      - name: Fetch upstream main
+        run: git fetch upstream main
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Rebase onto upstream/main
+        id: rebase
+        run: |
+          if git rebase upstream/main; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+            echo "Rebase succeeded"
+          else
+            git rebase --abort
+            echo "status=conflict" >> "$GITHUB_OUTPUT"
+
+            # capture which files conflict for the issue body
+            CONFLICTS=$(git rebase upstream/main 2>&1 | grep "CONFLICT" || true)
+            git rebase --abort
+            echo "conflicts<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$CONFLICTS" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push rebased branch
+        if: steps.rebase.outputs.status == 'success'
+        run: git push --force-with-lease origin nullsafe-clang-dev
+
+      - name: Open issue on conflict
+        if: steps.rebase.outputs.status == 'conflict'
+        run: |
+          # don't open a duplicate if one already exists
+          EXISTING=$(gh issue list --label "rebase-conflict" --state open --limit 1 --json number -q '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$(cat <<'EOF'
+          Still failing as of $(date -u +%Y-%m-%d). Upstream has moved further ahead.
+
+          ${{ steps.rebase.outputs.conflicts }}
+          EOF
+          )"
+          else
+            gh issue create \
+              --title "Rebase conflict with upstream llvm/main" \
+              --label "rebase-conflict" \
+              --body "$(cat <<'EOF'
+          The automated weekly rebase of `nullsafe-clang-dev` onto `llvm/main` hit conflicts.
+
+          **Conflicting files:**
+          ```
+          ${{ steps.rebase.outputs.conflicts }}
+          ```
+
+          **To resolve manually:**
+          ```bash
+          git fetch llvm main
+          git rebase llvm/main
+          # fix conflicts
+          git rebase --continue
+          git push --force-with-lease origin nullsafe-clang-dev
+          ```
+
+          This issue will be updated weekly until resolved. Close it after a successful rebase.
+          EOF
+          )"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
