@@ -32,12 +32,12 @@ void test_reassign_nullable_warns() {
     int *p = &x;
     *p = 1; // OK - initially nonnull
     p = getNullableInt();
-    *p = 2; // expected-warning{{dereferencing nullable pointer}}
+    *p = 2; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_nullable_control() {
     Entity *e = getNullableEntity();
-    e->x = 1; // expected-warning{{dereferencing nullable pointer}}
+    e->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 #pragma clang assume_nonnull end

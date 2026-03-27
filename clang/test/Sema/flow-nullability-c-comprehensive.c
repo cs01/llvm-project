@@ -32,7 +32,7 @@ void test_nested_struct(struct Line * _Nullable line) {
 }
 
 void test_nested_not_checked(struct Line * _Nonnull line) {
-    line->start->x = 1; // expected-warning{{dereferencing nullable pointer}}
+    line->start->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // === Double-linked list traversal ===
@@ -59,7 +59,7 @@ void test_reverse_traversal(struct Node * _Nullable tail) {
 // === restrict pointer ===
 
 void test_restrict(int * restrict p) {
-    *p = 42; // expected-warning{{dereferencing nullable pointer}}
+    *p = 42; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_restrict_checked(int * restrict _Nullable p) {
@@ -138,7 +138,7 @@ void test_void_ptr_cast(void * _Nonnull raw) {
 
 void test_void_ptr_nullable(void * _Nullable raw) {
     struct Node *n = (struct Node *)raw;
-    n->value = 1; // expected-warning{{dereferencing nullable pointer}}
+    n->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // === Conditional operator ===

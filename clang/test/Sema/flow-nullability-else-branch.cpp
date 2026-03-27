@@ -48,7 +48,7 @@ void test_positive_else_no_narrow(Entity* _Nullable p) {
     if (p) {
         p->x = 1; // OK - narrowed in then branch
     } else {
-        p->x = 2; // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+        p->x = 2; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 

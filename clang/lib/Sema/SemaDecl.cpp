@@ -16477,7 +16477,8 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
   if (getLangOpts().FlowSensitiveNullability) {
     FlowSensitiveNullabilityEnabled =
         PP.getPragmaAssumeNonNullLoc().isValid() ||
-        getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified;
+        getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified ||
+        FunctionHasNullabilityAnnotations(FD);
   }
 
   return D;

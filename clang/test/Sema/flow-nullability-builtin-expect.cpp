@@ -63,7 +63,7 @@ void test_check_macro_two_vars(Entity* _Nullable p, Entity* _Nullable q) {
 // === Without __builtin_expect still warns ===
 
 void test_no_narrowing_without_check(Entity* _Nullable p) {
-    p->x = 1; // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+    p->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 #pragma clang assume_nonnull end

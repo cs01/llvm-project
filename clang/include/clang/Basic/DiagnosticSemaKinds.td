@@ -12999,8 +12999,11 @@ def warn_nullability_lost : Warning<
   "type %1">,
   InGroup<NullableToNonNullConversion>;
 def warn_strict_nullability_dereference : Warning<
-  "dereferencing nullable pointer of type %0">,
+  "dereference of nullable pointer">,
   InGroup<FlowNullableDereference>;
+def note_nullable_dereference_fix : Note<
+  "add a null check before dereferencing, or annotate as '_Nonnull' if this "
+  "pointer cannot be null">;
 def warn_zero_as_null_pointer_constant : Warning<
   "zero as null pointer constant">,
   InGroup<DiagGroup<"zero-as-null-pointer-constant">>, DefaultIgnore;

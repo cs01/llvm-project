@@ -2942,8 +2942,8 @@ public:
 
   void handleNullableDereference(const Expr *DerefExpr,
                                  QualType PtrType) override {
-    S.Diag(DerefExpr->getExprLoc(), diag::warn_strict_nullability_dereference)
-        << PtrType;
+    S.Diag(DerefExpr->getExprLoc(), diag::warn_strict_nullability_dereference);
+    S.Diag(DerefExpr->getExprLoc(), diag::note_nullable_dereference_fix);
   }
 };
 

@@ -17,7 +17,7 @@ void test_ne_nullptr(Node * _Nullable p) {
         (void)p->value; // OK
     }
     // Outside the if, p is still nullable
-    (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_eq_nullptr_negated(Node * _Nullable p) {
@@ -47,7 +47,7 @@ void test_pointer_reassigned(Node * _Nullable p, Node * _Nullable q) {
     bool valid = (p != nullptr);
     p = q; // reassign pointer — bool guard is stale
     if (valid) {
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -55,7 +55,7 @@ void test_bool_reassigned(Node * _Nullable p) {
     bool valid = (p != nullptr);
     valid = false;
     if (valid) {
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -63,7 +63,7 @@ void test_pointer_incremented(int * _Nullable p) {
     bool valid = (p != nullptr);
     p++;
     if (valid) {
-        (void)*p; // expected-warning{{dereferencing nullable pointer}}
+        (void)*p; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -77,7 +77,7 @@ void test_negated_and_return(Node * _Nullable p, Node * _Nullable q) {
 
 void test_negated_and_else(Node * _Nullable p, Node * _Nullable q) {
     if (!(p && q)) {
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     } else {
         (void)p->value; // OK
         (void)q->value; // OK
@@ -113,8 +113,8 @@ void test_bool_compound_not_tracked(Node * _Nullable p, Node * _Nullable q) {
     bool both = (p && q);
     if (both) {
         // Compound conditions are not decomposed into per-variable guards
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
-        (void)q->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        (void)q->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 

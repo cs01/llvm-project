@@ -13,7 +13,7 @@ struct Node {
 
 void test_capture_nullable_by_value(Node * _Nullable p) {
     auto f = [p]() {
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     };
     f();
 }
@@ -28,7 +28,7 @@ void test_capture_narrowed_by_value(Node * _Nullable p) {
             // p is captured by value from narrowed context, but the lambda
             // is a separate function body. The analysis sees p as the
             // lambda's parameter (implicitly nullable in nullable-default).
-            (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+            (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
         };
         f();
         (void)p->value; // OK — still narrowed in outer scope
@@ -40,7 +40,7 @@ void test_capture_narrowed_by_value(Node * _Nullable p) {
 void test_capture_by_ref(Node * _Nullable p) {
     if (p) {
         auto f = [&p]() {
-            (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+            (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
         };
         f();
     }
@@ -91,7 +91,7 @@ void test_lambda_return() {
     Node * _Nullable n = nullptr;
     auto getter = [&n]() -> Node * _Nullable { return n; };
     Node * _Nullable result = getter();
-    (void)result->value; // expected-warning{{dereferencing nullable pointer}}
+    (void)result->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // === Nested lambdas ===
@@ -99,7 +99,7 @@ void test_lambda_return() {
 void test_nested_lambda(Node * _Nullable p) {
     auto outer = [p]() {
         auto inner = [p]() {
-            (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+            (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
         };
         inner();
     };
@@ -121,7 +121,7 @@ void test_lambda_no_capture() {
 void test_mutable_capture(Node * _Nullable p) {
     auto f = [p]() mutable {
         p = nullptr; // mutate the captured copy
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     };
     f();
 }

@@ -28,7 +28,7 @@ int getInt();
 // Calling a function that returns nullable, then immediately accessing a member.
 
 void test_direct_chain_warns() {
-    int v = getNode()->value; // expected-warning{{dereferencing nullable pointer}}
+    int v = getNode()->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     (void)v;
 }
 
@@ -43,13 +43,13 @@ void test_direct_chain_guarded() {
 // === Double chain: getContainer()->root->value ===
 
 void test_double_chain_warns() {
-    (void)getContainer()->root; // expected-warning{{dereferencing nullable pointer}}
+    (void)getContainer()->root; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_double_chain_partial_guard() {
     Container * _Nullable c = getContainer();
     if (c) {
-        c->root->value = 1; // expected-warning{{dereferencing nullable pointer}}
+        c->root->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -101,7 +101,7 @@ struct Builder {
 Builder * _Nullable getBuilder();
 
 void test_builder_chain_warns() {
-    getBuilder()->getResult(); // expected-warning{{dereferencing nullable pointer}}
+    getBuilder()->getResult(); // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_builder_chain_guarded() {
@@ -123,7 +123,7 @@ void test_builder_chain_guarded() {
 void test_ptr_to_ptr(Node * _Nullable * _Nullable pp) {
     if (pp && *pp) {
         // *pp was checked but the analysis can't track it
-        (*pp)->value = 1; // expected-warning{{dereferencing nullable pointer}}
+        (*pp)->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 

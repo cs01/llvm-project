@@ -8,7 +8,7 @@ struct Node {
 struct Node* _Nullable getNode(void);
 
 void test_star_deref_warns(int* p) {
-    *p = 42; // expected-warning{{dereferencing nullable pointer}}
+    *p = 42; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_star_after_check(int* p) {
@@ -18,7 +18,7 @@ void test_star_after_check(int* p) {
 }
 
 void test_arrow_deref_warns(struct Node* p) {
-    p->value = 1; // expected-warning{{dereferencing nullable pointer}}
+    p->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_arrow_after_check(struct Node* p) {

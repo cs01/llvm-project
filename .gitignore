@@ -89,3 +89,6 @@ pythonenv*
 /lldb/docs/python_api/
 **/.claude/settings.local.json
 *.o
+# Clang Static Analyzer output
+*.plist
+/csa_benchmark_results/

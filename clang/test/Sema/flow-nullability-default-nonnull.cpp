@@ -18,7 +18,7 @@ void test_unannotated_star(Entity* p) {
 }
 
 void test_explicit_nullable_warns(Entity* _Nullable p) {
-    p->x = 1; // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+    p->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_explicit_nullable_after_check(Entity* _Nullable p) {
@@ -29,7 +29,7 @@ void test_explicit_nullable_after_check(Entity* _Nullable p) {
 
 void test_return_nullable_warns() {
     Entity* e = getNullable();
-    e->x = 1; // expected-warning{{dereferencing nullable pointer}}
+    e->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // With -fnullability-default=nonnull, unannotated pointers are treated as

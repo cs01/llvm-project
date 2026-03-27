@@ -29,8 +29,8 @@ void test_and_both_narrowed(Node * _Nullable p, Node * _Nullable q) {
 void test_or_neither_narrowed(Node * _Nullable p, Node * _Nullable q) {
     if (p || q) {
         // Can't tell which one is non-null
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
-        (void)q->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        (void)q->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -170,7 +170,7 @@ void test_bool_negated_ptr(Node * _Nullable p) {
         (void)p->value; // OK — !isNull means p is non-null
     }
     if (isNull) {
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -180,7 +180,7 @@ void test_bool_ptr_reassigned(Node * _Nullable p, Node * _Nullable q) {
     bool valid = (p != nullptr);
     p = q; // reassign p — guard is now stale
     if (valid) {
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -190,7 +190,7 @@ void test_bool_reassigned(Node * _Nullable p) {
     bool valid = (p != nullptr);
     valid = false; // reassign bool — guard is gone
     if (valid) {
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -208,7 +208,7 @@ void test_negated_triple_and(Node * _Nullable a, Node * _Nullable b, Node * _Nul
 void test_negated_and_body(Node * _Nullable p, Node * _Nullable q) {
     if (!(p && q)) {
         // At least one is null — can't narrow either
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     } else {
         // Both non-null
         (void)p->value; // OK

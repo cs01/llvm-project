@@ -43,7 +43,7 @@ void test_if_without_else_no_termination(Entity* _Nullable p, bool flag) {
     if (!p) {
         if (flag) { return; }
     }
-    p->x = 1; // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+    p->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // === noreturn function in StatementAlwaysTerminates ===
