@@ -8,6 +8,10 @@
 //
 // -Werror=flow-nullable-dereference promotes to error:
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-nullable-dereference -verify=werror %s
+//
+// cc1 rejects invalid -fnullability-default value:
+// RUN: not %clang_cc1 -fnullability-default=invalid %s 2>&1 | FileCheck %s
+// CHECK: error: invalid value 'invalid' in '-fnullability-default=invalid'
 
 // suppressed-no-diagnostics
 

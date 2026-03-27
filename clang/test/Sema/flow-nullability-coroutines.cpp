@@ -3,7 +3,6 @@
 // The analysis should handle co_await/co_yield/co_return without crashing
 // and without producing spurious warnings.
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++20 -I%S/../SemaCXX/Inputs %s -verify
-// expected-no-diagnostics
 
 #include "std-coroutine.h"
 
@@ -98,6 +97,21 @@ Generator nonnull_param(Node * _Nonnull n) {
     (void)n->value; // OK — _Nonnull
     co_yield n;
     (void)n->value; // OK — _Nonnull
+}
+
+// === Unchecked nullable deref in coroutine body — should warn ===
+
+Task test_unchecked_deref_in_coroutine(Node * _Nullable p) {
+    (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    co_return;
+}
+
+// === co_await result used without check — should warn ===
+
+Task test_unchecked_co_await_result() {
+    NullableAwaitable awaitable;
+    Node * _Nullable result = co_await awaitable;
+    (void)result->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 #pragma clang assume_nonnull end
