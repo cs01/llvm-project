@@ -69,11 +69,11 @@ struct Container {
 // --- Basic dereference warnings ---
 
 void test_sp_deref_warns(std::unique_ptr<Node> sp) {
-    sp->value = 1; // expected-warning {{dereferencing nullable pointer}}
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 void test_shared_ptr_deref_warns(std::shared_ptr<Node> sp) {
-    sp->value = 1; // expected-warning {{dereferencing nullable pointer}}
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 // --- Narrowing via null check ---
@@ -109,7 +109,7 @@ void test_reset_makes_nullable(std::unique_ptr<Node> sp) {
         sp->value = 1; // OK
     }
     sp.reset();
-    sp->value = 1; // expected-warning {{dereferencing nullable pointer}}
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 void test_reset_with_arg_narrows(std::unique_ptr<Node> sp) {
@@ -124,7 +124,7 @@ void test_move_makes_source_nullable(std::unique_ptr<Node> sp) {
         sp->value = 1; // OK
     }
     auto other = std::move(sp);
-    sp->value = 1; // expected-warning {{dereferencing nullable pointer}}
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 // --- Member smart pointers ---
@@ -145,7 +145,7 @@ struct Owner {
     void use_after_reset() {
         csm_->value = 1; // OK — before reset
         csm_.reset();
-        csm_->value = 1; // expected-warning {{dereferencing nullable pointer}}
+        csm_->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
     }
 
     // OK — reset with arg re-narrows it
@@ -157,7 +157,7 @@ struct Owner {
     // Warning — std::move makes it nullable
     void use_after_move() {
         auto other = std::move(csm_);
-        csm_->value = 1; // expected-warning {{dereferencing nullable pointer}}
+        csm_->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
     }
 
     // OK — narrowed by null check after reset
@@ -191,7 +191,7 @@ void test_get_no_warning_unannotated(std::unique_ptr<Node> sp) {
 // --- Raw pointers still work as before ---
 
 void test_raw_ptr_still_warns(Node* _Nullable p) {
-    p->value = 1; // expected-warning {{dereferencing nullable pointer}}
+    p->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 void test_raw_ptr_narrowed(Node* _Nullable p) {

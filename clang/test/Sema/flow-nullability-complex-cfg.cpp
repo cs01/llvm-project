@@ -35,7 +35,7 @@ void test_diamond_one_narrows(Node * _Nullable p) {
     } else {
         // NOT narrowed here
     }
-    (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // === Diamond: both branches assign nonnull ===
@@ -59,7 +59,7 @@ void test_diamond_assign_one(Node * _Nullable p) {
     } else {
         if (!p) return;
     }
-    (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // === Nested if-else (3 levels) ===
@@ -72,7 +72,7 @@ void test_nested_three_levels(Node * _Nullable p, Node * _Nullable q) {
         (void)q->value; // OK
     } else {
         (void)p->value; // OK — outer guard still holds
-        (void)q->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)q->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -84,7 +84,7 @@ void test_loop_multi_exit(Node * _Nullable p) {
         (void)p->value; // OK — narrowed by break guard
     }
     // After loop, p may or may not be narrowed (break path vs normal exit)
-    (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // === Sequential narrowing ===
@@ -106,7 +106,7 @@ void test_reassign_in_branch(Node * _Nullable p) {
     if (getInt()) {
         p = getNode(); // reassigned to nullable
     }
-    (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // === Do-while loop ===
@@ -140,7 +140,7 @@ void test_switch_fallthrough(Node * _Nullable p) {
     case 1:
         // Reached from case 0 (narrowed) OR case 1 (not narrowed)
         // Intersect: NOT narrowed
-        (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
         break;
     default:
         break;

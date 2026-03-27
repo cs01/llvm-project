@@ -20,7 +20,7 @@ void test_ternary_false_branch_negated(Node* _Nullable p) {
 }
 
 void test_ternary_no_narrowing_false(Node* _Nullable p) {
-    int x = p ? 0 : p->value; // expected-warning{{dereferencing nullable pointer of type 'Node * _Nullable'}}
+    int x = p ? 0 : p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_ternary_deref_star(Node* _Nullable p) {
@@ -53,7 +53,7 @@ void test_nested_ternary(Node* _Nullable p, Node* _Nullable q) {
 // === Ternary warns when it should ===
 
 void test_ternary_unrelated_cond(int flag, Node* _Nullable p) {
-    int x = flag ? p->value : 0; // expected-warning{{dereferencing nullable pointer of type 'Node * _Nullable'}}
+    int x = flag ? p->value : 0; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 #pragma clang assume_nonnull end

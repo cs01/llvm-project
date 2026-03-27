@@ -12,7 +12,7 @@ Entity* _Nullable getEntity();
 void test_reassign_invalidates(Entity* _Nullable p, Entity* _Nullable other) {
     if (p) {
         p = other;
-        (void)*p; // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+        (void)*p; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -20,7 +20,7 @@ void test_deref_before_reassign(Entity* _Nullable p, Entity* _Nullable other) {
     if (p) {
         (*p).x = 1; // OK - narrowed
         p = other;
-        (*p).x = 2; // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+        (*p).x = 2; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
@@ -34,7 +34,7 @@ void test_reassign_then_recheck(Entity* _Nullable p) {
 void test_increment_invalidates(Entity* _Nullable p) {
     if (p) {
         p++;
-        (void)*p; // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+        (void)*p; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
