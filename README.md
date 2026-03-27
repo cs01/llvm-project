@@ -2,8 +2,6 @@
 
 **Compile-time null pointer dereference checking for C and C++.**
 
-[![Test Null-Safety](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml/badge.svg)](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml)
-
 A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++. Opt-in, zero runtime cost, [17-26% marginal compile-time overhead](PERFORMANCE.md) when `-Wuninitialized` is already enabled (vs 86-130% for `-Wthread-safety`).
 
 > **[Try it in the online playground](https://cs01.github.io/llvm-project/)**
@@ -84,58 +82,74 @@ clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-n
 
 ## How it compares
 
-| | Stock Clang (`-Wnullability`) | Clang Static Analyzer | ASan / UBSan | Nullsafe Clang |
-|--|:-----------------------------:|:---------------------:|:------------:|:--------------:|
-| `_Nullable` → `_Nonnull` conversion | ✅ warns | ✅ warns | — | ✅ warns |
-| Dereference of nullable pointer | ❌ silent | ✅ warns | ✅ crashes | ✅ warns |
-| Works on unannotated code | ❌ | ❌ | ✅ | ✅ |
-| Runs as part of compiler | ✅ | ❌ | ❌ runtime | ✅ |
-| Runs in IDE (clangd) | ✅ | ❌ | ❌ | ✅ |
-| Fast enough for every build | ✅ | ❌ ([2.5-14x slower](PERFORMANCE.md#clang-static-analyzer-comparison)) | ✅ | ✅ |
-| No test coverage required | ✅ | ✅ | ❌ | ✅ |
-| Analysis technique | Type checking | Symbolic execution | Runtime instrumentation | Dataflow on CFG |
-| Cross-function reasoning | — | ✅ | ✅ | ❌ |
-| Zero compile-time cost | ✅ | — | ❌ | ❌ ([17-26% marginal](PERFORMANCE.md)) |
+| | Stock Clang (`-Wnullability`) | Clang Static Analyzer | Nullsafe Clang |
+|--|:-----------------------------:|:---------------------:|:--------------:|
+| `_Nullable` → `_Nonnull` conversion | ✅ warns | ✅ warns | ✅ warns |
+| Dereference of nullable pointer | ❌ silent | ✅ warns | ✅ warns |
+| Works on unannotated code | ❌ | ❌ | ✅ |
+| Runs as part of compiler | ✅ | ❌ | ✅ |
+| Runs in IDE (clangd) | ✅ | ❌ | ✅ |
+| Fast enough for every build | ✅ | ❌ ([2.5-14x slower](PERFORMANCE.md#clang-static-analyzer-comparison)) | ✅ |
+| No test coverage required | ✅ | ✅ | ✅ |
+| Analysis technique | Type checking | Symbolic execution | Dataflow on CFG |
+| Cross-function reasoning | — | ✅ | ❌ |
+| Zero compile-time cost | ✅ | — | ❌ ([17-26% marginal](PERFORMANCE.md)) |
 
 Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — same architecture as `-Wthread-safety`. It works in clangd, runs on every build, and catches bugs on unannotated code with `-fnullability-default=nullable`. Compare all three in the **[interactive playground](https://cs01.github.io/llvm-project/)**.
 
-## Opting in
+ASan and UBSan are complementary but solve a different problem — they're runtime sanitizers that instrument your binary to detect bugs during execution. They require test coverage to exercise the faulty code path, add ~2x runtime overhead, and catch the crash *after* it happens rather than preventing it at compile time.
 
-The analysis activates automatically for any function that has nullability annotations (`_Nullable` or `_Nonnull`) on its parameters or return type. You can also activate it for entire regions or files:
+## Usage
 
-**1. Annotate individual functions** — add `_Nullable` or `_Nonnull` to any parameter or return type:
+```bash
+# Gradual: only check annotated regions (default, zero noise on legacy code)
+clang -fflow-sensitive-nullability file.c
 
-```c
-int deref(int * _Nullable p) {
-    return *p;  // warning: p is _Nullable
-}
+# Defensive: treat all pointers as nullable, force null checks everywhere
+clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
 
-int legacy(int *p) {
-    return *p;  // no warning — unannotated, analysis not active
-}
+# Treat warnings as errors
+clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-nullable-dereference file.c
 ```
 
-**2. `#pragma clang assume_nonnull`** — activate for a region of code:
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-fflow-sensitive-nullability` | Enable the analysis (required) |
+| `-fnullability-default=unspecified` | Default. Warnings on annotated functions and inside `#pragma assume_nonnull` regions |
+| `-fnullability-default=nullable` | All unannotated pointers are nullable. Maximum checking |
+| `-fnullability-default=nonnull` | All unannotated pointers are nonnull. Ergonomic mode — only annotate what *can* be null (how Kotlin and Swift work) |
+
+### Opting in gradually
+
+The analysis activates automatically for any function with `_Nullable` or `_Nonnull` annotations. You can also activate it for entire regions with pragmas:
 
 ```c
 #pragma clang assume_nonnull begin
-
+// unannotated pointers here are _Nonnull — annotate the nullable ones
 void api_function(int* _Nullable input) {
     *input = 42;  // warning: input is _Nullable
 }
-
 #pragma clang assume_nonnull end
+
+#pragma clang assume_nullable begin
+// unannotated pointers here are _Nullable — annotate the nonnull ones
+void checked_function(int* _Nonnull safe) {
+    *safe = 42;  // no warning
+}
+#pragma clang assume_nullable end
 ```
 
-**3. `-fnullability-default=nullable`** — activate for the whole file:
+You can migrate one function, one file, or one module at a time.
 
-```bash
-clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
-```
+## Building vs. static analysis
 
-This lets you migrate one function, one file, or one module at a time.
+You can use nullsafe in two ways:
 
-**Tip:** Run `-fnullability-default=nullable` against a compilation database (`compile_commands.json`) as an analysis step — like a linter — without blocking builds. This surfaces every potential null dereference in the codebase, and you can fix them incrementally.
+- **As part of the build** — add `-fflow-sensitive-nullability` to your compiler flags and warnings show up alongside every other compile error. This is the fast path: zero extra tooling, works in clangd, catches bugs as you type.
+
+- **As a standalone analysis step** — run with `-fsyntax-only -fnullability-default=nullable` against a compilation database (`compile_commands.json`), like a linter, without producing object files or blocking builds. This surfaces every potential null dereference in the codebase so you can fix them incrementally.
 
 ## Annotated standard library headers
 
