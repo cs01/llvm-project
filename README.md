@@ -175,7 +175,7 @@ Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — 
 ## Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/null-safe-c-dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullsafe-clang-dev/install.sh | bash
 ```
 
 Or download from [releases](https://github.com/cs01/llvm-project/releases). Includes `clang` and `clangd`.
@@ -185,7 +185,7 @@ Or download from [releases](https://github.com/cs01/llvm-project/releases). Incl
 ```bash
 git clone git@github.com:cs01/llvm-project.git
 cd llvm-project
-git checkout null-safe-c-dev
+git checkout nullsafe-clang-dev
 cmake -S llvm -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
