@@ -6,6 +6,14 @@ A fork of Clang that adds flow-sensitive nullability analysis. It catches null p
 
 > **[Try it in the online playground](https://cs01.github.io/llvm-project/)**
 
+## Who is this for
+
+- You want to **prevent null pointer crashes in production** before they happen
+- You work on **safety-critical or high-reliability software** (automotive, medical, aerospace, infrastructure) where a null dereference is not just a bug — it's a liability
+- You're **migrating a C codebase toward modern safety guarantees** and want Kotlin/Swift-style nullability without switching languages
+- You maintain a **large C/C++ codebase** and need a way to adopt null safety gradually, one file or module at a time
+- You're tired of chasing **SIGSEGV crashes in CI or crash logs** that could have been caught at compile time
+
 ## The problem
 
 Can Clang catch a null pointer dereference? Try this with every warning flag you can find:
@@ -57,28 +65,6 @@ int deref(int * _Nullable p) {
     return *p;  // OK — p is proven non-null
 }
 ```
-
-## Usage
-
-```bash
-# Gradual: only check annotated regions (default, zero noise on legacy code)
-clang -fflow-sensitive-nullability file.c
-
-# Defensive: treat all pointers as nullable, force null checks everywhere
-clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
-
-# Treat warnings as errors
-clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-nullable-dereference file.c
-```
-
-### Flags
-
-| Flag | Description |
-|------|-------------|
-| `-fflow-sensitive-nullability` | Enable the analysis (required) |
-| `-fnullability-default=unspecified` | Default. Warnings on annotated functions and inside `#pragma assume_nonnull` regions |
-| `-fnullability-default=nullable` | All unannotated pointers are nullable. Maximum checking |
-| `-fnullability-default=nonnull` | All unannotated pointers are nonnull. Ergonomic mode |
 
 ## How it compares
 
