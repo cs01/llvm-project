@@ -2,11 +2,11 @@
 
 **Compile-time null pointer dereference checking for C and C++.**
 
-[![Test Null-Safety](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml/badge.svg)](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml) &nbsp; [![Try Online](https://img.shields.io/badge/▶_Try_Online-playground-blue?style=for-the-badge)](https://cs01.github.io/llvm-project/)
+[![Test Null-Safety](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml/badge.svg)](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml)
 
 A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++. Opt-in, zero runtime cost, [17-26% marginal compile-time overhead](PERFORMANCE.md) when `-Wuninitialized` is already enabled (vs 86-130% for `-Wthread-safety`).
 
-> **[Try it in the interactive playground](https://cs01.github.io/llvm-project/)**
+> **[Try it in the online playground](https://cs01.github.io/llvm-project/)**
 
 ## The problem
 
@@ -43,7 +43,7 @@ Still zero warnings. The annotation is right there. The dereference is unchecked
 With nullsafe-clang, the same code produces a warning at compile time — no separate analysis step, no runtime cost:
 
 ```
-$ nullsafe-clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
+$ nullsafe-clang -fflow-sensitive-nullability file.c
 
 warning: dereference of nullable pointer [-Wflow-nullable-dereference]
     return *p;
@@ -78,29 +78,44 @@ clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-n
 | Flag | Description |
 |------|-------------|
 | `-fflow-sensitive-nullability` | Enable the analysis (required) |
-| `-fnullability-default=unspecified` | Default. Warnings only inside `#pragma assume_nonnull` regions |
+| `-fnullability-default=unspecified` | Default. Warnings on annotated functions and inside `#pragma assume_nonnull` regions |
 | `-fnullability-default=nullable` | All unannotated pointers are nullable. Maximum checking |
 | `-fnullability-default=nonnull` | All unannotated pointers are nonnull. Ergonomic mode |
 
 ## How it compares
 
-| | Stock Clang | Clang Static Analyzer | Nullsafe Clang |
-|--|:-----------:|:---------------------:|:--------------:|
-| `_Nullable` → `_Nonnull` conversion | ✅ warns | ✅ warns | ✅ warns |
-| Dereference of nullable pointer | ❌ silent | ✅ warns | ✅ warns |
-| Works on unannotated code | ❌ | ❌ | ✅ |
-| Runs as part of compiler | ✅ | ❌ | ✅ |
-| Runs in IDE (clangd) | ✅ | ❌ | ✅ |
-| Fast enough for every build | ✅ | ❌ | ✅ |
-| Analysis technique | Type checking | Symbolic execution | Dataflow on CFG |
-| Cross-function reasoning | — | ✅ | ❌ |
-| Zero compile-time cost | ✅ | — | ❌ ([17-26% marginal](PERFORMANCE.md)) |
+| | Stock Clang (`-Wnullability`) | Clang Static Analyzer | ASan / UBSan | Nullsafe Clang |
+|--|:-----------------------------:|:---------------------:|:------------:|:--------------:|
+| `_Nullable` → `_Nonnull` conversion | ✅ warns | ✅ warns | — | ✅ warns |
+| Dereference of nullable pointer | ❌ silent | ✅ warns | ✅ crashes | ✅ warns |
+| Works on unannotated code | ❌ | ❌ | ✅ | ✅ |
+| Runs as part of compiler | ✅ | ❌ | ❌ runtime | ✅ |
+| Runs in IDE (clangd) | ✅ | ❌ | ❌ | ✅ |
+| Fast enough for every build | ✅ | ❌ ([2.5-14x slower](PERFORMANCE.md#clang-static-analyzer-comparison)) | ✅ | ✅ |
+| No test coverage required | ✅ | ✅ | ❌ | ✅ |
+| Analysis technique | Type checking | Symbolic execution | Runtime instrumentation | Dataflow on CFG |
+| Cross-function reasoning | — | ✅ | ✅ | ❌ |
+| Zero compile-time cost | ✅ | — | ❌ | ❌ ([17-26% marginal](PERFORMANCE.md)) |
 
-## Gradual adoption
+Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — same architecture as `-Wthread-safety`. It works in clangd, runs on every build, and catches bugs on unannotated code with `-fnullability-default=nullable`. Compare all three in the **[interactive playground](https://cs01.github.io/llvm-project/)**.
 
-The analysis only activates for functions that opt in. There are two ways to opt in:
+## Opting in
 
-**1. `#pragma clang assume_nonnull`** — wrap a region of code:
+The analysis activates automatically for any function that has nullability annotations (`_Nullable` or `_Nonnull`) on its parameters or return type. You can also activate it for entire regions or files:
+
+**1. Annotate individual functions** — add `_Nullable` or `_Nonnull` to any parameter or return type:
+
+```c
+int deref(int * _Nullable p) {
+    return *p;  // warning: p is _Nullable
+}
+
+int legacy(int *p) {
+    return *p;  // no warning — unannotated, analysis not active
+}
+```
+
+**2. `#pragma clang assume_nonnull`** — activate for a region of code:
 
 ```c
 #pragma clang assume_nonnull begin
@@ -110,13 +125,9 @@ void api_function(int* _Nullable input) {
 }
 
 #pragma clang assume_nonnull end
-
-void legacy_function(int* p) {
-    *p = 42;  // no warning — outside the pragma
-}
 ```
 
-**2. `-fnullability-default=nullable`** — enable for the whole file:
+**3. `-fnullability-default=nullable`** — activate for the whole file:
 
 ```bash
 clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
@@ -140,16 +151,6 @@ clang -fflow-sensitive-nullability -fnullability-default=nullable \
 - **[Architecture Diagrams](docs/flow-nullability-architecture.md)** — Mermaid flow diagrams of the three-layer design, worklist algorithm, state tracking, and transfer functions
 - **[Architecture Review Guide](docs/flow-nullability-review-guide.md)** — written walkthrough with concrete code examples for every concept
 - **[Performance Benchmarks](PERFORMANCE.md)** — compile-time overhead measurements with statistical analysis (paired t-test, 95% confidence intervals)
-
-## "Doesn't Clang already do this?"
-
-| Tool | What it does | Gap |
-|------|-------------|-----|
-| `-Wnullability` | Warns on `_Nullable` → `_Nonnull` **conversions** | Doesn't warn on *dereferences* |
-| Clang Static Analyzer (`core.NullDereference`) | Symbolic execution, path-sensitive | Separate tool, slow, no IDE support, no `-fnullability-default` equivalent |
-| ASan / UBSan | Runtime crash detection | Requires test coverage, runtime only |
-
-Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — same architecture as `-Wthread-safety`. It works in clangd, runs on every build, and catches bugs on unannotated code with `-fnullability-default=nullable`. Compare all three in the **[interactive playground](https://cs01.github.io/llvm-project/)**.
 
 ## Limitations
 
