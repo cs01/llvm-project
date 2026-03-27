@@ -3145,10 +3145,9 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   // Computed here (not stored on Sema) to avoid scoping bugs when lambda
   // bodies interleave with the enclosing function's processing.
   if (EnableFlowNullability) {
-    bool FlowNullabilityForFunc =
-        S.getLangOpts().getNullabilityDefault() !=
-            NullabilityKind::Unspecified ||
-        S.PP.getPragmaAssumeNonNullLoc().isValid();
+    bool FlowNullabilityForFunc = S.getLangOpts().getNullabilityDefault() !=
+                                      NullabilityKind::Unspecified ||
+                                  S.PP.getPragmaAssumeNonNullLoc().isValid();
     if (!FlowNullabilityForFunc) {
       if (const auto *FD = dyn_cast<FunctionDecl>(D))
         FlowNullabilityForFunc = S.functionHasNullabilityAnnotations(FD);
