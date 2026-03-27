@@ -1605,6 +1605,8 @@ protected:
 private:
   std::optional<std::unique_ptr<DarwinSDKInfo>> CachedDarwinSDKInfo;
   bool WarnedDarwinSDKInfoMissing = false;
+  // TODO: move to FunctionScopeInfo if nested function processing (e.g.
+  // lambda bodies interleaved with enclosing function) needs per-scope state.
   bool FlowNullabilityEnabled = false;
 
   StackExhaustionHandler StackHandler;

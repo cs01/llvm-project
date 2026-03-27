@@ -4727,7 +4727,12 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
   // If the type itself could have nullability but does not, infer pointer
   // nullability and perform consistency checking.
   if (S.CodeSynthesisContexts.empty()) {
-    if (shouldHaveNullability(T) && !T->getNullability()) {
+    // Skip conversion operators (operator T*()) — their return type is
+    // part of the operator's identity, and applying default nullability
+    // would change the type identity, breaking overload resolution and
+    // causing spurious diagnostics on the conversion result type.
+    if (D.getName().getKind() != UnqualifiedIdKind::IK_ConversionFunctionId &&
+        shouldHaveNullability(T) && !T->getNullability()) {
       if (isVaList(T)) {
         // Record that we've seen a pointer, but do nothing else.
         if (NumPointersRemaining > 0)
