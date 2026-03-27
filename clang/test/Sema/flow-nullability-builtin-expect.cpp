@@ -60,6 +60,24 @@ void test_check_macro_two_vars(Entity* _Nullable p, Entity* _Nullable q) {
     p->x = q->x; // OK
 }
 
+// === __builtin_assume narrows pointers ===
+
+void test_builtin_assume_simple(Entity* _Nullable p) {
+    __builtin_assume(p != nullptr);
+    p->x = 1; // OK - narrowed by __builtin_assume
+}
+
+void test_builtin_assume_truthiness(Entity* _Nullable p) {
+    __builtin_assume(p);
+    p->x = 1; // OK - narrowed by __builtin_assume(p)
+}
+
+void test_builtin_assume_two_vars(Entity* _Nullable p, Entity* _Nullable q) {
+    __builtin_assume(p != nullptr);
+    __builtin_assume(q != nullptr);
+    p->x = q->x; // OK
+}
+
 // === Without __builtin_expect still warns ===
 
 void test_no_narrowing_without_check(Entity* _Nullable p) {

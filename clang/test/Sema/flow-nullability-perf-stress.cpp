@@ -336,4 +336,66 @@ void stress_compound_conditions() {
     AND_CHAIN_3(a8, b8, c8) AND_CHAIN_3(a9, b9, c9)
 }
 
+// --- Pattern 10: Large switch statement (tests edge-state scaling) ---
+// A 100-case switch creates ~200 edges. Each case narrows a different var
+// then falls through to the merge point, stressing the per-edge state map.
+
+void stress_switch() {
+    Node * _Nullable p = getNode();
+    int x = getInt();
+    switch (x) {
+    case 0:  if (p) p->value = 0;  break;
+    case 1:  if (p) p->value = 1;  break;
+    case 2:  if (p) p->value = 2;  break;
+    case 3:  if (p) p->value = 3;  break;
+    case 4:  if (p) p->value = 4;  break;
+    case 5:  if (p) p->value = 5;  break;
+    case 6:  if (p) p->value = 6;  break;
+    case 7:  if (p) p->value = 7;  break;
+    case 8:  if (p) p->value = 8;  break;
+    case 9:  if (p) p->value = 9;  break;
+    case 10: if (p) p->value = 10; break;
+    case 11: if (p) p->value = 11; break;
+    case 12: if (p) p->value = 12; break;
+    case 13: if (p) p->value = 13; break;
+    case 14: if (p) p->value = 14; break;
+    case 15: if (p) p->value = 15; break;
+    case 16: if (p) p->value = 16; break;
+    case 17: if (p) p->value = 17; break;
+    case 18: if (p) p->value = 18; break;
+    case 19: if (p) p->value = 19; break;
+    case 20: if (p) p->value = 20; break;
+    case 21: if (p) p->value = 21; break;
+    case 22: if (p) p->value = 22; break;
+    case 23: if (p) p->value = 23; break;
+    case 24: if (p) p->value = 24; break;
+    case 25: if (p) p->value = 25; break;
+    case 26: if (p) p->value = 26; break;
+    case 27: if (p) p->value = 27; break;
+    case 28: if (p) p->value = 28; break;
+    case 29: if (p) p->value = 29; break;
+    case 30: if (p) p->value = 30; break;
+    case 31: if (p) p->value = 31; break;
+    case 32: if (p) p->value = 32; break;
+    case 33: if (p) p->value = 33; break;
+    case 34: if (p) p->value = 34; break;
+    case 35: if (p) p->value = 35; break;
+    case 36: if (p) p->value = 36; break;
+    case 37: if (p) p->value = 37; break;
+    case 38: if (p) p->value = 38; break;
+    case 39: if (p) p->value = 39; break;
+    case 40: if (p) p->value = 40; break;
+    case 41: if (p) p->value = 41; break;
+    case 42: if (p) p->value = 42; break;
+    case 43: if (p) p->value = 43; break;
+    case 44: if (p) p->value = 44; break;
+    case 45: if (p) p->value = 45; break;
+    case 46: if (p) p->value = 46; break;
+    case 47: if (p) p->value = 47; break;
+    case 48: if (p) p->value = 48; break;
+    case 49: if (p) p->value = 49; break;
+    default: break;
+    }
+}
+
 #pragma clang assume_nonnull end
