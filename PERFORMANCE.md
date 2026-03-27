@@ -7,41 +7,38 @@ comparing against other CFG-based Sema analyses in Clang.
 and `-Wuninitialized`). Intraprocedural only.
 O(blocks x variables x fixpoint iterations).
 
-**Bottom line:** Flow-nullability is **3x cheaper than `-Wthread-safety`** and
-only **~2x the cost of `-Wuninitialized`** — an analysis that ships
-enabled-by-default in most build systems. The analysis is fully opt-in and
-pays zero cost when disabled.
+The analysis is fully opt-in and pays zero cost when disabled.
 
 ## Cross-Analysis Comparison
 
-This is the key data for reviewer confidence. Each analysis compiles N
-functions with patterns that exercise its specific checks. Baseline compiles
-the same code with `-w` (all warnings suppressed). Paired t-tests on matched
-iterations eliminate noise.
+Each analysis compiles N functions with patterns that exercise its specific
+checks. Baseline compiles the same code with `-w` (all warnings suppressed).
+Paired t-tests on matched iterations.
 
-| N functions | Baseline | `-Wuninitialized` | `-Wthread-safety` | **`-fflow-sensitive-nullability`** |
+| N functions | Baseline | `-Wuninitialized` | `-Wthread-safety` | `-fflow-sensitive-nullability` |
 |------------:|---------:|-------------------:|-------------------:|-----------------------------------:|
-| 100         | 39.5ms   | +19.5% (p=0.01)   | **+90.5%** (p<0.001) | +30.0% (p<0.001) |
-| 500         | 152.7ms  | +19.6% (p<0.001)  | **+130.0%** (p<0.001) | +46.1% (p<0.001) |
-| 1000        | 326.9ms  | +14.8% (p=0.002)  | **+148.9%** (p<0.001) | +43.6% (p<0.001) |
-| 2000        | 684.3ms  | +12.7% (p=0.002)  | **+112.8%** (p<0.001) | +35.8% (p<0.001) |
+| 100         | 37.4ms   | +8.9% (p=0.05)    | +103.3% (p<0.001) | +37.7% (p<0.001) |
+| 500         | 175.9ms  | +8.0% (p=0.11)    | +86.3% (p<0.001)  | +31.0% (p<0.001) |
+| 1000        | 328.9ms  | +11.3% (p<0.001)  | +102.8% (p<0.001) | +36.0% (p<0.001) |
+| 2000        | 602.1ms  | +20.5% (p<0.001)  | +130.1% (p<0.001) | +39.3% (p<0.001) |
 
-**Key finding: `-Wthread-safety` costs 90-149% overhead. Flow-nullability
-costs 30-46%. Thread-safety shipped and is widely used.** If the compiler
-community accepted thread-safety's compile-time cost, flow-nullability is
-well within bounds.
+Flow-nullability costs 31-39% overhead vs 86-130% for `-Wthread-safety`.
 
-The overhead gap between flow-nullability and `-Wuninitialized` (~15-30pp)
-is dominated by CFG construction. In codebases that already enable
-`-Wuninitialized` (most do), the CFG is already built and the marginal
-cost of adding flow-nullability is much smaller.
+## Marginal Cost (on top of `-Wuninitialized`)
 
-No upstream Clang analysis publishes this kind of head-to-head comparison.
+When `-Wuninitialized` is already enabled, the CFG is already built.
+This measures the additional cost of adding flow-nullability.
 
-## Realistic Workload: Many Small Functions
+| N functions | `-Wuninitialized` | Combined | Marginal Overhead | p-value | Sig |
+|------------:|-------------------:|---------:|------------------:|--------:|:---:|
+| 100         | 40.7ms             | 50.4ms   | +23.6% (p<0.001) | 0.0000  | *** |
+| 500         | 189.9ms            | 221.6ms  | +16.7% (p<0.001) | 0.0000  | *** |
+| 1000        | 366.0ms            | 461.8ms  | +26.2% (p<0.001) | 0.0000  | *** |
+| 2000        | 725.8ms            | 863.6ms  | +19.0% (p<0.001) | 0.0000  | *** |
 
-The most representative benchmark — N separate functions each with a
-null-check-and-use pattern, mimicking real codebases.
+## Many Small Functions
+
+N separate functions each with a null-check-and-use pattern.
 
 | N functions | Baseline | With Nullsafe | Analysis Time | Overhead | p-value | Sig |
 |------------:|---------:|--------------:|--------------:|---------:|--------:|:---:|
@@ -51,15 +48,14 @@ null-check-and-use pattern, mimicking real codebases.
 | 2000        | 517.5ms ± 17.6ms | 606.5ms ± 35.8ms | <1us/fn | +17.2% ± 8.8% | 0.0000 | *** |
 | 5000        | 1.34s ± 78.6ms | 1.49s ± 49.3ms | <1us/fn | +10.7% ± 6.3% | 0.0001 | *** |
 
-Per-function analysis time is below `-ftime-trace` granularity
-(sub-microsecond). The ~8-19% total overhead is dominated by CFG
-construction — the `FlowNullabilityAnalysis` trace event itself accounts
-for <0.3% of compile time even at 5,000 functions.
+Per-function analysis time is sub-microsecond (below `-ftime-trace`
+granularity). The `FlowNullabilityAnalysis` trace event accounts for
+<0.3% of compile time at 5,000 functions; the remainder of the overhead
+is CFG construction.
 
-## Stress Tests: Single Large Functions
+## Single Large Functions
 
-Worst-case scenarios — single functions with extreme variable counts.
-Real code rarely has functions with 500+ nullable pointers.
+Single functions with increasing variable counts.
 
 ### Sequential Dereferences (N variables, each checked and used)
 
@@ -71,9 +67,7 @@ Real code rarely has functions with 500+ nullable pointers.
 | 500  | 50.0ms | 66.3ms | 15.2ms | 22.9% | +32.6% | *** |
 | 1000 | 101.5ms | 148.2ms | 56.8ms | 38.3% | +46.0% | *** |
 
-At N=1000 (a single function with 1000 nullable pointers), the analysis
-takes 57ms — 38% of compile time. This is the pathological worst case.
-Functions of this size are extremely rare.
+At N=1000, the analysis takes 57ms — 38% of compile time.
 
 ### Branch Fan-out (N independent if-branches merging)
 
@@ -85,8 +79,7 @@ Functions of this size are extremely rare.
 | 1000 | 69.4ms | 87.2ms | 5.3ms | 6.0% | +25.6% | *** |
 | 2000 | 135.9ms | 152.1ms | 10.5ms | 6.9% | +11.9% | ** |
 
-The intersect operation scales well — analysis stays under 7% even at
-2000 branches.
+Analysis stays under 7% at 2000 branches.
 
 ### Loop Convergence (N variables reassigned in a while loop)
 
@@ -97,8 +90,7 @@ The intersect operation scales well — analysis stays under 7% even at
 | 200 | 29.7ms | 31.8ms | 5.3ms | 16.7% | +6.9% | n.s. |
 | 500 | 59.2ms | 86.1ms | 25.1ms | 29.2% | +45.4% | *** |
 
-Fixpoint iteration grows with variable count. At N=500 variables in one
-loop, the analysis takes 25ms — still well under a second.
+At N=500 variables in one loop, the analysis takes 25ms.
 
 ### Nested if-Guards (N levels of `if (p)` nesting)
 
@@ -110,7 +102,7 @@ loop, the analysis takes 25ms — still well under a second.
 | 100 | 22.3ms | 23.9ms | 579us | 2.4% | +7.0% | n.s. |
 | 200 | 51.4ms | 53.2ms | 1.8ms | 3.3% | +3.4% | n.s. |
 
-Nesting depth has minimal impact — per-edge state tracking remains fast.
+Analysis stays under 3.5% at 200 levels of nesting.
 
 ## Methodology
 
@@ -140,9 +132,7 @@ Each analysis gets source tailored to its annotation style:
   `assume_nonnull` pragmas
 
 The thread-safety source is structurally more complex (mutex classes,
-scoped guards) which contributes to its higher overhead. This mirrors
-real-world usage: thread-safety annotations add compile-time cost through
-both the analysis and the annotated type machinery.
+scoped guards) which contributes to its higher overhead.
 
 ## Reproducing
 

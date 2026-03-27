@@ -287,6 +287,12 @@ CONFIGS = [
         "flags": ["-fflow-sensitive-nullability", "-fnullability-default=nullable"],
         "source_key": "nullability",
     },
+    {
+        "name": "uninit_plus_nullsafe",
+        "label": "-Wuninitialized + nullsafe",
+        "flags": ["-Wuninitialized", "-fflow-sensitive-nullability", "-fnullability-default=nullable"],
+        "source_key": "nullability",
+    },
 ]
 
 # Source generators keyed by source_key
@@ -432,6 +438,20 @@ def main():
                 sig = significance_stars(p_val)
                 print(f"    {config['label']:40s} {pct:+6.1f}% \u00b1 {pct_ci:5.1f}%  p={p_val:.4f} {sig}")
 
+        # Marginal cost: combined vs uninit alone
+        if "uninit" in results and "uninit_plus_nullsafe" in results:
+            uninit = results["uninit"]
+            combined = results["uninit_plus_nullsafe"]
+            pair_n = min(len(uninit["samples"]), len(combined["samples"]))
+            _, p_val, mean_diff, diff_ci = paired_t_test(
+                combined["samples"][:pair_n],
+                uninit["samples"][:pair_n])
+            pct = (mean_diff / uninit["mean"] * 100) if uninit["mean"] > 0 else 0
+            pct_ci = (diff_ci / uninit["mean"] * 100) if uninit["mean"] > 0 else 0
+            sig = significance_stars(p_val)
+            print(f"\n  Marginal cost (nullsafe on top of -Wuninitialized):")
+            print(f"    {pct:+6.1f}% \u00b1 {pct_ci:5.1f}%  p={p_val:.4f} {sig}")
+
         all_results[n] = results
 
     # --- Generate report ---
@@ -517,6 +537,38 @@ def generate_report(all_results, args, n_values):
                 overhead_str = f"{pct:+.1f}% \u00b1 {pct_ci:.1f}%"
                 lines.append(f"| {config['label']} | {mean_str} | {overhead_str} | {p_val:.4f} | {sig} |")
 
+        lines.append("")
+
+    # Marginal cost table: combined vs uninit alone
+    has_marginal = any(
+        "uninit" in all_results[n] and "uninit_plus_nullsafe" in all_results[n]
+        for n in n_values if n in all_results)
+    if has_marginal:
+        lines.append("## Marginal Cost (nullsafe on top of `-Wuninitialized`)")
+        lines.append("")
+        lines.append("Measures the additional cost of enabling flow-nullability when")
+        lines.append("`-Wuninitialized` is already active (CFG already built).")
+        lines.append("")
+        lines.append("| N functions | `-Wuninitialized` | Combined | Marginal Overhead | p-value | Sig |")
+        lines.append("|------------:|------------------:|---------:|------------------:|--------:|:---:|")
+        for n in n_values:
+            if n not in all_results:
+                continue
+            results = all_results[n]
+            if "uninit" not in results or "uninit_plus_nullsafe" not in results:
+                continue
+            uninit = results["uninit"]
+            combined = results["uninit_plus_nullsafe"]
+            uninit_str = f"{human_time(uninit['mean'])} \u00b1 {human_time(uninit['ci'])}"
+            combined_str = f"{human_time(combined['mean'])} \u00b1 {human_time(combined['ci'])}"
+            pair_n = min(len(uninit["samples"]), len(combined["samples"]))
+            _, p_val, mean_diff, diff_ci = paired_t_test(
+                combined["samples"][:pair_n], uninit["samples"][:pair_n])
+            pct = (mean_diff / uninit["mean"] * 100) if uninit["mean"] > 0 else 0
+            pct_ci = (diff_ci / uninit["mean"] * 100) if uninit["mean"] > 0 else 0
+            sig = significance_stars(p_val)
+            marginal_str = f"{pct:+.1f}% \u00b1 {pct_ci:.1f}%"
+            lines.append(f"| {n} | {uninit_str} | {combined_str} | {marginal_str} | {p_val:.4f} | {sig} |")
         lines.append("")
 
     lines.append("## Interpretation")
