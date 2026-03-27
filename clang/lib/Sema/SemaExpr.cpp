@@ -7325,10 +7325,11 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
 
     checkFortifiedBuiltinMemoryFunction(FDecl, TheCall);
 
-    // Function calls don't invalidate narrowing since the function receives
-    // a copy of the pointer and cannot modify the original pointer variable.
-    // The only way to modify a pointer is via pointer-to-pointer (int**),
-    // which users can handle explicitly if needed.
+    // Function calls don't invalidate narrowing. This is a pragmatic choice:
+    // while a call could theoretically modify a pointer through a reference,
+    // global, or member access, invalidating on every call would make the
+    // analysis too noisy to be useful. This matches the approach taken by
+    // other Clang analyses like ThreadSafety.
 
     if (BuiltinID)
       return CheckBuiltinFunctionCall(FDecl, BuiltinID, TheCall);
