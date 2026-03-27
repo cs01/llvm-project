@@ -2,7 +2,7 @@
 
 **Compile-time null pointer dereference checking for C and C++.**
 
-[![Test Null-Safety](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml/badge.svg)](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml) &nbsp; [![Try Online](https://img.shields.io/badge/try-online-brightgreen)](https://cs01.github.io/llvm-project/)
+[![Test Null-Safety](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml/badge.svg)](https://github.com/cs01/llvm-project/actions/workflows/test-null-safety.yml) &nbsp; [![Try Online](https://img.shields.io/badge/▶_Try_Online-playground-blue?style=for-the-badge)](https://cs01.github.io/llvm-project/)
 
 A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++. Opt-in, zero runtime cost, [17-26% marginal compile-time overhead](PERFORMANCE.md) when `-Wuninitialized` is already enabled (vs 86-130% for `-Wthread-safety`).
 
@@ -21,10 +21,9 @@ int deref(int *p) {
 
 ```bash
 $ clang -Wall -Wextra -Wnullability -Wnull-dereference -c file.c
-# zero warnings
 ```
 
-OK, Clang already has `_Nullable` and `_Nonnull` annotations — let's use them:
+Zero warnings. OK, Clang already has `_Nullable` and `_Nonnull` annotations — let's use them:
 
 ```c
 // file.c
@@ -35,12 +34,13 @@ int deref(int * _Nullable p) {
 
 ```bash
 $ clang -Wall -Wextra -Wnullability -c file.c
-# still zero warnings
 ```
 
-The annotation is right there. The dereference is unchecked. Clang doesn't care.
+Still zero warnings. The annotation is right there. The dereference is unchecked. Clang doesn't care.
 
-**That's why this fork exists.**
+**That's why this fork exists** ([RFC on Discourse](https://discourse.llvm.org/t/rfc-flow-sensitive-nullability/89042)).
+
+With nullsafe-clang, the same code produces a warning at compile time — no separate analysis step, no runtime cost:
 
 ```
 $ nullsafe-clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
@@ -51,7 +51,7 @@ warning: dereference of nullable pointer [-Wflow-nullable-dereference]
 note: add a null check before dereferencing, or annotate as '_Nonnull' if this pointer cannot be null
 ```
 
-Add a null check, and the warning goes away:
+The fix is straightforward — add a null check, and the warning goes away:
 
 ```c
 int deref(int * _Nullable p) {
@@ -82,33 +82,19 @@ clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-n
 | `-fnullability-default=nullable` | All unannotated pointers are nullable. Maximum checking |
 | `-fnullability-default=nonnull` | All unannotated pointers are nonnull. Ergonomic mode |
 
-## What it catches
+## How it compares
 
-| Pattern | Stock Clang | Static Analyzer | Nullsafe Clang |
-|---------|:-----------:|:---------------:|:--------------:|
+| | Stock Clang | Clang Static Analyzer | Nullsafe Clang |
+|--|:-----------:|:---------------------:|:--------------:|
 | `_Nullable` → `_Nonnull` conversion | ✅ warns | ✅ warns | ✅ warns |
-| Deref of `_Nullable` pointer (`*p`, `p->x`, `p[i]`) | ❌ silent | ✅ warns | ✅ warns |
-| Deref of unchecked parameter | ❌ silent | ❌ silent | ✅ warns |
-| Struct member deref (`head->next->value`) | ❌ silent | ✅ warns | ✅ warns |
-| Smart pointer after `reset()` / `std::move()` | ❌ silent | ❌ silent | ✅ warns |
+| Dereference of nullable pointer | ❌ silent | ✅ warns | ✅ warns |
 | Works on unannotated code | ❌ | ❌ | ✅ |
+| Runs as part of compiler | ✅ | ❌ | ✅ |
 | Runs in IDE (clangd) | ✅ | ❌ | ✅ |
 | Fast enough for every build | ✅ | ❌ | ✅ |
+| Analysis technique | Type checking | Symbolic execution | Dataflow on CFG |
 | Cross-function reasoning | — | ✅ | ❌ |
 | Zero compile-time cost | ✅ | — | ❌ ([17-26% marginal](PERFORMANCE.md)) |
-
-**Safe code recognized (no false positives):**
-
-| Pattern | Nullsafe Clang |
-|---------|:--------------:|
-| Null check (`if (p)`, `if (!p) return`) | ✅ |
-| Assertion macro (any `[[noreturn]]` call) | ✅ |
-| Loop narrowing (`while (p)`, `for (;p;)`) | ✅ |
-| Ternary / short-circuit (`p ? *p : 0`, `p && *p`) | ✅ |
-| Struct member check (`if (n->next)`) | ✅ |
-| Smart pointer check (`if (sp)`) | ✅ |
-| `make_unique` / `make_shared` / `new` result | ✅ |
-| `this->member` access | ✅ |
 
 ## Gradual adoption
 
@@ -160,7 +146,7 @@ clang -fflow-sensitive-nullability -fnullability-default=nullable \
 | Tool | What it does | Gap |
 |------|-------------|-----|
 | `-Wnullability` | Warns on `_Nullable` → `_Nonnull` **conversions** | Doesn't warn on *dereferences* |
-| Static Analyzer (`core.NullDereference`) | Symbolic execution, path-sensitive | Separate tool, slow, no IDE support, no `-fnullability-default` equivalent |
+| Clang Static Analyzer (`core.NullDereference`) | Symbolic execution, path-sensitive | Separate tool, slow, no IDE support, no `-fnullability-default` equivalent |
 | ASan / UBSan | Runtime crash detection | Requires test coverage, runtime only |
 
 Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — same architecture as `-Wthread-safety`. It works in clangd, runs on every build, and catches bugs on unannotated code with `-fnullability-default=nullable`. Compare all three in the **[interactive playground](https://cs01.github.io/llvm-project/)**.
