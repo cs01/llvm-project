@@ -367,7 +367,7 @@ void call_doesnt_invalidate(int * _Nullable p) {
 
 | File | What it defines |
 |------|----------------|
-| `DiagnosticSemaKinds.td` | Warning `warn_strict_nullability_dereference` ("dereference of nullable pointer") + fix note `note_nullable_dereference_fix` |
+| `DiagnosticSemaKinds.td` | Warning `warn_flow_nullable_dereference` ("dereference of nullable pointer") + fix note `note_nullable_dereference_fix` |
 | `DiagnosticGroups.td` | `-Wflow-nullable-dereference` (the warning), `-Wflow-nullability` (parent group) |
 | `Options.td` + `Driver/ToolChains/Clang.cpp` | Three flags (see below) |
 
