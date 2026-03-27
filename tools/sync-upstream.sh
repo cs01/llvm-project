@@ -50,6 +50,7 @@ EXCLUDE_PATTERNS=(
     'clang/nullsafe-headers/'
 
     # misc fork files
+    'UPSTREAM_PR_REVIEW.md'
     'clang/cJSON.plist'
     'clang/.gitignore'
     'clang/test/Sema/.clangd'
