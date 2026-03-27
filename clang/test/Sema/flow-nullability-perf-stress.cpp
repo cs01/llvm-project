@@ -195,4 +195,144 @@ void stress_linked_list() {
     (void)sum;
 }
 
+// --- Pattern 6: Diamond CFG merges (tests intersect with divergent narrowing) ---
+// Each diamond: if(cond) { narrow p_i } else { narrow q_i }
+// Then merge point must intersect correctly.
+
+#define DIAMOND(N) \
+    if (getInt()) { \
+        if (p##N) p##N->value = N; \
+    } else { \
+        if (q##N) q##N->value = N; \
+    }
+
+void stress_diamond_merges() {
+    Node * _Nullable p0 = getNode(), * _Nullable q0 = getNode();
+    Node * _Nullable p1 = getNode(), * _Nullable q1 = getNode();
+    Node * _Nullable p2 = getNode(), * _Nullable q2 = getNode();
+    Node * _Nullable p3 = getNode(), * _Nullable q3 = getNode();
+    Node * _Nullable p4 = getNode(), * _Nullable q4 = getNode();
+    Node * _Nullable p5 = getNode(), * _Nullable q5 = getNode();
+    Node * _Nullable p6 = getNode(), * _Nullable q6 = getNode();
+    Node * _Nullable p7 = getNode(), * _Nullable q7 = getNode();
+    Node * _Nullable p8 = getNode(), * _Nullable q8 = getNode();
+    Node * _Nullable p9 = getNode(), * _Nullable q9 = getNode();
+    Node * _Nullable p10 = getNode(), * _Nullable q10 = getNode();
+    Node * _Nullable p11 = getNode(), * _Nullable q11 = getNode();
+    Node * _Nullable p12 = getNode(), * _Nullable q12 = getNode();
+    Node * _Nullable p13 = getNode(), * _Nullable q13 = getNode();
+    Node * _Nullable p14 = getNode(), * _Nullable q14 = getNode();
+    Node * _Nullable p15 = getNode(), * _Nullable q15 = getNode();
+    Node * _Nullable p16 = getNode(), * _Nullable q16 = getNode();
+    Node * _Nullable p17 = getNode(), * _Nullable q17 = getNode();
+    Node * _Nullable p18 = getNode(), * _Nullable q18 = getNode();
+    Node * _Nullable p19 = getNode(), * _Nullable q19 = getNode();
+    Node * _Nullable p20 = getNode(), * _Nullable q20 = getNode();
+    Node * _Nullable p21 = getNode(), * _Nullable q21 = getNode();
+    Node * _Nullable p22 = getNode(), * _Nullable q22 = getNode();
+    Node * _Nullable p23 = getNode(), * _Nullable q23 = getNode();
+    Node * _Nullable p24 = getNode(), * _Nullable q24 = getNode();
+
+    DIAMOND(0)  DIAMOND(1)  DIAMOND(2)  DIAMOND(3)  DIAMOND(4)
+    DIAMOND(5)  DIAMOND(6)  DIAMOND(7)  DIAMOND(8)  DIAMOND(9)
+    DIAMOND(10) DIAMOND(11) DIAMOND(12) DIAMOND(13) DIAMOND(14)
+    DIAMOND(15) DIAMOND(16) DIAMOND(17) DIAMOND(18) DIAMOND(19)
+    DIAMOND(20) DIAMOND(21) DIAMOND(22) DIAMOND(23) DIAMOND(24)
+}
+
+// --- Pattern 7: Boolean guard stress (tests BoolGuards tracking) ---
+// Many boolean intermediaries checked later — stresses the guard map.
+
+#define BOOL_GUARD(N) \
+    bool valid_##N = (getNode() != nullptr); \
+    Node * _Nullable bg_##N = getNode();
+
+#define BOOL_CHECK(N) \
+    if (valid_##N && bg_##N) { bg_##N->value = N; }
+
+void stress_bool_guards() {
+    BOOL_GUARD(0)  BOOL_GUARD(1)  BOOL_GUARD(2)  BOOL_GUARD(3)
+    BOOL_GUARD(4)  BOOL_GUARD(5)  BOOL_GUARD(6)  BOOL_GUARD(7)
+    BOOL_GUARD(8)  BOOL_GUARD(9)  BOOL_GUARD(10) BOOL_GUARD(11)
+    BOOL_GUARD(12) BOOL_GUARD(13) BOOL_GUARD(14) BOOL_GUARD(15)
+    BOOL_GUARD(16) BOOL_GUARD(17) BOOL_GUARD(18) BOOL_GUARD(19)
+    BOOL_GUARD(20) BOOL_GUARD(21) BOOL_GUARD(22) BOOL_GUARD(23)
+    BOOL_GUARD(24) BOOL_GUARD(25) BOOL_GUARD(26) BOOL_GUARD(27)
+    BOOL_GUARD(28) BOOL_GUARD(29) BOOL_GUARD(30) BOOL_GUARD(31)
+    BOOL_GUARD(32) BOOL_GUARD(33) BOOL_GUARD(34) BOOL_GUARD(35)
+    BOOL_GUARD(36) BOOL_GUARD(37) BOOL_GUARD(38) BOOL_GUARD(39)
+
+    BOOL_CHECK(0)  BOOL_CHECK(1)  BOOL_CHECK(2)  BOOL_CHECK(3)
+    BOOL_CHECK(4)  BOOL_CHECK(5)  BOOL_CHECK(6)  BOOL_CHECK(7)
+    BOOL_CHECK(8)  BOOL_CHECK(9)  BOOL_CHECK(10) BOOL_CHECK(11)
+    BOOL_CHECK(12) BOOL_CHECK(13) BOOL_CHECK(14) BOOL_CHECK(15)
+    BOOL_CHECK(16) BOOL_CHECK(17) BOOL_CHECK(18) BOOL_CHECK(19)
+    BOOL_CHECK(20) BOOL_CHECK(21) BOOL_CHECK(22) BOOL_CHECK(23)
+    BOOL_CHECK(24) BOOL_CHECK(25) BOOL_CHECK(26) BOOL_CHECK(27)
+    BOOL_CHECK(28) BOOL_CHECK(29) BOOL_CHECK(30) BOOL_CHECK(31)
+    BOOL_CHECK(32) BOOL_CHECK(33) BOOL_CHECK(34) BOOL_CHECK(35)
+    BOOL_CHECK(36) BOOL_CHECK(37) BOOL_CHECK(38) BOOL_CHECK(39)
+}
+
+// --- Pattern 8: Member narrowing stress (tests NarrowedMembers set) ---
+// Many member accesses through different variables, all checked.
+
+struct Tree {
+    int data;
+    Tree * _Nullable left;
+    Tree * _Nullable right;
+    Tree * _Nullable parent;
+};
+
+#define MEMBER_NARROW(N) \
+    void member_fn_##N(Tree * _Nullable t) { \
+        if (!t) return; \
+        if (t->left) { \
+            t->left->data = N; \
+            if (t->left->right) t->left->right->data = N; \
+        } \
+        if (t->right) { \
+            t->right->data = N; \
+            if (t->right->parent) t->right->parent->data = N; \
+        } \
+    }
+
+MEMBER_NARROW(0)  MEMBER_NARROW(1)  MEMBER_NARROW(2)  MEMBER_NARROW(3)
+MEMBER_NARROW(4)  MEMBER_NARROW(5)  MEMBER_NARROW(6)  MEMBER_NARROW(7)
+MEMBER_NARROW(8)  MEMBER_NARROW(9)  MEMBER_NARROW(10) MEMBER_NARROW(11)
+MEMBER_NARROW(12) MEMBER_NARROW(13) MEMBER_NARROW(14) MEMBER_NARROW(15)
+MEMBER_NARROW(16) MEMBER_NARROW(17) MEMBER_NARROW(18) MEMBER_NARROW(19)
+MEMBER_NARROW(20) MEMBER_NARROW(21) MEMBER_NARROW(22) MEMBER_NARROW(23)
+MEMBER_NARROW(24) MEMBER_NARROW(25) MEMBER_NARROW(26) MEMBER_NARROW(27)
+MEMBER_NARROW(28) MEMBER_NARROW(29) MEMBER_NARROW(30) MEMBER_NARROW(31)
+MEMBER_NARROW(32) MEMBER_NARROW(33) MEMBER_NARROW(34) MEMBER_NARROW(35)
+MEMBER_NARROW(36) MEMBER_NARROW(37) MEMBER_NARROW(38) MEMBER_NARROW(39)
+MEMBER_NARROW(40) MEMBER_NARROW(41) MEMBER_NARROW(42) MEMBER_NARROW(43)
+MEMBER_NARROW(44) MEMBER_NARROW(45) MEMBER_NARROW(46) MEMBER_NARROW(47)
+MEMBER_NARROW(48) MEMBER_NARROW(49)
+
+// --- Pattern 9: Compound conditions stress ---
+// Many && chains forcing the CFG decomposition to create many basic blocks.
+
+#define AND_CHAIN_3(A, B, C) if (A && B && C) { A->value = B->value + C->value; }
+
+void stress_compound_conditions() {
+    Node * _Nullable a0 = getNode(), * _Nullable b0 = getNode(), * _Nullable c0 = getNode();
+    Node * _Nullable a1 = getNode(), * _Nullable b1 = getNode(), * _Nullable c1 = getNode();
+    Node * _Nullable a2 = getNode(), * _Nullable b2 = getNode(), * _Nullable c2 = getNode();
+    Node * _Nullable a3 = getNode(), * _Nullable b3 = getNode(), * _Nullable c3 = getNode();
+    Node * _Nullable a4 = getNode(), * _Nullable b4 = getNode(), * _Nullable c4 = getNode();
+    Node * _Nullable a5 = getNode(), * _Nullable b5 = getNode(), * _Nullable c5 = getNode();
+    Node * _Nullable a6 = getNode(), * _Nullable b6 = getNode(), * _Nullable c6 = getNode();
+    Node * _Nullable a7 = getNode(), * _Nullable b7 = getNode(), * _Nullable c7 = getNode();
+    Node * _Nullable a8 = getNode(), * _Nullable b8 = getNode(), * _Nullable c8 = getNode();
+    Node * _Nullable a9 = getNode(), * _Nullable b9 = getNode(), * _Nullable c9 = getNode();
+
+    AND_CHAIN_3(a0, b0, c0) AND_CHAIN_3(a1, b1, c1)
+    AND_CHAIN_3(a2, b2, c2) AND_CHAIN_3(a3, b3, c3)
+    AND_CHAIN_3(a4, b4, c4) AND_CHAIN_3(a5, b5, c5)
+    AND_CHAIN_3(a6, b6, c6) AND_CHAIN_3(a7, b7, c7)
+    AND_CHAIN_3(a8, b8, c8) AND_CHAIN_3(a9, b9, c9)
+}
+
 #pragma clang assume_nonnull end
