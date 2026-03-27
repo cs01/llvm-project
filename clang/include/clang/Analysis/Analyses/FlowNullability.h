@@ -32,7 +32,7 @@ public:
 void runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                                 FlowNullabilityHandler &Handler,
                                 bool StrictMode,
-                                NullabilityKind Default);
+                                NullabilityKind DefaultNullability);
 
 } // namespace clang
 

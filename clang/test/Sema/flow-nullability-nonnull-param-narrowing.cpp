@@ -1,6 +1,6 @@
 // Tests that passing a pointer to a _Nonnull parameter narrows it as non-null.
 // Also tests GCC-style __attribute__((nonnull)) which is used by glibc/bionic.
-// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 %s -verify
+// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -Wnullable-to-nonnull-conversion -std=c++17 %s -verify
 
 typedef unsigned long size_t;
 
