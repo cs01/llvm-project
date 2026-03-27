@@ -4599,22 +4599,24 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
 
       case PointerDeclaratorKind::SingleLevelPointer:
         complainAboutInferringWithinChunk = wrappingKind;
-        // For local variables and similar contexts, don't apply pragma.
-        // Pragma should only affect API boundaries (function signatures).
-        // This enables gradual adoption without overwhelming noise from locals.
-        if (!inAssumeNonNullRegion) {
+        // For local variables and similar contexts, don't apply pragma —
+        // pragma should only affect API boundaries (function signatures).
+        // Only infer when flow-sensitive nullability is active, to avoid
+        // changing type semantics for vanilla (no-flag) builds.
+        if (!inAssumeNonNullRegion &&
+            S.getLangOpts().FlowSensitiveNullability) {
           // Use Unspecified so the flow checker can distinguish from
           // explicit _Nullable (same rationale as the function param path).
           inferNullability = NullabilityKind::Unspecified;
         }
-        // If in pragma region, leave unspecified (don't infer for locals)
         inferNullabilityCS = false;
         break;
 
       case PointerDeclaratorKind::MaybePointerToCFRef:
         // Double-pointers (T**) in casts/locals: use Unspecified so
         // the flow checker doesn't treat them as explicitly _Nullable.
-        if (!inAssumeNonNullRegion) {
+        if (!inAssumeNonNullRegion &&
+            S.getLangOpts().FlowSensitiveNullability) {
           inferNullability = NullabilityKind::Unspecified;
         }
         inferNullabilityCS = false;

@@ -162,9 +162,10 @@ namespace {
       }
       // Propagate nullability through explicit casts when the dest type
       // has no explicit annotation and the source does. setType() is safe
-      // here because castExpr was just created and has no downstream
-      // consumers yet. We use IgnoreParenImpCasts() because cast checking
-      // may wrap the source in implicit casts that strip nullability.
+      // here because castExpr was just created (by CXX*CastExpr::Create
+      // above) and has not been inserted into any parent AST node or cache.
+      // We use IgnoreParenImpCasts() because cast checking may wrap the
+      // source in implicit casts that strip nullability.
       if (Self.getLangOpts().FlowSensitiveNullability &&
           ResultType->isPointerType() && !ResultType->getNullability()) {
         QualType SrcType =

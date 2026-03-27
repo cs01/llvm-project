@@ -683,6 +683,8 @@ void Sema::PrintStats() const {
 /// annotated, operator new, address-of). Used to suppress false positive
 /// nullable-to-nonnull warnings on patterns like reinterpret_cast<T*>(this)+n.
 static bool isExprProvablyNonnull(const Expr *E, unsigned Depth = 0) {
+  // Depth limit guards against pathological init chains (a = b; b = c; ...).
+  // Each recursion peels one AST node, so 16 frames is negligible stack usage.
   if (!E || Depth > 16)
     return false;
   E = E->IgnoreParenImpCasts();

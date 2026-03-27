@@ -14143,6 +14143,11 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
 
     Init = Result.getAs<Expr>();
 
+    // Note: this may fire in constexpr-if discarded branches during template
+    // instantiation. Suppressing that case cleanly requires tracking whether
+    // we're inside a discarded branch at declaration processing time, which
+    // Clang doesn't currently expose here. In practice, the scenario
+    // (explicit _Nonnull p = nullptr in a discarded branch) is rare.
     if (VDecl && Init && getLangOpts().FlowSensitiveNullability) {
       QualType VDeclType = VDecl->getType();
       if (auto Nullability = VDeclType->getNullability()) {
