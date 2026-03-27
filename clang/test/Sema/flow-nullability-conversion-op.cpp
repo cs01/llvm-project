@@ -1,3 +1,7 @@
+// Tests that conversion operators (operator T*()) don't trigger spurious
+// nullability-inference warnings. Without the IK_ConversionFunctionId
+// exclusion in SemaType.cpp, the compiler would try to infer nullability
+// on the return type of operator void*(), causing errors.
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nonnull -std=c++17 %s -verify
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 %s -verify
 
