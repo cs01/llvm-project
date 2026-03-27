@@ -1,3 +1,6 @@
+# Creates GitHub releases from successful builds.
+# - Branch pushes to nullsafe-clang-dev: rolling "latest" release (replaced each time)
+# - Version tags (v*): permanent versioned release
 name: Create Clang Release
 
 on:
@@ -5,8 +8,6 @@ on:
     workflows: ["Build Null-Safe Clang Binaries"]
     types:
       - completed
-    branches:
-      - nullsafe-clang-dev
 
 # only one release at a time, cancel any in-flight
 concurrency:
@@ -44,22 +45,97 @@ jobs:
           name: clang-nullsafe-wasm
           path: artifacts/
 
-      - name: Get short SHA
-        id: sha
-        run: echo "short=$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+      - name: Determine release type
+        id: release-info
+        run: |
+          REF="${{ github.event.workflow_run.head_branch }}"
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          SHORT_SHA=$(echo "$SHA" | cut -c1-7)
 
-      # Delete the old 'latest' release so we can recreate it cleanly
+          if [[ "$REF" == v* ]]; then
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$REF" >> "$GITHUB_OUTPUT"
+            echo "release_name=$REF" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+            echo "tag_name=latest" >> "$GITHUB_OUTPUT"
+            echo "release_name=Latest Build ($SHORT_SHA)" >> "$GITHUB_OUTPUT"
+          fi
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+      # Delete the old 'latest' release so we can recreate it cleanly (branch pushes only)
       - name: Delete previous latest release
+        if: steps.release-info.outputs.is_tag == 'false'
         run: gh release delete latest --yes --cleanup-tag 2>/dev/null || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
 
-      - name: Create Release
+      - name: Create versioned release
+        if: steps.release-info.outputs.is_tag == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.release-info.outputs.tag_name }}
+          name: ${{ steps.release-info.outputs.release_name }}
+          make_latest: true
+          files: |
+            artifacts/clang-nullsafe-linux-x86_64.tar.gz
+            artifacts/clang-nullsafe-macos-universal.tar.gz
+            artifacts/clang-nullsafe-wasm.tar.gz
+          body: |
+            ## Nullsafe Clang — ${{ steps.release-info.outputs.tag_name }}
+
+            Built from commit ${{ github.event.workflow_run.head_sha }}
+
+            ### What's included:
+
+            **Native Binaries (Linux/macOS):**
+            - `clang` - The Nullsafe Clang compiler
+            - `clangd` - Language server for IDE integration (VSCode, vim, etc.)
+
+            **WebAssembly:**
+            - `clang-nullsafe.wasm` - WebAssembly compiler for browser playground
+            - `clang-nullsafe.js` - JavaScript glue code
+
+            ### Installation:
+
+            **Quick install (Linux/macOS):**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullsafe-clang-dev/install.sh | bash
+            ```
+
+            **Manual install:**
+            ```bash
+            tar -xzf clang-nullsafe-<platform>.tar.gz
+            export PATH=$PWD/bin:$PATH
+            clang --version
+            ```
+
+            ### Usage:
+            ```bash
+            # Enable flow-sensitive nullability with nullable-by-default
+            clang -fflow-sensitive-nullability -fnullability-default=nullable mycode.c
+
+            # Gradual migration mode (no warnings on unannotated code)
+            clang -fflow-sensitive-nullability -fnullability-default=unknown mycode.c
+
+            # Promote warnings to errors
+            clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=nullability mycode.c
+            ```
+
+            ### Try it online:
+            Interactive WebAssembly playground: https://cs01.github.io/llvm-project/
+
+            See the [README](https://github.com/cs01/llvm-project/blob/nullsafe-clang-dev/README.md) for full documentation.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create latest release
+        if: steps.release-info.outputs.is_tag == 'false'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
-          name: "Latest Build (${{ steps.sha.outputs.short }})"
+          name: ${{ steps.release-info.outputs.release_name }}
           make_latest: true
           files: |
             artifacts/clang-nullsafe-linux-x86_64.tar.gz
