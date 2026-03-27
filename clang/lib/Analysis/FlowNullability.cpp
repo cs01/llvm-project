@@ -168,8 +168,9 @@ static bool isNonnullType(QualType Ty) {
 }
 
 /// Check if a type is std::unique_ptr, std::shared_ptr, or std::weak_ptr.
-/// Note: name-based matching — does not catch type aliases (e.g.
-/// `using UniquePtr = std::unique_ptr<T>`) or non-std smart pointers.
+/// Uses getAsCXXRecordDecl() which operates on the canonical type, so
+/// type aliases (using/typedef) are handled. Does not match non-std
+/// smart pointers (e.g. boost::shared_ptr).
 static bool isSmartPointerType(QualType Ty) {
   const auto *RD = Ty->getAsCXXRecordDecl();
   if (!RD)
