@@ -58,6 +58,7 @@ jobs:
           cd build
           ninja install-clang
           ninja install-clang-headers
+          ninja install-clang-resource-headers
           ninja install-clangd
 
       - name: Package binaries
@@ -114,6 +115,7 @@ jobs:
           cd build
           ninja install-clang
           ninja install-clang-headers
+          ninja install-clang-resource-headers
           ninja install-clangd
 
       - name: Package binaries
