@@ -28,8 +28,13 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 #include <optional>
 #include <utility>
+
+#define DEBUG_TYPE "flow-nullability"
 
 using namespace clang;
 
@@ -45,6 +50,9 @@ using MemberKey = std::pair<const VarDecl *, const FieldDecl *>;
 /// with many tracked pointers, but profiling hasn't shown this to be a
 /// bottleneck in practice (the perf stress test passes comfortably).
 struct NullState {
+  // Pointers proven non-null by control flow (null checks, nonnull init, etc.).
+  // A variable should not be in both NarrowedVars and NullableVars — narrowing
+  // is always erased before re-evaluating nullability on reassignment.
   llvm::DenseSet<const VarDecl *> NarrowedVars;
   llvm::DenseSet<MemberKey> NarrowedMembers;
   llvm::DenseSet<const FieldDecl *> NarrowedThisMembers;
@@ -432,12 +440,16 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   }
 }
 
+/// Transfer functions for the flow-sensitive nullability dataflow analysis.
+/// Processes each CFG statement to update the NullState lattice — tracking
+/// narrowing from null checks, invalidation from assignments, and reporting
+/// dereferences of nullable pointers via the Handler interface.
 class TransferFunctions {
   NullState &State;
   FlowNullabilityHandler &Handler;
   ASTContext &Ctx;
   bool StrictMode;
-  NullabilityKind Default;
+  NullabilityKind DefaultNullability;
 
   bool isNarrowed(const VarDecl *VD) const {
     return State.NarrowedVars.contains(VD);
@@ -480,8 +492,11 @@ class TransferFunctions {
   }
 
   void checkDeref(const Expr *DerefExpr, QualType PtrType) {
-    if (isNullableType(PtrType, StrictMode, Default))
+    if (isNullableType(PtrType, StrictMode, DefaultNullability)) {
+      LLVM_DEBUG(llvm::dbgs() << "flow-nullability: dereference of nullable "
+                              << PtrType.getAsString() << "\n");
       Handler.handleNullableDereference(DerefExpr, PtrType);
+    }
   }
 
   /// Check dereference of a non-variable, non-member expression.
@@ -504,7 +519,7 @@ class TransferFunctions {
 
   void checkVarDeref(const Expr *DerefExpr, const VarDecl *VD) {
     QualType Ty = VD->getType();
-    if (isNullableType(Ty, StrictMode, Default))
+    if (isNullableType(Ty, StrictMode, DefaultNullability))
       return Handler.handleNullableDereference(DerefExpr, Ty);
     if (State.NullableVars.contains(VD))
       return Handler.handleNullableDereference(DerefExpr, Ty);
@@ -551,9 +566,10 @@ class TransferFunctions {
 
 public:
   TransferFunctions(NullState &State, FlowNullabilityHandler &Handler,
-                    ASTContext &Ctx, bool StrictMode, NullabilityKind Default)
+                    ASTContext &Ctx, bool StrictMode,
+                    NullabilityKind DefaultNullability)
       : State(State), Handler(Handler), Ctx(Ctx), StrictMode(StrictMode),
-        Default(Default) {}
+        DefaultNullability(DefaultNullability) {}
 
   void visit(const Stmt *S) {
     if (!S)
@@ -599,7 +615,7 @@ private:
                 HasCast = true;
                 TypeExpr = CE->getSubExpr()->IgnoreParenImpCasts();
               }
-              if (isNullableType(TypeExpr->getType(), StrictMode, Default) ||
+              if (isNullableType(TypeExpr->getType(), StrictMode, DefaultNullability) ||
                   isNullableInit(Init)) {
                 State.NullableVars.insert(VD);
               } else if (HasCast) {
@@ -682,7 +698,7 @@ private:
     // _Nullable into cast result types.  Check the SOURCE type.
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
       return isNullableInit(CE->getSubExpr());
-    if (isNullableType(Init->getType(), StrictMode, Default))
+    if (isNullableType(Init->getType(), StrictMode, DefaultNullability))
       return true;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
@@ -697,6 +713,24 @@ private:
   void handleBinaryOperator(const BinaryOperator *BO) {
     if (BO->isAssignmentOp()) {
       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+
+      // Assignment to a member (this->field or var->field) invalidates
+      // any narrowing on that member.
+      if (const auto *ME = dyn_cast<MemberExpr>(LHS)) {
+        if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+          if (ME->isArrow()) {
+            const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+            if (isa<CXXThisExpr>(Base)) {
+              State.NarrowedThisMembers.erase(FD);
+              State.NullableThisMembers.erase(FD);
+            } else if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
+              if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
+                State.NarrowedMembers.erase({BaseVD, FD});
+            }
+          }
+        }
+      }
+
       if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS)) {
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           // Bool reassignment invalidates any stored guard
@@ -734,7 +768,7 @@ private:
             if (isNonnullType(BO->getRHS()->getType())) {
               State.NarrowedVars.insert(VD);
             } else if (isNullableType(BO->getRHS()->getType(), StrictMode,
-                                      Default) ||
+                                      DefaultNullability) ||
                        isNullableInit(RHS)) {
               State.NullableVars.insert(VD);
             }
@@ -895,16 +929,22 @@ private:
       if (Obj && isSmartPointerType(Obj->getType())) {
         if (const auto *MD = MCE->getMethodDecl()) {
           if (MD->getDeclName().isIdentifier() && MD->getName() == "reset") {
+            // reset(nullptr) makes it null; reset(ptr) makes it non-null;
+            // reset() with no args makes it null.
+            bool ResetsToNonnull =
+                MCE->getNumArgs() > 0 &&
+                !MCE->getArg(0)->IgnoreParenImpCasts()->isNullPointerConstant(
+                    Ctx, Expr::NPC_ValueDependentIsNotNull);
             // Local variable
             if (const auto *VD = getSmartPtrVarDecl(Obj)) {
               State.NarrowedVars.erase(VD);
-              if (MCE->getNumArgs() > 0)
+              if (ResetsToNonnull)
                 State.NarrowedVars.insert(VD);
             }
             // this->member
             if (const auto *FD = getSmartPtrThisMemberDecl(Obj)) {
               State.NarrowedThisMembers.erase(FD);
-              if (MCE->getNumArgs() > 0) {
+              if (ResetsToNonnull) {
                 State.NarrowedThisMembers.insert(FD);
                 State.NullableThisMembers.erase(FD);
               } else {
@@ -941,9 +981,8 @@ private:
                   State.NarrowedVars.insert(LhsVD);
                 State.NarrowedVars.erase(SrcVD);
               }
-            } else {
-              // sp = someFunction() — functions returning unique_ptr
-              // by value produce a valid pointer in practice.
+            } else if (isNonnullType(RhsCE->getType())) {
+              // sp = someFunction() — only narrow if return type is _Nonnull
               State.NarrowedVars.insert(LhsVD);
             }
           }
@@ -1026,6 +1065,10 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   BlockEntryStates[Entry.getBlockID()] = InitState;
   Worklist.enqueueBlock(&Entry);
 
+  // Fixpoint iteration. Termination is guaranteed because the lattice is
+  // finite: NarrowedVars can only shrink (intersection at joins) and
+  // NullableVars can only grow (union at joins), both bounded by the number
+  // of declarations in the function.
   while (const CFGBlock *Block = Worklist.dequeue()) {
     unsigned BlockID = Block->getBlockID();
 
