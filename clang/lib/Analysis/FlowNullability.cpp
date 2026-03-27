@@ -39,6 +39,11 @@ namespace {
 
 using MemberKey = std::pair<const VarDecl *, const FieldDecl *>;
 
+/// Per-block dataflow lattice tracking which pointers are narrowed (known
+/// non-null) or nullable. Uses DenseSet for simplicity; a BitVector keyed
+/// by variable index would reduce fixpoint comparison cost for functions
+/// with many tracked pointers, but profiling hasn't shown this to be a
+/// bottleneck in practice (the perf stress test passes comfortably).
 struct NullState {
   llvm::DenseSet<const VarDecl *> NarrowedVars;
   llvm::DenseSet<MemberKey> NarrowedMembers;
@@ -245,6 +250,14 @@ static void decomposeAnd(const Expr *E, ASTContext &Ctx,
   analyzeCondition(E, Ctx, Results, BoolGuards);
 }
 
+/// Analyze a branch condition to extract pointer null-check information.
+///
+/// Note: We decompose && (via decomposeAnd) but intentionally do NOT
+/// decompose ||. For || the CFG already splits each operand into its own
+/// block, so narrowing on the true-edge of individual operands is handled
+/// naturally. Decomposing || on the false-edge (where all operands are
+/// false) would be possible but adds complexity for limited practical gain
+/// — most real null-checks use && or standalone conditions.
 static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                              SmallVectorImpl<ConditionResult> &Results,
                              const NullState::BoolGuardMap *BoolGuards) {
@@ -824,6 +837,12 @@ private:
     }
   }
 
+  /// Handle function calls. By design, calls do NOT invalidate pointer
+  /// narrowing — even when a pointer's address is taken (&p) and passed as
+  /// a T** argument. This is a pragmatic trade-off: invalidating on
+  /// address-escape would produce excessive false positives on common
+  /// patterns (output parameters, init functions). The same approach is
+  /// used by Clang's ThreadSafety analysis.
   void handleCallExpr(const CallExpr *CE) {
     if (const auto *Callee = CE->getDirectCallee()) {
       // __builtin_assume(cond) narrows pointers mentioned in cond.
@@ -1002,7 +1021,6 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
           isNonnullType(Param->getType()))
         InitState.NarrowedVars.insert(Param);
     }
-
   }
 
   BlockEntryStates[Entry.getBlockID()] = InitState;
