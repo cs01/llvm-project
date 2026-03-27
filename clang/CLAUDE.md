@@ -38,7 +38,7 @@ Lit tests for nullsafe features:
 - `test/Sema/flow-nullability-else-branch.cpp` - else-branch narrowing including OR conditions
 - `test/Sema/flow-nullability-for-loop.cpp` - for-loop increment narrowing
 - `test/Sema/flow-nullability-brace-assert.cpp` - bare-brace assertion macros (`{ if (!(p)) abort(); }`)
-- `test/Sema/flow-nullability-smart-ptr.cpp` - smart pointer `operator->` false positive suppression
+- `test/Sema/flow-nullability-smart-ptr.cpp` - smart pointer `operator->` nullability checking
 - `test/Sema/flow-nullability-call-invalidation.c` - function calls do NOT invalidate narrowing
 - `test/Sema/flow-nullability-while-loop.cpp` - while-loop condition narrowing, linked-list traversal
 - `test/Sema/flow-nullability-reassignment.cpp` - reassignment invalidates narrowing
@@ -110,14 +110,24 @@ Transfer functions handle: `DeclStmt` (nonnull init), `BinaryOperator` (assignme
 
 Flow-sensitive checking only activates per-function when inside a `#pragma clang assume_nonnull` region OR when `-fnullability-default` is set to something other than `unspecified`. This is determined in `SemaDecl.cpp:ActOnStartOfFunctionDef` and stored as `FlowSensitiveNullabilityEnabled` on the `Sema` instance.
 
-### Suppressions
+### Design decisions
 
-- `this->x` arrow dereferences are always suppressed (`this` is never null in C++)
-- `*this` dereferences are suppressed for the same reason
-- `CXXOperatorCallExpr(OO_Arrow)` (smart pointer `operator->`) is suppressed at the call site
-- Function calls do NOT invalidate narrowing (pointers are passed by value)
+- `this->x` and `*this` dereferences are suppressed (`this` is never null in well-defined C++)
+- Smart pointer `operator->` is checked with smart-pointer-aware narrowing (warns if not narrowed)
+- Non-smart-pointer overloaded `operator->` (iterators, etc.) is skipped
+- Function calls do NOT invalidate narrowing — a pragmatic choice to avoid excessive noise, matching the approach of ThreadSafety
+- Analysis is intraprocedural — it does not look inside called functions to determine nullability
 
-Analysis is intraprocedural — it does not look inside called functions to determine nullability.
+## Branch Management
+
+Two branches are maintained:
+
+- **`nullsafe-clang-dev`** — the full fork with playground, install scripts, CI, WASM build, docs, etc. All development happens here.
+- **`nullsafe-upstream`** — clean branch with only the core compiler changes (68 files), used for the upstream PR to `llvm/llvm-project`.
+
+Run `./tools/sync-upstream.sh` to rebuild `nullsafe-upstream` from the current state of `nullsafe-clang-dev`. It filters out all fork-only files and creates a single commit on top of `llvm/main`.
+
+**When adding new files:** if the file is part of the compiler feature (belongs in the upstream PR), make sure it's not caught by `EXCLUDE_PATTERNS` in `tools/sync-upstream.sh`. If the file is fork-only (playground, CI, docs, benchmarks, etc.), add a matching pattern to `EXCLUDE_PATTERNS` so it doesn't leak into the upstream branch.
 
 ## Conventions
 
