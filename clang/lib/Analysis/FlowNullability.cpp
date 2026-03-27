@@ -82,6 +82,7 @@ struct NullState {
 
 static NullState join(const NullState &A, const NullState &B) {
   NullState Result;
+  // Narrowed = intersection: only narrowed if ALL paths agree.
   for (const auto *VD : A.NarrowedVars)
     if (B.NarrowedVars.contains(VD))
       Result.NarrowedVars.insert(VD);
@@ -91,21 +92,27 @@ static NullState join(const NullState &A, const NullState &B) {
   for (const auto *FD : A.NarrowedThisMembers)
     if (B.NarrowedThisMembers.contains(FD))
       Result.NarrowedThisMembers.insert(FD);
+  // Nullable = union: if nullable on either path, it's nullable.
   for (const auto *VD : A.NullableVars)
     Result.NullableVars.insert(VD);
   for (const auto *VD : B.NullableVars)
     Result.NullableVars.insert(VD);
-  // Union: if nullable on either path, it's nullable
   for (const auto *FD : A.NullableThisMembers)
     Result.NullableThisMembers.insert(FD);
   for (const auto *FD : B.NullableThisMembers)
     Result.NullableThisMembers.insert(FD);
-  // BoolGuards: keep only entries present in both with the same mapping
+  // BoolGuards: keep only entries present in both with the same mapping.
   for (const auto &[BoolVD, GuardInfo] : A.BoolGuards) {
     auto It = B.BoolGuards.find(BoolVD);
     if (It != B.BoolGuards.end() && It->second == GuardInfo)
       Result.BoolGuards[BoolVD] = GuardInfo;
   }
+  // Invariant: a variable should not be both narrowed and nullable.
+  // Narrowed takes priority (proven non-null on all paths), so remove
+  // stale nullable entries that conflict. This prevents NullableVars
+  // from accumulating stale entries across fixpoint iterations.
+  for (const auto *VD : Result.NarrowedVars)
+    Result.NullableVars.erase(VD);
   return Result;
 }
 
@@ -123,6 +130,12 @@ static const Expr *unwrapBuiltinExpect(const Expr *E) {
   return E;
 }
 
+/// Extract the rightmost leaf of a && / || chain.
+/// The CFG decomposes `a && b && c` into separate blocks — each operand
+/// becomes its own block's terminator condition. So for `if (a && b && c)`,
+/// the block evaluating 'c' has the full `a && b && c` as its terminator,
+/// but 'a' and 'b' are handled by their own blocks. We recurse into the
+/// RHS to find the leaf that's actually being evaluated in this block.
 static const Expr *getTerminalCondition(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
@@ -655,6 +668,10 @@ private:
     }
   }
 
+  /// Check if an init expression is provably non-null (address-of, new,
+  /// this, _Nonnull typed, narrowed var, cast of non-null, pointer arith).
+  /// See also: isExprProvablyNonnull() in Sema.cpp, which is a similar
+  /// heuristic used to suppress nullable-to-nonnull conversion warnings.
   bool isNonnullInit(const Expr *Init) const {
     if (!Init)
       return false;
@@ -802,13 +819,17 @@ private:
       }
     }
 
+    // Pointer increment/decrement (p++, ++p, p--, --p): the pointer now
+    // points elsewhere, so member narrowing and bool guards are stale.
+    // But the pointer itself is still non-null — arithmetic on a non-null
+    // pointer cannot produce null (matching isNonnullInit's treatment of
+    // pointer arithmetic via BO_Add/BO_Sub).
     if (UO->getOpcode() == UO_PostInc || UO->getOpcode() == UO_PreInc ||
         UO->getOpcode() == UO_PostDec || UO->getOpcode() == UO_PreDec) {
       const Expr *SubExpr = UO->getSubExpr()->IgnoreParenImpCasts();
       if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (VD->getType()->isPointerType()) {
-            State.NarrowedVars.erase(VD);
             invalidateMembersFor(VD);
             invalidateBoolGuardsFor(VD);
           }

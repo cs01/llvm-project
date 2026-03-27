@@ -682,6 +682,8 @@ void Sema::PrintStats() const {
 /// pointer arithmetic back to a known non-null source (CXXThisExpr, _Nonnull
 /// annotated, operator new, address-of). Used to suppress false positive
 /// nullable-to-nonnull warnings on patterns like reinterpret_cast<T*>(this)+n.
+/// See also: isNonnullInit() in FlowNullability.cpp, which is the flow
+/// analysis's version with access to narrowing state.
 static constexpr unsigned kMaxProvablyNonnullDepth = 16;
 
 static bool isExprProvablyNonnull(const Expr *E, unsigned Depth = 0) {
