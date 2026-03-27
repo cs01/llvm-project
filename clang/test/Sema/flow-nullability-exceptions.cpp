@@ -61,6 +61,9 @@ void test_narrow_in_both(Node * _Nullable p) {
         if (!p) return;
         (void)p->value; // OK — narrowed in catch too
     }
+    // Both try (throw guard) and catch (early return) narrowed p,
+    // so the merge point should preserve narrowing.
+    (void)p->value; // OK — narrowed on all paths
 }
 
 // === Multiple catch blocks ===
@@ -78,8 +81,10 @@ void test_multiple_catch(Node * _Nullable p) {
 // === throw expression in ternary ===
 
 void test_throw_ternary(Node * _Nullable p) {
-    if (!p) throw "null";
-    (void)p->value; // OK — throw terminates null path
+    // throw is a valid expression in the false branch of a ternary.
+    // The CFG models it as a terminating path, so p is narrowed.
+    int v = p ? p->value : throw "null"; // OK — throw terminates null path
+    (void)v;
 }
 
 // === Noexcept function — no exception CFG edges ===

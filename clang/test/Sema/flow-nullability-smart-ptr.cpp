@@ -20,7 +20,11 @@ struct unique_ptr {
     explicit operator bool() const { return ptr != nullptr; }
     void reset() { ptr = nullptr; }
     void reset(T* p) { ptr = p; }
-    // Move constructor / assignment omitted — just enough for AST structure
+    unique_ptr() : ptr(nullptr) {}
+    unique_ptr(unique_ptr&& other) : ptr(other.ptr) { other.ptr = nullptr; }
+    unique_ptr& operator=(unique_ptr&& other) { ptr = other.ptr; other.ptr = nullptr; return *this; }
+    unique_ptr(const unique_ptr&) = delete;
+    unique_ptr& operator=(const unique_ptr&) = delete;
 };
 
 template <typename T>
@@ -177,6 +181,15 @@ struct Owner {
     }
 };
 
+
+// --- Assignment from make_unique re-narrows ---
+
+void test_sp_assign_from_make_unique() {
+    std::unique_ptr<Node> sp;
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+    sp = std::make_unique<Node>();
+    sp->value = 1; // OK — assignment from make_unique narrows
+}
 
 // --- Non-std smart pointers should NOT warn (kept as before) ---
 
