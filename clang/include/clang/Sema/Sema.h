@@ -1197,11 +1197,6 @@ public:
   /// parameters or return type.
   bool functionHasNullabilityAnnotations(const FunctionDecl *FD) const;
 
-  /// Whether flow-sensitive nullability analysis is active for the current
-  /// function. Set per-function in ActOnStartOfFunctionDef.
-  bool isFlowNullabilityEnabled() const { return FlowNullabilityEnabled; }
-  void setFlowNullabilityEnabled(bool V) { FlowNullabilityEnabled = V; }
-
   /// Warn when implicitly casting 0 to nullptr.
   void diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E);
 
@@ -1601,9 +1596,6 @@ protected:
 private:
   std::optional<std::unique_ptr<DarwinSDKInfo>> CachedDarwinSDKInfo;
   bool WarnedDarwinSDKInfoMissing = false;
-  // TODO: move to FunctionScopeInfo if nested function processing (e.g.
-  // lambda bodies interleaved with enclosing function) needs per-scope state.
-  bool FlowNullabilityEnabled = false;
 
   StackExhaustionHandler StackHandler;
 

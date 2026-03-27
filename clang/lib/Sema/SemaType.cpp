@@ -4505,13 +4505,14 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
 
       case PointerDeclaratorKind::SingleLevelPointer:
         // Infer nullability based on pragma or default mode
-        // Pragma takes precedence and works in all modes (including unspecified)
-        // Skip -fnullability-default for system headers to avoid false positives
-        // on std library code (e.g. std::chrono, vsnprintf). Explicit #pragma
-        // clang assume_nonnull still works in system headers.
+        // Pragma takes precedence and works in all modes (including
+        // unspecified) Skip -fnullability-default for system headers to avoid
+        // false positives on std library code (e.g. std::chrono, vsnprintf).
+        // Explicit #pragma clang assume_nonnull still works in system headers.
         if (inAssumeNonNullRegion ||
             (!S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
-             S.getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified)) {
+             S.getLangOpts().getNullabilityDefault() !=
+                 NullabilityKind::Unspecified)) {
           complainAboutInferringWithinChunk = wrappingKind;
           if (inAssumeNonNullRegion) {
             inferNullability = NullabilityKind::NonNull;
@@ -4555,10 +4556,10 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         // For double-pointers (T**) without CF attrs, apply the same
         // Unspecified default as SingleLevelPointer so the flow checker
         // doesn't treat them as explicitly _Nullable.
-        if (!inferNullability &&
-            !inAssumeNonNullRegion &&
+        if (!inferNullability && !inAssumeNonNullRegion &&
             !S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
-            S.getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified) {
+            S.getLangOpts().getNullabilityDefault() !=
+                NullabilityKind::Unspecified) {
           inferNullability = NullabilityKind::Unspecified;
         }
         break;
@@ -4622,9 +4623,6 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
           inferNullability = NullabilityKind::Unspecified;
         }
         inferNullabilityCS = false;
-        break;
-
-      default:
         break;
       }
       break;

@@ -168,6 +168,8 @@ static bool isNonnullType(QualType Ty) {
 }
 
 /// Check if a type is std::unique_ptr, std::shared_ptr, or std::weak_ptr.
+/// Note: name-based matching — does not catch type aliases (e.g.
+/// `using UniquePtr = std::unique_ptr<T>`) or non-std smart pointers.
 static bool isSmartPointerType(QualType Ty) {
   const auto *RD = Ty->getAsCXXRecordDecl();
   if (!RD)
@@ -251,9 +253,10 @@ struct ConditionResult {
 };
 
 // Forward declaration — decomposeAnd calls analyzeCondition on leaves.
-static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
-                             SmallVectorImpl<ConditionResult> &Results,
-                             const NullState::BoolGuardMap *BoolGuards = nullptr);
+static void
+analyzeCondition(const Expr *Cond, ASTContext &Ctx,
+                 SmallVectorImpl<ConditionResult> &Results,
+                 const NullState::BoolGuardMap *BoolGuards = nullptr);
 
 /// Recursively flatten a chain of && operators and analyze each leaf.
 /// Used by analyzeCondition to handle !(A && B && C).
@@ -482,8 +485,7 @@ class TransferFunctions {
   /// the source is unannotated (e.g. reinterpret_cast<T*>(p) where T
   /// is itself a pointer type).  When a cast is found, callers should
   /// check nullability on the SOURCE type, not the cast result.
-  static const Expr *unwrapCastsAndArithmetic(const Expr *E,
-                                              bool &FoundCast) {
+  static const Expr *unwrapCastsAndArithmetic(const Expr *E, bool &FoundCast) {
     FoundCast = false;
     for (;;) {
       if (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
@@ -628,7 +630,8 @@ private:
                 HasCast = true;
                 TypeExpr = CE->getSubExpr()->IgnoreParenImpCasts();
               }
-              if (isNullableType(TypeExpr->getType(), StrictMode, DefaultNullability) ||
+              if (isNullableType(TypeExpr->getType(), StrictMode,
+                                 DefaultNullability) ||
                   isNullableInit(Init)) {
                 State.NullableVars.insert(VD);
               } else if (HasCast) {
@@ -649,7 +652,8 @@ private:
             // make_unique/make_shared always return non-null
             State.NarrowedVars.insert(VD);
           }
-          // Default-constructed, nullptr, or moved-from → nullable (don't narrow)
+          // Default-constructed, nullptr, or moved-from → nullable (don't
+          // narrow)
         }
 
         // Track bool variables assigned from null-comparisons so that
@@ -661,8 +665,7 @@ private:
           analyzeCondition(Init, Ctx, InitResults);
           if (InitResults.size() == 1 && InitResults[0].VD &&
               !InitResults[0].FD)
-            State.BoolGuards[VD] = {InitResults[0].VD,
-                                    InitResults[0].Negated};
+            State.BoolGuards[VD] = {InitResults[0].VD, InitResults[0].Negated};
         }
       }
     }
@@ -931,8 +934,7 @@ private:
         if (!Param->getType()->isPointerType())
           continue;
         bool ParamIsNonnull =
-            isNonnullType(Param->getType()) ||
-            (NNAttr && NNAttr->isNonNull(I));
+            isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I));
         if (ParamIsNonnull) {
           const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
           if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
@@ -995,8 +997,7 @@ private:
           } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
             if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
               // sp = std::move(other) — LHS inherits source's state
-              if (const auto *SrcVD =
-                      getSmartPtrVarDecl(RhsCE->getArg(0))) {
+              if (const auto *SrcVD = getSmartPtrVarDecl(RhsCE->getArg(0))) {
                 // Only narrow LHS if source was narrowed (known non-null)
                 if (State.NarrowedVars.contains(SrcVD))
                   State.NarrowedVars.insert(LhsVD);
@@ -1077,8 +1078,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
 
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl())) {
     for (const auto *Param : FD->parameters()) {
-      if (Param->getType()->isPointerType() &&
-          isNonnullType(Param->getType()))
+      if (Param->getType()->isPointerType() && isNonnullType(Param->getType()))
         InitState.NarrowedVars.insert(Param);
     }
   }
@@ -1180,9 +1180,8 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
          ++SI, ++SucIdx) {
       if (const CFGBlock *Succ = *SI) {
         const NullState &SuccState =
-            (Block->succ_size() == 2)
-                ? (SucIdx == 0 ? TrueState : FalseState)
-                : State;
+            (Block->succ_size() == 2) ? (SucIdx == 0 ? TrueState : FalseState)
+                                      : State;
         EdgeKey EK = {BlockID, Succ->getBlockID()};
         auto It = EdgeStates.find(EK);
         if (It == EdgeStates.end() || It->second != SuccState) {

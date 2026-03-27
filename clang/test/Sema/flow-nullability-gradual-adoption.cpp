@@ -64,4 +64,24 @@ void test_unannotated_param_no_warn(Entity* p) {
     p->x = 1;              // OK - unannotated param, unspecified mode
 }
 
+// === Lambda scoping: analysis must still run for outer function ===
+// Regression test: lambda bodies call ActOnStartOfFunctionDef, which must
+// not clobber the per-function analysis decision for the enclosing function.
+
+void test_lambda_does_not_clobber_outer(Entity* _Nullable p) {
+    // Lambda with no annotations — should not disable outer analysis
+    auto f = [](int x) { return x + 1; };
+    (void)f(1);
+    p->x = 1;              // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void test_nested_lambda_scoping(Entity* _Nullable p) {
+    auto outer = [](int x) {
+        auto inner = [](int y) { return y; };
+        return inner(x);
+    };
+    (void)outer(1);
+    (*p).x = 1;            // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
 #pragma clang assume_nonnull end

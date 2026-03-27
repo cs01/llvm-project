@@ -2949,7 +2949,7 @@ public:
 } // anonymous namespace
 
 void clang::sema::AnalysisBasedWarnings::IssueWarnings(
-     TranslationUnitDecl *TU) {
+    TranslationUnitDecl *TU) {
   if (!TU)
     return; // This is unexpected, give up quietly.
 
@@ -3066,8 +3066,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   // appropriately.  This is essentially a layering violation.
   bool EnableFlowNullability =
       S.getLangOpts().FlowSensitiveNullability &&
-      !Diags.isIgnored(diag::warn_flow_nullable_dereference,
-                        D->getBeginLoc());
+      !Diags.isIgnored(diag::warn_flow_nullable_dereference, D->getBeginLoc());
 
   if (P.enableCheckUnreachable || P.enableThreadSafetyAnalysis ||
       P.enableConsumedAnalysis || EnableLifetimeSafetyAnalysis ||
@@ -3076,13 +3075,13 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     AC.getCFGBuildOptions().setAllAlwaysAdd();
   } else {
     AC.getCFGBuildOptions()
-      .setAlwaysAdd(Stmt::BinaryOperatorClass)
-      .setAlwaysAdd(Stmt::CompoundAssignOperatorClass)
-      .setAlwaysAdd(Stmt::BlockExprClass)
-      .setAlwaysAdd(Stmt::CStyleCastExprClass)
-      .setAlwaysAdd(Stmt::DeclRefExprClass)
-      .setAlwaysAdd(Stmt::ImplicitCastExprClass)
-      .setAlwaysAdd(Stmt::UnaryOperatorClass);
+        .setAlwaysAdd(Stmt::BinaryOperatorClass)
+        .setAlwaysAdd(Stmt::CompoundAssignOperatorClass)
+        .setAlwaysAdd(Stmt::BlockExprClass)
+        .setAlwaysAdd(Stmt::CStyleCastExprClass)
+        .setAlwaysAdd(Stmt::DeclRefExprClass)
+        .setAlwaysAdd(Stmt::ImplicitCastExprClass)
+        .setAlwaysAdd(Stmt::UnaryOperatorClass);
   }
   if (EnableLifetimeSafetyAnalysis)
     AC.getCFGBuildOptions().AddLifetime = true;
@@ -3140,8 +3139,21 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     Reporter.emitDiagnostics();
   }
 
-  if (EnableFlowNullability && S.isFlowNullabilityEnabled()) {
-    if (AC.getCFG()) {
+  // Gradual adoption: only run flow-sensitive nullability when the function
+  // opts in — either via -fnullability-default, an active assume_nonnull
+  // pragma, or explicit nullability annotations on the function signature.
+  // Computed here (not stored on Sema) to avoid scoping bugs when lambda
+  // bodies interleave with the enclosing function's processing.
+  if (EnableFlowNullability) {
+    bool FlowNullabilityForFunc =
+        S.getLangOpts().getNullabilityDefault() !=
+            NullabilityKind::Unspecified ||
+        S.PP.getPragmaAssumeNonNullLoc().isValid();
+    if (!FlowNullabilityForFunc) {
+      if (const auto *FD = dyn_cast<FunctionDecl>(D))
+        FlowNullabilityForFunc = S.functionHasNullabilityAnnotations(FD);
+    }
+    if (FlowNullabilityForFunc && AC.getCFG()) {
       llvm::TimeTraceScope TimeProfile("FlowNullabilityAnalysis");
       FlowNullabilityReporter Reporter(S);
       NullabilityKind Default = S.getLangOpts().getNullabilityDefault();

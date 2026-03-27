@@ -72,8 +72,8 @@ build/bin/llvm-lit test/Sema/flow-nullability-arrow-deref.cpp -v
 - `lib/Analysis/FlowNullability.cpp` - CFG-based forward dataflow analysis: nullability narrowing, dereference checking, condition analysis, per-edge state tracking
 - `include/clang/Analysis/Analyses/FlowNullability.h` - analysis interface: `FlowNullabilityHandler` callback, `runFlowNullabilityAnalysis` entry point
 - `lib/Sema/AnalysisBasedWarnings.cpp` - wires the analysis into Clang's warning pipeline: `FlowNullabilityReporter`, CFG build options
-- `lib/Sema/SemaDecl.cpp` - gradual adoption gating: sets flow nullability enabled per-function in `ActOnStartOfFunctionDef`
-- `include/clang/Sema/Sema.h` - `isFlowNullabilityEnabled()` accessor, `functionHasNullabilityAnnotations`
+- `lib/Sema/SemaDecl.cpp` - `warn_null_init_nonnull` diagnostic for null-init of _Nonnull vars
+- `include/clang/Sema/Sema.h` - `functionHasNullabilityAnnotations` helper
 - `lib/Sema/Sema.cpp` - `functionHasNullabilityAnnotations`, `diagnoseNullableToNonnullConversion`
 - `lib/Driver/ToolChains/Clang.cpp` - driver-to-cc1 flag forwarding
 - `include/clang/Driver/Options.td` - flag definitions
@@ -107,7 +107,7 @@ Transfer functions handle: `DeclStmt` (nonnull init), `BinaryOperator` (assignme
 
 ### Gradual adoption
 
-Flow-sensitive checking only activates per-function when inside a `#pragma clang assume_nonnull` region OR when `-fnullability-default` is set to something other than `unspecified`. This is determined in `SemaDecl.cpp:ActOnStartOfFunctionDef` and stored via `setFlowNullabilityEnabled()` on the `Sema` instance (private bool with public accessor `isFlowNullabilityEnabled()`).
+Flow-sensitive checking only activates per-function when inside a `#pragma clang assume_nonnull` region, when `-fnullability-default` is set to something other than `unspecified`, or when the function has explicit nullability annotations on its parameters or return type. This is computed locally in `AnalysisBasedWarnings.cpp:IssueWarnings` (not stored on Sema) to avoid scoping bugs when lambda bodies interleave with enclosing function processing.
 
 ### Design decisions
 
