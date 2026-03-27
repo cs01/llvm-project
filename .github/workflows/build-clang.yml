@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - nullsafe-clang-dev
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 # cancel in-flight builds when a new push arrives
