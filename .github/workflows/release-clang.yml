@@ -60,7 +60,7 @@ jobs:
 
             **Quick install (Linux/macOS):**
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/null-safe-c-dev/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullsafe-clang-dev/install.sh | bash
             ```
 
             **Manual install:**
@@ -85,6 +85,6 @@ jobs:
             ### Try it online:
             Interactive WebAssembly playground: https://cs01.github.io/llvm-project/
 
-            See the [README](https://github.com/cs01/llvm-project/blob/null-safe-c-dev/README.md) for full documentation.
+            See the [README](https://github.com/cs01/llvm-project/blob/nullsafe-clang-dev/README.md) for full documentation.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

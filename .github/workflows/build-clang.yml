@@ -3,7 +3,7 @@ name: Build Null-Safe Clang Binaries
 on:
   push:
     branches:
-      - null-safe-c-dev
+      - nullsafe-clang-dev
   workflow_dispatch:
 
 jobs:

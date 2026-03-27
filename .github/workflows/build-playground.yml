@@ -3,7 +3,7 @@ name: Build Playground WASM
 on:
   push:
     branches:
-      - null-safe-c-dev
+      - nullsafe-clang-dev
     tags:
       - 'playground-v*'
   workflow_dispatch:
