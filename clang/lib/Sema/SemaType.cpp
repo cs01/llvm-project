@@ -4613,6 +4613,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         // Only infer when flow-sensitive nullability is active, to avoid
         // changing type semantics for vanilla (no-flag) builds.
         if (!inAssumeNonNullRegion &&
+            !S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
             S.getLangOpts().FlowSensitiveNullability) {
           // Use Unspecified so the flow checker can distinguish from
           // explicit _Nullable (same rationale as the function param path).
@@ -4625,6 +4626,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         // Double-pointers (T**) in casts/locals: use Unspecified so
         // the flow checker doesn't treat them as explicitly _Nullable.
         if (!inAssumeNonNullRegion &&
+            !S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
             S.getLangOpts().FlowSensitiveNullability) {
           inferNullability = NullabilityKind::Unspecified;
         }

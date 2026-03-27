@@ -43,4 +43,19 @@ void test_star_after_check(Entity* _Nullable p) {
     }
 }
 
+// --- Member field assignment invalidation ---
+// Assigning to a narrowed member should invalidate its narrowing.
+
+struct Container {
+    Entity* _Nullable child;
+
+    void test_member_assign_invalidates() {
+        if (child) {
+            child->x = 1;    // OK — narrowed
+            child = nullptr;
+            child->x = 1;    // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        }
+    }
+};
+
 #pragma clang assume_nonnull end

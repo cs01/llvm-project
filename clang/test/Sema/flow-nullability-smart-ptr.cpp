@@ -117,6 +117,14 @@ void test_reset_with_arg_narrows(std::unique_ptr<Node> sp) {
     sp->value = 1; // OK — reset(ptr) gives it a value
 }
 
+void test_reset_nullptr_stays_nullable(std::unique_ptr<Node> sp) {
+    if (sp) {
+        sp->value = 1; // OK — narrowed
+    }
+    sp.reset(nullptr);
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
 // --- std::move makes source nullable ---
 
 void test_move_makes_source_nullable(std::unique_ptr<Node> sp) {

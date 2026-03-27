@@ -3054,7 +3054,7 @@ public:
 
   void handleNullableDereference(const Expr *DerefExpr,
                                  QualType PtrType) override {
-    S.Diag(DerefExpr->getExprLoc(), diag::warn_strict_nullability_dereference)
+    S.Diag(DerefExpr->getExprLoc(), diag::warn_flow_nullable_dereference)
         << PtrType;
     S.Diag(DerefExpr->getExprLoc(), diag::note_nullable_dereference_fix);
   }
@@ -3192,7 +3192,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   // appropriately.  This is essentially a layering violation.
   bool EnableFlowNullability =
       S.getLangOpts().FlowSensitiveNullability &&
-      !Diags.isIgnored(diag::warn_strict_nullability_dereference,
+      !Diags.isIgnored(diag::warn_flow_nullable_dereference,
                         D->getBeginLoc());
 
   if (P.enableCheckUnreachable || P.enableThreadSafetyAnalysis ||

@@ -34,3 +34,16 @@ void test_multiple_calls(int *p, int *q) {
         *q = 2;  // OK - narrowing preserved through all calls
     }
 }
+
+// Known false negative: passing a pointer's address to a function lets the
+// callee set *out = NULL, invalidating narrowing. The analysis intentionally
+// does not invalidate on address-taken (matching ThreadSafety's approach)
+// to avoid excessive noise from common output-parameter patterns.
+void nullify(int **out);
+
+void test_address_taken_false_negative(int *p) {
+    if (p) {
+        nullify(&p);   // could set p = NULL
+        *p = 1;        // no warning — known false negative
+    }
+}
