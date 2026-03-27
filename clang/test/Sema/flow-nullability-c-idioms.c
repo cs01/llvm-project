@@ -58,7 +58,7 @@ void test_assert_nonnull_macro(struct Node *p) {
 }
 
 void test_deref_macro(struct Node *p) {
-    int v = DEREF(p); // expected-warning{{dereferencing nullable pointer}}
+    int v = DEREF(p); // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     (void)v;
 }
 
@@ -80,7 +80,7 @@ void test_safe_deref_macro(struct Node *p) {
 void test_malloc_no_check(void) {
     // In C, void* implicitly converts to struct Node*, preserving _Nullable
     struct Node * _Nullable n = malloc(sizeof(struct Node));
-    n->value = 1; // expected-warning{{dereferencing nullable pointer}}
+    n->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     free(n);
 }
 
@@ -240,7 +240,7 @@ void test_helper_check(struct Node *p) {
     // is_valid returns bool but the analysis can't know it checks for null.
     // This is an accepted limitation of intraprocedural analysis.
     if (is_valid(p)) {
-        p->value = 1; // expected-warning{{dereferencing nullable pointer}}
+        p->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 

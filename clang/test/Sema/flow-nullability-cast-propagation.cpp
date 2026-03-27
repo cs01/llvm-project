@@ -35,7 +35,7 @@ void test_reinterpret_cast_nonnull() {
 void test_c_style_cast_nullable_warns() {
     Base *b = getNullable();
     Derived *d = (Derived *)b;
-    d->y = 1; // expected-warning{{dereferencing nullable pointer}}
+    d->y = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_explicit_nonnull_dest() {
@@ -63,7 +63,7 @@ void test_ptr_arith_nonnull(int* p) {
 
 void test_ptr_arith_nullable(int* _Nullable p) {
     auto* q = p + 1;
-    *q = 0; // expected-warning{{dereferencing nullable pointer}}
+    *q = 0; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // --- reinterpret_cast from this via Base* should not warn ---

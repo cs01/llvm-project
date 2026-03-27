@@ -51,7 +51,7 @@ void test_brace_assert_member(Node* _Nullable p) {
 }
 
 void test_no_assert_still_warns(Node* _Nullable p) {
-    p->value = 1; // expected-warning {{dereferencing nullable pointer}}
+    p->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 void test_manual_bare_brace_noreturn(Node* _Nullable p) {
@@ -73,7 +73,7 @@ void test_nested_brace_assert(Node* _Nullable p, Node* _Nullable q) {
 
 void test_brace_assert_does_not_affect_unrelated(Node* _Nullable p, Node* _Nullable q) {
     INVARIANT(p);
-    q->value = 1; // expected-warning {{dereferencing nullable pointer}}
+    q->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 struct Widget {
@@ -100,7 +100,7 @@ struct Widget {
     }
 
     void test_this_member_no_narrowing() {
-        data->value = 1; // expected-warning {{dereferencing nullable pointer}}
+        data->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
     }
 };
 
@@ -112,7 +112,7 @@ void test_and_member_narrowing(Node* _Nullable p) {
 
 void test_and_member_no_narrowing(Node* _Nullable p) {
     if (p) {
-        p->next->value = 1; // expected-warning {{dereferencing nullable pointer}}
+        p->next->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
     }
 }
 

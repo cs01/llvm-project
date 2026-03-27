@@ -14,7 +14,7 @@ Here's the simplest example of what it does:
 
 ```c
 void example(int * _Nullable p) {
-    *p;          // WARNING: dereferencing nullable pointer of type 'int * _Nullable'
+    *p;          // WARNING: dereference of nullable pointer
 
     if (p) {
         *p;      // OK — p was null-checked, analysis knows it's non-null here
@@ -274,7 +274,7 @@ This wires the analysis into Clang's existing "analysis-based warnings" infrastr
 - **`FlowNullabilityReporter`** — implements the `FlowNullabilityHandler` callback interface. When the analysis calls `handleNullableDereference()`, this converts it into a `S.Diag()` call (Clang's diagnostic emission). That's what produces the actual compiler output:
 
   ```
-  foo.c:10:5: warning: dereferencing nullable pointer of type 'int * _Nullable'
+  foo.c:10:5: warning: dereference of nullable pointer
               [-Wflow-nullable-dereference]
       *p;
       ^~
@@ -367,7 +367,7 @@ void call_doesnt_invalidate(int * _Nullable p) {
 
 | File | What it defines |
 |------|----------------|
-| `DiagnosticSemaKinds.td` | Single diagnostic — `warn_strict_nullability_dereference` ("dereferencing nullable pointer of type %0") |
+| `DiagnosticSemaKinds.td` | Warning `warn_strict_nullability_dereference` ("dereference of nullable pointer") + fix note `note_nullable_dereference_fix` |
 | `DiagnosticGroups.td` | `-Wflow-nullable-dereference` (the warning), `-Wflow-nullability` (parent group) |
 | `Options.td` + `Driver/ToolChains/Clang.cpp` | Three flags (see below) |
 
