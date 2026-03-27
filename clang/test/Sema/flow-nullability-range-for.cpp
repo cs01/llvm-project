@@ -27,5 +27,5 @@ void test_range_for_c_array() {
 }
 
 void test_deref_still_warns(int* _Nullable p) {
-    (void)*p; // expected-warning {{dereferencing nullable pointer}}
+    (void)*p; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }

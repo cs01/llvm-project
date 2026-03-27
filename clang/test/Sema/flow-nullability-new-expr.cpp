@@ -31,12 +31,12 @@ void test_new_var_deref() {
 
 void test_nothrow_new_warns() {
     Widget *w = new (std::nothrow) Widget();
-    w->value = 42; // expected-warning{{dereferencing nullable pointer}}
+    w->value = 42; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_nullable_control() {
     Widget *w = getNullableWidget();
-    w->value = 42; // expected-warning{{dereferencing nullable pointer}}
+    w->value = 42; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 #pragma clang assume_nonnull end

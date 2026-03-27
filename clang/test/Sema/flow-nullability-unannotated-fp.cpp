@@ -10,7 +10,7 @@ typedef unsigned char uint8_t;
 // buffers is nullable → subscript is a deref → warns.
 
 inline bool getData(const uint8_t** buffers, int readIndex) {
-    auto buffer = buffers[readIndex]; // expected-warning{{dereferencing nullable pointer}}
+    auto buffer = buffers[readIndex]; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     return buffer != nullptr;
 }
 
@@ -25,7 +25,7 @@ struct Widget {
 void test_deleter() {
     auto* ptr = new Widget;
     auto deleter = [](Widget* w) {
-        w->~Widget(); // expected-warning{{dereferencing nullable pointer}}
+        w->~Widget(); // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     };
     deleter(ptr);
 }
@@ -39,6 +39,6 @@ struct Buffer {
         return reinterpret_cast<uint8_t*>(this) + offset;
     }
     void use() {
-        uint8_t val = getBuffer()[0]; // expected-warning{{dereferencing nullable pointer}}
+        uint8_t val = getBuffer()[0]; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 };

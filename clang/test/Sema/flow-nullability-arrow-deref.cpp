@@ -11,8 +11,8 @@ Entity* _Nullable getChest();
 #pragma clang assume_nonnull begin
 
 void test_arrow_deref_warns(Entity* _Nullable p) {
-    p->x = 1;              // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
-    int v = p->value();     // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+    p->x = 1;              // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    int v = p->value();     // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_arrow_after_null_check(Entity* _Nullable p) {
@@ -24,7 +24,7 @@ void test_arrow_after_null_check(Entity* _Nullable p) {
 
 void test_arrow_no_check() {
     Entity* head = getHead();
-    head->x = 1;            // expected-warning{{dereferencing nullable pointer of type 'Entity *'}}
+    head->x = 1;            // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_arrow_with_check() {
@@ -34,7 +34,7 @@ void test_arrow_with_check() {
 }
 
 void test_star_still_works(Entity* _Nullable p) {
-    (*p).x = 1;             // expected-warning{{dereferencing nullable pointer of type 'Entity * _Nullable'}}
+    (*p).x = 1;             // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_star_after_check(Entity* _Nullable p) {

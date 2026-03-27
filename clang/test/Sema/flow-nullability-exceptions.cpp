@@ -48,7 +48,7 @@ void test_after_try_catch(Node * _Nullable p) {
     }
     // After try/catch, p's narrowing depends on merge of try and catch edges.
     // Conservative: should warn.
-    (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // === Narrowing in both try and catch ===

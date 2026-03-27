@@ -18,7 +18,7 @@ Node * _Nonnull getSafeNode();
 
 template <typename T>
 void deref_unchecked(T * _Nullable p) {
-    (void)p->value; // expected-warning{{dereferencing nullable pointer}}
+    (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 template <typename T>
@@ -46,7 +46,7 @@ struct Wrapper {
     T * _Nullable ptr;
 
     void use_unchecked() {
-        (void)ptr->value; // expected-warning{{dereferencing nullable pointer}}
+        (void)ptr->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 
     void use_guarded() {
@@ -66,7 +66,7 @@ void test_template_class() {
 template <typename T>
 void mixed_nullability(T * _Nonnull safe, T * _Nullable risky) {
     (void)safe->value; // OK — _Nonnull
-    (void)risky->value; // expected-warning{{dereferencing nullable pointer}}
+    (void)risky->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 void test_mixed() {

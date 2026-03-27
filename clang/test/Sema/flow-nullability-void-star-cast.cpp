@@ -9,30 +9,30 @@ struct Data {
 // void* param is nullable under the default — dereferences warn
 void test_void_star_cast_deref(void* obj) {
     Data* p = static_cast<Data*>(obj);
-    *p = Data{42}; // expected-warning {{dereferencing nullable pointer}}
-    p->value = 1;  // expected-warning {{dereferencing nullable pointer}}
+    *p = Data{42}; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+    p->value = 1;  // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 // reinterpret_cast to void** — source obj is nullable
 void test_reinterpret_cast_void_star_star(void* obj) {
-    *reinterpret_cast<void**>(obj) = nullptr; // expected-warning {{dereferencing nullable pointer}}
+    *reinterpret_cast<void**>(obj) = nullptr; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 // Explicit _Nullable also warns
 void test_nullable_void_star(void* _Nullable obj) {
     Data* p = static_cast<Data*>(obj);
-    *p = Data{42}; // expected-warning {{dereferencing nullable pointer}}
+    *p = Data{42}; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 // Double-pointer casts — source obj is nullable
 void test_double_ptr_cast(void* obj) {
-    *reinterpret_cast<void**>(obj) = nullptr; // expected-warning {{dereferencing nullable pointer}}
-    *reinterpret_cast<int**>(obj) = nullptr;  // expected-warning {{dereferencing nullable pointer}}
+    *reinterpret_cast<void**>(obj) = nullptr; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+    *reinterpret_cast<int**>(obj) = nullptr;  // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 void test_double_ptr_local(void* obj) {
     void** pp = reinterpret_cast<void**>(obj);
-    *pp = nullptr; // expected-warning {{dereferencing nullable pointer}}
+    *pp = nullptr; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 // With null check, no warning
