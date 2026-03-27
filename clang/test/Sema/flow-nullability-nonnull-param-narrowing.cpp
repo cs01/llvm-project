@@ -28,14 +28,14 @@ void test_nonnull_param_narrows(const char * _Nullable filePath) {
 // but that's an implicit annotation, not an explicit _Nonnull).
 void test_unannotated_param_no_narrow(const char * _Nullable filePath) {
     unannotated_use(filePath);
-    const char c = *filePath; // expected-warning{{dereferencing nullable pointer}}
+    const char c = *filePath; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // Multiple args: only _Nonnull ones narrow.
 void test_mixed_params(const char * _Nullable a, const char * _Nullable b) {
     two_params(a, b); // expected-warning{{implicit conversion from nullable}}
     const char c1 = *a; // OK — narrowed
-    const char c2 = *b; // expected-warning{{dereferencing nullable pointer}}
+    const char c2 = *b; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // Multiple _Nonnull calls in sequence.
@@ -65,7 +65,7 @@ void test_gcc_nonnull_all(const char * _Nullable a, const char * _Nullable b) {
 void test_gcc_nonnull_partial(const char * _Nullable a, const char * _Nullable b) {
     gcc_partial_nonnull(a, b);
     const char c1 = *a; // OK — narrowed (param 1 is nonnull)
-    const char c2 = *b; // expected-warning{{dereferencing nullable pointer}}
+    const char c2 = *b; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 #pragma clang assume_nonnull end
