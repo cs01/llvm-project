@@ -1795,7 +1795,6 @@ void Sema::CheckMemberAccessOfNoDeref(const MemberExpr *E) {
       if (Ptr->getPointeeType()->hasAttr(attr::NoDeref))
         ExprEvalContexts.back().PossibleDerefs.insert(E);
     }
-
   }
 }
 

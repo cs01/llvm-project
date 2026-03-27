@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nonnull -fstrict-nullability-inference -std=c++17 %s -verify
+// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nonnull -std=c++17 %s -verify
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 %s -verify
 
 struct Item { int value; };

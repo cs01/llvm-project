@@ -1513,8 +1513,8 @@ StmtResult Parser::ParseIfStatement(SourceLocation *TrailingElseLoc) {
   SourceLocation LParen;
   SourceLocation RParen;
   std::optional<bool> ConstexprCondition;
-
   if (!IsConsteval) {
+
     if (ParseParenExprOrCondition(&InitStmt, Cond, IfLoc,
                                   IsConstexpr ? Sema::ConditionKind::ConstexprIf
                                               : Sema::ConditionKind::Boolean,
@@ -1900,7 +1900,6 @@ StmtResult Parser::ParseDoStatement(LabelDecl *PrecedingLabel) {
         Actions.getASTContext().BoolTy);
   }
   T.consumeClose();
-
   DoScope.Exit();
 
   if (Cond.isInvalid() || Body.isInvalid())

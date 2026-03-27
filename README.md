@@ -6,7 +6,7 @@ A fork of Clang that adds flow-sensitive nullability analysis. It catches null p
 
 > **[Try it in the online playground](https://cs01.github.io/llvm-project/)**
 
-## Who is this for
+## Who is this for?
 
 - You want to **prevent null pointer crashes in production** before they happen
 - You work on **safety-critical or high-reliability software** (automotive, medical, aerospace, infrastructure) where a null dereference is not just a bug — it's a liability
@@ -70,6 +70,7 @@ int deref(int * _Nullable p) {
 
 | | Stock Clang (`-Wnullability`) | Clang Static Analyzer | Nullsafe Clang |
 |--|:-----------------------------:|:---------------------:|:--------------:|
+| Analysis technique | Type checking | Symbolic execution | Dataflow on CFG |
 | `_Nullable` → `_Nonnull` conversion | ✅ warns | ✅ warns | ✅ warns |
 | Dereference of nullable pointer | ❌ silent | ✅ warns | ✅ warns |
 | Works on unannotated code | ❌ | ❌ | ✅ |
@@ -77,13 +78,12 @@ int deref(int * _Nullable p) {
 | Runs in IDE (clangd) | ✅ | ❌ | ✅ |
 | Fast enough for every build | ✅ | ❌ ([41x slower on real code](PERFORMANCE.md#csa-comparison-on-real-code)) | ✅ |
 | No test coverage required | ✅ | ✅ | ✅ |
-| Analysis technique | Type checking | Symbolic execution | Dataflow on CFG |
 | Cross-function reasoning | — | ✅ | ❌ |
 | Compile-time cost | Zero | Separate pass | [0.2-8%](PERFORMANCE.md#direct-measurement-via--ftime-trace) |
 
 Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — same architecture as `-Wthread-safety`. It works in clangd, runs on every build, and catches bugs on unannotated code with `-fnullability-default=nullable`. On [real-world code (LLVM/Clang)](PERFORMANCE.md#real-world-benchmarks-llvmclang), the analysis accounts for 0.2-8% of compile time (median ~2%) — comparable to `-Wuninitialized`, and 41x faster than the Clang Static Analyzer. Compare all three in the **[interactive playground](https://cs01.github.io/llvm-project/)**.
 
-ASan and UBSan are complementary but solve a different problem — they're runtime sanitizers that instrument your binary to detect bugs during execution. They require test coverage to exercise the faulty code path, add ~2x runtime overhead, and catch the crash *after* it happens rather than preventing it at compile time.
+ASan and UBSan are complementary but solve a different problem — they're runtime sanitizers that require test coverage, add ~2x overhead, and catch crashes *after* they happen rather than preventing them at compile time.
 
 ## Usage
 

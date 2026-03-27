@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable %s -verify
+// expected-no-diagnostics
 
 // Test that function calls do NOT invalidate narrowing.
 // Functions receive a copy of pointer arguments, so they cannot modify
@@ -33,5 +34,3 @@ void test_multiple_calls(int *p, int *q) {
         *q = 2;  // OK - narrowing preserved through all calls
     }
 }
-
-// expected-no-diagnostics
