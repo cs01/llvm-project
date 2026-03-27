@@ -61,7 +61,7 @@ jobs:
       - name: Package binaries
         run: |
           cd install
-          tar -czf clang-nullsafe-linux-x86_64.tar.gz bin/
+          tar -czf clang-nullsafe-linux-x86_64.tar.gz bin/ lib/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -117,7 +117,7 @@ jobs:
       - name: Package binaries
         run: |
           cd install
-          tar -czf clang-nullsafe-macos-universal.tar.gz bin/
+          tar -czf clang-nullsafe-macos-universal.tar.gz bin/ lib/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
