@@ -682,10 +682,14 @@ void Sema::PrintStats() const {
 /// pointer arithmetic back to a known non-null source (CXXThisExpr, _Nonnull
 /// annotated, operator new, address-of). Used to suppress false positive
 /// nullable-to-nonnull warnings on patterns like reinterpret_cast<T*>(this)+n.
+static constexpr unsigned kMaxProvablyNonnullDepth = 16;
+
 static bool isExprProvablyNonnull(const Expr *E, unsigned Depth = 0) {
   // Depth limit guards against pathological init chains (a = b; b = c; ...).
-  // Each recursion peels one AST node, so 16 frames is negligible stack usage.
-  if (!E || Depth > 16)
+  // Each recursion peels one AST node, so the stack usage is negligible.
+  // Note: this is a best-effort heuristic — it does not account for
+  // reassignment after initialization (the flow analysis handles that).
+  if (!E || Depth > kMaxProvablyNonnullDepth)
     return false;
   E = E->IgnoreParenImpCasts();
   if (isa<CXXThisExpr>(E))
@@ -756,14 +760,12 @@ bool Sema::functionHasNullabilityAnnotations(const FunctionDecl *FD) const {
       return true;
   }
 
-  // Check parameters - but only if they're available
-  // During early function processing, parameters might not be set yet
+  // Check parameters — during early function processing, parameters might
+  // not be fully set up, so guard with param_empty().
   if (!FD->param_empty()) {
-    for (unsigned i = 0; i < FD->getNumParams(); ++i) {
-      const ParmVarDecl *Param = FD->getParamDecl(i);
+    for (const ParmVarDecl *Param : FD->parameters()) {
       if (!Param)
         continue;
-
       QualType ParamType = Param->getType();
       if (!ParamType.isNull() && !ParamType->isDependentType()) {
         if (ParamType->getNullability())
@@ -864,7 +866,8 @@ ExprResult Sema::ImpCastExprToType(Expr *E, QualType Ty,
          "can't cast prvalue to glvalue");
 #endif
 
-  // can check if the variable has been narrowed to non-null by flow analysis.
+  // Pass the source expression so flow-sensitive analysis can suppress the
+  // warning when the expression is provably non-null despite its declared type.
   diagnoseNullableToNonnullConversion(Ty, E->getType(), E->getBeginLoc(), E);
   diagnoseZeroToNullptrConversion(Kind, E);
   if (Context.hasAnyFunctionEffects() && !isCast(CCK) &&

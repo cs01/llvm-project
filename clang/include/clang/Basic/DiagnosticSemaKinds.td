@@ -12998,7 +12998,7 @@ def warn_nullability_lost : Warning<
   "implicit conversion from nullable pointer %0 to non-nullable pointer "
   "type %1">,
   InGroup<NullableToNonNullConversion>, DefaultIgnore;
-def warn_strict_nullability_dereference : Warning<
+def warn_flow_nullable_dereference : Warning<
   "dereference of nullable pointer %0">,
   InGroup<FlowNullableDereference>;
 def warn_null_init_nonnull : Warning<
