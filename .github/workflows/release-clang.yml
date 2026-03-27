@@ -1,20 +1,30 @@
 name: Create Clang Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_run:
+    workflows: ["Build Null-Safe Clang Binaries"]
+    types:
+      - completed
+    branches:
+      - nullsafe-clang-dev
+
+# only one release at a time, cancel any in-flight
+concurrency:
+  group: release-clang
+  cancel-in-progress: true
 
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    # only create a release if the build succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Download Linux artifact
         uses: dawidd6/action-download-artifact@v3
         with:
           workflow: build-clang.yml
-          commit: ${{ github.sha }}
+          run_id: ${{ github.event.workflow_run.id }}
           name: clang-nullsafe-linux-x86_64
           path: artifacts/
 
@@ -22,7 +32,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v3
         with:
           workflow: build-clang.yml
-          commit: ${{ github.sha }}
+          run_id: ${{ github.event.workflow_run.id }}
           name: clang-nullsafe-macos-universal
           path: artifacts/
 
@@ -30,21 +40,37 @@ jobs:
         uses: dawidd6/action-download-artifact@v3
         with:
           workflow: build-clang.yml
-          commit: ${{ github.sha }}
+          run_id: ${{ github.event.workflow_run.id }}
           name: clang-nullsafe-wasm
           path: artifacts/
+
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      # Delete the old 'latest' release so we can recreate it cleanly
+      - name: Delete previous latest release
+        run: gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: latest
+          name: "Latest Build (${{ steps.sha.outputs.short }})"
+          make_latest: true
           files: |
             artifacts/clang-nullsafe-linux-x86_64.tar.gz
             artifacts/clang-nullsafe-macos-universal.tar.gz
             artifacts/clang-nullsafe-wasm.tar.gz
           body: |
-            ## Nullsafe Clanglang Release
+            ## Nullsafe Clang — Latest Build
 
-            This release contains the Nullsafe Clanglang compiler for all platforms.
+            Built from commit ${{ github.event.workflow_run.head_sha }}
+
+            This release is automatically updated on every push to `nullsafe-clang-dev`.
 
             ### What's included:
 
