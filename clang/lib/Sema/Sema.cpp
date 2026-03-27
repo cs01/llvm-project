@@ -684,14 +684,14 @@ void Sema::PrintStats() const {
 /// nullable-to-nonnull warnings on patterns like reinterpret_cast<T*>(this)+n.
 /// See also: isNonnullInit() in FlowNullability.cpp, which is the flow
 /// analysis's version with access to narrowing state.
-static constexpr unsigned kMaxProvablyNonnullDepth = 16;
+static constexpr unsigned MaxProvablyNonnullDepth = 16;
 
 static bool isExprProvablyNonnull(const Expr *E, unsigned Depth = 0) {
   // Depth limit guards against pathological init chains (a = b; b = c; ...).
   // Each recursion peels one AST node, so the stack usage is negligible.
   // Note: this is a best-effort heuristic — it does not account for
   // reassignment after initialization (the flow analysis handles that).
-  if (!E || Depth > kMaxProvablyNonnullDepth)
+  if (!E || Depth > MaxProvablyNonnullDepth)
     return false;
   E = E->IgnoreParenImpCasts();
   if (isa<CXXThisExpr>(E))
