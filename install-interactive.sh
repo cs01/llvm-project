@@ -88,8 +88,9 @@ fi
 
 if [ -z "$VERSION" ]; then
     echo "Fetching latest release..."
+    # parse tag_name without requiring jq
     VERSION=$(curl -s https://api.github.com/repos/$REPO/releases/latest | \
-        jq -r '.tag_name')
+        grep '"tag_name"' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')
 
     if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
         echo "Failed to fetch latest release. Set VERSION manually:"
@@ -287,10 +288,10 @@ if [ -z "$SKIP_PROMPTS" ]; then
 
             if [ "$PATH_ACTIVE" = true ]; then
                 echo "Try it now:"
-                echo "    echo 'void f(int* _Nullable p) { *p = 42; }' | clang -x c - -fsyntax-only"
+                echo "    echo 'void f(int* _Nullable p) { *p = 42; }' | clang -x c - -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable"
             else
                 echo "Try it now (using full path):"
-                echo "    echo 'void f(int* _Nullable p) { *p = 42; }' | $INSTALL_DIR/bin/clang -x c - -fsyntax-only"
+                echo "    echo 'void f(int* _Nullable p) { *p = 42; }' | $INSTALL_DIR/bin/clang -x c - -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable"
                 echo ""
                 echo "Or reload your shell and use just 'clang'."
             fi
