@@ -87,16 +87,16 @@ if [ -z "$SKIP_PROMPTS" ]; then
 fi
 
 if [ -z "$VERSION" ]; then
-    echo "Fetching latest release version..."
-    VERSION=$(curl -s https://api.github.com/repos/$REPO/releases | \
-        jq -r '[.[] | select(.tag_name | startswith("v")) | select(.prerelease == false)] | first | .tag_name')
+    echo "Fetching latest release..."
+    VERSION=$(curl -s https://api.github.com/repos/$REPO/releases/latest | \
+        jq -r '.tag_name')
 
-    if [ -z "$VERSION" ]; then
-        echo "Failed to fetch latest version. Set VERSION manually:"
-        echo "  VERSION=v0.1.6 $0"
+    if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+        echo "Failed to fetch latest release. Set VERSION manually:"
+        echo "  VERSION=latest $0"
         exit 1
     fi
-    echo "Latest version: $VERSION"
+    echo "Latest release: $VERSION"
 fi
 
 echo "Detecting platform..."
