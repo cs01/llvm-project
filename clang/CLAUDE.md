@@ -77,7 +77,7 @@ build/bin/llvm-lit test/Sema/flow-nullability-arrow-deref.cpp -v
 - `lib/Sema/Sema.cpp` - `functionHasNullabilityAnnotations`, `diagnoseNullableToNonnullConversion`
 - `lib/Driver/ToolChains/Clang.cpp` - driver-to-cc1 flag forwarding
 - `include/clang/Driver/Options.td` - flag definitions
-- `include/clang/Basic/DiagnosticSemaKinds.td` - `warn_strict_nullability_dereference` diagnostic
+- `include/clang/Basic/DiagnosticSemaKinds.td` - `warn_flow_nullable_dereference` diagnostic
 - `include/clang/Basic/DiagnosticGroups.td` - `FlowNullableDereference` / `FlowNullability` diagnostic groups
 
 ## Architecture

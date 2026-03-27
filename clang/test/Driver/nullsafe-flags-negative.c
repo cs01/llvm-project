@@ -18,6 +18,10 @@
 // RUN: %clang -### -fnullability-default=invalid %s 2>&1 | FileCheck -check-prefix=INVALID %s
 // INVALID: "-fnullability-default=invalid"
 
+// === -fno-flow-sensitive-nullability disables the flag ===
+// RUN: %clang -### -fflow-sensitive-nullability -fno-flow-sensitive-nullability %s 2>&1 | FileCheck -check-prefix=NO-FLOW %s
+// NO-FLOW-NOT: "-fflow-sensitive-nullability"
+
 // === All flags together ===
 // RUN: %clang -### -fflow-sensitive-nullability -fnullability-default=nullable %s 2>&1 | FileCheck -check-prefix=ALL %s
 // ALL: "-fflow-sensitive-nullability"
