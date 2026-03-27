@@ -2,7 +2,7 @@
 
 **Compile-time null pointer dereference checking for C and C++.**
 
-A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++. Opt-in, zero runtime cost, [17-26% marginal compile-time overhead](PERFORMANCE.md) when `-Wuninitialized` is already enabled (vs 86-130% for `-Wthread-safety`).
+A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++. Opt-in, zero runtime cost, [~20% compile-time overhead](PERFORMANCE.md) — 5x faster than `-Wthread-safety`.
 
 > **[Try it in the online playground](https://cs01.github.io/llvm-project/)**
 
@@ -49,7 +49,7 @@ warning: dereference of nullable pointer [-Wflow-nullable-dereference]
 note: add a null check before dereferencing, or annotate as '_Nonnull' if this pointer cannot be null
 ```
 
-The fix is straightforward — add a null check, and the warning goes away:
+The warning tells you exactly what's wrong: `p` is `_Nullable`, and you're dereferencing it without checking. The fix is straightforward — add a null check, and the warning goes away:
 
 ```c
 int deref(int * _Nullable p) {
