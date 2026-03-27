@@ -2,7 +2,7 @@
 
 **Compile-time null pointer dereference checking for C and C++.**
 
-A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++. Opt-in, zero runtime cost, [~20% compile-time overhead](PERFORMANCE.md) — 5x faster than `-Wthread-safety`.
+A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++. Opt-in, zero runtime cost, [negligible compile-time overhead](PERFORMANCE.md#real-world-benchmarks-llvmclang) — 41x faster than the Clang Static Analyzer.
 
 > **[Try it in the online playground](https://cs01.github.io/llvm-project/)**
 
@@ -75,13 +75,13 @@ int deref(int * _Nullable p) {
 | Works on unannotated code | ❌ | ❌ | ✅ |
 | Runs as part of compiler | ✅ | ❌ | ✅ |
 | Runs in IDE (clangd) | ✅ | ❌ | ✅ |
-| Fast enough for every build | ✅ | ❌ ([2.5-14x slower](PERFORMANCE.md#clang-static-analyzer-comparison)) | ✅ |
+| Fast enough for every build | ✅ | ❌ ([41x slower on real code](PERFORMANCE.md#csa-comparison-on-real-code)) | ✅ |
 | No test coverage required | ✅ | ✅ | ✅ |
 | Analysis technique | Type checking | Symbolic execution | Dataflow on CFG |
 | Cross-function reasoning | — | ✅ | ❌ |
-| Zero compile-time cost | ✅ | — | ❌ ([17-26% marginal](PERFORMANCE.md)) |
+| Compile-time cost | Zero | Separate pass | [0.2-8%](PERFORMANCE.md#direct-measurement-via--ftime-trace) |
 
-Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — same architecture as `-Wthread-safety`. It works in clangd, runs on every build, and catches bugs on unannotated code with `-fnullability-default=nullable`. Compare all three in the **[interactive playground](https://cs01.github.io/llvm-project/)**.
+Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — same architecture as `-Wthread-safety`. It works in clangd, runs on every build, and catches bugs on unannotated code with `-fnullability-default=nullable`. On [real-world code (LLVM/Clang)](PERFORMANCE.md#real-world-benchmarks-llvmclang), the analysis accounts for 0.2-8% of compile time (median ~2%) — comparable to `-Wuninitialized`, and 41x faster than the Clang Static Analyzer. Compare all three in the **[interactive playground](https://cs01.github.io/llvm-project/)**.
 
 ASan and UBSan are complementary but solve a different problem — they're runtime sanitizers that instrument your binary to detect bugs during execution. They require test coverage to exercise the faulty code path, add ~2x runtime overhead, and catch the crash *after* it happens rather than preventing it at compile time.
 
@@ -150,7 +150,7 @@ clang -fflow-sensitive-nullability -fnullability-default=nullable \
 
 - **[Architecture Diagrams](docs/flow-nullability-architecture.md)** — Mermaid flow diagrams of the three-layer design, worklist algorithm, state tracking, and transfer functions
 - **[Architecture Review Guide](docs/flow-nullability-review-guide.md)** — written walkthrough with concrete code examples for every concept
-- **[Performance Benchmarks](PERFORMANCE.md)** — compile-time overhead measurements with statistical analysis (paired t-test, 95% confidence intervals)
+- **[Performance Benchmarks](PERFORMANCE.md)** — real-world benchmarks on LLVM/Clang (<2% overhead), synthetic stress tests, and Clang Static Analyzer comparison (41x faster)
 
 ## Limitations
 
