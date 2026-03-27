@@ -16705,13 +16705,6 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
     }
   }
 
-  if (getLangOpts().FlowSensitiveNullability) {
-    setFlowNullabilityEnabled(
-        PP.getPragmaAssumeNonNullLoc().isValid() ||
-        getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified ||
-        functionHasNullabilityAnnotations(FD));
-  }
-
   return D;
 }
 
