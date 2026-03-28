@@ -4475,7 +4475,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     }
   } else {
     bool isFunctionOrMethod = false;
-    switch (auto context = state.getDeclarator().getContext()) {
+    switch (state.getDeclarator().getContext()) {
     case DeclaratorContext::ObjCParameter:
     case DeclaratorContext::ObjCResult:
     case DeclaratorContext::Prototype:
@@ -4608,6 +4608,8 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       switch (classifyPointerDeclarator(S, T, D, wrappingKind)) {
       case PointerDeclaratorKind::NonPointer:
       case PointerDeclaratorKind::MultiLevelPointer:
+      case PointerDeclaratorKind::CFErrorRefPointer:
+      case PointerDeclaratorKind::NSErrorPointerPointer:
         break;
 
       case PointerDeclaratorKind::SingleLevelPointer:
