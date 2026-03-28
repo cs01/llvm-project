@@ -4,7 +4,7 @@
 // must work correctly — C is half the target audience for this feature.
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c11 %s -verify
 
-typedef unsigned long size_t;
+typedef __SIZE_TYPE__ size_t;
 typedef _Bool bool;
 #define true 1
 #define false 0
