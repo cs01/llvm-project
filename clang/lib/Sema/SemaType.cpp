@@ -4589,46 +4589,39 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     case DeclaratorContext::TypeName:
     case DeclaratorContext::FunctionalCast:
     case DeclaratorContext::RequiresExpr:
-    case DeclaratorContext::Association: {
-      complainAboutMissingNullability = CAMN_Yes;
+    case DeclaratorContext::Association:
+      // Upstream: don't infer nullability in these contexts (locals,
+      // template args, casts, etc.).  When flow-sensitive nullability is
+      // active we silently tag single-level pointers as Unspecified so the
+      // flow checker can track them, but we never fire the consistency
+      // warning ("pointer is missing a nullability type specifier") here.
+      if (S.getLangOpts().FlowSensitiveNullability) {
+        auto wrappingKind = PointerWrappingDeclaratorKind::None;
+        switch (classifyPointerDeclarator(S, T, D, wrappingKind)) {
+        case PointerDeclaratorKind::NonPointer:
+        case PointerDeclaratorKind::MultiLevelPointer:
+        case PointerDeclaratorKind::CFErrorRefPointer:
+        case PointerDeclaratorKind::NSErrorPointerPointer:
+          break;
 
-      auto wrappingKind = PointerWrappingDeclaratorKind::None;
-      switch (classifyPointerDeclarator(S, T, D, wrappingKind)) {
-      case PointerDeclaratorKind::NonPointer:
-      case PointerDeclaratorKind::MultiLevelPointer:
-      case PointerDeclaratorKind::CFErrorRefPointer:
-      case PointerDeclaratorKind::NSErrorPointerPointer:
-        break;
+        case PointerDeclaratorKind::SingleLevelPointer:
+          if (!inAssumeNonNullRegion &&
+              !S.getSourceManager().isInSystemHeader(D.getBeginLoc())) {
+            inferNullability = NullabilityKind::Unspecified;
+          }
+          inferNullabilityCS = false;
+          break;
 
-      case PointerDeclaratorKind::SingleLevelPointer:
-        complainAboutInferringWithinChunk = wrappingKind;
-        // For local variables and similar contexts, don't apply pragma —
-        // pragma should only affect API boundaries (function signatures).
-        // Only infer when flow-sensitive nullability is active, to avoid
-        // changing type semantics for vanilla (no-flag) builds.
-        if (!inAssumeNonNullRegion &&
-            !S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
-            S.getLangOpts().FlowSensitiveNullability) {
-          // Use Unspecified so the flow checker can distinguish from
-          // explicit _Nullable (same rationale as the function param path).
-          inferNullability = NullabilityKind::Unspecified;
+        case PointerDeclaratorKind::MaybePointerToCFRef:
+          if (!inAssumeNonNullRegion &&
+              !S.getSourceManager().isInSystemHeader(D.getBeginLoc())) {
+            inferNullability = NullabilityKind::Unspecified;
+          }
+          inferNullabilityCS = false;
+          break;
         }
-        inferNullabilityCS = false;
-        break;
-
-      case PointerDeclaratorKind::MaybePointerToCFRef:
-        // Double-pointers (T**) in casts/locals: use Unspecified so
-        // the flow checker doesn't treat them as explicitly _Nullable.
-        if (!inAssumeNonNullRegion &&
-            !S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
-            S.getLangOpts().FlowSensitiveNullability) {
-          inferNullability = NullabilityKind::Unspecified;
-        }
-        inferNullabilityCS = false;
-        break;
       }
       break;
-    }
     }
   }
 
