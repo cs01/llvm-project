@@ -13,9 +13,7 @@ set -euo pipefail
 
 DEV_BRANCH="nullsafe-clang-dev"
 UPSTREAM_BRANCH="nullsafe-upstream"
-# Use the commit where dev branch diverged from main, not latest main.
-# This avoids picking up unrelated upstream changes that break the build.
-BASE_REF="$(git merge-base origin/main HEAD)"
+BASE_REF="llvm/main"
 
 DRY_RUN=false
 NO_PUSH=false
