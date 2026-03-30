@@ -38,8 +38,6 @@
 
 using namespace clang;
 
-#pragma clang assume_nonnull begin
-
 FlowNullabilityHandler::~FlowNullabilityHandler() = default;
 
 namespace {
@@ -277,7 +275,7 @@ struct ConditionResult {
 static void
 analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                  SmallVectorImpl<ConditionResult> &Results,
-                 const NullState::BoolGuardMap *_Nullable BoolGuards = nullptr);
+                 const NullState::BoolGuardMap *BoolGuards = nullptr);
 
 /// Recursively flatten a chain of && operators and analyze each leaf.
 /// Used by analyzeCondition to handle !(A && B && C).
@@ -305,7 +303,7 @@ static void decomposeAnd(const Expr *E, ASTContext &Ctx,
 /// — most real null-checks use && or standalone conditions.
 static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                              SmallVectorImpl<ConditionResult> &Results,
-                             const NullState::BoolGuardMap *_Nullable BoolGuards) {
+                             const NullState::BoolGuardMap *BoolGuards) {
   if (!Cond)
     return;
 
@@ -1230,5 +1228,3 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     }
   }
 }
-
-#pragma clang assume_nonnull end
