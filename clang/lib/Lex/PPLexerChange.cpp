@@ -417,15 +417,17 @@ bool Preprocessor::HandleEndOfFile(Token &Result, bool isEndOfMacro) {
   // instantiation or a _Pragma.
   if (PragmaAssumeNonNullLoc.isValid() &&
       !isEndOfMacro && !(CurLexer && CurLexer->Is_PragmaLexer)) {
-    // If we're at the end of generating a preamble, we should record the
-    // unterminated \#pragma clang assume_nonnull so we can restore it later
-    // when the preamble is loaded into the main file.
     if (isRecordingPreamble() && isInPrimaryFile())
       PreambleRecordedPragmaAssumeNonNullLoc = PragmaAssumeNonNullLoc;
     else
       Diag(PragmaAssumeNonNullLoc, diag::err_pp_eof_in_assume_nonnull);
-    // Recover by leaving immediately.
     PragmaAssumeNonNullLoc = SourceLocation();
+  }
+
+  if (PragmaAssumeNullableLoc.isValid() &&
+      !isEndOfMacro && !(CurLexer && CurLexer->Is_PragmaLexer)) {
+    Diag(PragmaAssumeNullableLoc, diag::err_pp_eof_in_assume_nullable);
+    PragmaAssumeNullableLoc = SourceLocation();
   }
 
   bool LeavingPCHThroughHeader = false;

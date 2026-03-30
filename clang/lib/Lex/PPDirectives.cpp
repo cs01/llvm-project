@@ -2402,6 +2402,12 @@ Preprocessor::ImportAction Preprocessor::HandleHeaderIncludeOrImport(
     PragmaAssumeNonNullLoc = SourceLocation();
   }
 
+  if (PragmaAssumeNullableLoc.isValid()) {
+    Diag(StartLoc, diag::err_pp_include_in_assume_nullable) << IsImportDecl;
+    Diag(PragmaAssumeNullableLoc, diag::note_pragma_entered_here);
+    PragmaAssumeNullableLoc = SourceLocation();
+  }
+
   if (HeaderInfo.HasIncludeAliasMap()) {
     // Map the filename with the brackets still attached.  If the name doesn't
     // map to anything, fall back on the filename we've already gotten the

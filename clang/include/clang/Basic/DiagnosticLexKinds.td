@@ -1055,6 +1055,20 @@ def err_pp_include_in_assume_nonnull : Error<
 def err_pp_eof_in_assume_nonnull : Error<
   "'#pragma clang assume_nonnull' was not ended within this file">;
 
+def err_pp_assume_nullable_syntax : Error<"expected 'begin' or 'end'">;
+def err_pp_double_begin_of_assume_nullable : Error<
+  "already inside '#pragma clang assume_nullable'">;
+def err_pp_unmatched_end_of_assume_nullable : Error<
+  "not currently inside '#pragma clang assume_nullable'">;
+def err_pp_include_in_assume_nullable : Error<
+  "cannot %select{#include files|import headers}0 "
+  "inside '#pragma clang assume_nullable'">;
+def err_pp_eof_in_assume_nullable : Error<
+  "'#pragma clang assume_nullable' was not ended within this file">;
+def err_pp_conflicting_assume_nullability : Error<
+  "cannot use '#pragma clang assume_%select{nullable|nonnull}0' "
+  "inside '#pragma clang assume_%select{nonnull|nullable}0'">;
+
 }
 
 let CategoryName = "Dependency Directive Source Scanner Issue" in {

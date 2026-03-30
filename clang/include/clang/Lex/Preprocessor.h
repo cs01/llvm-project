@@ -682,6 +682,10 @@ private:
   /// \#pragma clang assume_nonnull begin.
   SourceLocation PragmaAssumeNonNullLoc;
 
+  /// The source location of the currently-active
+  /// \#pragma clang assume_nullable begin.
+  SourceLocation PragmaAssumeNullableLoc;
+
   /// Set only for preambles which end with an active
   /// \#pragma clang assume_nonnull begin.
   ///
@@ -2135,6 +2139,14 @@ public:
   /// assume_nonnull begin.  An invalid location ends the pragma.
   void setPragmaAssumeNonNullLoc(SourceLocation Loc) {
     PragmaAssumeNonNullLoc = Loc;
+  }
+
+  SourceLocation getPragmaAssumeNullableLoc() const {
+    return PragmaAssumeNullableLoc;
+  }
+
+  void setPragmaAssumeNullableLoc(SourceLocation Loc) {
+    PragmaAssumeNullableLoc = Loc;
   }
 
   /// Get the location of the recorded unterminated \#pragma clang

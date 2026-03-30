@@ -1973,10 +1973,15 @@ struct PragmaAssumeNonNullHandler : public PragmaHandler {
     PPCallbacks *Callbacks = PP.getPPCallbacks();
 
     if (IsBegin) {
-      // Complain about attempts to re-enter an audit.
       if (BeginLoc.isValid()) {
         PP.Diag(Loc, diag::err_pp_double_begin_of_assume_nonnull);
         PP.Diag(BeginLoc, diag::note_pragma_entered_here);
+      }
+      if (PP.getPragmaAssumeNullableLoc().isValid()) {
+        PP.Diag(Loc, diag::err_pp_conflicting_assume_nullability) << 1;
+        PP.Diag(PP.getPragmaAssumeNullableLoc(),
+                diag::note_pragma_entered_here);
+        return;
       }
       NewLoc = Loc;
       if (Callbacks)
@@ -1993,6 +1998,61 @@ struct PragmaAssumeNonNullHandler : public PragmaHandler {
     }
 
     PP.setPragmaAssumeNonNullLoc(NewLoc);
+  }
+};
+
+/// PragmaAssumeNullableHandler -
+///   \#pragma clang assume_nullable begin/end
+struct PragmaAssumeNullableHandler : public PragmaHandler {
+  PragmaAssumeNullableHandler() : PragmaHandler("assume_nullable") {}
+
+  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
+                    Token &NameTok) override {
+    SourceLocation Loc = NameTok.getLocation();
+    bool IsBegin;
+
+    Token Tok;
+
+    PP.LexUnexpandedToken(Tok);
+    const IdentifierInfo *BeginEnd = Tok.getIdentifierInfo();
+    if (BeginEnd && BeginEnd->isStr("begin")) {
+      IsBegin = true;
+    } else if (BeginEnd && BeginEnd->isStr("end")) {
+      IsBegin = false;
+    } else {
+      PP.Diag(Tok.getLocation(), diag::err_pp_assume_nullable_syntax);
+      return;
+    }
+
+    PP.LexUnexpandedToken(Tok);
+    if (Tok.isNot(tok::eod))
+      PP.Diag(Tok, diag::ext_pp_extra_tokens_at_eol) << "pragma";
+
+    SourceLocation BeginLoc = PP.getPragmaAssumeNullableLoc();
+
+    SourceLocation NewLoc;
+
+    if (IsBegin) {
+      if (BeginLoc.isValid()) {
+        PP.Diag(Loc, diag::err_pp_double_begin_of_assume_nullable);
+        PP.Diag(BeginLoc, diag::note_pragma_entered_here);
+      }
+      if (PP.getPragmaAssumeNonNullLoc().isValid()) {
+        PP.Diag(Loc, diag::err_pp_conflicting_assume_nullability) << 0;
+        PP.Diag(PP.getPragmaAssumeNonNullLoc(),
+                diag::note_pragma_entered_here);
+        return;
+      }
+      NewLoc = Loc;
+    } else {
+      if (!BeginLoc.isValid()) {
+        PP.Diag(Loc, diag::err_pp_unmatched_end_of_assume_nullable);
+        return;
+      }
+      NewLoc = SourceLocation();
+    }
+
+    PP.setPragmaAssumeNullableLoc(NewLoc);
   }
 };
 
@@ -2176,6 +2236,7 @@ void Preprocessor::RegisterBuiltinPragmas() {
   AddPragmaHandler("clang", new PragmaDiagnosticHandler("clang"));
   AddPragmaHandler("clang", new PragmaARCCFCodeAuditedHandler());
   AddPragmaHandler("clang", new PragmaAssumeNonNullHandler());
+  AddPragmaHandler("clang", new PragmaAssumeNullableHandler());
   AddPragmaHandler("clang", new PragmaDeprecatedHandler());
   AddPragmaHandler("clang", new PragmaRestrictExpansionHandler());
   AddPragmaHandler("clang", new PragmaFinalHandler());
