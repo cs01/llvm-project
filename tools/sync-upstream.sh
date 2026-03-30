@@ -13,7 +13,9 @@ set -euo pipefail
 
 DEV_BRANCH="nullsafe-clang-dev"
 UPSTREAM_BRANCH="nullsafe-upstream"
-BASE_REF="llvm/main"
+# Use the commit where nullsafe-clang-dev diverged from llvm/main.
+# This ensures CI builds against the same upstream code we developed on.
+BASE_REF="$(git merge-base llvm/main "$DEV_BRANCH")"
 
 DRY_RUN=false
 NO_PUSH=false
