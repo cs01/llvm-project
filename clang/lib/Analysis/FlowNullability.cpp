@@ -38,6 +38,8 @@
 
 using namespace clang;
 
+#pragma clang assume_nullable begin
+
 FlowNullabilityHandler::~FlowNullabilityHandler() = default;
 
 namespace {
@@ -136,7 +138,7 @@ static const Expr *unwrapBuiltinExpect(const Expr *E) {
 /// the block evaluating 'c' has the full `a && b && c` as its terminator,
 /// but 'a' and 'b' are handled by their own blocks. We recurse into the
 /// RHS to find the leaf that's actually being evaluated in this block.
-static const Expr *getTerminalCondition(const Expr *E) {
+static const Expr *getTerminalCondition(const Expr * _Nonnull E) {
   E = E->IgnoreParenImpCasts();
   if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
     if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
@@ -184,7 +186,7 @@ static bool isSmartPointerType(QualType Ty) {
 
 /// Check if a smart pointer expression (the implicit object of operator->)
 /// is narrowed in the current state.
-static bool isSmartPointerNarrowed(const Expr *E, const NullState &State) {
+static bool isSmartPointerNarrowed(const Expr * _Nonnull E, const NullState &State) {
   E = E->IgnoreParenImpCasts();
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
@@ -206,7 +208,7 @@ static bool isSmartPointerNarrowed(const Expr *E, const NullState &State) {
 /// around expressions (ExprWithCleanups, CXXBindTemporaryExpr,
 /// MaterializeTemporaryExpr) plus the usual parens and implicit casts.
 /// Test mocks don't produce these wrappers, but real <memory> does.
-static const Expr *unwrapImplicitWrappers(const Expr *E) {
+static const Expr *unwrapImplicitWrappers(const Expr * _Nonnull E) {
   while (true) {
     E = E->IgnoreParenImpCasts();
     if (const auto *EWC = dyn_cast<ExprWithCleanups>(E))
@@ -242,7 +244,7 @@ static bool isMakeSmartPtrCall(const Expr *E) {
 
 /// Get the VarDecl from a smart pointer expression, if it's a simple
 /// DeclRefExpr to a VarDecl.
-static const VarDecl *getSmartPtrVarDecl(const Expr *E) {
+static const VarDecl *getSmartPtrVarDecl(const Expr * _Nonnull E) {
   E = E->IgnoreParenImpCasts();
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
@@ -252,7 +254,7 @@ static const VarDecl *getSmartPtrVarDecl(const Expr *E) {
 }
 
 /// Get the FieldDecl from a smart pointer this->member expression.
-static const FieldDecl *getSmartPtrThisMemberDecl(const Expr *E) {
+static const FieldDecl *getSmartPtrThisMemberDecl(const Expr * _Nonnull E) {
   E = E->IgnoreParenImpCasts();
   if (const auto *ME = dyn_cast<MemberExpr>(E)) {
     const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
@@ -279,7 +281,7 @@ analyzeCondition(const Expr *Cond, ASTContext &Ctx,
 
 /// Recursively flatten a chain of && operators and analyze each leaf.
 /// Used by analyzeCondition to handle !(A && B && C).
-static void decomposeAnd(const Expr *E, ASTContext &Ctx,
+static void decomposeAnd(const Expr * _Nonnull E, ASTContext &Ctx,
                          SmallVectorImpl<ConditionResult> &Results,
                          const NullState::BoolGuardMap *BoolGuards) {
   E = E->IgnoreParenImpCasts();
@@ -504,7 +506,7 @@ class TransferFunctions {
   /// the source is unannotated (e.g. reinterpret_cast<T*>(p) where T
   /// is itself a pointer type).  When a cast is found, callers should
   /// check nullability on the SOURCE type, not the cast result.
-  static const Expr *unwrapCastsAndArithmetic(const Expr *E, bool &FoundCast) {
+  static const Expr * _Nonnull unwrapCastsAndArithmetic(const Expr * _Nonnull E, bool &FoundCast) {
     FoundCast = false;
     for (;;) {
       if (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
@@ -525,7 +527,7 @@ class TransferFunctions {
     return E;
   }
 
-  void checkDeref(const Expr *DerefExpr, QualType PtrType) {
+  void checkDeref(const Expr * _Nonnull DerefExpr, QualType PtrType) {
     if (isNullableType(PtrType, StrictMode, DefaultNullability)) {
       LLVM_DEBUG(llvm::dbgs() << "flow-nullability: dereference of nullable "
                               << PtrType.getAsString() << "\n");
@@ -536,7 +538,7 @@ class TransferFunctions {
   /// Check dereference of a non-variable, non-member expression.
   /// Unwraps casts/arithmetic to avoid template-instantiation false
   /// positives where _Nullable is baked into cast result types.
-  void checkExprDeref(const Expr *DerefExpr, const Expr *PtrExpr) {
+  void checkExprDeref(const Expr * _Nonnull DerefExpr, const Expr * _Nonnull PtrExpr) {
     bool FoundCast = false;
     const Expr *Origin = unwrapCastsAndArithmetic(PtrExpr, FoundCast);
 
@@ -551,7 +553,7 @@ class TransferFunctions {
     checkDeref(DerefExpr, CheckTy);
   }
 
-  void checkVarDeref(const Expr *DerefExpr, const VarDecl *VD) {
+  void checkVarDeref(const Expr * _Nonnull DerefExpr, const VarDecl * _Nonnull VD) {
     QualType Ty = VD->getType();
     if (isNullableType(Ty, StrictMode, DefaultNullability))
       return Handler.handleNullableDereference(DerefExpr, Ty);
@@ -563,7 +565,7 @@ class TransferFunctions {
   /// (they're nullable by default). For this->member smart pointers, only warn
   /// if there's evidence of nullability in the current function (reset, move,
   /// or null check) to avoid false positives on members set in constructors.
-  void warnSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
+  void warnSmartPtrDeref(const Expr * _Nonnull DerefExpr, const Expr * _Nonnull Obj) {
     Obj = Obj->IgnoreParenImpCasts();
     // Local variable or parameter — always warn when not narrowed
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
@@ -624,7 +626,7 @@ public:
   }
 
 private:
-  void handleDeclStmt(const DeclStmt *DS) {
+  void handleDeclStmt(const DeclStmt * _Nonnull DS) {
     for (const auto *D : DS->decls()) {
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
         // Track raw pointer initialization
@@ -733,8 +735,6 @@ private:
     if (!Init)
       return false;
     Init = Init->IgnoreParenImpCasts();
-    // Unwrap explicit casts first — template instantiations can bake
-    // _Nullable into cast result types.  Check the SOURCE type.
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
       return isNullableInit(CE->getSubExpr());
     if (isNullableType(Init->getType(), StrictMode, DefaultNullability))
@@ -749,7 +749,7 @@ private:
     return false;
   }
 
-  void handleBinaryOperator(const BinaryOperator *BO) {
+  void handleBinaryOperator(const BinaryOperator * _Nonnull BO) {
     if (BO->isAssignmentOp()) {
       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
 
@@ -817,7 +817,7 @@ private:
     }
   }
 
-  void handleUnaryOperator(const UnaryOperator *UO) {
+  void handleUnaryOperator(const UnaryOperator * _Nonnull UO) {
     if (UO->getOpcode() == UO_Deref) {
       const Expr *SubExpr = UO->getSubExpr()->IgnoreParenImpCasts();
 
@@ -860,7 +860,7 @@ private:
     }
   }
 
-  void handleMemberExpr(const MemberExpr *ME) {
+  void handleMemberExpr(const MemberExpr * _Nonnull ME) {
     if (!ME->isArrow())
       return;
 
@@ -897,7 +897,7 @@ private:
     }
   }
 
-  void handleArraySubscript(const ArraySubscriptExpr *ASE) {
+  void handleArraySubscript(const ArraySubscriptExpr * _Nonnull ASE) {
     const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
     if (const auto *UO = dyn_cast<UnaryOperator>(Base))
       if (UO->getOpcode() == UO_AddrOf)
@@ -920,7 +920,7 @@ private:
   /// address-escape would produce excessive false positives on common
   /// patterns (output parameters, init functions). The same approach is
   /// used by Clang's ThreadSafety analysis.
-  void handleCallExpr(const CallExpr *CE) {
+  void handleCallExpr(const CallExpr * _Nonnull CE) {
     if (const auto *Callee = CE->getDirectCallee()) {
       // __builtin_assume(cond) narrows pointers mentioned in cond.
       if (Callee->getBuiltinID() == Builtin::BI__builtin_assume &&
@@ -1040,7 +1040,7 @@ private:
     }
   }
 
-  void checkMemberExprDeref(const Expr *DerefExpr, const MemberExpr *ME) {
+  void checkMemberExprDeref(const Expr * _Nonnull DerefExpr, const MemberExpr * _Nonnull ME) {
     const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
 
     if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(Base)) {
@@ -1207,3 +1207,5 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     }
   }
 }
+
+#pragma clang assume_nullable end
