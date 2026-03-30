@@ -202,10 +202,28 @@ static bool isSmartPointerNarrowed(const Expr *E, const NullState &State) {
   return false;
 }
 
+/// Strip implicit wrappers that real standard library headers introduce
+/// around expressions (ExprWithCleanups, CXXBindTemporaryExpr,
+/// MaterializeTemporaryExpr) plus the usual parens and implicit casts.
+/// Test mocks don't produce these wrappers, but real <memory> does.
+static const Expr *unwrapImplicitWrappers(const Expr *E) {
+  while (true) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *EWC = dyn_cast<ExprWithCleanups>(E))
+      E = EWC->getSubExpr();
+    else if (const auto *BTE = dyn_cast<CXXBindTemporaryExpr>(E))
+      E = BTE->getSubExpr();
+    else if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(E))
+      E = MTE->getSubExpr();
+    else
+      break;
+  }
+  return E;
+}
+
 /// Check if a callee is std::make_unique or std::make_shared.
 static bool isMakeSmartPtrCall(const Expr *E) {
-  E = E->IgnoreParenImpCasts();
-  // Look through CXXConstructExpr wrapping the call (implicit conversion)
+  E = unwrapImplicitWrappers(E);
   if (const auto *CE = dyn_cast<CXXConstructExpr>(E)) {
     if (CE->getNumArgs() == 1)
       return isMakeSmartPtrCall(CE->getArg(0));
@@ -648,7 +666,7 @@ private:
 
         // Track smart pointer initialization
         if (isSmartPointerType(VD->getType()) && VD->hasInit()) {
-          const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
+          const Expr *Init = unwrapImplicitWrappers(VD->getInit());
           if (isMakeSmartPtrCall(Init)) {
             // make_unique/make_shared always return non-null
             State.NarrowedVars.insert(VD);
@@ -986,11 +1004,7 @@ private:
         const VarDecl *LhsVD = getSmartPtrVarDecl(OCE->getArg(0));
         if (LhsVD) {
           State.NarrowedVars.erase(LhsVD);
-          const Expr *RHS = OCE->getArg(1)->IgnoreParenImpCasts();
-          // Strip MaterializeTemporaryExpr — move-assignment wraps the
-          // RHS in one (e.g. sp = foo() produces MTE around the call).
-          if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(RHS))
-            RHS = MTE->getSubExpr()->IgnoreParenImpCasts();
+          const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
 
           if (isMakeSmartPtrCall(RHS)) {
             // sp = make_unique<T>(...) — non-null
