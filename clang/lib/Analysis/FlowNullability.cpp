@@ -405,6 +405,12 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
     }
   }
 
+  // Unwrap assignment-in-condition for truthiness: while ((p = f())) → p
+  if (const auto *AssignBO = dyn_cast<BinaryOperator>(E)) {
+    if (AssignBO->getOpcode() == BO_Assign)
+      E = AssignBO->getLHS()->IgnoreParenImpCasts();
+  }
+
   if (auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
       if (VD->getType()->isPointerType()) {
