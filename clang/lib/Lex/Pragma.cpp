@@ -2080,8 +2080,7 @@ struct PragmaAssumeNullableHandler : public PragmaHandler {
       }
       if (PP.getPragmaAssumeNonNullLoc().isValid()) {
         PP.Diag(Loc, diag::err_pp_conflicting_assume_nullability) << 0;
-        PP.Diag(PP.getPragmaAssumeNonNullLoc(),
-                diag::note_pragma_entered_here);
+        PP.Diag(PP.getPragmaAssumeNonNullLoc(), diag::note_pragma_entered_here);
         return;
       }
       NewLoc = Loc;
