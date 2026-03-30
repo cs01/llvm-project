@@ -735,6 +735,8 @@ private:
     if (!Init)
       return false;
     Init = Init->IgnoreParenImpCasts();
+    if (!Init)
+      return false;
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
       return isNullableInit(CE->getSubExpr());
     if (isNullableType(Init->getType(), StrictMode, DefaultNullability))
@@ -1158,6 +1160,21 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     if (const Stmt *Term = Block->getTerminatorStmt()) {
       const Expr *Cond = nullptr;
       if (const auto *IS = dyn_cast<IfStmt>(Term)) {
+        const Expr *IfCond = IS->getCond();
+        if (IfCond)
+          IfCond = IfCond->IgnoreParenImpCasts();
+        if (IfCond) {
+          if (const auto *BO = dyn_cast<BinaryOperator>(IfCond)) {
+            if (BO->getOpcode() == BO_LAnd) {
+              SmallVector<ConditionResult, 2> AndResults;
+              decomposeAnd(BO, Ctx, AndResults, &State.BoolGuards);
+              for (const auto &CR : AndResults) {
+                if (CR.VD && !CR.FD && !CR.IsThisMember && !CR.Negated)
+                  TrueState.NarrowedVars.insert(CR.VD);
+              }
+            }
+          }
+        }
         Cond = getTerminalCondition(IS->getCond());
       } else if (const auto *WS = dyn_cast<WhileStmt>(Term)) {
         Cond = getTerminalCondition(WS->getCond());
