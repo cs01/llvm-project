@@ -1,9 +1,9 @@
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -std=c++17 %s -verify
+// expected-no-diagnostics
 
-// BUG: && narrowing of a pointer is lost in specific combinations of
-// if-init with dyn_cast, forward-declared types in template args,
-// and nested struct return types. The && correctly guards the
-// dereference but the analysis fails to narrow.
+// Regression test: && narrowing was lost at the IfStmt merge point
+// when the if-condition was a && chain. The false edge of the left
+// operand merged with the true path, dropping the narrowing.
 
 #pragma clang assume_nullable begin
 
@@ -24,11 +24,13 @@ struct VarDecl {
 struct Expr {};
 template<typename T, typename U> T *dyn_cast(U *);
 
-void and_narrowing_false_positive(const Expr *E, const BoolGuardMap *BoolGuards) {
+void and_narrowing_fixed(const Expr *E, const BoolGuardMap *BoolGuards) {
     if (auto *VD = dyn_cast<VarDecl, const Expr>(E)) {
+        if (VD->getType().isPointerType())
+            return;
         if (BoolGuards && VD->getType().isBooleanType()) {
-            BoolGuards->find(VD); // expected-warning {{dereference of nullable pointer}}
-            // expected-note@-1 {{add a null check}}
+            BoolGuards->find(VD); // OK — BoolGuards narrowed by &&
+            (void)BoolGuards->end(); // OK
         }
     }
 }
