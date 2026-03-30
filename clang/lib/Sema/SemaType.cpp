@@ -4517,8 +4517,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         // unspecified) Skip -fnullability-default for system headers to avoid
         // false positives on std library code (e.g. std::chrono, vsnprintf).
         // Explicit #pragma clang assume_nonnull still works in system headers.
-        if (inAssumeNonNullRegion ||
-            inAssumeNullableRegion ||
+        if (inAssumeNonNullRegion || inAssumeNullableRegion ||
             (!S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
              S.getLangOpts().getNullabilityDefault() !=
                  NullabilityKind::Unspecified)) {

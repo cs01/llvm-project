@@ -415,8 +415,8 @@ bool Preprocessor::HandleEndOfFile(Token &Result, bool isEndOfMacro) {
   // Complain about reaching a true EOF within assume_nonnull.
   // We don't want to complain about reaching the end of a macro
   // instantiation or a _Pragma.
-  if (PragmaAssumeNonNullLoc.isValid() &&
-      !isEndOfMacro && !(CurLexer && CurLexer->Is_PragmaLexer)) {
+  if (PragmaAssumeNonNullLoc.isValid() && !isEndOfMacro &&
+      !(CurLexer && CurLexer->Is_PragmaLexer)) {
     if (isRecordingPreamble() && isInPrimaryFile())
       PreambleRecordedPragmaAssumeNonNullLoc = PragmaAssumeNonNullLoc;
     else
@@ -424,8 +424,8 @@ bool Preprocessor::HandleEndOfFile(Token &Result, bool isEndOfMacro) {
     PragmaAssumeNonNullLoc = SourceLocation();
   }
 
-  if (PragmaAssumeNullableLoc.isValid() &&
-      !isEndOfMacro && !(CurLexer && CurLexer->Is_PragmaLexer)) {
+  if (PragmaAssumeNullableLoc.isValid() && !isEndOfMacro &&
+      !(CurLexer && CurLexer->Is_PragmaLexer)) {
     Diag(PragmaAssumeNullableLoc, diag::err_pp_eof_in_assume_nullable);
     PragmaAssumeNullableLoc = SourceLocation();
   }
