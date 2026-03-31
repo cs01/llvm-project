@@ -4,7 +4,9 @@
 // dataflow analysis: narrowing, dereference checking, condition decomposition,
 // alias tracking, and control flow patterns.
 //
+// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++11 -fcxx-exceptions -Wno-unused-value %s -verify
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 -fcxx-exceptions -Wno-unused-value %s -verify
+// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++20 -fcxx-exceptions -Wno-unused-value %s -verify
 
 // ===----------------------------------------------------------------------===//
 // Common types and helpers
