@@ -3185,8 +3185,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   if (EnableFlowNullability) {
     bool FlowNullabilityForFunc = S.getLangOpts().getNullabilityDefault() !=
                                       NullabilityKind::Unspecified ||
-                                  S.PP.getPragmaAssumeNonNullLoc().isValid() ||
-                                  S.PP.getPragmaAssumeNullableLoc().isValid();
+                                  S.PP.getPragmaAssumeNonNullLoc().isValid();
     if (!FlowNullabilityForFunc) {
       if (const auto *FD = dyn_cast<FunctionDecl>(D))
         FlowNullabilityForFunc = S.functionHasNullabilityAnnotations(FD);

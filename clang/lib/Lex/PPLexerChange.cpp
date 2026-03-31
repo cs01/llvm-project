@@ -422,11 +422,6 @@ bool Preprocessor::HandleEndOfFile(Token &Result, bool isEndOfMacro) {
     PragmaAssumeNonNullLoc = SourceLocation();
   }
 
-  if (PragmaAssumeNullableLoc.isValid() && !isEndOfMacro &&
-      !(CurLexer && CurLexer->Is_PragmaLexer)) {
-    Diag(PragmaAssumeNullableLoc, diag::err_pp_eof_in_assume_nullable);
-    PragmaAssumeNullableLoc = SourceLocation();
-  }
 
   bool LeavingPCHThroughHeader = false;
 

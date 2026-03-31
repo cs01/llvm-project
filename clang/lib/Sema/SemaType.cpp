@@ -4426,13 +4426,6 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     recordNullabilitySeen(S, assumeNonNullLoc);
   }
 
-  // Are we in an assume-nullable region?
-  bool inAssumeNullableRegion = false;
-  SourceLocation assumeNullableLoc = S.PP.getPragmaAssumeNullableLoc();
-  if (assumeNullableLoc.isValid()) {
-    inAssumeNullableRegion = true;
-    recordNullabilitySeen(S, assumeNullableLoc);
-  }
 
   // Whether to complain about missing nullability specifiers or not.
   enum {
@@ -4529,15 +4522,13 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         // unspecified) Skip -fnullability-default for system headers to avoid
         // false positives on std library code (e.g. std::chrono, vsnprintf).
         // Explicit #pragma clang assume_nonnull still works in system headers.
-        if (inAssumeNonNullRegion || inAssumeNullableRegion ||
+        if (inAssumeNonNullRegion ||
             (!S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
              S.getLangOpts().getNullabilityDefault() !=
                  NullabilityKind::Unspecified)) {
           complainAboutInferringWithinChunk = wrappingKind;
           if (inAssumeNonNullRegion) {
             inferNullability = NullabilityKind::NonNull;
-          } else if (inAssumeNullableRegion) {
-            inferNullability = NullabilityKind::Nullable;
           } else {
             // Use Unspecified instead of the raw default so the flow checker
             // can distinguish explicit _Nullable from default-inferred.
