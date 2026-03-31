@@ -2395,7 +2395,6 @@ Preprocessor::ImportAction Preprocessor::HandleHeaderIncludeOrImport(
     PragmaAssumeNonNullLoc = SourceLocation();
   }
 
-
   if (HeaderInfo.HasIncludeAliasMap()) {
     // Map the filename with the brackets still attached.  If the name doesn't
     // map to anything, fall back on the filename we've already gotten the

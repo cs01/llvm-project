@@ -4480,7 +4480,6 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     recordNullabilitySeen(S, assumeNonNullLoc);
   }
 
-
   // Whether to complain about missing nullability specifiers or not.
   enum {
     /// Never complain.
