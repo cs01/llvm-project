@@ -13007,6 +13007,29 @@ def warn_null_init_nonnull : Warning<
 def note_nullable_dereference_fix : Note<
   "add a null check before dereferencing, or annotate as '_Nonnull' if this "
   "pointer cannot be null">;
+def warn_flow_nullable_arithmetic : Warning<
+  "pointer arithmetic on nullable pointer %0">,
+  InGroup<FlowNullableArithmetic>;
+def note_nullable_arithmetic_fix : Note<
+  "add a null check before performing arithmetic, or annotate as '_Nonnull' "
+  "if this pointer cannot be null">;
+def warn_flow_nullable_return : Warning<
+  "returning nullable pointer from function with nonnull return type">,
+  InGroup<FlowNullableReturn>;
+def note_nullable_return_fix : Note<
+  "add a null check before returning, or change the return type to '_Nullable'">;
+def warn_flow_nullable_assignment : Warning<
+  "assigning nullable pointer to nonnull variable %0">,
+  InGroup<FlowNullableAssignment>;
+def note_nullable_assignment_fix : Note<
+  "add a null check before assigning, or change the variable type to "
+  "'_Nullable'">;
+def warn_flow_nullable_argument : Warning<
+  "passing nullable pointer to nonnull parameter %0">,
+  InGroup<FlowNullableArgument>;
+def note_nullable_argument_fix : Note<
+  "add a null check before the call, or change the parameter type to "
+  "'_Nullable'">;
 def warn_zero_as_null_pointer_constant : Warning<
   "zero as null pointer constant">,
   InGroup<DiagGroup<"zero-as-null-pointer-constant">>, DefaultIgnore;

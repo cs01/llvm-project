@@ -61,7 +61,7 @@ void test_bool_reassigned(Node * _Nullable p) {
 
 void test_pointer_incremented(int * _Nullable p) {
     bool valid = (p != nullptr);
-    p++;
+    p++; // expected-warning{{pointer arithmetic on nullable pointer}} expected-note{{add a null check before performing arithmetic}}
     if (valid) {
         (void)*p; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }

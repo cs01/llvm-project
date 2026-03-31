@@ -2945,6 +2945,33 @@ public:
         << PtrType;
     S.Diag(DerefExpr->getExprLoc(), diag::note_nullable_dereference_fix);
   }
+
+  void handleNullableArithmetic(const Expr *ArithExpr,
+                                QualType PtrType) override {
+    S.Diag(ArithExpr->getExprLoc(), diag::warn_flow_nullable_arithmetic)
+        << PtrType;
+    S.Diag(ArithExpr->getExprLoc(), diag::note_nullable_arithmetic_fix);
+  }
+
+  void handleNullableReturn(const Expr *ReturnExpr, QualType ExprType,
+                            QualType ReturnType) override {
+    S.Diag(ReturnExpr->getExprLoc(), diag::warn_flow_nullable_return);
+    S.Diag(ReturnExpr->getExprLoc(), diag::note_nullable_return_fix);
+  }
+
+  void handleNullableAssignment(const Expr *AssignExpr,
+                                const VarDecl *LHSVar) override {
+    S.Diag(AssignExpr->getExprLoc(), diag::warn_flow_nullable_assignment)
+        << LHSVar;
+    S.Diag(AssignExpr->getExprLoc(), diag::note_nullable_assignment_fix);
+  }
+
+  void handleNullableArgument(const Expr *ArgExpr,
+                              const ParmVarDecl *Param) override {
+    S.Diag(ArgExpr->getExprLoc(), diag::warn_flow_nullable_argument)
+        << Param;
+    S.Diag(ArgExpr->getExprLoc(), diag::note_nullable_argument_fix);
+  }
 };
 } // anonymous namespace
 
