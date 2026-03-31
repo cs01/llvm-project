@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_ANALYSIS_ANALYSES_FLOWNULLABILITY_H
 #define LLVM_CLANG_ANALYSIS_ANALYSES_FLOWNULLABILITY_H
 
+#include "clang/AST/Type.h"
 #include "clang/Basic/Specifiers.h"
 
 namespace clang {
@@ -21,7 +22,6 @@ namespace clang {
 class AnalysisDeclContext;
 class Expr;
 class ParmVarDecl;
-class QualType;
 class VarDecl;
 
 class FlowNullabilityHandler {
@@ -31,8 +31,7 @@ public:
                                          QualType PtrType) = 0;
   virtual void handleNullableArithmetic(const Expr *ArithExpr,
                                         QualType PtrType) {}
-  virtual void handleNullableReturn(const Expr *ReturnExpr,
-                                    QualType ExprType,
+  virtual void handleNullableReturn(const Expr *ReturnExpr, QualType ExprType,
                                     QualType ReturnType) {}
   virtual void handleNullableAssignment(const Expr *AssignExpr,
                                         const VarDecl *LHSVar) {}
