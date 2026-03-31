@@ -4,12 +4,32 @@ on:
   push:
     branches:
       - nullsafe-clang-dev
-    tags:
-      - 'playground-v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      compiler_changed: ${{ steps.filter.outputs.compiler }}
+      playground_changed: ${{ steps.filter.outputs.playground }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            compiler:
+              - 'clang/**'
+              - 'llvm/**'
+            playground:
+              - 'nullsafe-playground/**'
+
   build-wasm:
+    needs: check-changes
+    if: needs.check-changes.outputs.compiler_changed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:
@@ -82,22 +102,25 @@ jobs:
           name: playground-wasm-files
           path: artifacts/*
 
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Update playground-latest release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: playground-latest
+          name: Playground WASM (latest)
+          prerelease: true
           files: |
             artifacts/clang-nullsafe.wasm
             artifacts/clang-nullsafe.js
             artifacts/clang-nullsafe.wasm.gz
             artifacts/clang-nullsafe.js.gz
           body: |
-            ## Null-Safe Clang Playground WASM Files
+            ## Null-Safe Clang Playground WASM (auto-updated)
 
-            This release contains the WebAssembly build of Null-Safe Clang for use in the browser playground.
+            Built from ${{ github.sha }} on ${{ github.ref_name }}.
+            This release is automatically updated on every push that changes compiler source.
 
             ### Files:
-            - `clang-nullsafe.wasm` - WebAssembly compiler binary (~63MB)
+            - `clang-nullsafe.wasm` - WebAssembly compiler binary
             - `clang-nullsafe.js` - Emscripten JavaScript glue code
             - `*.gz` - Compressed versions for faster downloads
 
