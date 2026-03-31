@@ -422,7 +422,6 @@ bool Preprocessor::HandleEndOfFile(Token &Result, bool isEndOfMacro) {
     PragmaAssumeNonNullLoc = SourceLocation();
   }
 
-
   bool LeavingPCHThroughHeader = false;
 
   // If this is a #include'd file, pop it off the include stack and continue

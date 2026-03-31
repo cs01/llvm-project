@@ -676,7 +676,6 @@ private:
   /// \#pragma clang assume_nonnull begin.
   SourceLocation PragmaAssumeNonNullLoc;
 
-
   /// Set only for preambles which end with an active
   /// \#pragma clang assume_nonnull begin.
   ///
@@ -2115,7 +2114,6 @@ public:
   void setPragmaAssumeNonNullLoc(SourceLocation Loc) {
     PragmaAssumeNonNullLoc = Loc;
   }
-
 
   /// Get the location of the recorded unterminated \#pragma clang
   /// assume_nonnull begin in the preamble, if one exists.
