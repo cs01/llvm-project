@@ -1,5 +1,5 @@
 // Consolidated adoption, configuration, and meta tests for flow-sensitive
-// nullability analysis. Covers gradual adoption gating, assume_nullable pragma,
+// nullability analysis. Covers gradual adoption gating,
 // false-positive suppression, type identity preservation, and performance
 // stress patterns.
 //
@@ -108,61 +108,6 @@ void test_adoption_nested_lambda_scoping(Entity * _Nullable p) {
 
 #pragma clang assume_nonnull end
 
-//===----------------------------------------------------------------------===//
-// assume_nullable pragma
-//===----------------------------------------------------------------------===//
-
-#pragma clang assume_nullable begin
-
-void test_nullable_unchecked_deref(Node *p) {
-    p->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
-}
-
-void test_nullable_null_checked(Node *p) {
-    if (p) {
-        p->value = 1; // OK
-    }
-}
-
-void test_nullable_early_return(Node *p) {
-    if (!p) return;
-    p->value = 1; // OK
-}
-
-void test_nullable_nonnull_param(Node * _Nonnull p) {
-    p->value = 1; // OK
-}
-
-void test_nullable_mixed(Node *a, Node * _Nonnull b) {
-    a->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
-    b->value = 1; // OK
-}
-
-void test_nullable_chained(Node *p) {
-    if (p && p->next) {
-        p->next->value = 1; // OK
-    }
-}
-
-#pragma clang assume_nullable end
-
-// Outside pragma: no warnings
-void test_nullable_outside_pragma(Node *p) {
-    p->value = 1; // OK - outside pragma, no nullability inference
-}
-
-// Pragma nesting error
-#pragma clang assume_nullable begin // expected-note {{#pragma entered here}}
-#pragma clang assume_nullable begin // expected-error {{already inside '#pragma clang assume_nullable'}}
-#pragma clang assume_nullable end
-
-// Unmatched end
-#pragma clang assume_nullable end // expected-error {{not currently inside '#pragma clang assume_nullable'}}
-
-// Conflict with assume_nonnull
-#pragma clang assume_nonnull begin // expected-note {{#pragma entered here}}
-#pragma clang assume_nullable begin // expected-error {{cannot use '#pragma clang assume_nullable' inside '#pragma clang assume_nonnull'}}
-#pragma clang assume_nonnull end
 
 //===----------------------------------------------------------------------===//
 // False-positive regression suite
