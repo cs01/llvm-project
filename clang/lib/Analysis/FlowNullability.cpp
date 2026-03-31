@@ -568,8 +568,8 @@ class TransferFunctions {
 
   void checkDeref(const Expr *DerefExpr, QualType PtrType) {
     if (isNullableType(PtrType, StrictMode, DefaultNullability)) {
-      LLVM_DEBUG(llvm::dbgs() << "  deref: nullable " << PtrType.getAsString()
-                              << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "  deref: nullable " << PtrType.getAsString() << "\n");
       ++NumDereferenceWarnings;
       Handler.handleNullableDereference(DerefExpr, PtrType);
     }
@@ -613,8 +613,8 @@ class TransferFunctions {
     // Local variable or parameter — always warn when not narrowed
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-        LLVM_DEBUG(llvm::dbgs() << "  deref: smart ptr '"
-                                << VD->getNameAsString() << "'\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "  deref: smart ptr '" << VD->getNameAsString() << "'\n");
         ++NumDereferenceWarnings;
         Handler.handleNullableDereference(DerefExpr, VD->getType());
         return;
@@ -1522,8 +1522,8 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
         auto It = EdgeStates.find(EK);
         if (It == EdgeStates.end() || It->second != SuccState) {
           LLVM_DEBUG(llvm::dbgs()
-                     << "    edge B" << BlockID << "->B"
-                     << Succ->getBlockID() << " changed, enqueuing\n");
+                     << "    edge B" << BlockID << "->B" << Succ->getBlockID()
+                     << " changed, enqueuing\n");
           EdgeStates[EK] = SuccState;
           Worklist.enqueueBlock(Succ);
         }
