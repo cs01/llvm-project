@@ -2,7 +2,6 @@
 // The analysis already handles NonNullAttr for parameter narrowing — this
 // provides comprehensive test coverage.
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 %s -verify
-// expected-no-diagnostics
 
 struct Node {
     int value;
@@ -33,7 +32,7 @@ void consume_specific(Node *a, Node * _Nullable b, Node *c) {
 }
 
 void test_param_level_nonnull(Node * _Nullable p, Node * _Nullable q, Node * _Nullable r) {
-    consume_specific(p, q, r);
+    consume_specific(p, q, r); // expected-warning 2{{passing nullable pointer to nonnull parameter}} expected-note 2{{add a null check before the call}}
     // After call: p and r were passed to nonnull params, so they're narrowed
     (void)p->value; // OK — narrowed by passing to nonnull param 1
     (void)r->value; // OK — narrowed by passing to nonnull param 3
@@ -54,15 +53,15 @@ void test_returns_nonnull() {
 void take_nonnull(Node * _Nonnull p) {}
 
 void test_type_qualifier_narrowing(Node * _Nullable p) {
-    take_nonnull(p);
+    take_nonnull(p); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}}
     (void)p->value; // OK — narrowed by passing to _Nonnull param
 }
 
 // === Multiple calls to nonnull functions ===
 
 void test_multi_call_narrowing(Node * _Nullable a, Node * _Nullable b) {
-    take_nonnull(a);
-    take_nonnull(b);
+    take_nonnull(a); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}}
+    take_nonnull(b); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}}
     (void)a->value; // OK
     (void)b->value; // OK
 }
@@ -84,7 +83,7 @@ extern "C" {
 }
 
 void test_c_fn_nonnull(Node * _Nullable p) {
-    c_consumer(p, 42);
+    c_consumer(p, 42); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}}
     (void)p->value; // OK — narrowed by passing to nonnull param
 }
 

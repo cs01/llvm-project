@@ -62,7 +62,7 @@ void test_ptr_arith_nonnull(int* p) {
 }
 
 void test_ptr_arith_nullable(int* _Nullable p) {
-    auto* q = p + 1;
+    auto* q = p + 1; // expected-warning{{pointer arithmetic on nullable pointer}} expected-note{{add a null check before performing arithmetic}}
     *q = 0; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 

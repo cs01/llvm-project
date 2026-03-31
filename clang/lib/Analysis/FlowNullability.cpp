@@ -69,13 +69,21 @@ struct NullState {
       llvm::DenseMap<const VarDecl *, std::pair<const VarDecl *, bool>>;
   BoolGuardMap BoolGuards;
 
+  // Simple pointer alias tracking: y = x stores {y → x}, meaning y holds
+  // the same pointer value as x. When either is narrowed by a branch
+  // condition, the other is narrowed too (at the edge-state level).
+  // Depth-1 only: if z = y and y → x, we store z → x (canonical target).
+  using AliasMap = llvm::DenseMap<const VarDecl *, const VarDecl *>;
+  AliasMap Aliases;
+
   bool operator==(const NullState &Other) const {
     return NarrowedVars == Other.NarrowedVars &&
            NarrowedMembers == Other.NarrowedMembers &&
            NarrowedThisMembers == Other.NarrowedThisMembers &&
            NullableVars == Other.NullableVars &&
            NullableThisMembers == Other.NullableThisMembers &&
-           BoolGuards == Other.BoolGuards;
+           BoolGuards == Other.BoolGuards &&
+           Aliases == Other.Aliases;
   }
   bool operator!=(const NullState &Other) const { return !(*this == Other); }
 };
@@ -106,6 +114,12 @@ static NullState join(const NullState &A, const NullState &B) {
     auto It = B.BoolGuards.find(BoolVD);
     if (It != B.BoolGuards.end() && It->second == GuardInfo)
       Result.BoolGuards[BoolVD] = GuardInfo;
+  }
+  // Aliases: intersection with value equality (same as BoolGuards).
+  for (const auto &[AliasVD, TargetVD] : A.Aliases) {
+    auto It = B.Aliases.find(AliasVD);
+    if (It != B.Aliases.end() && It->second == TargetVD)
+      Result.Aliases[AliasVD] = TargetVD;
   }
   // Invariant: a variable should not be both narrowed and nullable.
   // Narrowed takes priority (proven non-null on all paths), so remove
@@ -601,6 +615,24 @@ class TransferFunctions {
       State.BoolGuards.erase(BoolVD);
   }
 
+  /// Remove any Aliases that target the given pointer variable (the alias
+  /// source was reassigned, so copies of its old value are stale).
+  void invalidateAliasesFor(const VarDecl *VD) {
+    SmallVector<const VarDecl *, 2> ToRemove;
+    for (const auto &[AliasVD, TargetVD] : State.Aliases)
+      if (TargetVD == VD)
+        ToRemove.push_back(AliasVD);
+    for (const auto *AliasVD : ToRemove)
+      State.Aliases.erase(AliasVD);
+  }
+
+  /// Resolve a VarDecl through the alias chain to its canonical target.
+  /// Returns VD itself if it's not an alias of anything.
+  const VarDecl *resolveAlias(const VarDecl *VD) const {
+    auto It = State.Aliases.find(VD);
+    return It != State.Aliases.end() ? It->second : VD;
+  }
+
   void invalidateMembersFor(const VarDecl *VD) {
     SmallVector<MemberKey, 4> ToRemove;
     for (const auto &MK : State.NarrowedMembers)
@@ -616,6 +648,11 @@ public:
                     NullabilityKind DefaultNullability)
       : State(State), Handler(Handler), Ctx(Ctx), StrictMode(StrictMode),
         DefaultNullability(DefaultNullability) {}
+
+  // The enclosing function declaration, needed for return type checking.
+  const FunctionDecl *EnclosingFunc = nullptr;
+
+  void setEnclosingFunc(const FunctionDecl *FD) { EnclosingFunc = FD; }
 
   void visit(const Stmt *S) {
     if (!S)
@@ -633,6 +670,8 @@ public:
       handleArraySubscript(ASE);
     else if (const auto *CE = dyn_cast<CallExpr>(S))
       handleCallExpr(CE);
+    else if (const auto *RS = dyn_cast<ReturnStmt>(S))
+      handleReturnStmt(RS);
   }
 
 private:
@@ -641,8 +680,34 @@ private:
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
         // Track raw pointer initialization
         if (VD->getType()->isPointerType()) {
+          // Alias tracking: int *y = x → {y → canonical(x)}
+          if (VD->hasInit()) {
+            const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
+            if (const auto *InitDRE = dyn_cast<DeclRefExpr>(Init)) {
+              if (const auto *InitVD = dyn_cast<VarDecl>(InitDRE->getDecl())) {
+                if (InitVD->getType()->isPointerType())
+                  State.Aliases[VD] = resolveAlias(InitVD);
+              }
+            }
+          }
           if (isNonnullType(VD->getType())) {
             State.NarrowedVars.insert(VD);
+            // Flow-sensitive assignment check: warn when initializing a
+            // _Nonnull variable with a nullable value.
+            if (VD->hasInit()) {
+              const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
+              // Don't warn if the init is provably non-null via narrowing.
+              bool InitIsNarrowed = false;
+              if (const auto *InitDRE = dyn_cast<DeclRefExpr>(Init))
+                if (const auto *InitVD = dyn_cast<VarDecl>(InitDRE->getDecl()))
+                  InitIsNarrowed = isNarrowed(InitVD);
+              if (!InitIsNarrowed && !isNonnullInit(Init) &&
+                  !isNonnullType(Init->getType()) &&
+                  (isNullableType(Init->getType(), StrictMode,
+                                  DefaultNullability) ||
+                   isNullableInit(Init)))
+                Handler.handleNullableAssignment(VD->getInit(), VD);
+            }
           } else if (VD->hasInit()) {
             const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
             if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
@@ -762,6 +827,57 @@ private:
   }
 
   void handleBinaryOperator(const BinaryOperator *BO) {
+    // Pointer arithmetic: p + i, i + p, p - i, p - p
+    // Warn if a nullable pointer is used in arithmetic (implies it must be
+    // valid). p + 0 and p - 0 are excluded as safe identity operations.
+    if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
+      const Expr *PtrExpr = nullptr;
+      const Expr *OtherExpr = nullptr;
+      if (BO->getLHS()->getType()->isPointerType()) {
+        PtrExpr = BO->getLHS()->IgnoreParenImpCasts();
+        OtherExpr = BO->getRHS()->IgnoreParenImpCasts();
+      } else if (BO->getRHS()->getType()->isPointerType()) {
+        PtrExpr = BO->getRHS()->IgnoreParenImpCasts();
+        OtherExpr = BO->getLHS()->IgnoreParenImpCasts();
+      }
+      if (PtrExpr) {
+        // Skip p + 0 / p - 0 (identity, safe on nullable)
+        bool IsZeroOffset = false;
+        if (OtherExpr && !OtherExpr->getType()->isPointerType()) {
+          if (auto Val = OtherExpr->getIntegerConstantExpr(Ctx))
+          if (*Val == 0)
+            IsZeroOffset = true;
+        }
+        if (!IsZeroOffset) {
+          if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
+            if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+              if (!isNarrowed(VD) &&
+                  (isNullableType(VD->getType(), StrictMode,
+                                  DefaultNullability) ||
+                   State.NullableVars.contains(VD)))
+                Handler.handleNullableArithmetic(BO, VD->getType());
+            }
+          }
+        }
+      }
+    }
+
+    // Compound pointer arithmetic: p += i, p -= i
+    if (BO->getOpcode() == BO_AddAssign || BO->getOpcode() == BO_SubAssign) {
+      const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+      if (LHS->getType()->isPointerType()) {
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS)) {
+          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+            if (!isNarrowed(VD) &&
+                (isNullableType(VD->getType(), StrictMode,
+                                DefaultNullability) ||
+                 State.NullableVars.contains(VD)))
+              Handler.handleNullableArithmetic(BO, VD->getType());
+          }
+        }
+      }
+    }
+
     if (BO->isAssignmentOp()) {
       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
 
@@ -795,9 +911,22 @@ private:
           State.NullableVars.erase(VD);
           invalidateMembersFor(VD);
           invalidateBoolGuardsFor(VD);
+          // Invalidate aliases: VD is being reassigned, so any alias
+          // pointing TO VD (i.e., "other = VD" from earlier) is stale.
+          invalidateAliasesFor(VD);
+          State.Aliases.erase(VD);
 
           if (BO->getOpcode() == BO_Assign) {
             const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+
+            // Alias tracking: y = x → {y → canonical(x)}
+            if (const auto *RHSDRE = dyn_cast<DeclRefExpr>(RHS)) {
+              if (const auto *RHSVD = dyn_cast<VarDecl>(RHSDRE->getDecl())) {
+                if (RHSVD->getType()->isPointerType())
+                  State.Aliases[VD] = resolveAlias(RHSVD);
+              }
+            }
+
             if (const auto *RHSUO = dyn_cast<UnaryOperator>(RHS)) {
               if (RHSUO->getOpcode() == UO_AddrOf) {
                 State.NarrowedVars.insert(VD);
@@ -822,6 +951,10 @@ private:
                                       DefaultNullability) ||
                        isNullableInit(RHS)) {
               State.NullableVars.insert(VD);
+              // Flow-sensitive assignment check: warn when assigning a
+              // nullable value to a _Nonnull variable.
+              if (isNonnullType(VD->getType()))
+                Handler.handleNullableAssignment(BO, VD);
             }
           }
         }
@@ -853,19 +986,25 @@ private:
       }
     }
 
-    // Pointer increment/decrement (p++, ++p, p--, --p): the pointer now
-    // points elsewhere, so member narrowing and bool guards are stale.
-    // But the pointer itself is still non-null — arithmetic on a non-null
-    // pointer cannot produce null (matching isNonnullInit's treatment of
-    // pointer arithmetic via BO_Add/BO_Sub).
+    // Pointer increment/decrement (p++, ++p, p--, --p): arithmetic on a
+    // nullable pointer is unsafe (implies the pointer must be valid).
+    // Also invalidates member narrowing, bool guards, and aliases since
+    // the pointer now points elsewhere.
     if (UO->getOpcode() == UO_PostInc || UO->getOpcode() == UO_PreInc ||
         UO->getOpcode() == UO_PostDec || UO->getOpcode() == UO_PreDec) {
       const Expr *SubExpr = UO->getSubExpr()->IgnoreParenImpCasts();
       if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (VD->getType()->isPointerType()) {
+            // Warn on arithmetic of non-narrowed nullable pointer
+            if (!isNarrowed(VD) &&
+                (isNullableType(VD->getType(), StrictMode, DefaultNullability) ||
+                 State.NullableVars.contains(VD)))
+              Handler.handleNullableArithmetic(UO, VD->getType());
             invalidateMembersFor(VD);
             invalidateBoolGuardsFor(VD);
+            invalidateAliasesFor(VD);
+            State.Aliases.erase(VD);
           }
         }
       }
@@ -968,6 +1107,10 @@ private:
             isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I));
         if (ParamIsNonnull) {
           const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
+          // Flow-sensitive argument check: warn when passing a nullable
+          // pointer to a _Nonnull parameter.
+          if (isExprNullable(Arg))
+            Handler.handleNullableArgument(CE->getArg(I), Param);
           if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
               if (VD->getType()->isPointerType())
@@ -1050,6 +1193,54 @@ private:
         State.NullableThisMembers.insert(FD);
       }
     }
+  }
+
+  /// Flow-aware nullable check: returns true if the expression is nullable
+  /// considering both declared type and dynamic state (NarrowedVars,
+  /// NullableVars). This goes beyond the type-based check — it respects
+  /// null checks (narrowing suppresses the warning) and dynamic nullability
+  /// (reset/move makes a variable nullable even if its type isn't).
+  bool isVarNullable(const VarDecl *VD) const {
+    if (isNarrowed(VD))
+      return false;
+    if (isNonnullType(VD->getType()))
+      return false;
+    if (isNullableType(VD->getType(), StrictMode, DefaultNullability))
+      return true;
+    if (State.NullableVars.contains(VD))
+      return true;
+    return false;
+  }
+
+  /// Check if an expression resolves to a nullable pointer, considering flow.
+  bool isExprNullable(const Expr *E) const {
+    if (!E)
+      return false;
+    E = E->IgnoreParenImpCasts();
+    if (E->isNullPointerConstant(const_cast<ASTContext &>(Ctx),
+                                 Expr::NPC_ValueDependentIsNotNull))
+      return true;
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+        return isVarNullable(VD);
+    }
+    // For non-variable expressions, fall back to type-based check
+    if (isNullableType(E->getType(), StrictMode, DefaultNullability))
+      return true;
+    return false;
+  }
+
+  void handleReturnStmt(const ReturnStmt *RS) {
+    if (!EnclosingFunc)
+      return;
+    const Expr *RetVal = RS->getRetValue();
+    if (!RetVal)
+      return;
+    QualType RetType = EnclosingFunc->getReturnType();
+    if (!RetType->isPointerType() || !isNonnullType(RetType))
+      return;
+    if (isExprNullable(RetVal))
+      Handler.handleNullableReturn(RetVal, RetVal->getType(), RetType);
   }
 
   void checkMemberExprDeref(const Expr *DerefExpr, const MemberExpr *ME) {
@@ -1159,6 +1350,8 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     BlockEntryStates[BlockID] = State;
 
     TransferFunctions TF(State, Handler, Ctx, StrictMode, Default);
+    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl()))
+      TF.setEnclosingFunc(FD);
     for (const auto &Elem : *Block) {
       if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
         TF.visit(CS->getStmt());
@@ -1179,8 +1372,19 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
               SmallVector<ConditionResult, 2> AndResults;
               decomposeAnd(BO, Ctx, AndResults, &State.BoolGuards);
               for (const auto &CR : AndResults) {
-                if (CR.VD && !CR.FD && !CR.IsThisMember && !CR.Negated)
+                if (CR.VD && !CR.FD && !CR.IsThisMember && !CR.Negated) {
                   TrueState.NarrowedVars.insert(CR.VD);
+                  // Also narrow alias target and all siblings
+                  const VarDecl *Target = CR.VD;
+                  auto AliasIt = TrueState.Aliases.find(CR.VD);
+                  if (AliasIt != TrueState.Aliases.end()) {
+                    Target = AliasIt->second;
+                    TrueState.NarrowedVars.insert(Target);
+                  }
+                  for (const auto &[AV, TV] : TrueState.Aliases)
+                    if (TV == CR.VD || TV == Target)
+                      TrueState.NarrowedVars.insert(AV);
+                }
               }
             }
           }
@@ -1200,6 +1404,24 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
         Cond = getTerminalCondition(CO->getCond());
       }
 
+      // Propagate narrowing through aliases: when VD is narrowed on an edge,
+      // also narrow its alias target and all vars sharing the same canonical
+      // target. E.g., y = x; z = x; if (z) → narrow z, x, AND y.
+      auto narrowWithAliases = [&](NullState &NS, const VarDecl *VD) {
+        NS.NarrowedVars.insert(VD);
+        // Forward: VD aliases Target → also narrow Target
+        const VarDecl *Target = VD;
+        auto AliasIt = NS.Aliases.find(VD);
+        if (AliasIt != NS.Aliases.end()) {
+          Target = AliasIt->second;
+          NS.NarrowedVars.insert(Target);
+        }
+        // Reverse: narrow all vars aliasing VD or its canonical target
+        for (const auto &[AliasVD, AliasTarget] : NS.Aliases)
+          if (AliasTarget == VD || AliasTarget == Target)
+            NS.NarrowedVars.insert(AliasVD);
+      };
+
       if (Cond) {
         SmallVector<ConditionResult, 2> Results;
         analyzeCondition(Cond, Ctx, Results, &State.BoolGuards);
@@ -1209,7 +1431,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
             Narrow.NarrowedThisMembers.insert(CR.FD);
           } else if (CR.VD) {
             if (!CR.FD)
-              Narrow.NarrowedVars.insert(CR.VD);
+              narrowWithAliases(Narrow, CR.VD);
             else
               Narrow.NarrowedMembers.insert({CR.VD, CR.FD});
           }
