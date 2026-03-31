@@ -57,8 +57,14 @@ EXCLUDE_PATTERNS=(
     'clang/.gitignore'
     'clang/test/Sema/.clangd'
 
-    # benchmark scripts in test dir
+    # benchmark scripts (moved to tools/benchmarks/)
     'clang/test/Sema/*benchmark*'
+
+    # real-smartptr test requires system headers — not suitable for upstream CI
+    'clang/test/SemaCXX/flow-nullability-real-smartptr.cpp'
+
+    # crubit test artifacts
+    'crubit-tests/'
 
     # WASM build hacks (not related to nullsafe feature)
     'llvm/'
