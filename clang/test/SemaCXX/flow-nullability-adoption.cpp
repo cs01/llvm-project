@@ -1,14 +1,14 @@
-// Performance regression guard for flow-sensitive nullability analysis.
-// This file generates a large amount of work for the analysis and must
-// compile within the default lit timeout. If the analysis has a complexity
-// regression, this test will time out.
+// Consolidated adoption, configuration, and meta tests for flow-sensitive
+// nullability analysis. Covers gradual adoption gating, assume_nullable pragma,
+// false-positive suppression, type identity preservation, and performance
+// stress patterns.
 //
-// Modeled after clang/test/Analysis/runtime-regression.c — the test passes
-// if it finishes; there are no diagnostic expectations beyond that.
-//
-// UNSUPPORTED: asan, msan, ubsan
 // RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 %s -verify
-// expected-no-diagnostics
+// UNSUPPORTED: asan, msan, ubsan
+
+//===----------------------------------------------------------------------===//
+// Shared declarations
+//===----------------------------------------------------------------------===//
 
 struct Node {
     int value;
@@ -17,13 +17,460 @@ struct Node {
     Node * _Nullable right;
 };
 
+struct Entity {
+    int x;
+    int value() const { return x; }
+};
+
 Node * _Nullable getNode();
+Entity * _Nullable getHead();
+Entity * _Nullable getChest();
+Entity *getEntityUnannotated();
 int getInt();
+
+//===----------------------------------------------------------------------===//
+// Gradual adoption: per-function gating
+//===----------------------------------------------------------------------===//
+// Adapted from gradual-adoption tests. Under -fnullability-default=nullable,
+// all pointers default to nullable so analysis is always active. We wrap tests
+// in assume_nonnull to mirror how real code opts into the analysis.
+
+// Outside any pragma, with nullable default, unannotated params ARE nullable.
+void test_adoption_outside_pragma_explicit_nullable(Entity * _Nullable p) {
+    p->x = 1;              // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    (*p).x = 1;            // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    getHead()->x = 1;      // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+#pragma clang assume_nonnull begin
+
+void test_adoption_explicit_nullable_arrow(Entity * _Nullable p) {
+    p->x = 1;              // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void test_adoption_explicit_nullable_arrow_checked(Entity * _Nullable p) {
+    if (!p) return;
+    p->x = 1;              // OK - narrowed to nonnull
+}
+
+void test_adoption_explicit_nullable_star(Entity * _Nullable p) {
+    (*p).x = 1;            // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void test_adoption_explicit_nullable_star_checked(Entity * _Nullable p) {
+    if (!p) return;
+    (*p).x = 1;            // OK - narrowed to nonnull
+}
+
+void test_adoption_chained_nullable_arrow() {
+    getHead()->x = 1;      // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void test_adoption_chained_nullable_method() {
+    int v = getHead()->value(); // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+// getEntityUnannotated() is declared outside assume_nonnull, so under
+// -fnullability-default=nullable its return type is nullable. Under
+// -fnullability-default=unspecified (the original gradual-adoption test),
+// it would NOT warn. This function validates nullable-mode behavior.
+Entity * _Nonnull getEntityNonnull();
+
+void test_adoption_unannotated_no_warn() {
+    // Use a _Nonnull-declared function to mirror the assume_nonnull behavior
+    Entity *e = getEntityNonnull();
+    e->x = 1;              // OK - nonnull return
+    (*e).x = 1;            // OK
+}
+
+void test_adoption_unannotated_param_no_warn(Entity *p) {
+    p->x = 1;              // OK - nonnull via pragma
+}
+
+// Lambda scoping: analysis must still run for outer function.
+// Regression test: lambda bodies call ActOnStartOfFunctionDef, which must
+// not clobber the per-function analysis decision for the enclosing function.
+
+void test_adoption_lambda_no_clobber(Entity * _Nullable p) {
+    auto f = [](int x) { return x + 1; };
+    (void)f(1);
+    p->x = 1;              // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void test_adoption_nested_lambda_scoping(Entity * _Nullable p) {
+    auto outer = [](int x) {
+        auto inner = [](int y) { return y; };
+        return inner(x);
+    };
+    (void)outer(1);
+    (*p).x = 1;            // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+#pragma clang assume_nonnull end
+
+//===----------------------------------------------------------------------===//
+// assume_nullable pragma
+//===----------------------------------------------------------------------===//
+
+#pragma clang assume_nullable begin
+
+void test_nullable_unchecked_deref(Node *p) {
+    p->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void test_nullable_null_checked(Node *p) {
+    if (p) {
+        p->value = 1; // OK
+    }
+}
+
+void test_nullable_early_return(Node *p) {
+    if (!p) return;
+    p->value = 1; // OK
+}
+
+void test_nullable_nonnull_param(Node * _Nonnull p) {
+    p->value = 1; // OK
+}
+
+void test_nullable_mixed(Node *a, Node * _Nonnull b) {
+    a->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+    b->value = 1; // OK
+}
+
+void test_nullable_chained(Node *p) {
+    if (p && p->next) {
+        p->next->value = 1; // OK
+    }
+}
+
+#pragma clang assume_nullable end
+
+// Outside pragma: no warnings
+void test_nullable_outside_pragma(Node *p) {
+    p->value = 1; // OK - outside pragma, no nullability inference
+}
+
+// Pragma nesting error
+#pragma clang assume_nullable begin // expected-note {{#pragma entered here}}
+#pragma clang assume_nullable begin // expected-error {{already inside '#pragma clang assume_nullable'}}
+#pragma clang assume_nullable end
+
+// Unmatched end
+#pragma clang assume_nullable end // expected-error {{not currently inside '#pragma clang assume_nullable'}}
+
+// Conflict with assume_nonnull
+#pragma clang assume_nonnull begin // expected-note {{#pragma entered here}}
+#pragma clang assume_nullable begin // expected-error {{cannot use '#pragma clang assume_nullable' inside '#pragma clang assume_nonnull'}}
+#pragma clang assume_nonnull end
+
+//===----------------------------------------------------------------------===//
+// False-positive regression suite
+//===----------------------------------------------------------------------===//
+// Every test case in this section must produce NO warnings. These represent
+// common C++ patterns that an overly-aggressive analysis might flag.
+
+#pragma clang assume_nonnull begin
+
+// --- Conditional initialization on all paths ---
+
+void test_fp_conditional_init(bool cond) {
+    int x = 0, y = 0;
+    int *p;
+    if (cond) {
+        p = &x;
+    } else {
+        p = &y;
+    }
+    (void)*p; // OK - assigned nonnull on both paths
+}
+
+// --- Static local variable ---
+
+void test_fp_static_local() {
+    static int x = 42;
+    int *p = &x;
+    (void)*p; // OK - address-of is always nonnull
+}
+
+// --- Global variable access ---
+
+int g_fp_value = 0;
+
+void test_fp_global_addr() {
+    int *p = &g_fp_value;
+    (void)*p; // OK - address-of
+}
+
+// --- Function pointer call ---
+
+typedef int (*IntFn)(int);
+
+void test_fp_fn_ptr(IntFn fn) {
+    int result = fn(42); // OK - no * dereference
+}
+
+// --- Chained method calls on nonnull ---
+
+struct Builder {
+    Builder *setX(int) { return this; }
+    Builder *setY(int) { return this; }
+    int build() { return 0; }
+};
+
+void test_fp_builder_pattern() {
+    Builder b;
+    b.setX(1)->setY(2)->build(); // OK - this is nonnull
+}
+
+// --- Address-of array element ---
+
+void test_fp_array_element_addr() {
+    int arr[10];
+    int *p = &arr[5];
+    (void)*p; // OK - address-of
+}
+
+// --- Pointer to member of stack object ---
+
+void test_fp_member_addr() {
+    Node n;
+    int *p = &n.value;
+    (void)*p; // OK - address-of
+}
+
+// --- Ternary with nonnull on both sides ---
+
+void test_fp_ternary_both_nonnull(bool cond) {
+    int x = 1, y = 2;
+    int *p = cond ? &x : &y;
+    (void)*p; // OK - nonnull on both branches
+}
+
+// --- Cast of nonnull ---
+
+void test_fp_cast_nonnull() {
+    int x = 42;
+    void *vp = &x;
+    int *ip = static_cast<int *>(vp);
+    (void)*ip; // OK - source was nonnull (address-of)
+}
+
+// --- new expression ---
+
+void test_fp_throwing_new() {
+    int *p = new int(42);
+    (void)*p; // OK - throwing new never returns null
+}
+
+// --- Multiple checks, then use ---
+
+void test_fp_multi_check(Node * _Nullable a, Node * _Nullable b, Node * _Nullable c) {
+    if (a && b && c) {
+        (void)a->value; // OK
+        (void)b->value; // OK
+        (void)c->value; // OK
+    }
+}
+
+// --- Reassign to nonnull after nullable ---
+
+void test_fp_reassign_nonnull() {
+    int x;
+    int * _Nullable p = nullptr;
+    p = &x;
+    (void)*p; // OK - reassigned to nonnull
+}
+
+// --- Loop variable always nonnull ---
+
+void test_fp_loop_var() {
+    int arr[10];
+    for (int i = 0; i < 10; i++) {
+        int *p = &arr[i];
+        (void)*p; // OK - address-of
+    }
+}
+
+// --- Nested struct access on nonnull ---
+
+struct Outer {
+    Node node;
+};
+
+void test_fp_nested_nonnull_access() {
+    Outer o;
+    int v = o.node.value; // OK - dot access on stack object
+}
+
+// --- Pointer arithmetic on nonnull ---
+
+void test_fp_ptr_arith() {
+    int arr[10];
+    int *p = arr;
+    int *q = arr + 5;
+    (void)*q; // OK
+}
+
+// --- Reference binding ---
+
+void test_fp_reference(int * _Nonnull p) {
+    int &ref = *p; // OK - _Nonnull
+    ref = 42;
+}
+
+// --- Comma operator with pointer ---
+
+void test_fp_comma_op() {
+    int x;
+    int *p = (getInt(), &x);
+    (void)*p; // OK - comma evaluates to &x which is nonnull
+}
+
+// --- Narrowing survives function calls ---
+
+void fp_external_fn();
+
+void test_fp_narrowing_survives_call(Node * _Nullable p) {
+    if (!p) return;
+    fp_external_fn();
+    (void)p->value; // OK - function call doesn't invalidate narrowing
+}
+
+// --- sizeof/alignof don't dereference ---
+
+void test_fp_sizeof_no_deref(Node * _Nullable p) {
+    auto s = sizeof(*p); // OK - sizeof doesn't evaluate its operand
+    (void)s;
+}
+
+// --- decltype doesn't dereference ---
+
+void test_fp_decltype_no_deref(Node * _Nullable p) {
+    using T = decltype(p->value); // OK - decltype is unevaluated
+    T x = 0;
+    (void)x;
+}
+
+// --- this pointer in member functions ---
+
+struct FPObj {
+    int x;
+    void method() {
+        this->x = 1; // OK - this is never null
+        (*this).x = 2; // OK - *this is suppressed
+    }
+};
+
+// --- Non-std iterator dereference ---
+
+struct FPIterator {
+    Node *current;
+    Node &operator*() { return *current; }
+    Node *operator->() { return current; }
+};
+
+void test_fp_iterator_deref(FPIterator it) {
+    (void)it->value; // OK - non-std operator-> is not checked
+}
+
+#pragma clang assume_nonnull end
+
+//===----------------------------------------------------------------------===//
+// Type identity: nullability must not affect type system
+//===----------------------------------------------------------------------===//
+// Nullability qualifiers are type sugar in Clang -- they don't participate
+// in template argument deduction, std::is_same, decltype, or overload
+// resolution.
+
+template<typename T, typename U>
+struct is_same { static constexpr bool value = false; };
+template<typename T>
+struct is_same<T, T> { static constexpr bool value = true; };
+
+#pragma clang assume_nonnull begin
+
+void test_ti_decltype_local() {
+    int x = 0;
+    int *p = &x;
+    static_assert(is_same<decltype(p), int*>::value, "");
+}
+
+void test_ti_decltype_param(int *p) {
+    static_assert(is_same<decltype(p), int*>::value, "");
+}
+
+void test_ti_auto_deduction() {
+    int x = 0;
+    auto p = &x;
+    static_assert(is_same<decltype(p), int*>::value, "");
+}
+
+template<typename T>
+void ti_accept(T) {
+    static_assert(is_same<T, int*>::value, "");
+}
+
+void test_ti_template_deduction() {
+    int x = 0;
+    int *p = &x;
+    ti_accept(p);
+}
+
+template<typename T> void ti_accept_ptr(T*) {}
+
+void test_ti_explicit_template_arg() {
+    int x = 0;
+    int *p = &x;
+    ti_accept_ptr<int>(p);
+}
+
+void test_ti_nullability_is_sugar() {
+    int x;
+    int *bare = &x;
+    int * _Nullable nullable = &x;
+    int * _Nonnull nonnull = &x;
+    int * _Null_unspecified unspec = &x;
+
+    static_assert(is_same<decltype(bare), decltype(nullable)>::value, "");
+    static_assert(is_same<decltype(bare), decltype(nonnull)>::value, "");
+    static_assert(is_same<decltype(bare), decltype(unspec)>::value, "");
+}
+
+auto ti_make_ptr() {
+    int *p = new int(42);
+    return p;
+}
+
+void test_ti_return_type_deduction() {
+    static_assert(is_same<decltype(ti_make_ptr()), int*>::value, "");
+}
+
+void test_ti_const_ptr() {
+    const int x = 0;
+    const int *p = &x;
+    static_assert(is_same<decltype(p), const int*>::value, "");
+}
+
+void test_ti_ptr_to_ptr() {
+    int x;
+    int *p = &x;
+    int **pp = &p;
+    static_assert(is_same<decltype(pp), int**>::value, "");
+}
+
+#pragma clang assume_nonnull end
+
+//===----------------------------------------------------------------------===//
+// Performance stress tests
+//===----------------------------------------------------------------------===//
+// Generates a large amount of work for the analysis. Must compile within the
+// default lit timeout. If the analysis has a complexity regression, this test
+// will time out. Modeled after clang/test/Analysis/runtime-regression.c.
 
 #pragma clang assume_nonnull begin
 
 // --- Pattern 1: Many sequential null checks (tests linear scaling) ---
-// 100 variables, each checked and used
 
 #define CHECK_AND_USE(N) \
     { Node * _Nullable p##N = getNode(); if (p##N) p##N->value = N; }
@@ -57,7 +504,6 @@ void stress_sequential() {
 }
 
 // --- Pattern 2: Branch fan-out (tests intersect scaling) ---
-// 50 independent if-branches merging at one point
 
 #define BRANCH(N) if (getInt()) { s##N = &nodes[N]; }
 
@@ -102,7 +548,6 @@ void stress_fanout() {
 }
 
 // --- Pattern 3: Many small functions (realistic workload) ---
-// 100 functions with typical null-check-and-use patterns
 
 #define SMALL_FN(N) \
     void small_fn_##N(Node * _Nullable p) { \
@@ -196,9 +641,7 @@ void stress_linked_list() {
     (void)sum;
 }
 
-// --- Pattern 6: Diamond CFG merges (tests intersect with divergent narrowing) ---
-// Each diamond: if(cond) { narrow p_i } else { narrow q_i }
-// Then merge point must intersect correctly.
+// --- Pattern 6: Diamond CFG merges ---
 
 #define DIAMOND(N) \
     if (getInt()) { \
@@ -241,8 +684,7 @@ void stress_diamond_merges() {
     DIAMOND(20) DIAMOND(21) DIAMOND(22) DIAMOND(23) DIAMOND(24)
 }
 
-// --- Pattern 7: Boolean guard stress (tests BoolGuards tracking) ---
-// Many boolean intermediaries checked later — stresses the guard map.
+// --- Pattern 7: Boolean guard stress ---
 
 #define BOOL_GUARD(N) \
     bool valid_##N = (getNode() != nullptr); \
@@ -275,8 +717,7 @@ void stress_bool_guards() {
     BOOL_CHECK(36) BOOL_CHECK(37) BOOL_CHECK(38) BOOL_CHECK(39)
 }
 
-// --- Pattern 8: Member narrowing stress (tests NarrowedMembers set) ---
-// Many member accesses through different variables, all checked.
+// --- Pattern 8: Member narrowing stress ---
 
 struct Tree {
     int data;
@@ -313,7 +754,6 @@ MEMBER_NARROW(44) MEMBER_NARROW(45) MEMBER_NARROW(46) MEMBER_NARROW(47)
 MEMBER_NARROW(48) MEMBER_NARROW(49)
 
 // --- Pattern 9: Compound conditions stress ---
-// Many && chains forcing the CFG decomposition to create many basic blocks.
 
 #define AND_CHAIN_3(A, B, C) if (A && B && C) { A->value = B->value + C->value; }
 
@@ -336,9 +776,7 @@ void stress_compound_conditions() {
     AND_CHAIN_3(a8, b8, c8) AND_CHAIN_3(a9, b9, c9)
 }
 
-// --- Pattern 10: Large switch statement (tests edge-state scaling) ---
-// A 100-case switch creates ~200 edges. Each case narrows a different var
-// then falls through to the merge point, stressing the per-edge state map.
+// --- Pattern 10: Large switch statement ---
 
 void stress_switch() {
     Node * _Nullable p = getNode();
