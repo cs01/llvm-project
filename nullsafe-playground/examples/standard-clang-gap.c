@@ -1,5 +1,5 @@
-// A real bug pattern: you check one pointer but use another.
-// Standard Clang sees nothing wrong. Nullsafe Clang catches it.
+// Bug patterns standard Clang misses entirely.
+// Nullsafe Clang catches them all flow-sensitively.
 
 typedef struct {
     int x, y;
@@ -27,5 +27,15 @@ void draw_line_safe(void) {
     if (start && end) {
         int dx = end->x - start->x;  // OK — both checked
         int dy = end->y - start->y;  // OK
+    }
+}
+
+// Assignment to _Nonnull is also checked flow-sensitively
+void assign_checked(void) {
+    Point* _Nullable p = find_nearest(0, 0);
+    Point* _Nonnull safe = p;  // warning: assigning nullable to nonnull
+
+    if (p) {
+        Point* _Nonnull safe2 = p;  // OK — p was checked
     }
 }

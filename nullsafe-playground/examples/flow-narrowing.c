@@ -45,6 +45,14 @@ void ternary(int* p) {
     int val = p ? *p : 0;  // OK — guarded by ternary
 }
 
+// Pointer arithmetic is checked too
+void scan(int* buf, int n) {
+    int* end = buf + n;  // warning: arithmetic on nullable pointer
+    if (buf) {
+        int* end2 = buf + n;  // OK — buf was checked
+    }
+}
+
 // Assertion macros work too — any [[noreturn]] function
 extern _Noreturn void abort(void);
 #define ASSERT(x) do { if (!(x)) abort(); } while(0)
