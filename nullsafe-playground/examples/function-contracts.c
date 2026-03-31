@@ -18,12 +18,22 @@ void process(int* _Nonnull data) {
     *data = 42;  // OK — guaranteed non-null by caller
 }
 
-// Without annotations, the compiler infers nullability
-// from how you use the pointer
-void caller(int* x) {
-    *x = 1;     // warning: x might be NULL
+// Passing nullable to _Nonnull — the compiler catches it
+void caller(int* _Nullable x) {
+    process(x);  // warning: passing nullable to nonnull param
 
     if (x) {
-        *x = 1;  // OK — x was checked
+        process(x);  // OK — x was checked
     }
+}
+
+// Returning nullable from a _Nonnull function
+int* _Nonnull bad_lookup(int* _Nullable p) {
+    return p;  // warning: returning nullable from nonnull function
+}
+
+int* _Nonnull good_lookup(int* _Nullable p, int* _Nonnull fallback) {
+    if (p)
+        return p;        // OK — p was checked
+    return fallback;     // OK — fallback is _Nonnull
 }

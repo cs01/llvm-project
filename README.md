@@ -1,8 +1,8 @@
 # Nullsafe Clang
 
-**Compile-time null pointer dereference checking for C and C++.**
+**Compile-time null safety checking for C and C++.**
 
-A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer dereferences at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++. Opt-in, zero runtime cost, [negligible compile-time overhead](PERFORMANCE.md#real-world-benchmarks-llvmclang) — 41x faster than the Clang Static Analyzer.
+A fork of Clang that adds flow-sensitive nullability analysis. It catches null pointer bugs at compile time — the same way TypeScript catches `undefined` access or Kotlin catches nullable types — but for C and C++. Opt-in, zero runtime cost, [negligible compile-time overhead](PERFORMANCE.md#real-world-benchmarks-llvmclang) — 41x faster than the Clang Static Analyzer.
 
 > **[Try it in the online playground](https://cs01.github.io/llvm-project/)**
 
@@ -71,8 +71,9 @@ int deref(int * _Nullable p) {
 | | Stock Clang (`-Wnullability`) | Clang Static Analyzer | Nullsafe Clang |
 |--|:-----------------------------:|:---------------------:|:--------------:|
 | Analysis technique | Type checking | Symbolic execution | Dataflow on CFG |
-| `_Nullable` → `_Nonnull` conversion | ✅ warns | ✅ warns | ✅ warns |
+| `_Nullable` → `_Nonnull` conversion | ✅ warns (type-based) | ✅ warns | ✅ warns (flow-aware) |
 | Dereference of nullable pointer | ❌ silent | ✅ warns | ✅ warns |
+| Arithmetic on nullable pointer | ❌ silent | ❌ silent | ✅ warns |
 | Works on unannotated code | ❌ | ❌ | ✅ |
 | Runs as part of compiler | ✅ | ❌ | ✅ |
 | Runs in IDE (clangd) | ✅ | ❌ | ✅ |
@@ -95,7 +96,7 @@ clang -fflow-sensitive-nullability file.c
 clang -fflow-sensitive-nullability -fnullability-default=nullable file.c
 
 # Treat warnings as errors
-clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-nullable-dereference file.c
+clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=flow-nullability file.c
 ```
 
 ### Flags
@@ -152,12 +153,25 @@ clang -fflow-sensitive-nullability -fnullability-default=nullable \
 - **[Architecture Review Guide](docs/flow-nullability-review-guide.md)** — written walkthrough with concrete code examples for every concept
 - **[Performance Benchmarks](PERFORMANCE.md)** — real-world benchmarks on LLVM/Clang (<2% overhead), synthetic stress tests, and Clang Static Analyzer comparison (41x faster)
 
+## Warning groups
+
+All warnings are under the `-Wflow-nullability` umbrella:
+
+| Warning group | What it catches |
+|---|---|
+| `-Wflow-nullable-dereference` | `*p`, `p->m`, `p[i]` on nullable pointer |
+| `-Wflow-nullable-arithmetic` | `p + n`, `p++`, `p += n` on nullable pointer |
+| `-Wflow-nullable-return` | returning nullable from nonnull function |
+| `-Wflow-nullable-assignment` | assigning nullable to nonnull variable |
+| `-Wflow-nullable-argument` | passing nullable to nonnull parameter |
+
+When `-fflow-sensitive-nullability` is enabled, the type-based `-Wnullable-to-nonnull-conversion` is automatically suppressed — the flow-sensitive checks provide strictly better coverage (they respect null checks and narrowing).
+
 ## Limitations
 
 - **Intraprocedural** — does not look inside called functions. Cross-function contracts are expressed with annotations on function signatures.
-- **No alias tracking** — if two pointers alias the same memory, modifying one won't invalidate the other's narrowing.
 - **No inferred return nullability** — annotate return types with `_Nonnull` or `_Nullable` to express return contracts.
-- **Null dereferences only** — doesn't catch buffer overflows, use-after-free, or other memory bugs.
+- **Null safety only** — doesn't catch buffer overflows, use-after-free, or other memory bugs.
 
 ## Installation
 

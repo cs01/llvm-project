@@ -20,13 +20,24 @@ namespace clang {
 
 class AnalysisDeclContext;
 class Expr;
+class ParmVarDecl;
 class QualType;
+class VarDecl;
 
 class FlowNullabilityHandler {
 public:
   virtual ~FlowNullabilityHandler();
   virtual void handleNullableDereference(const Expr *DerefExpr,
                                          QualType PtrType) = 0;
+  virtual void handleNullableArithmetic(const Expr *ArithExpr,
+                                        QualType PtrType) {}
+  virtual void handleNullableReturn(const Expr *ReturnExpr,
+                                    QualType ExprType,
+                                    QualType ReturnType) {}
+  virtual void handleNullableAssignment(const Expr *AssignExpr,
+                                        const VarDecl *LHSVar) {}
+  virtual void handleNullableArgument(const Expr *ArgExpr,
+                                      const ParmVarDecl *Param) {}
 };
 
 void runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
