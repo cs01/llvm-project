@@ -28,6 +28,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -35,6 +36,15 @@
 #include <utility>
 
 #define DEBUG_TYPE "flow-nullability"
+
+STATISTIC(NumFunctionsAnalyzed, "Number of functions analyzed");
+STATISTIC(NumBlocksProcessed, "Number of CFG blocks processed");
+STATISTIC(NumFixpointIterations, "Number of fixpoint iterations");
+STATISTIC(NumDereferenceWarnings, "Number of nullable dereference warnings");
+STATISTIC(NumArithmeticWarnings, "Number of nullable arithmetic warnings");
+STATISTIC(NumReturnWarnings, "Number of nullable return warnings");
+STATISTIC(NumAssignmentWarnings, "Number of nullable assignment warnings");
+STATISTIC(NumArgumentWarnings, "Number of nullable argument warnings");
 
 using namespace clang;
 
@@ -126,6 +136,12 @@ static NullState join(const NullState &A, const NullState &B) {
   // from accumulating stale entries across fixpoint iterations.
   for (const auto *VD : Result.NarrowedVars)
     Result.NullableVars.erase(VD);
+  LLVM_DEBUG({
+    llvm::dbgs() << "  join: narrowed=" << Result.NarrowedVars.size()
+                 << " nullable=" << Result.NullableVars.size()
+                 << " members=" << Result.NarrowedMembers.size()
+                 << " aliases=" << Result.Aliases.size() << "\n";
+  });
   return Result;
 }
 
@@ -552,8 +568,9 @@ class TransferFunctions {
 
   void checkDeref(const Expr *DerefExpr, QualType PtrType) {
     if (isNullableType(PtrType, StrictMode, DefaultNullability)) {
-      LLVM_DEBUG(llvm::dbgs() << "flow-nullability: dereference of nullable "
-                              << PtrType.getAsString() << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  deref: nullable " << PtrType.getAsString()
+                              << "\n");
+      ++NumDereferenceWarnings;
       Handler.handleNullableDereference(DerefExpr, PtrType);
     }
   }
@@ -578,10 +595,13 @@ class TransferFunctions {
 
   void checkVarDeref(const Expr *DerefExpr, const VarDecl *VD) {
     QualType Ty = VD->getType();
-    if (isNullableType(Ty, StrictMode, DefaultNullability))
+    if (isNullableType(Ty, StrictMode, DefaultNullability) ||
+        State.NullableVars.contains(VD)) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "  deref: var '" << VD->getNameAsString() << "'\n");
+      ++NumDereferenceWarnings;
       return Handler.handleNullableDereference(DerefExpr, Ty);
-    if (State.NullableVars.contains(VD))
-      return Handler.handleNullableDereference(DerefExpr, Ty);
+    }
   }
 
   /// Warn on smart pointer dereference. For local vars/params, always warn
@@ -593,14 +613,19 @@ class TransferFunctions {
     // Local variable or parameter — always warn when not narrowed
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+        LLVM_DEBUG(llvm::dbgs() << "  deref: smart ptr '"
+                                << VD->getNameAsString() << "'\n");
+        ++NumDereferenceWarnings;
         Handler.handleNullableDereference(DerefExpr, VD->getType());
         return;
       }
     }
     // this->member — only warn if known nullable in current function
     if (const auto *FD = getSmartPtrThisMemberDecl(Obj)) {
-      if (State.NullableThisMembers.contains(FD))
+      if (State.NullableThisMembers.contains(FD)) {
+        ++NumDereferenceWarnings;
         Handler.handleNullableDereference(DerefExpr, FD->getType());
+      }
     }
   }
 
@@ -704,8 +729,10 @@ private:
                   !isNonnullType(Init->getType()) &&
                   (isNullableType(Init->getType(), StrictMode,
                                   DefaultNullability) ||
-                   isNullableInit(Init)))
+                   isNullableInit(Init))) {
+                ++NumAssignmentWarnings;
                 Handler.handleNullableAssignment(VD->getInit(), VD);
+              }
             }
           } else if (VD->hasInit()) {
             const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
@@ -840,7 +867,6 @@ private:
         OtherExpr = BO->getLHS()->IgnoreParenImpCasts();
       }
       if (PtrExpr) {
-        // Skip p + 0 / p - 0 (identity, safe on nullable)
         bool IsZeroOffset = false;
         if (OtherExpr && !OtherExpr->getType()->isPointerType()) {
           if (auto Val = OtherExpr->getIntegerConstantExpr(Ctx))
@@ -852,8 +878,10 @@ private:
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
               if (!isNarrowed(VD) && (isNullableType(VD->getType(), StrictMode,
                                                      DefaultNullability) ||
-                                      State.NullableVars.contains(VD)))
+                                      State.NullableVars.contains(VD))) {
+                ++NumArithmeticWarnings;
                 Handler.handleNullableArithmetic(BO, VD->getType());
+              }
             }
           }
         }
@@ -868,8 +896,10 @@ private:
           if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
             if (!isNarrowed(VD) && (isNullableType(VD->getType(), StrictMode,
                                                    DefaultNullability) ||
-                                    State.NullableVars.contains(VD)))
+                                    State.NullableVars.contains(VD))) {
+              ++NumArithmeticWarnings;
               Handler.handleNullableArithmetic(BO, VD->getType());
+            }
           }
         }
       }
@@ -878,12 +908,21 @@ private:
     if (BO->isAssignmentOp()) {
       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
 
-      // Assignment to a member (this->field or var->field) invalidates
-      // any narrowing on that member.
+      // Assignment to a member (this->field, var->field, or s.field)
+      // invalidates any narrowing on that member.
       if (const auto *ME = dyn_cast<MemberExpr>(LHS)) {
         if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+          const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
           if (ME->isArrow()) {
-            const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+            if (isa<CXXThisExpr>(Base)) {
+              State.NarrowedThisMembers.erase(FD);
+              State.NullableThisMembers.erase(FD);
+            } else if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
+              if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
+                State.NarrowedMembers.erase({BaseVD, FD});
+            }
+          } else {
+            // Dot access: s.field = ... invalidates narrowing on s.field
             if (isa<CXXThisExpr>(Base)) {
               State.NarrowedThisMembers.erase(FD);
               State.NullableThisMembers.erase(FD);
@@ -950,8 +989,10 @@ private:
               State.NullableVars.insert(VD);
               // Flow-sensitive assignment check: warn when assigning a
               // nullable value to a _Nonnull variable.
-              if (isNonnullType(VD->getType()))
+              if (isNonnullType(VD->getType())) {
+                ++NumAssignmentWarnings;
                 Handler.handleNullableAssignment(BO, VD);
+              }
             }
           }
         }
@@ -996,8 +1037,10 @@ private:
             // Warn on arithmetic of non-narrowed nullable pointer
             if (!isNarrowed(VD) && (isNullableType(VD->getType(), StrictMode,
                                                    DefaultNullability) ||
-                                    State.NullableVars.contains(VD)))
+                                    State.NullableVars.contains(VD))) {
+              ++NumArithmeticWarnings;
               Handler.handleNullableArithmetic(UO, VD->getType());
+            }
             invalidateMembersFor(VD);
             invalidateBoolGuardsFor(VD);
             invalidateAliasesFor(VD);
@@ -1106,8 +1149,10 @@ private:
           const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
           // Flow-sensitive argument check: warn when passing a nullable
           // pointer to a _Nonnull parameter.
-          if (isExprNullable(Arg))
+          if (isExprNullable(Arg)) {
+            ++NumArgumentWarnings;
             Handler.handleNullableArgument(CE->getArg(I), Param);
+          }
           if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
               if (VD->getType()->isPointerType())
@@ -1180,6 +1225,17 @@ private:
       }
     }
 
+    // Handle *sp (operator*) on smart pointers — same as operator->
+    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
+      if (OCE->getOperator() == OO_Star && OCE->getNumArgs() >= 1) {
+        const Expr *Obj = OCE->getArg(0);
+        if (isSmartPointerType(Obj->getType())) {
+          if (!isSmartPointerNarrowed(Obj, State))
+            warnSmartPtrDeref(CE, Obj);
+        }
+      }
+    }
+
     // Handle std::move(sp) — marks the source as nullable
     if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
       if (const auto *VD = getSmartPtrVarDecl(CE->getArg(0))) {
@@ -1214,8 +1270,7 @@ private:
     if (!E)
       return false;
     E = E->IgnoreParenImpCasts();
-    if (E->isNullPointerConstant(const_cast<ASTContext &>(Ctx),
-                                 Expr::NPC_ValueDependentIsNotNull))
+    if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
       return true;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
@@ -1236,8 +1291,10 @@ private:
     QualType RetType = EnclosingFunc->getReturnType();
     if (!RetType->isPointerType() || !isNonnullType(RetType))
       return;
-    if (isExprNullable(RetVal))
+    if (isExprNullable(RetVal)) {
+      ++NumReturnWarnings;
       Handler.handleNullableReturn(RetVal, RetVal->getType(), RetType);
+    }
   }
 
   void checkMemberExprDeref(const Expr *DerefExpr, const MemberExpr *ME) {
@@ -1280,7 +1337,13 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   if (!Cfg)
     return;
 
+  ++NumFunctionsAnalyzed;
   ASTContext &Ctx = AC.getASTContext();
+  LLVM_DEBUG({
+    if (const auto *ND = dyn_cast_or_null<NamedDecl>(AC.getDecl()))
+      llvm::dbgs() << "flow-nullability: analyzing '" << ND->getNameAsString()
+                   << "' (" << Cfg->size() << " blocks)\n";
+  });
 
   using EdgeKey = std::pair<unsigned, unsigned>;
   llvm::DenseMap<EdgeKey, NullState> EdgeStates;
@@ -1301,12 +1364,15 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   BlockEntryStates[Entry.getBlockID()] = InitState;
   Worklist.enqueueBlock(&Entry);
 
-  // Fixpoint iteration. Termination is guaranteed because the lattice is
-  // finite: NarrowedVars can only shrink (intersection at joins) and
-  // NullableVars can only grow (union at joins), both bounded by the number
-  // of declarations in the function.
+  // Fixpoint iteration. Termination is guaranteed because the lattice has
+  // finite height (bounded by the number of declarations in the function)
+  // and the edge-state comparison ensures each block is only re-processed
+  // when its entry state actually changes.
   while (const CFGBlock *Block = Worklist.dequeue()) {
     unsigned BlockID = Block->getBlockID();
+    ++NumBlocksProcessed;
+    ++NumFixpointIterations;
+    LLVM_DEBUG(llvm::dbgs() << "  block B" << BlockID << " (preds:");
 
     NullState State;
     bool FirstPred = true;
@@ -1319,6 +1385,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     for (auto PI = Block->pred_begin(), PE = Block->pred_end(); PI != PE;
          ++PI) {
       if (const CFGBlock *Pred = *PI) {
+        LLVM_DEBUG(llvm::dbgs() << " B" << Pred->getBlockID());
         EdgeKey EK = {Pred->getBlockID(), BlockID};
         auto It = EdgeStates.find(EK);
         if (It != EdgeStates.end()) {
@@ -1331,6 +1398,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
         }
       }
     }
+    LLVM_DEBUG(llvm::dbgs() << ")\n");
 
     if (FirstPred)
       continue;
@@ -1341,8 +1409,10 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     // would always match and prevent the first visit from propagating.
     if (BlockID != Entry.getBlockID()) {
       auto OldIt = BlockEntryStates.find(BlockID);
-      if (OldIt != BlockEntryStates.end() && OldIt->second == State)
+      if (OldIt != BlockEntryStates.end() && OldIt->second == State) {
+        LLVM_DEBUG(llvm::dbgs() << "    converged, skipping\n");
         continue;
+      }
     }
     BlockEntryStates[BlockID] = State;
 
@@ -1406,17 +1476,22 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
       // target. E.g., y = x; z = x; if (z) → narrow z, x, AND y.
       auto narrowWithAliases = [&](NullState &NS, const VarDecl *VD) {
         NS.NarrowedVars.insert(VD);
+        NS.NullableVars.erase(VD);
         // Forward: VD aliases Target → also narrow Target
         const VarDecl *Target = VD;
         auto AliasIt = NS.Aliases.find(VD);
         if (AliasIt != NS.Aliases.end()) {
           Target = AliasIt->second;
           NS.NarrowedVars.insert(Target);
+          NS.NullableVars.erase(Target);
         }
         // Reverse: narrow all vars aliasing VD or its canonical target
-        for (const auto &[AliasVD, AliasTarget] : NS.Aliases)
-          if (AliasTarget == VD || AliasTarget == Target)
+        for (const auto &[AliasVD, AliasTarget] : NS.Aliases) {
+          if (AliasTarget == VD || AliasTarget == Target) {
             NS.NarrowedVars.insert(AliasVD);
+            NS.NullableVars.erase(AliasVD);
+          }
+        }
       };
 
       if (Cond) {
@@ -1446,6 +1521,9 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
         EdgeKey EK = {BlockID, Succ->getBlockID()};
         auto It = EdgeStates.find(EK);
         if (It == EdgeStates.end() || It->second != SuccState) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "    edge B" << BlockID << "->B"
+                     << Succ->getBlockID() << " changed, enqueuing\n");
           EdgeStates[EK] = SuccState;
           Worklist.enqueueBlock(Succ);
         }
