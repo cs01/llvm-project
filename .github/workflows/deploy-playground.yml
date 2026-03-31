@@ -1,9 +1,17 @@
 name: Deploy Playground to GitHub Pages
 
 on:
+  # Deploy when the WASM build finishes
+  workflow_run:
+    workflows: ["Build Playground WASM"]
+    types:
+      - completed
+  # Also deploy on push (for HTML/JS-only changes that skip the WASM build)
   push:
     branches:
       - nullsafe-clang-dev
+    paths:
+      - 'nullsafe-playground/**'
   workflow_dispatch:
 
 permissions:
@@ -16,6 +24,8 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Skip if triggered by a failed WASM build
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,13 +34,20 @@ jobs:
 
       - name: Download latest WASM files from release
         run: |
-          # Find the latest playground release (tagged playground-v*)
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
-            | jq -r '[.[] | select(.tag_name | startswith("playground-v"))][0].tag_name')
+          # Try playground-latest first (auto-updated), fall back to playground-v* tags
+          RELEASE_TAG="playground-latest"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}")
 
-          echo "Latest release: $LATEST_RELEASE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "No playground-latest release, falling back to latest playground-v* tag"
+            RELEASE_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
+              | jq -r '[.[] | select(.tag_name | startswith("playground-v"))][0].tag_name')
+          fi
 
-          if [ -z "$LATEST_RELEASE" ] || [ "$LATEST_RELEASE" = "null" ]; then
+          echo "Using release: $RELEASE_TAG"
+
+          if [ -z "$RELEASE_TAG" ] || [ "$RELEASE_TAG" = "null" ]; then
             echo "No playground release found"
             exit 1
           fi
@@ -39,9 +56,8 @@ jobs:
           cd /tmp/wasm-files
 
           # Download the compressed individual files from the release
-          # The build workflow uploads .wasm.gz and .js.gz (not a tar.gz)
-          curl -L -f -o clang.wasm.gz "https://github.com/${{ github.repository }}/releases/download/${LATEST_RELEASE}/clang-nullsafe.wasm.gz"
-          curl -L -f -o clang.js.gz "https://github.com/${{ github.repository }}/releases/download/${LATEST_RELEASE}/clang-nullsafe.js.gz"
+          curl -L -f -o clang.wasm.gz "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/clang-nullsafe.wasm.gz"
+          curl -L -f -o clang.js.gz "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/clang-nullsafe.js.gz"
 
           # Decompress
           gzip -d clang.wasm.gz
@@ -80,4 +96,3 @@ jobs:
             git commit -m "Deploy playground from ${{ github.sha }}"
             git push origin gh-pages
           fi
-
