@@ -699,7 +699,6 @@ void Sema::PrintStats() const {
   AnalysisWarnings.PrintStats();
 }
 
-
 void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
                                                QualType SrcType,
                                                SourceLocation Loc,
