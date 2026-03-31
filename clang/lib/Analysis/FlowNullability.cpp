@@ -82,8 +82,7 @@ struct NullState {
            NarrowedThisMembers == Other.NarrowedThisMembers &&
            NullableVars == Other.NullableVars &&
            NullableThisMembers == Other.NullableThisMembers &&
-           BoolGuards == Other.BoolGuards &&
-           Aliases == Other.Aliases;
+           BoolGuards == Other.BoolGuards && Aliases == Other.Aliases;
   }
   bool operator!=(const NullState &Other) const { return !(*this == Other); }
 };
@@ -845,16 +844,15 @@ private:
         bool IsZeroOffset = false;
         if (OtherExpr && !OtherExpr->getType()->isPointerType()) {
           if (auto Val = OtherExpr->getIntegerConstantExpr(Ctx))
-          if (*Val == 0)
-            IsZeroOffset = true;
+            if (*Val == 0)
+              IsZeroOffset = true;
         }
         if (!IsZeroOffset) {
           if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-              if (!isNarrowed(VD) &&
-                  (isNullableType(VD->getType(), StrictMode,
-                                  DefaultNullability) ||
-                   State.NullableVars.contains(VD)))
+              if (!isNarrowed(VD) && (isNullableType(VD->getType(), StrictMode,
+                                                     DefaultNullability) ||
+                                      State.NullableVars.contains(VD)))
                 Handler.handleNullableArithmetic(BO, VD->getType());
             }
           }
@@ -868,10 +866,9 @@ private:
       if (LHS->getType()->isPointerType()) {
         if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS)) {
           if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-            if (!isNarrowed(VD) &&
-                (isNullableType(VD->getType(), StrictMode,
-                                DefaultNullability) ||
-                 State.NullableVars.contains(VD)))
+            if (!isNarrowed(VD) && (isNullableType(VD->getType(), StrictMode,
+                                                   DefaultNullability) ||
+                                    State.NullableVars.contains(VD)))
               Handler.handleNullableArithmetic(BO, VD->getType());
           }
         }
@@ -997,9 +994,9 @@ private:
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (VD->getType()->isPointerType()) {
             // Warn on arithmetic of non-narrowed nullable pointer
-            if (!isNarrowed(VD) &&
-                (isNullableType(VD->getType(), StrictMode, DefaultNullability) ||
-                 State.NullableVars.contains(VD)))
+            if (!isNarrowed(VD) && (isNullableType(VD->getType(), StrictMode,
+                                                   DefaultNullability) ||
+                                    State.NullableVars.contains(VD)))
               Handler.handleNullableArithmetic(UO, VD->getType());
             invalidateMembersFor(VD);
             invalidateBoolGuardsFor(VD);
