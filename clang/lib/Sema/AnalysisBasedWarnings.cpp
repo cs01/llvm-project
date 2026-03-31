@@ -2968,8 +2968,7 @@ public:
 
   void handleNullableArgument(const Expr *ArgExpr,
                               const ParmVarDecl *Param) override {
-    S.Diag(ArgExpr->getExprLoc(), diag::warn_flow_nullable_argument)
-        << Param;
+    S.Diag(ArgExpr->getExprLoc(), diag::warn_flow_nullable_argument) << Param;
     S.Diag(ArgExpr->getExprLoc(), diag::note_nullable_argument_fix);
   }
 };
