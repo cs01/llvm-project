@@ -30,36 +30,19 @@ ninja -C build check-clang-unit
 ```
 
 Lit tests for nullsafe features:
-- `test/Sema/flow-nullability-arrow-deref.cpp` - arrow operator nullability checks
-- `test/Sema/flow-nullability-gradual-adoption.cpp` - per-function gradual adoption gating
-- `test/Sema/flow-nullability-ternary.cpp` - ternary operator narrowing (`p ? *p : 0`)
-- `test/Sema/flow-nullability-noreturn.cpp` - noreturn functions, if-else termination, do-while assertions
-- `test/Sema/flow-nullability-builtin-expect.cpp` - `__builtin_expect`/LIKELY/UNLIKELY/CHECK macros
-- `test/Sema/flow-nullability-else-branch.cpp` - else-branch narrowing including OR conditions
-- `test/Sema/flow-nullability-for-loop.cpp` - for-loop increment narrowing
-- `test/Sema/flow-nullability-brace-assert.cpp` - bare-brace assertion macros (`{ if (!(p)) abort(); }`)
-- `test/Sema/flow-nullability-smart-ptr.cpp` - smart pointer `operator->` nullability checking
-- `test/Sema/flow-nullability-call-invalidation.c` - function calls do NOT invalidate narrowing
-- `test/Sema/flow-nullability-while-loop.cpp` - while-loop condition narrowing, linked-list traversal
-- `test/Sema/flow-nullability-reassignment.cpp` - reassignment invalidates narrowing
-- `test/Sema/flow-nullability-nonnull-param.cpp` - `_Nonnull` parameters never warn
-- `test/Sema/flow-nullability-default-nonnull.cpp` - `-fnullability-default=nonnull` mode
-- `test/Sema/flow-nullability-switch.cpp` - narrowing visibility inside switch cases
-- `test/Sema/flow-nullability-terminators.cpp` - throw/goto/break/continue post-dominator narrowing
-- `test/Sema/flow-nullability-and-shortcircuit.cpp` - `&&` short-circuit narrowing
-- `test/Sema/flow-nullability-array-subscript.cpp` - array subscript checked as dereference
-- `test/Sema/flow-nullability-c-basic.c` - basic narrowing in C mode
-- `test/Sema/flow-nullability-address-of.cpp` - address-of operator narrowing
-- `test/Sema/flow-nullability-cast-propagation.cpp` - nullability propagation through casts
-- `test/Sema/flow-nullability-conversion-op.cpp` - conversion operator handling
-- `test/Sema/flow-nullability-new-expr.cpp` - `new` expression produces nonnull
-- `test/Sema/flow-nullability-nullable-default-template.cpp` - nullable-default with template return types
-- `test/Sema/flow-nullability-range-for.cpp` - range-for loop narrowing
+- `test/SemaCXX/flow-nullability-analysis.cpp` - core analysis: narrowing, dereference, aliases, control flow (~2000 lines)
+- `test/SemaCXX/flow-nullability-cxx-features.cpp` - templates, lambdas, coroutines, smart pointers, structured bindings
+- `test/SemaCXX/flow-nullability-adoption.cpp` - gradual adoption, false-positive suppression, perf stress
+- `test/SemaCXX/flow-nullability-crubit-regression.cpp` - regression tests ported from Crubit
+- `test/SemaCXX/flow-nullability-warning-groups.cpp` - warning group suppression/promotion
+- `test/SemaCXX/flow-nullability-default-nonnull.cpp` - `-fnullability-default=nonnull` mode
+- `test/SemaCXX/flow-nullability-real-smartptr.cpp` - real stdlib smart pointer tests (requires system headers)
+- `test/Sema/flow-nullability-c.c` - all C-mode tests: narrowing, idioms, call invalidation
 - `test/Driver/nullsafe-flags.c` - driver flag forwarding
 
-Run a specific lit test:
+Run all nullsafe tests:
 ```bash
-build/bin/llvm-lit test/Sema/flow-nullability-arrow-deref.cpp -v
+build/bin/llvm-lit -v clang/test/SemaCXX/flow-nullability-*.cpp clang/test/Sema/flow-nullability-*.c clang/test/Driver/nullsafe-flags.c
 ```
 
 ## Key Custom Flags
@@ -90,7 +73,7 @@ The analysis follows the same pattern as Clang's ThreadSafety and UninitializedV
 
 **`lib/Sema/AnalysisBasedWarnings.cpp`** — the glue layer. Builds the CFG, instantiates the analysis, and converts handler callbacks into `S.Diag()` calls. Gated by `EnableFlowNullability` (precomputed from LangOpts and diagnostic state).
 
-**`test/Sema/flow-nullability-*.cpp`** — tests live in `test/Sema/` because the diagnostics are Sema diagnostics, even though the analysis itself is CFG-based. This matches how ThreadSafety tests live in `test/SemaCXX/`.
+**`test/SemaCXX/flow-nullability-*.cpp`** — C++ tests in `test/SemaCXX/`, C tests in `test/Sema/`. This matches ThreadSafety's test layout. Tests are consolidated into a few large files rather than many small ones.
 
 ### Dataflow analysis details
 
