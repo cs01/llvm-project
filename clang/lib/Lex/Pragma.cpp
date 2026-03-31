@@ -2037,7 +2037,6 @@ struct PragmaAssumeNonNullHandler : public PragmaHandler {
   }
 };
 
-
 /// Handle "\#pragma region [...]"
 ///
 /// The syntax is
