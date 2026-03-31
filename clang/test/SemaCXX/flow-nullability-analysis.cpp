@@ -1384,8 +1384,6 @@ void for_test_simple_increment(Node* _Nullable p) {
 // Nested if-init (regression test for && narrowing at IfStmt merge)
 // ===----------------------------------------------------------------------===//
 
-#pragma clang assume_nullable begin
-
 template<typename K, typename V> struct DenseMap {
     struct Iter { V second; bool operator!=(Iter o) const; };
     Iter find(K key) const;
@@ -1402,7 +1400,7 @@ using BoolGuardMap = DenseMap<const VarDecl *, int>;
 struct Expr {};
 template<typename T, typename U> T *dyn_cast(U *);
 
-void nested_if_init_and_narrowing(const Expr *E, const BoolGuardMap *BoolGuards) {
+void nested_if_init_and_narrowing(const Expr * _Nullable E, const BoolGuardMap * _Nullable BoolGuards) {
     if (auto *VD = dyn_cast<VarDecl, const Expr>(E)) {
         if (VD->getType().isPointerType())
             return;
@@ -1412,8 +1410,6 @@ void nested_if_init_and_narrowing(const Expr *E, const BoolGuardMap *BoolGuards)
         }
     }
 }
-
-#pragma clang assume_nullable end
 
 // ===----------------------------------------------------------------------===//
 // __attribute__((nonnull)) interactions
