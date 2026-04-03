@@ -1294,6 +1294,18 @@ private:
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
         return isVarNullable(VD);
     }
+    // Member narrowing: this->member or var.member narrowed by null check
+    if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+        const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+        if (isa<CXXThisExpr>(Base) && isThisMemberNarrowed(FD))
+          return false;
+        if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
+          if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
+            if (isMemberNarrowed(BaseVD, FD))
+              return false;
+      }
+    }
     // For non-variable expressions, fall back to type-based check
     if (isNullableType(E->getType(), StrictMode, DefaultNullability))
       return true;

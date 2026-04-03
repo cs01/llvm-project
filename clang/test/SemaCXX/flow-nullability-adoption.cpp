@@ -367,6 +367,18 @@ struct MemberNarrowObj {
         if (arr == nullptr) return;
         (void)arr[getMember()]; // OK - function call as index doesn't affect base narrowing
     }
+
+    // Passing narrowed member to _Nonnull parameter
+    static void accept_nonnull(int * _Nonnull p);
+    void test_member_nonnull_arg_after_check() {
+        if (arr == nullptr) return;
+        accept_nonnull(arr); // OK - member narrowed, safe to pass to _Nonnull
+    }
+
+    void test_member_nonnull_arg_no_check() {
+        accept_nonnull(arr); // expected-warning {{nullable pointer}} \
+                             // expected-note {{add a null check}}
+    }
 };
 
 // --- sizeof/alignof don't dereference ---
