@@ -589,6 +589,19 @@ class TransferFunctions {
       if (UO->getOpcode() == UO_AddrOf)
         return;
 
+    // Check member narrowing: this->member or var.member
+    if (const auto *ME = dyn_cast<MemberExpr>(Origin)) {
+      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+        const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+        if (isa<CXXThisExpr>(Base) && isThisMemberNarrowed(FD))
+          return;
+        if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
+          if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
+            if (isMemberNarrowed(BaseVD, FD))
+              return;
+      }
+    }
+
     QualType CheckTy = FoundCast ? Origin->getType() : PtrExpr->getType();
     checkDeref(DerefExpr, CheckTy);
   }
@@ -1098,6 +1111,11 @@ private:
         if (!isNarrowed(VD) && !VD->getType()->isArrayType())
           checkVarDeref(ASE, VD);
       }
+    } else if (const auto *ME = dyn_cast<MemberExpr>(Base)) {
+      // Member pointer subscript: this->arr[i] or var.arr[i]
+      // Check member narrowing before falling through to type check.
+      if (!ME->getType()->isArrayType())
+        checkMemberExprDeref(ASE, ME);
     } else {
       QualType BaseTy = Base->getType();
       if (!BaseTy->isArrayType())

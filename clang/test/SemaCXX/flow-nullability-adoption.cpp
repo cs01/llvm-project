@@ -282,6 +282,93 @@ void test_fp_narrowing_survives_call(Node * _Nullable p) {
     (void)p->value; // OK - function call doesn't invalidate narrowing
 }
 
+// --- Member narrowing in array subscripts and across calls ---
+
+struct MemberNarrowObj {
+    int * _Nullable arr;
+    int * _Nullable other;
+    int getMember() const;
+
+    void test_member_subscript_after_check() {
+        if (!arr) return;
+        (void)arr[0]; // OK - member narrowed by null check
+    }
+
+    void test_member_subscript_across_call() {
+        if (!arr) return;
+        getMember();
+        (void)arr[0]; // OK - calls don't invalidate member narrowing
+    }
+
+    void test_member_subscript_in_loop() {
+        if (!arr) return;
+        for (int i = 0; i < 3; i++) {
+            (void)arr[i]; // OK - member narrowed before loop
+        }
+    }
+
+    void test_member_deref_across_call() {
+        if (!arr) return;
+        getMember();
+        (void)*arr; // OK - calls don't invalidate member narrowing
+    }
+
+    void test_member_subscript_no_check() {
+        (void)arr[0]; // expected-warning {{dereference of nullable pointer}} \
+                      // expected-note {{add a null check}}
+    }
+
+    void test_two_members_narrowed() {
+        if (!arr || !other) return;
+        (void)arr[0]; // OK
+        (void)other[0]; // OK
+    }
+
+    // Explicit == nullptr checks, disjunctions, if-body narrowing
+
+    void test_member_eq_nullptr_early_return() {
+        if (arr == nullptr) return;
+        (void)arr[0]; // OK - == nullptr style check
+    }
+
+    void test_member_ne_nullptr_if_body() {
+        // Narrowing inside if-body (not early return)
+        if (arr != nullptr) {
+            (void)arr[0]; // OK - narrowed inside if-body
+        }
+    }
+
+    void test_member_disjunction_guard() {
+        // Multiple members checked with || and early return
+        if (arr == nullptr || other == nullptr) return;
+        (void)arr[0]; // OK - both narrowed after disjunction
+        (void)other[0]; // OK
+    }
+
+    void test_member_subscript_in_loop_with_calls() {
+        if (arr == nullptr || other == nullptr) return;
+        for (int i = 0; i < 3; i++) {
+            (void)arr[i]; // OK - narrowing survives loop back-edge
+            other[i] = getMember(); // OK - call + subscript in loop
+        }
+    }
+
+    void test_member_ne_nullptr_if_body_with_loop() {
+        // if (ptr != nullptr) { loop { ptr[i] } }
+        if (arr != nullptr) {
+            for (int i = 0; i < 3; i++) {
+                (void)arr[i]; // OK - narrowed inside if-body, survives loop
+            }
+        }
+    }
+
+    void test_member_subscript_with_fn_index() {
+        // ptr[getIndex()] after null check
+        if (arr == nullptr) return;
+        (void)arr[getMember()]; // OK - function call as index doesn't affect base narrowing
+    }
+};
+
 // --- sizeof/alignof don't dereference ---
 
 void test_fp_sizeof_no_deref(Node * _Nullable p) {
