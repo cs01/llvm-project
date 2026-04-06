@@ -3016,7 +3016,7 @@ public:
                           ? diag::remark_nullsafe_return_evidence_nonnull
                           : diag::remark_nullsafe_return_evidence_nullable;
     S.Diag(RetExpr->getExprLoc(), DiagID)
-        << Func->getName() << Func->getParent();
+        << Func->getNameAsString() << Func->getParent();
   }
 };
 } // anonymous namespace

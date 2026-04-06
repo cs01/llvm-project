@@ -303,6 +303,33 @@ void lambda_test_init_capture_with_check() {
 
 #pragma clang assume_nonnull end
 
+// === Lambda returning unannotated pointer (regression: getName() crash) ===
+// Lambdas have non-identifier names (operator()). The return evidence handler
+// must not call getName() on them. This test crashes the compiler if the guard
+// is missing (assertion: "Name is not a simple identifier").
+// These tests are outside assume_nonnull so unannotated pointers are nullable.
+
+void lambda_test_return_unannotated() {
+    Node * _Nullable n = nullptr;
+    // Unannotated return type — triggers return evidence emission.
+    auto getter = [&n]() -> Node * { return n; };
+    auto maker = [&n]() { return n; };  // deduced return type
+    Node *r1 = getter();
+    (void)r1->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    Node *r2 = maker();
+    (void)r2->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+// Nested lambda returning pointer — double nesting shouldn't crash.
+void lambda_test_return_nested_unannotated() {
+    auto outer = []() -> Node * {
+        auto inner = []() -> Node * { return nullptr; };
+        return inner();
+    };
+    Node *n = outer();
+    (void)n->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
 // ===----------------------------------------------------------------------===//
 // Coroutines
 // ===----------------------------------------------------------------------===//
