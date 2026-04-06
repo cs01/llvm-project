@@ -1359,8 +1359,12 @@ private:
       return;
 
     // Emit return evidence for cross-TU inference.
+    // Skip lambdas and other non-identifier-named functions — they can't be
+    // referenced cross-TU so evidence is meaningless, and getName() would
+    // crash.
     bool RetIsNonnull = !isExprNullable(RetVal);
-    Handler.handleReturnEvidence(RetVal, EnclosingFunc, RetIsNonnull);
+    if (EnclosingFunc->getDeclName().isIdentifier())
+      Handler.handleReturnEvidence(RetVal, EnclosingFunc, RetIsNonnull);
 
     // Existing warning: returning nullable from a nonnull function.
     if (isNonnullType(RetType) && !RetIsNonnull) {
