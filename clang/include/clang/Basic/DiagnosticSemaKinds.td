@@ -13095,6 +13095,12 @@ def remark_nullsafe_member_evidence_nonnull : Remark<
 def remark_nullsafe_member_evidence_nullable : Remark<
   "member '%0' of %1 assigned from nullable source">,
   InGroup<NullsafeEvidence>;
+def remark_nullsafe_return_evidence_nonnull : Remark<
+  "function '%0' of %1 returns nonnull">,
+  InGroup<NullsafeEvidence>;
+def remark_nullsafe_return_evidence_nullable : Remark<
+  "function '%0' of %1 returns nullable">,
+  InGroup<NullsafeEvidence>;
 def warn_zero_as_null_pointer_constant : Warning<
   "zero as null pointer constant">,
   InGroup<DiagGroup<"zero-as-null-pointer-constant">>, DefaultIgnore;

@@ -3009,6 +3009,15 @@ public:
     S.Diag(AssignExpr->getExprLoc(), DiagID)
         << Member->getName() << Member->getParent();
   }
+
+  void handleReturnEvidence(const Expr *RetExpr, const FunctionDecl *Func,
+                            bool IsNonnull) override {
+    unsigned DiagID = IsNonnull
+                          ? diag::remark_nullsafe_return_evidence_nonnull
+                          : diag::remark_nullsafe_return_evidence_nullable;
+    S.Diag(RetExpr->getExprLoc(), DiagID)
+        << Func->getName() << Func->getParent();
+  }
 };
 } // anonymous namespace
 
