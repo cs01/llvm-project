@@ -922,27 +922,62 @@ private:
       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
 
       // Assignment to a member (this->field, var->field, or s.field)
-      // invalidates any narrowing on that member.
+      // invalidates any narrowing on that member, then re-narrows if the
+      // RHS is provably non-null (matching local variable behavior).
       if (const auto *ME = dyn_cast<MemberExpr>(LHS)) {
         if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
           const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-          if (ME->isArrow()) {
-            if (isa<CXXThisExpr>(Base)) {
-              State.NarrowedThisMembers.erase(FD);
-              State.NullableThisMembers.erase(FD);
-            } else if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
-              if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
-                State.NarrowedMembers.erase({BaseVD, FD});
+          bool IsThisMember = isa<CXXThisExpr>(Base);
+          const VarDecl *BaseVD = nullptr;
+          if (!IsThisMember) {
+            if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
+              BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl());
+          }
+
+          // Invalidate existing narrowing state.
+          if (IsThisMember) {
+            State.NarrowedThisMembers.erase(FD);
+            State.NullableThisMembers.erase(FD);
+          } else if (BaseVD) {
+            State.NarrowedMembers.erase({BaseVD, FD});
+          }
+
+          // Re-narrow if RHS is provably non-null (plain assignment only).
+          if (BO->getOpcode() == BO_Assign && FD->getType()->isPointerType()) {
+            const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+            bool Narrowed = false;
+
+            if (const auto *RHSUO = dyn_cast<UnaryOperator>(RHS)) {
+              if (RHSUO->getOpcode() == UO_AddrOf)
+                Narrowed = true;
             }
-          } else {
-            // Dot access: s.field = ... invalidates narrowing on s.field
-            if (isa<CXXThisExpr>(Base)) {
-              State.NarrowedThisMembers.erase(FD);
-              State.NullableThisMembers.erase(FD);
-            } else if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
-              if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
-                State.NarrowedMembers.erase({BaseVD, FD});
+            if (!Narrowed) {
+              if (const auto *RHSDRE = dyn_cast<DeclRefExpr>(RHS)) {
+                if (const auto *RHSVD = dyn_cast<VarDecl>(RHSDRE->getDecl())) {
+                  if (isNonnullType(RHSVD->getType()) || isNarrowed(RHSVD))
+                    Narrowed = true;
+                }
+              }
             }
+            if (!Narrowed && isNonnullInit(RHS))
+              Narrowed = true;
+            if (!Narrowed && isNonnullType(BO->getRHS()->getType()))
+              Narrowed = true;
+
+            if (Narrowed) {
+              if (IsThisMember)
+                State.NarrowedThisMembers.insert(FD);
+              else if (BaseVD)
+                State.NarrowedMembers.insert({BaseVD, FD});
+            } else if (isNullableType(BO->getRHS()->getType(), StrictMode,
+                                      DefaultNullability) ||
+                       isNullableInit(RHS)) {
+              if (IsThisMember)
+                State.NullableThisMembers.insert(FD);
+            }
+
+            // Emit evidence for cross-TU inference.
+            Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
           }
         }
       }

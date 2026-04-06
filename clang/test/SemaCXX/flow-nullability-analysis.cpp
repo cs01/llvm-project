@@ -326,6 +326,67 @@ struct ArrowContainer {
     }
 };
 
+// Member field assignment re-narrowing from _Nonnull source.
+Entity* _Nonnull get_nonnull_entity();
+
+struct MemberAssignNarrow {
+    Entity* _Nullable field;
+
+    // Assigning from _Nonnull return value narrows the member.
+    void test_nonnull_return(Entity* _Nonnull safe) {
+        field = get_nonnull_entity();
+        field->x = 1; // OK -- narrowed by _Nonnull assignment
+    }
+
+    // Assigning from _Nonnull parameter narrows the member.
+    void test_nonnull_param(Entity* _Nonnull safe) {
+        field = safe;
+        field->x = 1; // OK -- narrowed by _Nonnull parameter
+    }
+
+    // Assigning address-of narrows the member.
+    void test_address_of() {
+        Entity local;
+        field = &local;
+        field->x = 1; // OK -- narrowed by address-of
+    }
+
+    // Assigning from new narrows the member.
+    void test_new_expr() {
+        field = new Entity;
+        field->x = 1; // OK -- narrowed by new
+    }
+
+    // Assigning from nullable does NOT narrow.
+    void test_nullable_assign(Entity* _Nullable maybe) {
+        field = maybe;
+        field->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    }
+
+    // Re-narrowing after invalidation.
+    void test_renarrow_after_null() {
+        field = nullptr;
+        field->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        field = get_nonnull_entity();
+        field->x = 1; // OK -- re-narrowed
+    }
+};
+
+// Non-this member assignment narrowing (var->field).
+Node* _Nonnull get_nonnull_node();
+
+void test_var_member_nonnull_assign(Node* _Nullable container) {
+    if (!container) return;
+    container->next = get_nonnull_node();
+    container->next->value = 1; // OK -- narrowed by _Nonnull assignment
+}
+
+void test_var_member_nullable_assign(Node* _Nullable container, Node* _Nullable maybe) {
+    if (!container) return;
+    container->next = maybe;
+    container->next->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
 #pragma clang assume_nonnull end
 
 // ===----------------------------------------------------------------------===//
