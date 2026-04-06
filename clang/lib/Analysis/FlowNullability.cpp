@@ -1355,9 +1355,15 @@ private:
     if (!RetVal)
       return;
     QualType RetType = EnclosingFunc->getReturnType();
-    if (!RetType->isPointerType() || !isNonnullType(RetType))
+    if (!RetType->isPointerType())
       return;
-    if (isExprNullable(RetVal)) {
+
+    // Emit return evidence for cross-TU inference.
+    bool RetIsNonnull = !isExprNullable(RetVal);
+    Handler.handleReturnEvidence(RetVal, EnclosingFunc, RetIsNonnull);
+
+    // Existing warning: returning nullable from a nonnull function.
+    if (isNonnullType(RetType) && !RetIsNonnull) {
       ++NumReturnWarnings;
       Handler.handleNullableReturn(RetVal, RetVal->getType(), RetType);
     }

@@ -23,6 +23,7 @@ class AnalysisDeclContext;
 class CXXRecordDecl;
 class Expr;
 class FieldDecl;
+class FunctionDecl;
 class ParmVarDecl;
 class VarDecl;
 
@@ -45,6 +46,11 @@ public:
   virtual void handleMemberAssignEvidence(const Expr *AssignExpr,
                                           const FieldDecl *Member,
                                           bool IsNonnull) {}
+
+  /// Evidence collection: called when a function returns a pointer.
+  /// \p IsNonnull is true if the returned expression is provably non-null.
+  virtual void handleReturnEvidence(const Expr *RetExpr,
+                                    const FunctionDecl *Func, bool IsNonnull) {}
 };
 
 void runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
