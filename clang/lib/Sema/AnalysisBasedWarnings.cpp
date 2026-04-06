@@ -2999,6 +2999,16 @@ public:
     S.Diag(ArgExpr->getExprLoc(), diag::warn_flow_nullable_argument) << Param;
     S.Diag(ArgExpr->getExprLoc(), diag::note_nullable_argument_fix);
   }
+
+  void handleMemberAssignEvidence(const Expr *AssignExpr,
+                                  const FieldDecl *Member,
+                                  bool IsNonnull) override {
+    unsigned DiagID = IsNonnull
+                          ? diag::remark_nullsafe_member_evidence_nonnull
+                          : diag::remark_nullsafe_member_evidence_nullable;
+    S.Diag(AssignExpr->getExprLoc(), DiagID)
+        << Member->getName() << Member->getParent();
+  }
 };
 } // anonymous namespace
 

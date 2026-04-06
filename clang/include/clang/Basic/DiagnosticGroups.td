@@ -538,6 +538,7 @@ def FlowNullableArgument : DiagGroup<"flow-nullable-argument">;
 def FlowNullability : DiagGroup<"flow-nullability", [
   FlowNullableDereference, FlowNullableArithmetic, FlowNullableReturn,
   FlowNullableAssignment, FlowNullableArgument]>;
+def NullsafeEvidence : DiagGroup<"nullsafe-evidence">;
 def FourByteMultiChar : DiagGroup<"four-char-constants">;
 def GlobalConstructors : DiagGroup<"global-constructors"> {
  code Documentation = [{

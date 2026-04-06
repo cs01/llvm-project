@@ -13089,6 +13089,12 @@ def warn_flow_nullable_argument : Warning<
 def note_nullable_argument_fix : Note<
   "add a null check before the call, or change the parameter type to "
   "'_Nullable'">;
+def remark_nullsafe_member_evidence_nonnull : Remark<
+  "member '%0' of %1 assigned from nonnull source">,
+  InGroup<NullsafeEvidence>;
+def remark_nullsafe_member_evidence_nullable : Remark<
+  "member '%0' of %1 assigned from nullable source">,
+  InGroup<NullsafeEvidence>;
 def warn_zero_as_null_pointer_constant : Warning<
   "zero as null pointer constant">,
   InGroup<DiagGroup<"zero-as-null-pointer-constant">>, DefaultIgnore;
