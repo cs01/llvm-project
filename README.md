@@ -79,7 +79,7 @@ int deref(int * _Nullable p) {
 | Runs in IDE (clangd) | ✅ | ❌ | ✅ |
 | Fast enough for every build | ✅ | ❌ ([41x slower on real code](PERFORMANCE.md#csa-comparison-on-real-code)) | ✅ |
 | No test coverage required | ✅ | ✅ | ✅ |
-| Cross-function reasoning | — | ✅ | ❌ |
+| Cross-function reasoning | — | ✅ | Partial (via annotations + narrowing) |
 | Compile-time cost | Zero | Separate pass | [0.2-8%](PERFORMANCE.md#direct-measurement-via--ftime-trace) |
 
 Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — same architecture as `-Wthread-safety`. It works in clangd, runs on every build, and catches bugs on unannotated code with `-fnullability-default=nullable`. On [real-world code (LLVM/Clang)](PERFORMANCE.md#real-world-benchmarks-llvmclang), the analysis accounts for 0.2-8% of compile time (median ~2%) — comparable to `-Wuninitialized`, and 41x faster than the Clang Static Analyzer. Compare all three in the **[interactive playground](https://cs01.github.io/llvm-project/)**.
@@ -167,11 +167,27 @@ All warnings are under the `-Wflow-nullability` umbrella:
 
 When `-fflow-sensitive-nullability` is enabled, the type-based `-Wnullable-to-nonnull-conversion` is automatically suppressed — the flow-sensitive checks provide strictly better coverage (they respect null checks and narrowing).
 
+## Cross-function narrowing
+
+While the core analysis is intraprocedural, nullsafe supports several mechanisms for cross-function reasoning:
+
+- **`_Nonnull` parameter narrowing** — passing a pointer to a function parameter marked `_Nonnull` narrows the pointer to non-null after the call. If the function requires `_Nonnull` and your code survived the call, the pointer was non-null.
+- **Member pointer narrowing** — null checks on `this->member` persist across the function body. After `if (ptr->field)`, dereferences through `field` are clean.
+- **Return evidence** — the compiler emits `-Rnullsafe-evidence` remarks about whether functions return null or non-null. External tooling can aggregate these across translation units for automated `_Nonnull` annotation inference.
+
+```cpp
+void process(Widget* _Nonnull w);
+
+Widget* p = get_widget();  // nullable
+process(p);                // passes p to _Nonnull — narrows p
+p->render();               // no warning — p is proven non-null by the call above
+```
+
 ## Limitations
 
-- **Intraprocedural** — does not look inside called functions. Cross-function contracts are expressed with annotations on function signatures.
-- **No inferred return nullability** — annotate return types with `_Nonnull` or `_Nullable` to express return contracts.
+- **No call graph analysis** — does not look inside called functions at the compiler level. Cross-function contracts are expressed with `_Nonnull`/`_Nullable` annotations, which the analysis respects and narrows through.
 - **Null safety only** — doesn't catch buffer overflows, use-after-free, or other memory bugs.
+- **Known false positives** — `reinterpret_cast` results are always treated as nullable (even `reinterpret_cast<T*>(this)`), boolean-pointer correlation across members is not tracked, and stdlib callback parameters (e.g., `unique_ptr` custom deleter) may be flagged despite being guaranteed non-null.
 
 ## Installation
 
