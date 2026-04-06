@@ -20,7 +20,9 @@
 namespace clang {
 
 class AnalysisDeclContext;
+class CXXRecordDecl;
 class Expr;
+class FieldDecl;
 class ParmVarDecl;
 class VarDecl;
 
@@ -37,6 +39,12 @@ public:
                                         const VarDecl *LHSVar) {}
   virtual void handleNullableArgument(const Expr *ArgExpr,
                                       const ParmVarDecl *Param) {}
+
+  /// Evidence collection: called when a pointer member is assigned.
+  /// \p IsNonnull is true if the RHS is provably non-null.
+  virtual void handleMemberAssignEvidence(const Expr *AssignExpr,
+                                          const FieldDecl *Member,
+                                          bool IsNonnull) {}
 };
 
 void runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
