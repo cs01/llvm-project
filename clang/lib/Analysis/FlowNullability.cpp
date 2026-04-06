@@ -15,6 +15,7 @@
 #include "clang/Analysis/Analyses/FlowNullability.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/OperationKinds.h"
@@ -1423,6 +1424,40 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     for (const auto *Param : FD->parameters()) {
       if (Param->getType()->isPointerType() && isNonnullType(Param->getType()))
         InitState.NarrowedVars.insert(Param);
+    }
+  }
+
+  // Emit evidence for constructor member initializer lists.
+  // These use CXXCtorInitializer (': field(expr)'), not BinaryOperator,
+  // so the dataflow's assignment handler never sees them.
+  if (const auto *CD = dyn_cast_or_null<CXXConstructorDecl>(AC.getDecl())) {
+    for (const auto *CI : CD->inits()) {
+      if (!CI->isAnyMemberInitializer())
+        continue;
+      const FieldDecl *FD = CI->getMember();
+      if (!FD || !FD->getType()->isPointerType())
+        continue;
+      const Expr *Init = CI->getInit();
+      if (!Init)
+        continue;
+      Init = Init->IgnoreParenImpCasts();
+      bool IsNonnull = false;
+      // Check if the init expression is provably non-null.
+      if (isNonnullType(Init->getType()))
+        IsNonnull = true;
+      if (!IsNonnull) {
+        if (const auto *UO = dyn_cast<UnaryOperator>(Init))
+          if (UO->getOpcode() == UO_AddrOf)
+            IsNonnull = true;
+      }
+      if (!IsNonnull) {
+        if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
+          if (!NE->shouldNullCheckAllocation())
+            IsNonnull = true;
+      }
+      if (!IsNonnull && isa<CXXThisExpr>(Init))
+        IsNonnull = true;
+      Handler.handleMemberAssignEvidence(Init, FD, IsNonnull);
     }
   }
 
