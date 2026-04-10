@@ -173,7 +173,20 @@ While the core analysis is intraprocedural, nullsafe supports several mechanisms
 
 - **`_Nonnull` parameter narrowing** — passing a pointer to a function parameter marked `_Nonnull` narrows the pointer to non-null after the call. If the function requires `_Nonnull` and your code survived the call, the pointer was non-null.
 - **Member pointer narrowing** — null checks on `this->member` persist across the function body. After `if (ptr->field)`, dereferences through `field` are clean.
-- **Return evidence** — the compiler emits `-Rnullsafe-evidence` remarks about whether functions return null or non-null. External tooling can aggregate these across translation units for automated `_Nonnull` annotation inference.
+- **Intra-TU all-returns-nonnull inference** — when the analysis finishes a function and every return path was provably non-null, it records that fact. Later functions in the same translation unit that call it automatically narrow the return value to non-null — no annotation needed. This is order-dependent: the callee must appear before the caller in the file.
+
+```cpp
+Widget* make_widget() {
+    return new Widget();  // always non-null (throwing new)
+}
+
+void use() {
+    Widget* w = make_widget();  // narrowed to nonnull — make_widget was already analyzed
+    w->render();                // no warning
+}
+```
+
+- **`_Nonnull` parameter narrowing example:**
 
 ```cpp
 void process(Widget* _Nonnull w);
@@ -182,6 +195,16 @@ Widget* p = get_widget();  // nullable
 process(p);                // passes p to _Nonnull — narrows p
 p->render();               // no warning — p is proven non-null by the call above
 ```
+
+### Evidence remarks for cross-TU annotation inference
+
+The compiler can emit `-Rnullsafe-evidence` remarks that report what the analysis observed about each function — whether members are assigned null or non-null, whether returns are nullable, and whether all return paths are provably non-null. These are opt-in diagnostic remarks, not warnings.
+
+```bash
+clang -fflow-sensitive-nullability -Rnullsafe-evidence file.cpp
+```
+
+External tooling can aggregate these remarks across translation units to automatically infer `_Nonnull`/`_Nullable` annotations for headers, enabling cross-TU null safety without manual annotation of every function.
 
 ## Limitations
 
