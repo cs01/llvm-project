@@ -187,7 +187,7 @@ p->render();               // no warning — p is proven non-null by the call ab
 
 - **No call graph analysis** — does not look inside called functions at the compiler level. Cross-function contracts are expressed with `_Nonnull`/`_Nullable` annotations, which the analysis respects and narrows through.
 - **Null safety only** — doesn't catch buffer overflows, use-after-free, or other memory bugs.
-- **Known false positives** — `reinterpret_cast` results are always treated as nullable (even `reinterpret_cast<T*>(this)`), boolean-pointer correlation across members is not tracked, and stdlib callback parameters (e.g., `unique_ptr` custom deleter) may be flagged despite being guaranteed non-null.
+- **Known false positives** — `reinterpret_cast` results are always treated as nullable (even `reinterpret_cast<T*>(this)`).
 
 ## Installation
 
