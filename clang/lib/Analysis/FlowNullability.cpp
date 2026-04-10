@@ -589,6 +589,18 @@ class TransferFunctions {
     if (const auto *UO = dyn_cast<UnaryOperator>(Origin))
       if (UO->getOpcode() == UO_AddrOf)
         return;
+    // Call to a function proven to always return non-null — skip.
+    if (const auto *CE = dyn_cast<CallExpr>(Origin)) {
+      if (const auto *Callee = CE->getDirectCallee()) {
+        if (Handler.isKnownAllReturnsNonnull(Callee))
+          return;
+      }
+    }
+    // Throwing operator new never returns null.
+    if (const auto *NE = dyn_cast<CXXNewExpr>(Origin)) {
+      if (!NE->shouldNullCheckAllocation())
+        return;
+    }
 
     // Check member narrowing: this->member or var.member
     if (const auto *ME = dyn_cast<MemberExpr>(Origin)) {
@@ -838,6 +850,18 @@ private:
           return isNonnullInit(BO->getLHS()->IgnoreParenImpCasts());
         if (BO->getRHS()->getType()->isPointerType())
           return isNonnullInit(BO->getRHS()->IgnoreParenImpCasts());
+      }
+    }
+    // Address-of operator always produces a non-null pointer.
+    if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
+      if (UO->getOpcode() == UO_AddrOf)
+        return true;
+    }
+    // Call to a function previously proven to always return non-null.
+    if (const auto *CE = dyn_cast<CallExpr>(Init)) {
+      if (const auto *Callee = CE->getDirectCallee()) {
+        if (Handler.isKnownAllReturnsNonnull(Callee))
+          return true;
       }
     }
     return false;
@@ -1342,6 +1366,31 @@ private:
               return false;
       }
     }
+    // Unwrap explicit casts — they don't change null/nonnull status.
+    // e.g., static_cast<Base*>(this) should be recognized as nonnull.
+    if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
+      return isExprNullable(CE->getSubExpr());
+    // Call to a function proven to always return non-null — not nullable
+    // regardless of the declared return type.
+    if (const auto *CE = dyn_cast<CallExpr>(E)) {
+      if (const auto *Callee = CE->getDirectCallee()) {
+        if (Handler.isKnownAllReturnsNonnull(Callee))
+          return false;
+      }
+    }
+    // Address-of is never null.
+    if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+      if (UO->getOpcode() == UO_AddrOf)
+        return false;
+    }
+    // this is never null.
+    if (isa<CXXThisExpr>(E))
+      return false;
+    // Throwing operator new never returns null.
+    if (const auto *NE = dyn_cast<CXXNewExpr>(E)) {
+      if (!NE->shouldNullCheckAllocation())
+        return false;
+    }
     // For non-variable expressions, fall back to type-based check
     if (isNullableType(E->getType(), StrictMode, DefaultNullability))
       return true;
@@ -1403,6 +1452,61 @@ private:
   }
 };
 
+/// Wraps a FlowNullabilityHandler to intercept per-return evidence and
+/// aggregate it into an all-returns-nonnull summary. After the fixpoint
+/// completes, call emitSummary() to fire handleAllReturnsNonnull if
+/// every pointer-returning return path was provably non-null.
+class ReturnNonnullTracker : public FlowNullabilityHandler {
+  FlowNullabilityHandler &Inner;
+  bool HasPointerReturn = false;
+  bool AllNonnull = true;
+
+public:
+  ReturnNonnullTracker(FlowNullabilityHandler &Inner) : Inner(Inner) {}
+
+  // Intercept per-return evidence to track the aggregate.
+  void handleReturnEvidence(const Expr *RetExpr, const FunctionDecl *Func,
+                            bool IsNonnull) override {
+    HasPointerReturn = true;
+    if (!IsNonnull)
+      AllNonnull = false;
+    Inner.handleReturnEvidence(RetExpr, Func, IsNonnull);
+  }
+
+  // After fixpoint, emit the summary if every return was nonnull.
+  void emitSummary(const FunctionDecl *FD) {
+    if (HasPointerReturn && AllNonnull)
+      Inner.handleAllReturnsNonnull(FD);
+  }
+
+  // Delegate all other handler methods unchanged.
+  void handleNullableDereference(const Expr *E, QualType T) override {
+    Inner.handleNullableDereference(E, T);
+  }
+  void handleNullableArithmetic(const Expr *E, QualType T) override {
+    Inner.handleNullableArithmetic(E, T);
+  }
+  void handleNullableReturn(const Expr *E, QualType ET, QualType RT) override {
+    Inner.handleNullableReturn(E, ET, RT);
+  }
+  void handleNullableAssignment(const Expr *E, const VarDecl *V) override {
+    Inner.handleNullableAssignment(E, V);
+  }
+  void handleNullableArgument(const Expr *E, const ParmVarDecl *P) override {
+    Inner.handleNullableArgument(E, P);
+  }
+  void handleMemberAssignEvidence(const Expr *E, const FieldDecl *M,
+                                  bool N) override {
+    Inner.handleMemberAssignEvidence(E, M, N);
+  }
+  void handleAllReturnsNonnull(const FunctionDecl *F) override {
+    Inner.handleAllReturnsNonnull(F);
+  }
+  bool isKnownAllReturnsNonnull(const FunctionDecl *F) const override {
+    return Inner.isKnownAllReturnsNonnull(F);
+  }
+};
+
 } // end anonymous namespace
 
 void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
@@ -1412,6 +1516,10 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   CFG *Cfg = AC.getCFG();
   if (!Cfg)
     return;
+
+  // Wrap the handler to track per-return nonnull evidence. After the
+  // fixpoint we'll emit a summary if every return is provably non-null.
+  ReturnNonnullTracker Tracker(Handler);
 
   ++NumFunctionsAnalyzed;
   ASTContext &Ctx = AC.getASTContext();
@@ -1467,7 +1575,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
       }
       if (!IsNonnull && isa<CXXThisExpr>(Init))
         IsNonnull = true;
-      Handler.handleMemberAssignEvidence(Init, FD, IsNonnull);
+      Tracker.handleMemberAssignEvidence(Init, FD, IsNonnull);
     }
   }
 
@@ -1526,7 +1634,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     }
     BlockEntryStates[BlockID] = State;
 
-    TransferFunctions TF(State, Handler, Ctx, StrictMode, Default);
+    TransferFunctions TF(State, Tracker, Ctx, StrictMode, Default);
     if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl()))
       TF.setEnclosingFunc(FD);
     for (const auto &Elem : *Block) {
@@ -1638,6 +1746,17 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
           Worklist.enqueueBlock(Succ);
         }
       }
+    }
+  }
+
+  // After the fixpoint: emit all-returns-nonnull summary for functions
+  // whose return type is a pointer and whose every return is provably
+  // non-null. Skip lambdas/non-identifier functions (same guard as
+  // per-return evidence).
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl())) {
+    if (FD->getReturnType()->isPointerType() &&
+        FD->getDeclName().isIdentifier()) {
+      Tracker.emitSummary(FD);
     }
   }
 }
