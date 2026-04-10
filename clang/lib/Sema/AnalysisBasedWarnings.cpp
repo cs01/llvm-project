@@ -52,6 +52,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
@@ -2736,6 +2737,11 @@ public:
   // It is important to analyze blocks within functions because it's a very
   // common pattern to capture completion handler parameters by blocks.
   CalledOnceInterProceduralData CalledOnceData;
+
+  // Functions proven to always return non-null. Accumulated across
+  // per-function analyses so that later callers within the same TU
+  // can narrow the returned pointer.
+  llvm::DenseSet<const FunctionDecl *> AllReturnsNonnullFuncs;
 };
 
 template <typename... Ts>
@@ -2963,9 +2969,14 @@ static bool shouldSuggestUnsafeBufferUsageSuggestions(const Sema &S) {
 namespace {
 class FlowNullabilityReporter : public FlowNullabilityHandler {
   Sema &S;
+  // Shared cross-function set of functions proven to always return
+  // non-null. Owned by InterProceduralData, persists across calls.
+  llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs;
 
 public:
-  FlowNullabilityReporter(Sema &S) : S(S) {}
+  FlowNullabilityReporter(Sema &S,
+                          llvm::DenseSet<const FunctionDecl *> &NonnullFuncs)
+      : S(S), AllReturnsNonnullFuncs(NonnullFuncs) {}
 
   void handleNullableDereference(const Expr *DerefExpr,
                                  QualType PtrType) override {
@@ -3017,6 +3028,18 @@ public:
                           : diag::remark_nullsafe_return_evidence_nullable;
     S.Diag(RetExpr->getExprLoc(), DiagID)
         << Func->getNameAsString() << Func->getParent();
+  }
+
+  void handleAllReturnsNonnull(const FunctionDecl *Func) override {
+    AllReturnsNonnullFuncs.insert(Func->getCanonicalDecl());
+    S.Diag(Func->getLocation(), diag::remark_nullsafe_all_returns_nonnull)
+        << Func->getNameAsString();
+  }
+
+  bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const override {
+    if (!Func)
+      return false;
+    return AllReturnsNonnullFuncs.contains(Func->getCanonicalDecl());
   }
 };
 } // anonymous namespace
@@ -3211,7 +3234,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     }
     if (FlowNullabilityForFunc && AC.getCFG()) {
       llvm::TimeTraceScope TimeProfile("FlowNullabilityAnalysis");
-      FlowNullabilityReporter Reporter(S);
+      FlowNullabilityReporter Reporter(S, IPData->AllReturnsNonnullFuncs);
       NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
       bool StrictMode = (Default != NullabilityKind::Unspecified);
       runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default);

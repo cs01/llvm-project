@@ -51,6 +51,19 @@ public:
   /// \p IsNonnull is true if the returned expression is provably non-null.
   virtual void handleReturnEvidence(const Expr *RetExpr,
                                     const FunctionDecl *Func, bool IsNonnull) {}
+
+  /// Summary evidence: called after the dataflow fixpoint when every
+  /// return path in the function returns a provably non-null expression
+  /// (address-of, this, new, narrowed var, etc.). Enables callers to
+  /// treat the function's return as implicitly _Nonnull.
+  virtual void handleAllReturnsNonnull(const FunctionDecl *Func) {}
+
+  /// Query: has this function been previously analyzed and found to have
+  /// all-returns-nonnull? Used by callers within the same TU to narrow
+  /// returned pointers. Returns false by default (conservative).
+  virtual bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const {
+    return false;
+  }
 };
 
 void runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
