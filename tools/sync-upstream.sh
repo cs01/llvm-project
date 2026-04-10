@@ -5,14 +5,16 @@
 # docs, benchmarks, etc.) are excluded.
 #
 # Usage:
-#   ./tools/sync-upstream.sh            # rebuild, push, and return to dev branch
+#   ./tools/sync-upstream.sh            # rebuild to -wip branch, push, return to dev
+#   ./tools/sync-upstream.sh --pr       # rebuild to nullsafe-upstream (updates the llvm PR!)
 #   ./tools/sync-upstream.sh --dry-run  # show what would be included without creating the branch
 #   ./tools/sync-upstream.sh --no-push  # rebuild but don't push
 
 set -euo pipefail
 
 DEV_BRANCH="nullsafe-clang-dev"
-UPSTREAM_BRANCH="nullsafe-upstream"
+# default to -wip so we don't accidentally update the llvm PR
+UPSTREAM_BRANCH="nullsafe-upstream-wip"
 # Use the commit where nullsafe-clang-dev diverged from llvm/main.
 # This ensures CI builds against the same upstream code we developed on.
 BASE_REF="$(git merge-base llvm/main "$DEV_BRANCH")"
@@ -23,6 +25,7 @@ for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
         --no-push) NO_PUSH=true ;;
+        --pr) UPSTREAM_BRANCH="nullsafe-upstream" ;;
     esac
 done
 
