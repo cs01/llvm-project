@@ -3053,7 +3053,7 @@ public:
 };
 
 /// Check whether a Decl should be analyzed for flow-sensitive nullability.
-/// Handles both FunctionDecl and ObjCMethodDecl.
+/// Handles FunctionDecl, ObjCMethodDecl, and BlockDecl (ObjC/C blocks).
 static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
                                      NullabilityKind Default) {
   if (!D)
@@ -3066,6 +3066,9 @@ static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
   } else if (const auto *MD = dyn_cast<ObjCMethodDecl>(D)) {
     if (MD->hasBody())
       Def = MD;
+  } else if (const auto *BD = dyn_cast<BlockDecl>(D)) {
+    // Blocks always have a body if they appear in the call graph.
+    Def = BD;
   }
   if (!Def || Def->isInvalidDecl())
     return nullptr;
@@ -3087,8 +3090,8 @@ static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
       if (!S.functionHasNullabilityAnnotations(FD))
         return nullptr;
     }
-    // ObjC methods in nullability-audited regions get annotations baked in
-    // during parsing, so checking the method's type suffices.
+    // ObjC methods and blocks in nullability-audited regions get annotations
+    // baked in during parsing, so checking their types suffices.
   }
   return Def;
 }
