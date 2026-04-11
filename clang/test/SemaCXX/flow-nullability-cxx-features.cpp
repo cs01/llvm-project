@@ -41,7 +41,7 @@ void template_deref_nonnull(T * _Nonnull p) {
 
 void template_test_functions() {
     Node * _Nullable n = getNode();
-    template_deref_unchecked(n); // expected-note{{in instantiation of function template specialization 'template_deref_unchecked<Node>' requested here}}
+    template_deref_unchecked(n);
     template_deref_guarded(n);
     template_deref_nonnull(getSafeNode());
 }
@@ -64,7 +64,7 @@ struct Wrapper {
 
 void template_test_class() {
     Wrapper<Node> w;
-    w.use_unchecked(); // expected-note{{in instantiation of member function 'Wrapper<Node>::use_unchecked' requested here}}
+    w.use_unchecked();
     w.use_guarded();
 }
 
@@ -77,7 +77,7 @@ void template_mixed_nullability(T * _Nonnull safe, T * _Nullable risky) {
 }
 
 void template_test_mixed() {
-    template_mixed_nullability(getSafeNode(), getNode()); // expected-note{{in instantiation of function template specialization 'template_mixed_nullability<Node>' requested here}}
+    template_mixed_nullability(getSafeNode(), getNode());
 }
 
 // === Template that narrows then uses ===
