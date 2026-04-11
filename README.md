@@ -79,7 +79,7 @@ int deref(int * _Nullable p) {
 | Runs in IDE (clangd) | ✅ | ❌ | ✅ |
 | Fast enough for every build | ✅ | ❌ ([41x slower on real code](PERFORMANCE.md#csa-comparison-on-real-code)) | ✅ |
 | No test coverage required | ✅ | ✅ | ✅ |
-| Cross-function reasoning | — | ✅ | Partial (via annotations + narrowing) |
+| Cross-function reasoning | — | ✅ | ✅ intra-TU (call graph + annotations) |
 | Compile-time cost | Zero | Separate pass | [0.2-8%](PERFORMANCE.md#direct-measurement-via--ftime-trace) |
 
 Nullsafe Clang runs **inside the compiler** as a fast forward dataflow pass — same architecture as `-Wthread-safety`. It works in clangd, runs on every build, and catches bugs on unannotated code with `-fnullability-default=nullable`. On [real-world code (LLVM/Clang)](PERFORMANCE.md#real-world-benchmarks-llvmclang), the analysis accounts for 0.2-8% of compile time (median ~2%) — comparable to `-Wuninitialized`, and 41x faster than the Clang Static Analyzer. Compare all three in the **[interactive playground](https://cs01.github.io/llvm-project/)**.
@@ -173,18 +173,22 @@ While the core analysis is intraprocedural, nullsafe supports several mechanisms
 
 - **`_Nonnull` parameter narrowing** — passing a pointer to a function parameter marked `_Nonnull` narrows the pointer to non-null after the call. If the function requires `_Nonnull` and your code survived the call, the pointer was non-null.
 - **Member pointer narrowing** — null checks on `this->member` persist across the function body. After `if (ptr->field)`, dereferences through `field` are clean.
-- **Intra-TU all-returns-nonnull inference** — when the analysis finishes a function and every return path was provably non-null, it records that fact. Later functions in the same translation unit that call it automatically narrow the return value to non-null — no annotation needed. This is order-dependent: the callee must appear before the caller in the file.
+- **Intra-TU all-returns-nonnull inference** — the analysis runs over the entire translation unit using call-graph ordering (Tarjan's SCC algorithm). Callees are always analyzed before their callers, regardless of source order. When every return path in a function is provably non-null, callers automatically narrow the return value — no annotation needed, no source-order dependence.
 
 ```cpp
+// Caller defined first — still works because the analysis uses call-graph
+// order, not source order.
+void use() {
+    Widget* w = make_widget();  // narrowed to nonnull
+    w->render();                // no warning
+}
+
 Widget* make_widget() {
     return new Widget();  // always non-null (throwing new)
 }
-
-void use() {
-    Widget* w = make_widget();  // narrowed to nonnull — make_widget was already analyzed
-    w->render();                // no warning
-}
 ```
+
+Mutually recursive functions are detected as strongly connected components (SCCs) and conservatively excluded from all-returns-nonnull inference — the analysis would need fixpoint iteration within the SCC to get it right. Warnings for individual dereferences within recursive functions are still emitted normally.
 
 - **`_Nonnull` parameter narrowing example:**
 
@@ -208,7 +212,7 @@ External tooling can aggregate these remarks across translation units to automat
 
 ## Limitations
 
-- **No call graph analysis** — does not look inside called functions at the compiler level. Cross-function contracts are expressed with `_Nonnull`/`_Nullable` annotations, which the analysis respects and narrows through.
+- **Intra-TU only** — call-graph-based inference works within a single translation unit. Cross-TU contracts are expressed with `_Nonnull`/`_Nullable` annotations (which can be inferred via `-Rnullsafe-evidence` remarks and external tooling).
 - **Null safety only** — doesn't catch buffer overflows, use-after-free, or other memory bugs.
 - **Known false positives** — `reinterpret_cast` results are always treated as nullable (even `reinterpret_cast<T*>(this)`).
 
