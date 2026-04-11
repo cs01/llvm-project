@@ -55,6 +55,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
@@ -2972,11 +2973,17 @@ class FlowNullabilityReporter : public FlowNullabilityHandler {
   // Shared cross-function set of functions proven to always return
   // non-null. Owned by InterProceduralData, persists across calls.
   llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs;
+  // When true, skip writing to AllReturnsNonnullFuncs (used for recursive
+  // SCCs where we can't reliably infer all-returns-nonnull without a
+  // fixpoint, but still want to read existing results and emit warnings).
+  bool SuppressInference = false;
 
 public:
   FlowNullabilityReporter(Sema &S,
-                          llvm::DenseSet<const FunctionDecl *> &NonnullFuncs)
-      : S(S), AllReturnsNonnullFuncs(NonnullFuncs) {}
+                          llvm::DenseSet<const FunctionDecl *> &NonnullFuncs,
+                          bool SuppressInference = false)
+      : S(S), AllReturnsNonnullFuncs(NonnullFuncs),
+        SuppressInference(SuppressInference) {}
 
   void handleNullableDereference(const Expr *DerefExpr,
                                  QualType PtrType) override {
@@ -3031,6 +3038,8 @@ public:
   }
 
   void handleAllReturnsNonnull(const FunctionDecl *Func) override {
+    if (SuppressInference)
+      return;
     AllReturnsNonnullFuncs.insert(Func->getCanonicalDecl());
     S.Diag(Func->getLocation(), diag::remark_nullsafe_all_returns_nonnull)
         << Func->getNameAsString();
@@ -3043,10 +3052,55 @@ public:
   }
 };
 
-/// Run flow-sensitive nullability analysis over the entire TU using call-graph
-/// ordering (post-order: callees before callers). This ensures that
+/// Check whether a Decl should be analyzed for flow-sensitive nullability.
+/// Handles both FunctionDecl and ObjCMethodDecl.
+static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
+                                     NullabilityKind Default) {
+  if (!D)
+    return nullptr;
+
+  // Get the definition — we need a body to analyze.
+  const Decl *Def = nullptr;
+  if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
+    Def = FD->getDefinition();
+  } else if (const auto *MD = dyn_cast<ObjCMethodDecl>(D)) {
+    if (MD->hasBody())
+      Def = MD;
+  }
+  if (!Def || Def->isInvalidDecl())
+    return nullptr;
+
+  // Skip dependent contexts (uninstantiated templates).
+  if (Def->getDeclContext()->isDependentContext())
+    return nullptr;
+
+  // Skip system headers.
+  DiagnosticsEngine &Diags = S.getDiagnostics();
+  if (Diags.getSuppressSystemWarnings() &&
+      S.SourceMgr.isInSystemHeader(Def->getLocation()))
+    return nullptr;
+
+  // Opt-in: only analyze if -fnullability-default is set, or the function
+  // has explicit nullability annotations.
+  if (Default == NullabilityKind::Unspecified) {
+    if (const auto *FD = dyn_cast<FunctionDecl>(Def)) {
+      if (!S.functionHasNullabilityAnnotations(FD))
+        return nullptr;
+    }
+    // ObjC methods in nullability-audited regions get annotations baked in
+    // during parsing, so checking the method's type suffices.
+  }
+  return Def;
+}
+
+/// Run flow-sensitive nullability analysis over the entire TU using SCC-based
+/// call-graph ordering (callees before callers). This ensures that
 /// all-returns-nonnull inference is order-independent — a callee defined after
 /// its caller still gets analyzed first.
+///
+/// Uses scc_iterator (Tarjan's algorithm) instead of plain post_order so we
+/// can detect mutually recursive SCCs and skip all-returns-nonnull inference
+/// for them (conservative but correct).
 static void FlowNullabilityTUAnalysis(
     Sema &S, TranslationUnitDecl *TU,
     llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs) {
@@ -3058,36 +3112,36 @@ static void FlowNullabilityTUAnalysis(
   NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
   bool StrictMode = (Default != NullabilityKind::Unspecified);
 
-  for (auto *Node : llvm::post_order(&CG)) {
-    const FunctionDecl *CanonicalFD =
-        dyn_cast_or_null<FunctionDecl>(Node->getDecl());
-    if (!CanonicalFD)
-      continue;
-    const FunctionDecl *FD = CanonicalFD->getDefinition();
-    if (!FD || FD->isInvalidDecl())
-      continue;
+  // scc_iterator visits SCCs in reverse topological order: if SCC A calls
+  // into SCC B, B is visited first. Within each SCC, we analyze all
+  // functions (warnings are still correct), but skip nonnull-return
+  // inference for non-trivial SCCs (mutual recursion).
+  for (auto SCCI = llvm::scc_begin(&CG); !SCCI.isAtEnd(); ++SCCI) {
+    const auto &SCC = *SCCI;
+    bool IsRecursive = SCCI.hasCycle();
 
-    // Skip dependent contexts (templates that haven't been instantiated).
-    if (FD->isDependentContext())
-      continue;
+    for (auto *Node : SCC) {
+      const Decl *Def = getAnalyzableDecl(Node->getDecl(), S, Default);
+      if (!Def)
+        continue;
 
-    // Skip system headers.
-    DiagnosticsEngine &Diags = S.getDiagnostics();
-    if (Diags.getSuppressSystemWarnings() &&
-        S.SourceMgr.isInSystemHeader(FD->getLocation()))
-      continue;
+      AnalysisDeclContext AC(nullptr, Def);
+      AC.getCFGBuildOptions().setAllAlwaysAdd();
+      if (!AC.getCFG())
+        continue;
 
-    // Opt-in check: only analyze functions that have opted into nullability
-    // via -fnullability-default, or have explicit annotations.
-    bool ShouldAnalyze = (Default != NullabilityKind::Unspecified) ||
-                         S.functionHasNullabilityAnnotations(FD);
-    if (!ShouldAnalyze)
-      continue;
-
-    AnalysisDeclContext AC(nullptr, FD);
-    AC.getCFGBuildOptions().setAllAlwaysAdd();
-    if (AC.getCFG())
-      runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default);
+      if (IsRecursive) {
+        // For recursive SCCs: run the analysis (warnings are still valid)
+        // but suppress all-returns-nonnull inference. The reporter still
+        // reads from AllReturnsNonnullFuncs so non-recursive callees that
+        // were already proven nonnull are still used for narrowing.
+        FlowNullabilityReporter SCCReporter(S, AllReturnsNonnullFuncs,
+                                            /*SuppressInference=*/true);
+        runFlowNullabilityAnalysis(AC, SCCReporter, StrictMode, Default);
+      } else {
+        runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default);
+      }
+    }
   }
 }
 
@@ -3139,8 +3193,16 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
 
   // Flow-sensitive nullability: analyze the whole TU in call-graph order
   // so that all-returns-nonnull inference works regardless of source order.
+  // Check all nullsafe warning groups — any one being enabled is enough.
   if (S.getLangOpts().FlowSensitiveNullability &&
-      !Diags.isIgnored(diag::warn_flow_nullable_dereference, SourceLocation()))
+      (!Diags.isIgnored(diag::warn_flow_nullable_dereference,
+                        SourceLocation()) ||
+       !Diags.isIgnored(diag::warn_flow_nullable_arithmetic,
+                        SourceLocation()) ||
+       !Diags.isIgnored(diag::warn_flow_nullable_return, SourceLocation()) ||
+       !Diags.isIgnored(diag::warn_flow_nullable_assignment,
+                        SourceLocation()) ||
+       !Diags.isIgnored(diag::warn_flow_nullable_argument, SourceLocation())))
     FlowNullabilityTUAnalysis(S, TU, IPData->AllReturnsNonnullFuncs);
 }
 
