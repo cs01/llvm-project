@@ -3042,6 +3042,55 @@ public:
     return AllReturnsNonnullFuncs.contains(Func->getCanonicalDecl());
   }
 };
+
+/// Run flow-sensitive nullability analysis over the entire TU using call-graph
+/// ordering (post-order: callees before callers). This ensures that
+/// all-returns-nonnull inference is order-independent — a callee defined after
+/// its caller still gets analyzed first.
+static void FlowNullabilityTUAnalysis(
+    Sema &S, TranslationUnitDecl *TU,
+    llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs) {
+  llvm::TimeTraceScope TimeProfile("FlowNullabilityTUAnalysis");
+  CallGraph CG;
+  CG.addToCallGraph(TU);
+
+  FlowNullabilityReporter Reporter(S, AllReturnsNonnullFuncs);
+  NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
+  bool StrictMode = (Default != NullabilityKind::Unspecified);
+
+  for (auto *Node : llvm::post_order(&CG)) {
+    const FunctionDecl *CanonicalFD =
+        dyn_cast_or_null<FunctionDecl>(Node->getDecl());
+    if (!CanonicalFD)
+      continue;
+    const FunctionDecl *FD = CanonicalFD->getDefinition();
+    if (!FD || FD->isInvalidDecl())
+      continue;
+
+    // Skip dependent contexts (templates that haven't been instantiated).
+    if (FD->isDependentContext())
+      continue;
+
+    // Skip system headers.
+    DiagnosticsEngine &Diags = S.getDiagnostics();
+    if (Diags.getSuppressSystemWarnings() &&
+        S.SourceMgr.isInSystemHeader(FD->getLocation()))
+      continue;
+
+    // Opt-in check: only analyze functions that have opted into nullability
+    // via -fnullability-default, or have explicit annotations.
+    bool ShouldAnalyze = (Default != NullabilityKind::Unspecified) ||
+                         S.functionHasNullabilityAnnotations(FD);
+    if (!ShouldAnalyze)
+      continue;
+
+    AnalysisDeclContext AC(nullptr, FD);
+    AC.getCFGBuildOptions().setAllAlwaysAdd();
+    if (AC.getCFG())
+      runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default);
+  }
+}
+
 } // anonymous namespace
 
 void clang::sema::AnalysisBasedWarnings::IssueWarnings(
@@ -3087,6 +3136,12 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   if (S.getLangOpts().CPlusPlus &&
       S.getLangOpts().EnableLifetimeSafetyTUAnalysis)
     LifetimeSafetyTUAnalysis(S, TU, LSStats);
+
+  // Flow-sensitive nullability: analyze the whole TU in call-graph order
+  // so that all-returns-nonnull inference works regardless of source order.
+  if (S.getLangOpts().FlowSensitiveNullability &&
+      !Diags.isIgnored(diag::warn_flow_nullable_dereference, SourceLocation()))
+    FlowNullabilityTUAnalysis(S, TU, IPData->AllReturnsNonnullFuncs);
 }
 
 void clang::sema::AnalysisBasedWarnings::IssueWarnings(
@@ -3144,13 +3199,8 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   // prototyping, but we need a way for analyses to say what expressions they
   // expect to always be CFGElements and then fill in the BuildOptions
   // appropriately.  This is essentially a layering violation.
-  bool EnableFlowNullability =
-      S.getLangOpts().FlowSensitiveNullability &&
-      !Diags.isIgnored(diag::warn_flow_nullable_dereference, D->getBeginLoc());
-
   if (P.enableCheckUnreachable || P.enableThreadSafetyAnalysis ||
-      P.enableConsumedAnalysis || EnableLifetimeSafetyAnalysis ||
-      EnableFlowNullability) {
+      P.enableConsumedAnalysis || EnableLifetimeSafetyAnalysis) {
     // These analyses require a linearized CFG with all statements visible.
     AC.getCFGBuildOptions().setAllAlwaysAdd();
   } else {
@@ -3219,27 +3269,9 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     Reporter.emitDiagnostics();
   }
 
-  // Gradual adoption: only run flow-sensitive nullability when the function
-  // opts in — either via -fnullability-default, an active assume_nonnull
-  // pragma, or explicit nullability annotations on the function signature.
-  // Computed here (not stored on Sema) to avoid scoping bugs when lambda
-  // bodies interleave with the enclosing function's processing.
-  if (EnableFlowNullability) {
-    bool FlowNullabilityForFunc = S.getLangOpts().getNullabilityDefault() !=
-                                      NullabilityKind::Unspecified ||
-                                  S.PP.getPragmaAssumeNonNullLoc().isValid();
-    if (!FlowNullabilityForFunc) {
-      if (const auto *FD = dyn_cast<FunctionDecl>(D))
-        FlowNullabilityForFunc = S.functionHasNullabilityAnnotations(FD);
-    }
-    if (FlowNullabilityForFunc && AC.getCFG()) {
-      llvm::TimeTraceScope TimeProfile("FlowNullabilityAnalysis");
-      FlowNullabilityReporter Reporter(S, IPData->AllReturnsNonnullFuncs);
-      NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
-      bool StrictMode = (Default != NullabilityKind::Unspecified);
-      runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default);
-    }
-  }
+  // Flow-sensitive nullability now runs as a TU-level analysis in
+  // call-graph order (see FlowNullabilityTUAnalysis). This ensures
+  // all-returns-nonnull inference works regardless of source order.
 
   // Check for violations of consumed properties.
   if (P.enableConsumedAnalysis) {
