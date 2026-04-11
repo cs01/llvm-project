@@ -1,0 +1,141 @@
+// Tests that all-returns-nonnull inference works regardless of source order.
+// The TU-level call-graph analysis processes callees before callers, so a
+// function defined AFTER its caller still gets analyzed first.
+//
+// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 -Rnullsafe-evidence %s -verify
+
+// ===----------------------------------------------------------------------===//
+// Common types
+// ===----------------------------------------------------------------------===//
+
+struct Widget {
+    int x;
+};
+
+// ===----------------------------------------------------------------------===//
+// Order-independence: caller BEFORE callee
+// ===----------------------------------------------------------------------===//
+
+// Forward declaration only — definition comes later.
+Widget *make_widget();
+
+// Caller appears first in the file. Without call-graph ordering, the analysis
+// wouldn't know make_widget always returns nonnull at this point.
+void use_widget() {
+    Widget *w = make_widget();
+    w->x = 42; // OK - make_widget always returns nonnull (analyzed via call graph)
+}
+
+// Callee defined after its caller.
+Widget *make_widget() { // expected-remark{{function 'make_widget' always returns a non-null pointer}}
+    return new Widget(); // expected-remark{{function 'make_widget' of the global namespace returns nonnull}}
+}
+
+// ===----------------------------------------------------------------------===//
+// Transitive: A calls B calls C, all defined in reverse order
+// ===----------------------------------------------------------------------===//
+
+Widget *create();
+Widget *wrap_create();
+
+// A uses wrap_create (which uses create) — both defined below.
+void top_level_user() {
+    Widget *w = wrap_create();
+    w->x = 1; // OK - transitive nonnull through call graph
+}
+
+Widget *wrap_create() { // expected-remark{{function 'wrap_create' always returns a non-null pointer}}
+    return create(); // expected-remark{{function 'wrap_create' of the global namespace returns nonnull}}
+}
+
+Widget *create() { // expected-remark{{function 'create' always returns a non-null pointer}}
+    return new Widget(); // expected-remark{{function 'create' of the global namespace returns nonnull}}
+}
+
+// ===----------------------------------------------------------------------===//
+// Methods: caller uses method defined later in the class
+// ===----------------------------------------------------------------------===//
+
+struct Factory {
+    Widget widget;
+
+    // Caller method — uses getWidget defined below.
+    void use() {
+        Widget *w = getWidget();
+        w->x = 10; // OK - getWidget always returns nonnull
+    }
+
+    Widget *getWidget() { // expected-remark{{function 'getWidget' always returns a non-null pointer}}
+        return &widget; // expected-remark{{function 'getWidget' of 'Factory' returns nonnull}}
+    }
+};
+
+// ===----------------------------------------------------------------------===//
+// Mixed: some callers before, some after — all should work
+// ===----------------------------------------------------------------------===//
+
+Widget *singleton();
+
+void early_caller() {
+    Widget *w = singleton();
+    w->x = 1; // OK
+}
+
+Widget *singleton() { // expected-remark{{function 'singleton' always returns a non-null pointer}}
+    static Widget instance;
+    return &instance; // expected-remark{{function 'singleton' of the global namespace returns nonnull}}
+}
+
+void late_caller() {
+    Widget *w = singleton();
+    w->x = 2; // OK
+}
+
+// ===----------------------------------------------------------------------===//
+// Negative: function that DOES return null should still warn callers
+// ===----------------------------------------------------------------------===//
+
+Widget *maybe_null(bool flag);
+
+void caller_of_maybe_null() {
+    Widget *w = maybe_null(true);
+    w->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+Widget *maybe_null(bool flag) {
+    if (flag)
+        return new Widget(); // expected-remark{{returns nonnull}}
+    return nullptr; // expected-remark{{returns nullable}}
+}
+
+// ===----------------------------------------------------------------------===//
+// Recursive functions: can't infer all-returns-nonnull for recursive cycles,
+// but should not crash or infinite loop
+// ===----------------------------------------------------------------------===//
+
+struct ListNode {
+    int val;
+    ListNode * _Nullable next;
+};
+
+// Mutually recursive — neither should get all-returns-nonnull
+ListNode *find_even(ListNode *_Nullable head);
+ListNode *find_odd(ListNode *_Nullable head);
+
+ListNode *find_even(ListNode *_Nullable head) {
+    if (!head) return nullptr; // expected-remark{{returns nullable}}
+    if (head->val % 2 == 0) return head; // expected-remark{{returns nonnull}}
+    return find_odd(head->next); // expected-remark{{returns nullable}}
+}
+
+ListNode *find_odd(ListNode *_Nullable head) {
+    if (!head) return nullptr; // expected-remark{{returns nullable}}
+    if (head->val % 2 != 0) return head; // expected-remark{{returns nonnull}}
+    return find_even(head->next); // expected-remark{{returns nullable}}
+}
+
+// Callers of recursive functions should still warn
+void use_recursive(ListNode *_Nullable head) {
+    ListNode *n = find_even(head);
+    n->val = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
