@@ -52,6 +52,14 @@ public:
   virtual void handleReturnEvidence(const Expr *RetExpr,
                                     const FunctionDecl *Func, bool IsNonnull) {}
 
+  /// Evidence collection: called when a pointer argument is passed to a
+  /// function parameter. \p IsNonnull is true if the argument is provably
+  /// non-null at the call site.
+  virtual void handleParameterEvidence(const Expr *ArgExpr,
+                                       const ParmVarDecl *Param,
+                                       const FunctionDecl *Func,
+                                       bool IsNonnull) {}
+
   /// Summary evidence: called after the dataflow fixpoint when every
   /// return path in the function returns a provably non-null expression
   /// (address-of, this, new, narrowed var, etc.). Enables callers to

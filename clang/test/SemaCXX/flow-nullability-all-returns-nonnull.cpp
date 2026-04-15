@@ -93,13 +93,13 @@ int getInt() { return 42; }
 
 // Free function call via variable init
 void caller_via_var(Widget *_Nonnull w) {
-    Node *n = getNode(w);
+    Node *n = getNode(w); // expected-remark{{parameter 'w' of 'getNode' called with nonnull argument}}
     n->value = 1; // OK - getNode always returns nonnull
 }
 
 // Free function call, direct arrow deref (no intermediate variable)
 void caller_direct_arrow(Widget *_Nonnull w) {
-    getNode(w)->value = 1; // OK - getNode always returns nonnull
+    getNode(w)->value = 1; // OK - getNode always returns nonnull // expected-remark{{parameter 'w' of 'getNode' called with nonnull argument}}
 }
 
 // Method returning this
@@ -117,13 +117,13 @@ void caller_new() {
 
 // Multi-return, all nonnull
 void caller_multi_return(Widget *_Nonnull w) {
-    Node *n = getNodeOrNew(w, true);
+    Node *n = getNodeOrNew(w, true); // expected-remark{{parameter 'w' of 'getNodeOrNew' called with nonnull argument}}
     n->value = 1; // OK - all returns are nonnull
 }
 
 // NOT all-returns-nonnull — should still warn
 void caller_nullable_still_warns(Widget *_Nonnull w) {
-    Node *n = getNodeOrNull(w, true);
+    Node *n = getNodeOrNull(w, true); // expected-remark{{parameter 'w' of 'getNodeOrNull' called with nonnull argument}}
     n->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
@@ -194,7 +194,7 @@ Node *getNarrowed(Node *p) { // expected-remark{{function 'getNarrowed' always r
 }
 
 void caller_narrowed() {
-    Node *n = getNarrowed(nullptr);
+    Node *n = getNarrowed(nullptr); // expected-remark{{parameter 'p' of 'getNarrowed' called with nullable argument}}
     n->value = 1; // OK - getNarrowed always returns nonnull
 }
 

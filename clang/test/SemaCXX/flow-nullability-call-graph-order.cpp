@@ -125,17 +125,17 @@ ListNode *find_odd(ListNode *_Nullable head);
 ListNode *find_even(ListNode *_Nullable head) {
     if (!head) return nullptr; // expected-remark{{returns nullable}}
     if (head->val % 2 == 0) return head; // expected-remark{{returns nonnull}}
-    return find_odd(head->next); // expected-remark{{returns nullable}}
+    return find_odd(head->next); // expected-remark{{returns nullable}} expected-remark{{parameter 'head' of 'find_odd' called with nullable argument}}
 }
 
 ListNode *find_odd(ListNode *_Nullable head) {
     if (!head) return nullptr; // expected-remark{{returns nullable}}
     if (head->val % 2 != 0) return head; // expected-remark{{returns nonnull}}
-    return find_even(head->next); // expected-remark{{returns nullable}}
+    return find_even(head->next); // expected-remark{{returns nullable}} expected-remark{{parameter 'head' of 'find_even' called with nullable argument}}
 }
 
 // Callers of recursive functions should still warn
 void use_recursive(ListNode *_Nullable head) {
-    ListNode *n = find_even(head);
+    ListNode *n = find_even(head); // expected-remark{{parameter 'head' of 'find_even' called with nullable argument}}
     n->val = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
