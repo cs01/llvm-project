@@ -3037,6 +3037,15 @@ public:
         << Func->getNameAsString() << Func->getParent();
   }
 
+  void handleParameterEvidence(const Expr *ArgExpr, const ParmVarDecl *Param,
+                               const FunctionDecl *Func,
+                               bool IsNonnull) override {
+    unsigned DiagID = IsNonnull ? diag::remark_nullsafe_param_evidence_nonnull
+                                : diag::remark_nullsafe_param_evidence_nullable;
+    S.Diag(ArgExpr->getExprLoc(), DiagID)
+        << Param->getName() << Func->getNameAsString();
+  }
+
   void handleAllReturnsNonnull(const FunctionDecl *Func) override {
     if (SuppressInference)
       return;

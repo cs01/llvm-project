@@ -13101,6 +13101,12 @@ def remark_nullsafe_return_evidence_nonnull : Remark<
 def remark_nullsafe_return_evidence_nullable : Remark<
   "function '%0' of %1 returns nullable">,
   InGroup<NullsafeEvidence>;
+def remark_nullsafe_param_evidence_nonnull : Remark<
+  "parameter '%0' of '%1' called with nonnull argument">,
+  InGroup<NullsafeEvidence>;
+def remark_nullsafe_param_evidence_nullable : Remark<
+  "parameter '%0' of '%1' called with nullable argument">,
+  InGroup<NullsafeEvidence>;
 def remark_nullsafe_all_returns_nonnull : Remark<
   "function '%0' always returns a non-null pointer">,
   InGroup<NullsafeEvidence>;
