@@ -202,13 +202,34 @@ p->render();               // no warning — p is proven non-null by the call ab
 
 ### Evidence remarks for cross-TU annotation inference
 
-The compiler can emit `-Rnullsafe-evidence` remarks that report what the analysis observed about each function — whether members are assigned null or non-null, whether returns are nullable, and whether all return paths are provably non-null. These are opt-in diagnostic remarks, not warnings.
+The compiler can emit `-Rnullsafe-evidence` remarks that report what the analysis observed about each function. These are opt-in diagnostic remarks, not warnings.
 
 ```bash
 clang -fflow-sensitive-nullability -Rnullsafe-evidence file.cpp
 ```
 
-External tooling can aggregate these remarks across translation units to automatically infer `_Nonnull`/`_Nullable` annotations for headers, enabling cross-TU null safety without manual annotation of every function.
+Three kinds of evidence are emitted:
+
+| Evidence | Remark format | What it observes |
+|---|---|---|
+| **Member assignment** | `member 'X' of 'Y' assigned from nonnull source` | How class members are initialized/assigned |
+| **Function return** | `function 'X' of 'Y' returns nonnull` | What functions return across all paths |
+| **Parameter call-site** | `parameter 'X' of 'Y' called with nonnull argument` | What callers pass to function parameters |
+
+External tooling can aggregate these remarks across translation units to automatically infer `_Nonnull`/`_Nullable` annotations for headers. If a parameter is always called with nonnull arguments across thousands of files, it should be annotated `_Nonnull` — eliminating downstream false-positive warnings without manual annotation.
+
+### Built-in STL nullability knowledge
+
+The analysis has built-in knowledge that certain C++ standard library methods always return non-null pointers:
+
+- `std::vector::data()`, `begin()`, `end()`
+- `std::basic_string::c_str()`, `data()`, `begin()`, `end()`
+- `std::basic_string_view::begin()`, `end()` (but NOT `data()` — intentionally nullable since `string_view` can be constructed from `nullptr`)
+- `std::optional::operator->()` (undefined behavior if empty, so nonnull contract)
+- `std::array::data()`, `begin()`, `end()`
+- `std::span::data()`, `begin()`, `end()`
+
+This eliminates false-positive warnings from STL usage without requiring header annotations.
 
 ## Limitations
 
