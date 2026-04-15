@@ -270,6 +270,78 @@ static bool isMakeSmartPtrCall(const Expr *E) {
   return false;
 }
 
+/// Check if a call expression is to a known STL method that always returns
+/// a non-null pointer. This is the compiler-side allowlist for C++ standard
+/// library methods whose return types are unannotated but are contractually
+/// nonnull. Template overlay headers can't redeclare these methods, so
+/// the flow analysis recognizes them directly.
+///
+/// Recognized methods:
+///   std::vector::data(), begin(), end()
+///   std::basic_string::c_str(), data(), begin(), end()
+///   std::basic_string_view::begin(), end()
+///   std::optional::operator->()
+///   std::array::data(), begin(), end()
+///   std::span::data(), begin(), end()
+static bool isStlNonnullReturnCall(const CallExpr *CE) {
+  const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE);
+  if (!MCE)
+    return false;
+  const auto *MD = MCE->getMethodDecl();
+  if (!MD)
+    return false;
+  // The method must return a pointer type.
+  if (!MD->getReturnType()->isPointerType())
+    return false;
+  const auto *RD = MD->getParent();
+  if (!RD)
+    return false;
+  const auto *DC = RD->getDeclContext();
+  if (!DC || !DC->isStdNamespace())
+    return false;
+  StringRef ClassName = RD->getName();
+
+  // Get method name. For regular identifiers use getName(); for operators
+  // like operator-> check the overloaded operator kind directly.
+  const auto &DeclName = MD->getDeclName();
+  StringRef MethodName;
+  bool IsArrowOp = false;
+  if (DeclName.isIdentifier()) {
+    MethodName = MD->getName();
+  } else if (DeclName.getNameKind() == DeclarationName::CXXOperatorName) {
+    IsArrowOp = (DeclName.getCXXOverloadedOperator() == OO_Arrow);
+  }
+
+  // std::vector<T>::data(), begin(), end()
+  if (ClassName == "vector")
+    return MethodName == "data" || MethodName == "begin" || MethodName == "end";
+
+  // std::basic_string<T>::c_str(), data(), begin(), end()
+  // (covers std::string, std::wstring, etc.)
+  if (ClassName == "basic_string")
+    return MethodName == "c_str" || MethodName == "data" ||
+           MethodName == "begin" || MethodName == "end";
+
+  // std::basic_string_view<T>::begin(), end()
+  // Note: data() is intentionally NOT here — string_view can hold nullptr.
+  if (ClassName == "basic_string_view")
+    return MethodName == "begin" || MethodName == "end";
+
+  // std::optional<T>::operator->() — UB if empty, so caller asserts value
+  if (ClassName == "optional")
+    return IsArrowOp;
+
+  // std::array<T,N>::data(), begin(), end()
+  if (ClassName == "array")
+    return MethodName == "data" || MethodName == "begin" || MethodName == "end";
+
+  // std::span<T>::data(), begin(), end()
+  if (ClassName == "span")
+    return MethodName == "data" || MethodName == "begin" || MethodName == "end";
+
+  return false;
+}
+
 /// Get the VarDecl from a smart pointer expression, if it's a simple
 /// DeclRefExpr to a VarDecl.
 static const VarDecl *getSmartPtrVarDecl(const Expr *E) {
@@ -590,7 +662,10 @@ class TransferFunctions {
       if (UO->getOpcode() == UO_AddrOf)
         return;
     // Call to a function proven to always return non-null — skip.
+    // Also skip known STL methods that contractually return nonnull.
     if (const auto *CE = dyn_cast<CallExpr>(Origin)) {
+      if (isStlNonnullReturnCall(CE))
+        return;
       if (const auto *Callee = CE->getDirectCallee()) {
         if (Handler.isKnownAllReturnsNonnull(Callee))
           return;
@@ -857,8 +932,11 @@ private:
       if (UO->getOpcode() == UO_AddrOf)
         return true;
     }
-    // Call to a function previously proven to always return non-null.
+    // Call to a function previously proven to always return non-null,
+    // or a known STL method that contractually returns nonnull.
     if (const auto *CE = dyn_cast<CallExpr>(Init)) {
+      if (isStlNonnullReturnCall(CE))
+        return true;
       if (const auto *Callee = CE->getDirectCallee()) {
         if (Handler.isKnownAllReturnsNonnull(Callee))
           return true;
@@ -1238,6 +1316,25 @@ private:
           }
         }
       }
+
+      // Emit parameter evidence for cross-TU inference.
+      // Skip builtins/intrinsics and lambdas (unnamed functions).
+      if (!Callee->getBuiltinID() && Callee->getDeclName().isIdentifier()) {
+        for (unsigned I = 0,
+                      N = std::min(CE->getNumArgs(), Callee->getNumParams());
+             I < N; ++I) {
+          const ParmVarDecl *Param = Callee->getParamDecl(I);
+          if (!Param->getType()->isPointerType())
+            continue;
+          // Skip unnamed parameters — no useful evidence without a name.
+          if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
+            continue;
+          const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
+          bool ArgIsNonnull = !isExprNullable(Arg);
+          Handler.handleParameterEvidence(CE->getArg(I), Param, Callee,
+                                          ArgIsNonnull);
+        }
+      }
     }
 
     // Handle sp.reset() / sp.reset(ptr) — CXXMemberCallExpr
@@ -1370,9 +1467,12 @@ private:
     // e.g., static_cast<Base*>(this) should be recognized as nonnull.
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
       return isExprNullable(CE->getSubExpr());
-    // Call to a function proven to always return non-null — not nullable
+    // Call to a function proven to always return non-null, or a known
+    // STL method that contractually returns nonnull — not nullable
     // regardless of the declared return type.
     if (const auto *CE = dyn_cast<CallExpr>(E)) {
+      if (isStlNonnullReturnCall(CE))
+        return false;
       if (const auto *Callee = CE->getDirectCallee()) {
         if (Handler.isKnownAllReturnsNonnull(Callee))
           return false;
@@ -1498,6 +1598,10 @@ public:
   void handleMemberAssignEvidence(const Expr *E, const FieldDecl *M,
                                   bool N) override {
     Inner.handleMemberAssignEvidence(E, M, N);
+  }
+  void handleParameterEvidence(const Expr *E, const ParmVarDecl *P,
+                               const FunctionDecl *F, bool N) override {
+    Inner.handleParameterEvidence(E, P, F, N);
   }
   void handleAllReturnsNonnull(const FunctionDecl *F) override {
     Inner.handleAllReturnsNonnull(F);
