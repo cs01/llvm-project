@@ -1337,6 +1337,21 @@ private:
           Handler.handleParameterEvidence(CE->getArg(I), Param, Callee,
                                           ArgIsNonnull);
         }
+        // Parameters with nullptr default arguments are nullable evidence
+        // even when callers always pass nonnull explicitly — the function
+        // can be called without that argument, receiving nullptr.
+        for (unsigned I = 0, N = Callee->getNumParams(); I < N; ++I) {
+          const ParmVarDecl *Param = Callee->getParamDecl(I);
+          if (!Param->getType()->isPointerType() || !Param->hasDefaultArg())
+            continue;
+          if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
+            continue;
+          const Expr *DefArg = Param->getDefaultArg();
+          if (DefArg && DefArg->isNullPointerConstant(
+                            Ctx, Expr::NPC_ValueDependentIsNotNull))
+            Handler.handleParameterEvidence(DefArg, Param, Callee,
+                                            /*IsNonnull=*/false);
+        }
       }
     }
 
