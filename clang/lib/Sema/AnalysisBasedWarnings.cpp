@@ -3029,6 +3029,22 @@ public:
     return "<unknown>";
   }
 
+  /// Get a printable name for a DeclContext (class name, namespace, or
+  /// "global scope"). Avoids passing a DeclContext* directly to S.Diag()
+  /// which crashes for TranslationUnitDecl.
+  std::string getParentName(const DeclContext *DC) {
+    if (!DC)
+      return "global scope";
+    if (const auto *ND = dyn_cast<NamedDecl>(DC)) {
+      std::string Name = ND->getQualifiedNameAsString();
+      if (!Name.empty())
+        return Name;
+    }
+    if (isa<TranslationUnitDecl>(DC))
+      return "global scope";
+    return "anonymous scope";
+  }
+
   void handleMemberAssignEvidence(const Expr *AssignExpr,
                                   const FieldDecl *Member,
                                   bool IsNonnull) override {
@@ -3036,7 +3052,8 @@ public:
                           ? diag::remark_nullsafe_member_evidence_nonnull
                           : diag::remark_nullsafe_member_evidence_nullable;
     S.Diag(AssignExpr->getExprLoc(), DiagID)
-        << Member->getName() << Member->getParent() << getDeclLocStr(Member);
+        << Member->getName() << getParentName(Member->getParent())
+        << getDeclLocStr(Member);
   }
 
   void handleReturnEvidence(const Expr *RetExpr, const FunctionDecl *Func,
@@ -3045,7 +3062,8 @@ public:
                           ? diag::remark_nullsafe_return_evidence_nonnull
                           : diag::remark_nullsafe_return_evidence_nullable;
     S.Diag(RetExpr->getExprLoc(), DiagID)
-        << Func->getNameAsString() << Func->getParent() << getDeclLocStr(Func);
+        << Func->getNameAsString() << getParentName(Func->getParent())
+        << getDeclLocStr(Func);
   }
 
   void handleParameterEvidence(const Expr *ArgExpr, const ParmVarDecl *Param,
