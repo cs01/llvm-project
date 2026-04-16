@@ -27,26 +27,26 @@ struct Widget {
 
 // --- Pattern 1: return address-of member (free function) ---
 Node *getNode(Widget *_Nonnull w) { // expected-remark{{function 'getNode' always returns a non-null pointer}}
-    return &w->node; // expected-remark{{function 'getNode' of the global namespace returns nonnull}}
+    return &w->node; // expected-remark-re{{function 'getNode' of the global namespace (declared at {{.*}}) returns nonnull}}
 }
 
 // --- Pattern 2: return this ---
 struct Self {
     int val;
     Self *getSelf() { // expected-remark{{function 'getSelf' always returns a non-null pointer}}
-        return this; // expected-remark{{function 'getSelf' of 'Self' returns nonnull}}
+        return this; // expected-remark-re{{function 'getSelf' of 'Self' (declared at {{.*}}) returns nonnull}}
     }
 };
 
 // --- Pattern 3: return new ---
 Node *makeNode() { // expected-remark{{function 'makeNode' always returns a non-null pointer}}
-    return new Node(); // expected-remark{{function 'makeNode' of the global namespace returns nonnull}}
+    return new Node(); // expected-remark-re{{function 'makeNode' of the global namespace (declared at {{.*}}) returns nonnull}}
 }
 
 // --- Pattern 4: return address-of local ---
 int *getLocal() { // expected-remark{{function 'getLocal' always returns a non-null pointer}}
     static int storage = 42;
-    return &storage; // expected-remark{{function 'getLocal' of the global namespace returns nonnull}}
+    return &storage; // expected-remark-re{{function 'getLocal' of the global namespace (declared at {{.*}}) returns nonnull}}
 }
 
 // --- Pattern 5: return static_cast<T*>(this) ---
@@ -55,7 +55,7 @@ struct Base {
 };
 struct Derived : Base {
     Base *asBase() { // expected-remark{{function 'asBase' always returns a non-null pointer}}
-        return static_cast<Base *>(this); // expected-remark{{function 'asBase' of 'Derived' returns nonnull}}
+        return static_cast<Base *>(this); // expected-remark-re{{function 'asBase' of 'Derived' (declared at {{.*}}) returns nonnull}}
     }
 };
 
@@ -93,13 +93,13 @@ int getInt() { return 42; }
 
 // Free function call via variable init
 void caller_via_var(Widget *_Nonnull w) {
-    Node *n = getNode(w); // expected-remark{{parameter 'w' of 'getNode' called with nonnull argument}}
+    Node *n = getNode(w); // expected-remark-re{{parameter 'w' of 'getNode' (declared at {{.*}}) called with nonnull argument}}
     n->value = 1; // OK - getNode always returns nonnull
 }
 
 // Free function call, direct arrow deref (no intermediate variable)
 void caller_direct_arrow(Widget *_Nonnull w) {
-    getNode(w)->value = 1; // OK - getNode always returns nonnull // expected-remark{{parameter 'w' of 'getNode' called with nonnull argument}}
+    getNode(w)->value = 1; // OK - getNode always returns nonnull // expected-remark-re{{parameter 'w' of 'getNode' (declared at {{.*}}) called with nonnull argument}}
 }
 
 // Method returning this
@@ -117,13 +117,13 @@ void caller_new() {
 
 // Multi-return, all nonnull
 void caller_multi_return(Widget *_Nonnull w) {
-    Node *n = getNodeOrNew(w, true); // expected-remark{{parameter 'w' of 'getNodeOrNew' called with nonnull argument}}
+    Node *n = getNodeOrNew(w, true); // expected-remark-re{{parameter 'w' of 'getNodeOrNew' (declared at {{.*}}) called with nonnull argument}}
     n->value = 1; // OK - all returns are nonnull
 }
 
 // NOT all-returns-nonnull — should still warn
 void caller_nullable_still_warns(Widget *_Nonnull w) {
-    Node *n = getNodeOrNull(w, true); // expected-remark{{parameter 'w' of 'getNodeOrNull' called with nonnull argument}}
+    Node *n = getNodeOrNull(w, true); // expected-remark-re{{parameter 'w' of 'getNodeOrNull' (declared at {{.*}}) called with nonnull argument}}
     n->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
@@ -194,7 +194,7 @@ Node *getNarrowed(Node *p) { // expected-remark{{function 'getNarrowed' always r
 }
 
 void caller_narrowed() {
-    Node *n = getNarrowed(nullptr); // expected-remark{{parameter 'p' of 'getNarrowed' called with nullable argument}}
+    Node *n = getNarrowed(nullptr); // expected-remark-re{{parameter 'p' of 'getNarrowed' (declared at {{.*}}) called with nullable argument}}
     n->value = 1; // OK - getNarrowed always returns nonnull
 }
 

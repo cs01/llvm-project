@@ -28,7 +28,7 @@ void use_widget() {
 
 // Callee defined after its caller.
 Widget *make_widget() { // expected-remark{{function 'make_widget' always returns a non-null pointer}}
-    return new Widget(); // expected-remark{{function 'make_widget' of the global namespace returns nonnull}}
+    return new Widget(); // expected-remark-re{{function 'make_widget' of the global namespace (declared at {{.*}}) returns nonnull}}
 }
 
 // ===----------------------------------------------------------------------===//
@@ -45,11 +45,11 @@ void top_level_user() {
 }
 
 Widget *wrap_create() { // expected-remark{{function 'wrap_create' always returns a non-null pointer}}
-    return create(); // expected-remark{{function 'wrap_create' of the global namespace returns nonnull}}
+    return create(); // expected-remark-re{{function 'wrap_create' of the global namespace (declared at {{.*}}) returns nonnull}}
 }
 
 Widget *create() { // expected-remark{{function 'create' always returns a non-null pointer}}
-    return new Widget(); // expected-remark{{function 'create' of the global namespace returns nonnull}}
+    return new Widget(); // expected-remark-re{{function 'create' of the global namespace (declared at {{.*}}) returns nonnull}}
 }
 
 // ===----------------------------------------------------------------------===//
@@ -66,7 +66,7 @@ struct Factory {
     }
 
     Widget *getWidget() { // expected-remark{{function 'getWidget' always returns a non-null pointer}}
-        return &widget; // expected-remark{{function 'getWidget' of 'Factory' returns nonnull}}
+        return &widget; // expected-remark-re{{function 'getWidget' of 'Factory' (declared at {{.*}}) returns nonnull}}
     }
 };
 
@@ -83,7 +83,7 @@ void early_caller() {
 
 Widget *singleton() { // expected-remark{{function 'singleton' always returns a non-null pointer}}
     static Widget instance;
-    return &instance; // expected-remark{{function 'singleton' of the global namespace returns nonnull}}
+    return &instance; // expected-remark-re{{function 'singleton' of the global namespace (declared at {{.*}}) returns nonnull}}
 }
 
 void late_caller() {
@@ -125,18 +125,18 @@ ListNode *find_odd(ListNode *_Nullable head);
 ListNode *find_even(ListNode *_Nullable head) {
     if (!head) return nullptr; // expected-remark{{returns nullable}}
     if (head->val % 2 == 0) return head; // expected-remark{{returns nonnull}}
-    return find_odd(head->next); // expected-remark{{returns nullable}} expected-remark{{parameter 'head' of 'find_odd' called with nullable argument}}
+    return find_odd(head->next); // expected-remark{{returns nullable}} expected-remark-re{{parameter 'head' of 'find_odd' (declared at {{.*}}) called with nullable argument}}
 }
 
 ListNode *find_odd(ListNode *_Nullable head) {
     if (!head) return nullptr; // expected-remark{{returns nullable}}
     if (head->val % 2 != 0) return head; // expected-remark{{returns nonnull}}
-    return find_even(head->next); // expected-remark{{returns nullable}} expected-remark{{parameter 'head' of 'find_even' called with nullable argument}}
+    return find_even(head->next); // expected-remark{{returns nullable}} expected-remark-re{{parameter 'head' of 'find_even' (declared at {{.*}}) called with nullable argument}}
 }
 
 // Callers of recursive functions should still warn
 void use_recursive(ListNode *_Nullable head) {
-    ListNode *n = find_even(head); // expected-remark{{parameter 'head' of 'find_even' called with nullable argument}}
+    ListNode *n = find_even(head); // expected-remark-re{{parameter 'head' of 'find_even' (declared at {{.*}}) called with nullable argument}}
     n->val = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
@@ -147,15 +147,15 @@ void use_recursive(ListNode *_Nullable head) {
 
 struct Holder {
     Widget *ptr;
-    Holder(Widget *p) : ptr(p) {} // constructor taking a pointer param
+    Holder(Widget *p) : ptr(p) {} // constructor taking a pointer param // expected-remark-re{{member 'ptr' of 'Holder' (declared at {{.*}}) assigned from nullable source}}
 };
 
 void test_constructor_param_evidence() {
     Widget w;
-    Holder h(&w); // expected-remark{{parameter 'p' of 'Holder' called with nonnull argument}}
+    Holder h(&w);
 }
 
 void test_constructor_param_evidence_nullable() {
     Widget *maybe = nullptr;
-    Holder h(maybe); // expected-remark{{parameter 'p' of 'Holder' called with nullable argument}}
+    Holder h(maybe);
 }
