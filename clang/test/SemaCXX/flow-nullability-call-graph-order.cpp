@@ -159,3 +159,41 @@ void test_constructor_param_evidence_nullable() {
     Widget *maybe = nullptr;
     Holder h(maybe);
 }
+
+// ===----------------------------------------------------------------------===//
+// Parameter with nullptr default: the default value counts as nullable evidence
+// even when every explicit caller passes nonnull.
+// ===----------------------------------------------------------------------===//
+
+void takes_optional_ptr(Widget *w = nullptr) { // expected-remark-re{{parameter 'w' of 'takes_optional_ptr' (declared at {{.*}}) called with nullable argument}}
+    if (w)
+        w->x = 1;
+}
+
+void test_nullptr_default_evidence() {
+    Widget w;
+    takes_optional_ptr(&w); // expected-remark-re{{parameter 'w' of 'takes_optional_ptr' (declared at {{.*}}) called with nonnull argument}}
+}
+
+// nullptr default with integer literal 0
+void takes_ptr_zero_default(Widget *w = 0) { // expected-remark-re{{parameter 'w' of 'takes_ptr_zero_default' (declared at {{.*}}) called with nullable argument}}
+    if (w)
+        w->x = 2;
+}
+
+void test_zero_default_evidence() {
+    Widget w;
+    takes_ptr_zero_default(&w); // expected-remark-re{{parameter 'w' of 'takes_ptr_zero_default' (declared at {{.*}}) called with nonnull argument}}
+}
+
+// Non-null default should NOT emit nullable evidence
+Widget g_widget;
+void takes_ptr_nonnull_default(Widget *w = &g_widget) {
+    if (w)
+        w->x = 3;
+}
+
+void test_nonnull_default_evidence() {
+    Widget w;
+    takes_ptr_nonnull_default(&w); // expected-remark-re{{parameter 'w' of 'takes_ptr_nonnull_default' (declared at {{.*}}) called with nonnull argument}}
+}
