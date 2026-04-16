@@ -1344,6 +1344,8 @@ private:
           const ParmVarDecl *Param = Callee->getParamDecl(I);
           if (!Param->getType()->isPointerType() || !Param->hasDefaultArg())
             continue;
+          if (Param->hasUninstantiatedDefaultArg())
+            continue;
           if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
             continue;
           const Expr *DefArg = Param->getDefaultArg();
