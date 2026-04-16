@@ -3018,6 +3018,17 @@ public:
     S.Diag(ArgExpr->getExprLoc(), diag::note_nullable_argument_fix);
   }
 
+  /// Format a declaration's source location as "file:line" for evidence
+  /// remarks.
+  std::string getDeclLocStr(const Decl *D) {
+    SourceManager &SM = S.getSourceManager();
+    PresumedLoc PLoc = SM.getPresumedLoc(D->getLocation());
+    if (PLoc.isValid())
+      return std::string(PLoc.getFilename()) + ":" +
+             std::to_string(PLoc.getLine());
+    return "<unknown>";
+  }
+
   void handleMemberAssignEvidence(const Expr *AssignExpr,
                                   const FieldDecl *Member,
                                   bool IsNonnull) override {
@@ -3025,7 +3036,7 @@ public:
                           ? diag::remark_nullsafe_member_evidence_nonnull
                           : diag::remark_nullsafe_member_evidence_nullable;
     S.Diag(AssignExpr->getExprLoc(), DiagID)
-        << Member->getName() << Member->getParent();
+        << Member->getName() << Member->getParent() << getDeclLocStr(Member);
   }
 
   void handleReturnEvidence(const Expr *RetExpr, const FunctionDecl *Func,
@@ -3034,7 +3045,7 @@ public:
                           ? diag::remark_nullsafe_return_evidence_nonnull
                           : diag::remark_nullsafe_return_evidence_nullable;
     S.Diag(RetExpr->getExprLoc(), DiagID)
-        << Func->getNameAsString() << Func->getParent();
+        << Func->getNameAsString() << Func->getParent() << getDeclLocStr(Func);
   }
 
   void handleParameterEvidence(const Expr *ArgExpr, const ParmVarDecl *Param,
@@ -3043,7 +3054,7 @@ public:
     unsigned DiagID = IsNonnull ? diag::remark_nullsafe_param_evidence_nonnull
                                 : diag::remark_nullsafe_param_evidence_nullable;
     S.Diag(ArgExpr->getExprLoc(), DiagID)
-        << Param->getName() << Func->getNameAsString();
+        << Param->getName() << Func->getNameAsString() << getDeclLocStr(Param);
   }
 
   void handleAllReturnsNonnull(const FunctionDecl *Func) override {
