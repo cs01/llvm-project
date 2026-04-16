@@ -139,3 +139,23 @@ void use_recursive(ListNode *_Nullable head) {
     ListNode *n = find_even(head); // expected-remark{{parameter 'head' of 'find_even' called with nullable argument}}
     n->val = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
+
+// ===----------------------------------------------------------------------===//
+// Constructor parameter evidence: CXXConstructorName is not an Identifier,
+// so the evidence emission must accept non-identifier declaration names too.
+// ===----------------------------------------------------------------------===//
+
+struct Holder {
+    Widget *ptr;
+    Holder(Widget *p) : ptr(p) {} // constructor taking a pointer param
+};
+
+void test_constructor_param_evidence() {
+    Widget w;
+    Holder h(&w); // expected-remark{{parameter 'p' of 'Holder' called with nonnull argument}}
+}
+
+void test_constructor_param_evidence_nullable() {
+    Widget *maybe = nullptr;
+    Holder h(maybe); // expected-remark{{parameter 'p' of 'Holder' called with nullable argument}}
+}

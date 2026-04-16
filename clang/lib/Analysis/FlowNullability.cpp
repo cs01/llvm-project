@@ -1319,7 +1319,10 @@ private:
 
       // Emit parameter evidence for cross-TU inference.
       // Skip builtins/intrinsics and lambdas (unnamed functions).
-      if (!Callee->getBuiltinID() && Callee->getDeclName().isIdentifier()) {
+      // Accept regular identifiers, constructors, destructors, and
+      // conversion operators — basically anything except empty names
+      // and overloaded operators (which rarely take pointer params).
+      if (!Callee->getBuiltinID() && !Callee->getDeclName().isEmpty()) {
         for (unsigned I = 0,
                       N = std::min(CE->getNumArgs(), Callee->getNumParams());
              I < N; ++I) {
