@@ -87,13 +87,21 @@ struct NullState {
   using AliasMap = llvm::DenseMap<const VarDecl *, const VarDecl *>;
   AliasMap Aliases;
 
+  // Tracks "pp holds &local": when we see `T** pp = &p;`, records pp → p.
+  // Used to invalidate p's narrowing when we see `*pp = anything` — a
+  // store through the pointer-to-pointer can change p. Entries are
+  // dropped when pp is reassigned.
+  using AddrOfTargetMap = llvm::DenseMap<const VarDecl *, const VarDecl *>;
+  AddrOfTargetMap AddrOfTargets;
+
   bool operator==(const NullState &Other) const {
     return NarrowedVars == Other.NarrowedVars &&
            NarrowedMembers == Other.NarrowedMembers &&
            NarrowedThisMembers == Other.NarrowedThisMembers &&
            NullableVars == Other.NullableVars &&
            NullableThisMembers == Other.NullableThisMembers &&
-           BoolGuards == Other.BoolGuards && Aliases == Other.Aliases;
+           BoolGuards == Other.BoolGuards && Aliases == Other.Aliases &&
+           AddrOfTargets == Other.AddrOfTargets;
   }
   bool operator!=(const NullState &Other) const { return !(*this == Other); }
 };
@@ -130,6 +138,12 @@ static NullState join(const NullState &A, const NullState &B) {
     auto It = B.Aliases.find(AliasVD);
     if (It != B.Aliases.end() && It->second == TargetVD)
       Result.Aliases[AliasVD] = TargetVD;
+  }
+  // AddrOfTargets: intersection with value equality.
+  for (const auto &[PtrPtrVD, TargetVD] : A.AddrOfTargets) {
+    auto It = B.AddrOfTargets.find(PtrPtrVD);
+    if (It != B.AddrOfTargets.end() && It->second == TargetVD)
+      Result.AddrOfTargets[PtrPtrVD] = TargetVD;
   }
   // Invariant: a variable should not be both narrowed and nullable.
   // Narrowed takes priority (proven non-null on all paths), so remove
@@ -838,8 +852,14 @@ private:
           } else if (VD->hasInit()) {
             const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
             if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
-              if (UO->getOpcode() == UO_AddrOf)
+              if (UO->getOpcode() == UO_AddrOf) {
                 State.NarrowedVars.insert(VD);
+                // T** pp = &local — remember target for *pp invalidation.
+                if (const auto *TgtDRE = dyn_cast<DeclRefExpr>(
+                        UO->getSubExpr()->IgnoreParenImpCasts()))
+                  if (const auto *TgtVD = dyn_cast<VarDecl>(TgtDRE->getDecl()))
+                    State.AddrOfTargets[VD] = TgtVD;
+              }
             } else if (isNonnullInit(Init) || isNonnullType(Init->getType())) {
               State.NarrowedVars.insert(VD);
             } else {
@@ -902,6 +922,11 @@ private:
     if (!Init)
       return false;
     Init = Init->IgnoreParenImpCasts();
+    // Ternary: both arms must be provably non-null. If either arm might
+    // be null, the whole expression might be null, so report not-nonnull.
+    if (const auto *CO = dyn_cast<ConditionalOperator>(Init))
+      return isNonnullInit(CO->getTrueExpr()) &&
+             isNonnullInit(CO->getFalseExpr());
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
         if (isNonnullType(VD->getType()) || isNarrowed(VD))
@@ -956,6 +981,16 @@ private:
       return false;
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
       return isNullableInit(CE->getSubExpr());
+    // Null pointer constants (nullptr, NULL, (T*)0) are always nullable.
+    // The common type of a ternary like `cond ? p : (T*)0` may strip the
+    // qualifier, so we must look at the arm directly rather than relying
+    // on the expression's type.
+    if (Init->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
+      return true;
+    // Ternary: either arm being nullable taints the whole expression.
+    if (const auto *CO = dyn_cast<ConditionalOperator>(Init))
+      return isNullableInit(CO->getTrueExpr()) ||
+             isNullableInit(CO->getFalseExpr());
     if (isNullableType(Init->getType(), StrictMode, DefaultNullability))
       return true;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
@@ -1023,6 +1058,32 @@ private:
 
     if (BO->isAssignmentOp()) {
       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+
+      // Store through a pointer-to-pointer: `*pp = X;`. If we recorded
+      // that pp holds &local, the store can modify local — drop its
+      // narrowing. Only do this when the target is precisely known, to
+      // avoid invalidating unrelated pointers (which would cause false
+      // positives on downstream derefs).
+      if (const auto *UO = dyn_cast<UnaryOperator>(LHS)) {
+        if (UO->getOpcode() == UO_Deref) {
+          const Expr *Sub = UO->getSubExpr()->IgnoreParenImpCasts();
+          if (const auto *SubDRE = dyn_cast<DeclRefExpr>(Sub)) {
+            if (const auto *PPVD = dyn_cast<VarDecl>(SubDRE->getDecl())) {
+              auto It = State.AddrOfTargets.find(PPVD);
+              if (It != State.AddrOfTargets.end()) {
+                const VarDecl *TgtVD = It->second;
+                // Drop narrowing on target; if the RHS is provably
+                // non-null, we could re-narrow, but that requires proof
+                // the store happens — keep it simple and stay silent.
+                State.NarrowedVars.erase(TgtVD);
+                State.NullableVars.erase(TgtVD);
+                invalidateMembersFor(TgtVD);
+                invalidateBoolGuardsFor(TgtVD);
+              }
+            }
+          }
+        }
+      }
 
       // Assignment to a member (this->field, var->field, or s.field)
       // invalidates any narrowing on that member, then re-narrows if the
@@ -1102,6 +1163,8 @@ private:
           // pointing TO VD (i.e., "other = VD" from earlier) is stale.
           invalidateAliasesFor(VD);
           State.Aliases.erase(VD);
+          // Reassigning VD drops any stale "VD holds &target" tracking.
+          State.AddrOfTargets.erase(VD);
 
           if (BO->getOpcode() == BO_Assign) {
             const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
@@ -1117,6 +1180,11 @@ private:
             if (const auto *RHSUO = dyn_cast<UnaryOperator>(RHS)) {
               if (RHSUO->getOpcode() == UO_AddrOf) {
                 State.NarrowedVars.insert(VD);
+                // pp = &local — record for *pp invalidation.
+                if (const auto *TgtDRE = dyn_cast<DeclRefExpr>(
+                        RHSUO->getSubExpr()->IgnoreParenImpCasts()))
+                  if (const auto *TgtVD = dyn_cast<VarDecl>(TgtDRE->getDecl()))
+                    State.AddrOfTargets[VD] = TgtVD;
                 return;
               }
             }
@@ -1391,28 +1459,74 @@ private:
     }
 
     // Handle sp = nullptr / sp = make_unique(...) / sp = std::move(other)
+    // LHS may be a local (VarDecl), a this-member (FieldDecl), or a
+    // var->field / var.field member access.
     if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
       if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
-        const VarDecl *LhsVD = getSmartPtrVarDecl(OCE->getArg(0));
-        if (LhsVD) {
-          State.NarrowedVars.erase(LhsVD);
+        const Expr *LhsArg = OCE->getArg(0);
+        const VarDecl *LhsVD = getSmartPtrVarDecl(LhsArg);
+        const FieldDecl *LhsThisFD = getSmartPtrThisMemberDecl(LhsArg);
+        // Detect var->field / var.field smart-pointer LHS for invalidation.
+        const VarDecl *LhsBaseVD = nullptr;
+        const FieldDecl *LhsMemberFD = nullptr;
+        if (!LhsVD && !LhsThisFD) {
+          const Expr *Stripped = LhsArg->IgnoreParenImpCasts();
+          if (const auto *ME = dyn_cast<MemberExpr>(Stripped)) {
+            if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+              if (isSmartPointerType(FD->getType())) {
+                const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+                if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
+                  if (const auto *BVD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
+                    LhsBaseVD = BVD;
+                    LhsMemberFD = FD;
+                  }
+              }
+            }
+          }
+        }
+
+        if (LhsVD || LhsThisFD || LhsMemberFD) {
+          // Invalidate prior narrowing — "sp = nullptr" is the default and
+          // must leave state nullable unless the RHS is provably non-null.
+          auto clearNarrowing = [&]() {
+            if (LhsVD)
+              State.NarrowedVars.erase(LhsVD);
+            if (LhsThisFD) {
+              State.NarrowedThisMembers.erase(LhsThisFD);
+              State.NullableThisMembers.insert(LhsThisFD);
+            }
+            if (LhsMemberFD)
+              State.NarrowedMembers.erase({LhsBaseVD, LhsMemberFD});
+          };
+          auto markNarrowed = [&]() {
+            if (LhsVD)
+              State.NarrowedVars.insert(LhsVD);
+            if (LhsThisFD) {
+              State.NarrowedThisMembers.insert(LhsThisFD);
+              State.NullableThisMembers.erase(LhsThisFD);
+            }
+            if (LhsMemberFD)
+              State.NarrowedMembers.insert({LhsBaseVD, LhsMemberFD});
+          };
+
+          clearNarrowing();
           const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
 
           if (isMakeSmartPtrCall(RHS)) {
             // sp = make_unique<T>(...) — non-null
-            State.NarrowedVars.insert(LhsVD);
+            markNarrowed();
           } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
             if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
-              // sp = std::move(other) — LHS inherits source's state
+              // sp = std::move(other) — LHS inherits source's state. Source
+              // tracking only implemented for local-var sources.
               if (const auto *SrcVD = getSmartPtrVarDecl(RhsCE->getArg(0))) {
-                // Only narrow LHS if source was narrowed (known non-null)
                 if (State.NarrowedVars.contains(SrcVD))
-                  State.NarrowedVars.insert(LhsVD);
+                  markNarrowed();
                 State.NarrowedVars.erase(SrcVD);
               }
             } else if (isNonnullType(RhsCE->getType())) {
               // sp = someFunction() — only narrow if return type is _Nonnull
-              State.NarrowedVars.insert(LhsVD);
+              markNarrowed();
             }
           }
           // sp = nullptr or non-call — remains nullable (erased above)
@@ -1663,8 +1777,28 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   NullState InitState;
 
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl())) {
+    // Collect parameters declared nonnull via __attribute__((nonnull)) —
+    // either the whole-function form (applies to every pointer param) or
+    // the indexed form (nonnull(N...), 1-based).
+    llvm::SmallPtrSet<const ParmVarDecl *, 4> AttrNonnull;
+    for (const auto *NNA : FD->specific_attrs<NonNullAttr>()) {
+      if (NNA->args_size() == 0) {
+        // Applies to every pointer parameter.
+        for (const auto *P : FD->parameters())
+          if (P->getType()->isPointerType())
+            AttrNonnull.insert(P);
+      } else {
+        for (const ParamIdx &Idx : NNA->args()) {
+          unsigned I = Idx.getASTIndex();
+          if (I < FD->getNumParams())
+            AttrNonnull.insert(FD->getParamDecl(I));
+        }
+      }
+    }
     for (const auto *Param : FD->parameters()) {
-      if (Param->getType()->isPointerType() && isNonnullType(Param->getType()))
+      if (!Param->getType()->isPointerType())
+        continue;
+      if (isNonnullType(Param->getType()) || AttrNonnull.contains(Param))
         InitState.NarrowedVars.insert(Param);
     }
   }
