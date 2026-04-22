@@ -206,6 +206,14 @@ static bool isNullableType(QualType Ty, bool StrictMode,
   return false;
 }
 
+/// Returns true only for explicitly _Nullable types, NOT for unspecified
+/// (unannotated) types that are merely defaulted to nullable. Used for
+/// evidence emission to avoid inferring _Nullable from unannotated sources.
+static bool isExplicitlyNullableType(QualType Ty) {
+  std::optional<NullabilityKind> Nullability = Ty->getNullability();
+  return Nullability && *Nullability == NullabilityKind::Nullable;
+}
+
 static bool isNonnullType(QualType Ty) {
   std::optional<NullabilityKind> Nullability = Ty->getNullability();
   return Nullability && *Nullability == NullabilityKind::NonNull;
@@ -1821,6 +1829,14 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
       // Check if the init expression is provably non-null.
       if (isNonnullType(Init->getType()))
         IsNonnull = true;
+      // Check if init refers to a parameter already narrowed to nonnull
+      // (e.g., via __attribute__((nonnull)) on the constructor).
+      if (!IsNonnull) {
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(Init))
+          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+            if (InitState.NarrowedVars.contains(VD))
+              IsNonnull = true;
+      }
       if (!IsNonnull) {
         if (const auto *UO = dyn_cast<UnaryOperator>(Init))
           if (UO->getOpcode() == UO_AddrOf)
