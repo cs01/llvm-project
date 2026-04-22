@@ -27,26 +27,26 @@ struct Widget {
 
 // --- Pattern 1: return address-of member (free function) ---
 Node *getNode(Widget *_Nonnull w) { // expected-remark{{function 'getNode' always returns a non-null pointer}}
-    return &w->node; // expected-remark-re{{function 'getNode' of the global namespace (declared at {{.*}}) returns nonnull}}
+    return &w->node; // expected-remark-re{{function 'getNode' of global scope (declared at {{.*}}) returns nonnull}}
 }
 
 // --- Pattern 2: return this ---
 struct Self {
     int val;
     Self *getSelf() { // expected-remark{{function 'getSelf' always returns a non-null pointer}}
-        return this; // expected-remark-re{{function 'getSelf' of 'Self' (declared at {{.*}}) returns nonnull}}
+        return this; // expected-remark-re{{function 'getSelf' of Self (declared at {{.*}}) returns nonnull}}
     }
 };
 
 // --- Pattern 3: return new ---
 Node *makeNode() { // expected-remark{{function 'makeNode' always returns a non-null pointer}}
-    return new Node(); // expected-remark-re{{function 'makeNode' of the global namespace (declared at {{.*}}) returns nonnull}}
+    return new Node(); // expected-remark-re{{function 'makeNode' of global scope (declared at {{.*}}) returns nonnull}}
 }
 
 // --- Pattern 4: return address-of local ---
 int *getLocal() { // expected-remark{{function 'getLocal' always returns a non-null pointer}}
     static int storage = 42;
-    return &storage; // expected-remark-re{{function 'getLocal' of the global namespace (declared at {{.*}}) returns nonnull}}
+    return &storage; // expected-remark-re{{function 'getLocal' of global scope (declared at {{.*}}) returns nonnull}}
 }
 
 // --- Pattern 5: return static_cast<T*>(this) ---
@@ -55,7 +55,7 @@ struct Base {
 };
 struct Derived : Base {
     Base *asBase() { // expected-remark{{function 'asBase' always returns a non-null pointer}}
-        return static_cast<Base *>(this); // expected-remark-re{{function 'asBase' of 'Derived' (declared at {{.*}}) returns nonnull}}
+        return static_cast<Base *>(this); // expected-remark-re{{function 'asBase' of Derived (declared at {{.*}}) returns nonnull}}
     }
 };
 
