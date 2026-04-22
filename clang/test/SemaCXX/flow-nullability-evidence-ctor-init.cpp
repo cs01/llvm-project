@@ -10,7 +10,19 @@
 
 struct Basic {
     int *ptr;
-    Basic(int *p) : ptr(p) {} // expected-remark-re{{member 'ptr' of Basic (declared at {{.*}}) assigned from nullable source}}
+    // Unannotated parameter — no evidence emitted (null-unspecified, not
+    // explicitly _Nullable). Evidence is only emitted for provably nullable
+    // or provably nonnull sources.
+    Basic(int *p) : ptr(p) {}
+};
+
+// ===----------------------------------------------------------------------===//
+// Explicitly _Nullable parameter -> nullable member evidence
+// ===----------------------------------------------------------------------===//
+
+struct ExplicitNullable {
+    int *ptr;
+    ExplicitNullable(int * _Nullable p) : ptr(p) {} // expected-remark-re{{member 'ptr' of ExplicitNullable (declared at {{.*}}) assigned from nullable source}}
 };
 
 // ===----------------------------------------------------------------------===//
@@ -31,9 +43,9 @@ struct Multi {
     int *b;
     int *c;
     Multi(int *x, int * _Nonnull y, int *z)
-        : a(x),  // expected-remark-re{{member 'a' of Multi (declared at {{.*}}) assigned from nullable source}}
+        : a(x),  // unannotated — no evidence
           b(y),  // expected-remark-re{{member 'b' of Multi (declared at {{.*}}) assigned from nonnull source}}
-          c(z) {} // expected-remark-re{{member 'c' of Multi (declared at {{.*}}) assigned from nullable source}}
+          c(z) {} // unannotated — no evidence
 };
 
 // ===----------------------------------------------------------------------===//
@@ -45,7 +57,7 @@ struct NonPointer {
     int *ptr;
     NonPointer(int v, int *p)
         : val(v),
-          ptr(p) {} // expected-remark-re{{member 'ptr' of NonPointer (declared at {{.*}}) assigned from nullable source}}
+          ptr(p) {} // unannotated — no evidence
 };
 
 // ===----------------------------------------------------------------------===//
@@ -106,6 +118,7 @@ struct NullInit {
 void test_instantiations() {
     int x = 0;
     Basic b(&x);
+    ExplicitNullable en(&x);
     NonnullParam np(&x);
     Multi m(&x, &x, &x);
     NonPointer npt(1, &x);

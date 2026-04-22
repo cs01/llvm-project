@@ -28,7 +28,7 @@ void use_widget() {
 
 // Callee defined after its caller.
 Widget *make_widget() { // expected-remark{{function 'make_widget' always returns a non-null pointer}}
-    return new Widget(); // expected-remark-re{{function 'make_widget' of the global namespace (declared at {{.*}}) returns nonnull}}
+    return new Widget(); // expected-remark-re{{function 'make_widget' of global scope (declared at {{.*}}) returns nonnull}}
 }
 
 // ===----------------------------------------------------------------------===//
@@ -45,11 +45,11 @@ void top_level_user() {
 }
 
 Widget *wrap_create() { // expected-remark{{function 'wrap_create' always returns a non-null pointer}}
-    return create(); // expected-remark-re{{function 'wrap_create' of the global namespace (declared at {{.*}}) returns nonnull}}
+    return create(); // expected-remark-re{{function 'wrap_create' of global scope (declared at {{.*}}) returns nonnull}}
 }
 
 Widget *create() { // expected-remark{{function 'create' always returns a non-null pointer}}
-    return new Widget(); // expected-remark-re{{function 'create' of the global namespace (declared at {{.*}}) returns nonnull}}
+    return new Widget(); // expected-remark-re{{function 'create' of global scope (declared at {{.*}}) returns nonnull}}
 }
 
 // ===----------------------------------------------------------------------===//
@@ -66,7 +66,7 @@ struct Factory {
     }
 
     Widget *getWidget() { // expected-remark{{function 'getWidget' always returns a non-null pointer}}
-        return &widget; // expected-remark-re{{function 'getWidget' of 'Factory' (declared at {{.*}}) returns nonnull}}
+        return &widget; // expected-remark-re{{function 'getWidget' of Factory (declared at {{.*}}) returns nonnull}}
     }
 };
 
@@ -83,7 +83,7 @@ void early_caller() {
 
 Widget *singleton() { // expected-remark{{function 'singleton' always returns a non-null pointer}}
     static Widget instance;
-    return &instance; // expected-remark-re{{function 'singleton' of the global namespace (declared at {{.*}}) returns nonnull}}
+    return &instance; // expected-remark-re{{function 'singleton' of global scope (declared at {{.*}}) returns nonnull}}
 }
 
 void late_caller() {
@@ -125,13 +125,13 @@ ListNode *find_odd(ListNode *_Nullable head);
 ListNode *find_even(ListNode *_Nullable head) {
     if (!head) return nullptr; // expected-remark{{returns nullable}}
     if (head->val % 2 == 0) return head; // expected-remark{{returns nonnull}}
-    return find_odd(head->next); // expected-remark{{returns nullable}} expected-remark-re{{parameter 'head' of 'find_odd' (declared at {{.*}}) called with nullable argument}}
+    return find_odd(head->next); // expected-remark-re{{parameter 'head' of 'find_odd' (declared at {{.*}}) called with nullable argument}}
 }
 
 ListNode *find_odd(ListNode *_Nullable head) {
     if (!head) return nullptr; // expected-remark{{returns nullable}}
     if (head->val % 2 != 0) return head; // expected-remark{{returns nonnull}}
-    return find_even(head->next); // expected-remark{{returns nullable}} expected-remark-re{{parameter 'head' of 'find_even' (declared at {{.*}}) called with nullable argument}}
+    return find_even(head->next); // expected-remark-re{{parameter 'head' of 'find_even' (declared at {{.*}}) called with nullable argument}}
 }
 
 // Callers of recursive functions should still warn
@@ -147,7 +147,7 @@ void use_recursive(ListNode *_Nullable head) {
 
 struct Holder {
     Widget *ptr;
-    Holder(Widget *p) : ptr(p) {} // constructor taking a pointer param // expected-remark-re{{member 'ptr' of 'Holder' (declared at {{.*}}) assigned from nullable source}}
+    Holder(Widget *p) : ptr(p) {} // unannotated param — no evidence
 };
 
 void test_constructor_param_evidence() {
