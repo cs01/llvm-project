@@ -3018,14 +3018,16 @@ public:
     S.Diag(ArgExpr->getExprLoc(), diag::note_nullable_argument_fix);
   }
 
-  /// Format a declaration's source location as "file:line" for evidence
-  /// remarks.
+  /// Format a declaration's source location as "file:line:col" for evidence
+  /// remarks. The column lets downstream tools pinpoint exact insertion
+  /// positions when multiple declarations share the same line.
   std::string getDeclLocStr(const Decl *D) {
     SourceManager &SM = S.getSourceManager();
     PresumedLoc PLoc = SM.getPresumedLoc(D->getLocation());
     if (PLoc.isValid())
       return std::string(PLoc.getFilename()) + ":" +
-             std::to_string(PLoc.getLine());
+             std::to_string(PLoc.getLine()) + ":" +
+             std::to_string(PLoc.getColumn());
     return "<unknown>";
   }
 
