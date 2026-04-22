@@ -1149,7 +1149,10 @@ private:
             }
 
             // Emit evidence for cross-TU inference.
-            Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
+            // Only emit nullable evidence for explicitly nullable sources,
+            // not for unannotated pointers defaulted to nullable.
+            if (Narrowed || isExprExplicitlyNullable(RHS))
+              Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
           }
         }
       }
@@ -1410,6 +1413,11 @@ private:
             continue;
           const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
           bool ArgIsNonnull = !isExprNullable(Arg);
+          // Only emit nullable evidence for explicitly nullable sources
+          // (annotated _Nullable or nullptr), not for unannotated pointers
+          // that are merely defaulted to nullable.
+          if (!ArgIsNonnull && !isExprExplicitlyNullable(Arg))
+            continue;
           Handler.handleParameterEvidence(CE->getArg(I), Param, Callee,
                                           ArgIsNonnull);
         }
@@ -1639,6 +1647,66 @@ private:
     return false;
   }
 
+  /// Stricter nullable check for evidence emission: returns true only when
+  /// the expression is provably nullable (explicit _Nullable annotation,
+  /// nullptr literal, flow-tracked nullable state), NOT for unannotated
+  /// pointers that are merely defaulted to nullable by the compiler flag.
+  /// This prevents false _Nullable inference from unspecified sources.
+  bool isExprExplicitlyNullable(const Expr *E) const {
+    if (!E)
+      return false;
+    E = E->IgnoreParenImpCasts();
+    // nullptr / NULL / (T*)0 — always provably nullable
+    if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
+      return true;
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+        if (isNarrowed(VD))
+          return false;
+        if (isNonnullType(VD->getType()))
+          return false;
+        // Flow-tracked nullable (e.g., after reset() or assignment from null)
+        if (State.NullableVars.contains(VD))
+          return true;
+        // Only explicit _Nullable annotation counts, not unspecified
+        return isExplicitlyNullableType(VD->getType());
+      }
+    }
+    if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+        const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+        if (isa<CXXThisExpr>(Base) && isThisMemberNarrowed(FD))
+          return false;
+        if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
+          if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
+            if (isMemberNarrowed(BaseVD, FD))
+              return false;
+      }
+    }
+    if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
+      return isExprExplicitlyNullable(CE->getSubExpr());
+    if (const auto *CE = dyn_cast<CallExpr>(E)) {
+      if (isStlNonnullReturnCall(CE))
+        return false;
+      if (const auto *Callee = CE->getDirectCallee()) {
+        if (Handler.isKnownAllReturnsNonnull(Callee))
+          return false;
+      }
+    }
+    if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+      if (UO->getOpcode() == UO_AddrOf)
+        return false;
+    }
+    if (isa<CXXThisExpr>(E))
+      return false;
+    if (const auto *NE = dyn_cast<CXXNewExpr>(E)) {
+      if (!NE->shouldNullCheckAllocation())
+        return false;
+    }
+    // For non-variable expressions, only explicit _Nullable counts
+    return isExplicitlyNullableType(E->getType());
+  }
+
   void handleReturnStmt(const ReturnStmt *RS) {
     if (!EnclosingFunc)
       return;
@@ -1654,8 +1722,12 @@ private:
     // referenced cross-TU so evidence is meaningless, and getName() would
     // crash.
     bool RetIsNonnull = !isExprNullable(RetVal);
-    if (EnclosingFunc->getDeclName().isIdentifier())
-      Handler.handleReturnEvidence(RetVal, EnclosingFunc, RetIsNonnull);
+    if (EnclosingFunc->getDeclName().isIdentifier()) {
+      // Only emit nullable return evidence for explicitly nullable sources,
+      // not for unannotated pointers defaulted to nullable.
+      if (RetIsNonnull || isExprExplicitlyNullable(RetVal))
+        Handler.handleReturnEvidence(RetVal, EnclosingFunc, RetIsNonnull);
+    }
 
     // Existing warning: returning nullable from a nonnull function.
     if (isNonnullType(RetType) && !RetIsNonnull) {
@@ -1849,7 +1921,15 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
       }
       if (!IsNonnull && isa<CXXThisExpr>(Init))
         IsNonnull = true;
-      Tracker.handleMemberAssignEvidence(Init, FD, IsNonnull);
+      // Only emit nullable evidence for explicitly nullable sources
+      // (annotated _Nullable or nullptr), not for unannotated parameters.
+      bool IsExplicitlyNullable =
+          !IsNonnull &&
+          (Init->isNullPointerConstant(AC.getASTContext(),
+                                       Expr::NPC_ValueDependentIsNotNull) ||
+           isExplicitlyNullableType(Init->getType()));
+      if (IsNonnull || IsExplicitlyNullable)
+        Tracker.handleMemberAssignEvidence(Init, FD, IsNonnull);
     }
   }
 
