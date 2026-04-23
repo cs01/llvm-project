@@ -219,6 +219,22 @@ static bool isNonnullType(QualType Ty) {
   return Nullability && *Nullability == NullabilityKind::NonNull;
 }
 
+/// Walk from a smart pointer expression back to its declaration (if any)
+/// and check whether the declared type carries a `_Nonnull` qualifier.
+/// Needed because overload resolution on `operator->`/`operator*` strips
+/// the nullability attribute from `Obj->getType()`.
+static bool isSmartPointerDeclaredNonnull(const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      return isNonnullType(VD->getType());
+  } else if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+      return isNonnullType(FD->getType());
+  }
+  return false;
+}
+
 /// Check if a type is std::unique_ptr, std::shared_ptr, or std::weak_ptr.
 /// Uses getAsCXXRecordDecl() which operates on the canonical type, so
 /// type aliases (using/typedef) are handled. Does not match non-std
@@ -1298,7 +1314,9 @@ private:
         if (OCE->getNumArgs() >= 1) {
           const Expr *Obj = OCE->getArg(0);
           if (isSmartPointerType(Obj->getType())) {
-            if (!isSmartPointerNarrowed(Obj, State))
+            // _Nonnull on the smart pointer type itself is a declared contract.
+            if (!isSmartPointerDeclaredNonnull(Obj) &&
+                !isSmartPointerNarrowed(Obj, State))
               warnSmartPtrDeref(ME, Obj);
           }
         }
@@ -1555,7 +1573,8 @@ private:
       if (OCE->getOperator() == OO_Star && OCE->getNumArgs() >= 1) {
         const Expr *Obj = OCE->getArg(0);
         if (isSmartPointerType(Obj->getType())) {
-          if (!isSmartPointerNarrowed(Obj, State))
+          if (!isSmartPointerDeclaredNonnull(Obj) &&
+              !isSmartPointerNarrowed(Obj, State))
             warnSmartPtrDeref(CE, Obj);
         }
       }
@@ -1744,7 +1763,8 @@ private:
         if (OCE->getNumArgs() >= 1) {
           const Expr *Obj = OCE->getArg(0);
           if (isSmartPointerType(Obj->getType())) {
-            if (!isSmartPointerNarrowed(Obj, State))
+            if (!isSmartPointerDeclaredNonnull(Obj) &&
+                !isSmartPointerNarrowed(Obj, State))
               warnSmartPtrDeref(DerefExpr, Obj);
           }
         }
