@@ -31,6 +31,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include <optional>
@@ -378,6 +379,52 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
     return MethodName == "data" || MethodName == "begin" || MethodName == "end";
 
   return false;
+}
+
+/// Check if a call expression is to a C/C++ standard library free function
+/// known to return null on failure or when the item is not found. These
+/// functions' return values are treated as provably _Nullable regardless of
+/// annotations, ensuring that unchecked dereferences always warn.
+///
+/// Only matches free functions (not class methods with the same name) to
+/// avoid false positives on user-defined methods like MyAllocator::malloc().
+///
+/// Recognized functions:
+///   malloc, calloc, realloc, aligned_alloc — memory allocation
+///   fopen, freopen, tmpfile — file I/O
+///   getenv — environment lookup
+///   strtok — string tokenization
+///   strstr, strchr, strrchr, strpbrk — string search
+///   memchr — memory search
+///   bsearch — binary search
+///   tmpnam — temp filename generation
+///   setlocale — locale configuration
+static bool isStdlibNullableReturnCall(const CallExpr *CE) {
+  // Reject member calls — we only want free functions.
+  if (isa<CXXMemberCallExpr>(CE))
+    return false;
+  const FunctionDecl *FD = CE->getDirectCallee();
+  if (!FD)
+    return false;
+  // Must return a pointer type.
+  if (!FD->getReturnType()->isPointerType())
+    return false;
+  // Must be a free function at file/namespace scope (not a static method).
+  if (isa<CXXMethodDecl>(FD))
+    return false;
+  const auto &DeclName = FD->getDeclName();
+  if (!DeclName.isIdentifier())
+    return false;
+  StringRef Name = FD->getName();
+  // Keep sorted for easy scanning; use StringSwitch for clean matching.
+  return llvm::StringSwitch<bool>(Name)
+      .Cases({"malloc", "calloc", "realloc", "aligned_alloc"}, true)
+      .Cases({"fopen", "freopen", "tmpfile"}, true)
+      .Cases({"getenv", "strtok"}, true)
+      .Cases({"strstr", "strchr", "strrchr", "strpbrk"}, true)
+      .Cases({"memchr", "bsearch"}, true)
+      .Cases({"tmpnam", "setlocale"}, true)
+      .Default(false);
 }
 
 /// Get the VarDecl from a smart pointer expression, if it's a simple
@@ -983,7 +1030,10 @@ private:
     }
     // Call to a function previously proven to always return non-null,
     // or a known STL method that contractually returns nonnull.
+    // Stdlib nullable functions (malloc, fopen, etc.) are explicitly excluded.
     if (const auto *CE = dyn_cast<CallExpr>(Init)) {
+      if (isStdlibNullableReturnCall(CE))
+        return false;
       if (isStlNonnullReturnCall(CE))
         return true;
       if (const auto *Callee = CE->getDirectCallee()) {
@@ -1024,6 +1074,10 @@ private:
     // nothrow new can return null.
     if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
       return NE->shouldNullCheckAllocation();
+    // Stdlib functions known to return null (malloc, fopen, getenv, etc.).
+    if (const auto *CE = dyn_cast<CallExpr>(Init))
+      if (isStdlibNullableReturnCall(CE))
+        return true;
     return false;
   }
 
@@ -1640,6 +1694,9 @@ private:
     // STL method that contractually returns nonnull — not nullable
     // regardless of the declared return type.
     if (const auto *CE = dyn_cast<CallExpr>(E)) {
+      // Stdlib nullable returns (malloc, fopen, etc.) are provably nullable.
+      if (isStdlibNullableReturnCall(CE))
+        return true;
       if (isStlNonnullReturnCall(CE))
         return false;
       if (const auto *Callee = CE->getDirectCallee()) {
@@ -1705,6 +1762,9 @@ private:
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
       return isExprExplicitlyNullable(CE->getSubExpr());
     if (const auto *CE = dyn_cast<CallExpr>(E)) {
+      // Stdlib nullable returns are provably nullable (for evidence emission).
+      if (isStdlibNullableReturnCall(CE))
+        return true;
       if (isStlNonnullReturnCall(CE))
         return false;
       if (const auto *Callee = CE->getDirectCallee()) {
