@@ -1936,9 +1936,47 @@ struct UnannotatedWidget {
 void unannotated_test_deleter() {
     auto* ptr = new UnannotatedWidget;
     auto deleter = [](UnannotatedWidget* w) {
-        w->~UnannotatedWidget(); // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        w->~UnannotatedWidget(); // OK — lambda params are auto-narrowed (callee trusts caller)
     };
     deleter(ptr);
+}
+
+// Lambda pointer params default to nonnull (auto-narrowed in body, verified
+// at call sites). Explicit _Nullable overrides this default.
+struct LambdaNode { int size; };
+void lambda_param_auto_narrow() {
+    // Comparator pattern: unannotated params are nonnull, no body warnings.
+    auto cmp = [](const LambdaNode* a, const LambdaNode* b) -> bool {
+        return a->size > b->size; // OK — lambda params default to nonnull
+    };
+    (void)cmp;
+
+    // Captured pointers are NOT auto-narrowed — still nullable.
+    LambdaNode* _Nullable np = nullptr;
+    auto bad = [&]() {
+        np->size; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    };
+    (void)bad;
+}
+
+// Call-site verification: passing nullable to a lambda warns.
+void lambda_callsite_check(LambdaNode* _Nullable maybe) {
+    auto work = [](LambdaNode* n) {
+        n->size = 42; // OK — auto-narrowed
+    };
+    work(maybe); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}}
+
+    LambdaNode* ok = new LambdaNode;
+    work(ok); // OK — nonnull arg
+}
+
+// Explicit _Nullable lambda param: body warns on unchecked deref, call site
+// does NOT warn when passing nullable (the param accepts null).
+void lambda_explicit_nullable(LambdaNode* _Nullable maybe) {
+    auto filter = [](LambdaNode* _Nullable n) {
+        n->size; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    };
+    filter(maybe); // OK — param is _Nullable, accepts null
 }
 
 struct UnannotatedBuffer {
