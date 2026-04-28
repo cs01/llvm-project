@@ -1443,22 +1443,39 @@ private:
       // Narrow pointers passed to _Nonnull parameters — surviving the call
       // proves the pointer was non-null. Recognizes both Clang _Nonnull
       // and GCC-style __attribute__((nonnull)).
+      //
+      // For CXXOperatorCallExpr on member operators (e.g. lambda operator()),
+      // getArg(0) is the implicit object — real args start at offset 1.
+      unsigned ArgOffset = 0;
+      if (isa<CXXOperatorCallExpr>(CE) && isa<CXXMethodDecl>(Callee))
+        ArgOffset = 1;
       const auto *NNAttr = Callee->getAttr<NonNullAttr>();
+      unsigned EffArgs = CE->getNumArgs() - ArgOffset;
       for (unsigned I = 0,
-                    N = std::min(CE->getNumArgs(), Callee->getNumParams());
+                    N = std::min(EffArgs, Callee->getNumParams());
            I < N; ++I) {
         const ParmVarDecl *Param = Callee->getParamDecl(I);
         if (!Param->getType()->isPointerType())
           continue;
         bool ParamIsNonnull =
             isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I));
+        // Lambda pointer params default to nonnull (auto-narrowed in body).
+        // Verify at call sites: warn when passing nullable to a lambda param
+        // that isn't explicitly _Nullable.
+        if (!ParamIsNonnull &&
+            !isExplicitlyNullableType(Param->getType())) {
+          if (const auto *MD = dyn_cast<CXXMethodDecl>(Callee))
+            if (MD->getParent()->isLambda())
+              ParamIsNonnull = true;
+        }
         if (ParamIsNonnull) {
-          const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
+          const Expr *Arg =
+              CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
           // Flow-sensitive argument check: warn when passing a nullable
           // pointer to a _Nonnull parameter.
           if (isExprNullable(Arg)) {
             ++NumArgumentWarnings;
-            Handler.handleNullableArgument(CE->getArg(I), Param);
+            Handler.handleNullableArgument(CE->getArg(I + ArgOffset), Param);
           }
           if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
@@ -1469,13 +1486,15 @@ private:
       }
 
       // Emit parameter evidence for cross-TU inference.
-      // Skip builtins/intrinsics and lambdas (unnamed functions).
-      // Accept regular identifiers, constructors, destructors, and
-      // conversion operators — basically anything except empty names
-      // and overloaded operators (which rarely take pointer params).
-      if (!Callee->getBuiltinID() && !Callee->getDeclName().isEmpty()) {
+      // Skip builtins, empty-named functions, and lambda operator() calls
+      // (lambda params have no cross-TU identity).
+      bool IsLambdaCall = false;
+      if (const auto *MD = dyn_cast<CXXMethodDecl>(Callee))
+        IsLambdaCall = MD->getParent()->isLambda();
+      if (!Callee->getBuiltinID() && !Callee->getDeclName().isEmpty() &&
+          !IsLambdaCall) {
         for (unsigned I = 0,
-                      N = std::min(CE->getNumArgs(), Callee->getNumParams());
+                      N = std::min(EffArgs, Callee->getNumParams());
              I < N; ++I) {
           const ParmVarDecl *Param = Callee->getParamDecl(I);
           if (!Param->getType()->isPointerType())
@@ -1483,15 +1502,16 @@ private:
           // Skip unnamed parameters — no useful evidence without a name.
           if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
             continue;
-          const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
+          const Expr *Arg =
+              CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
           bool ArgIsNonnull = !isExprNullable(Arg);
           // Only emit nullable evidence for explicitly nullable sources
           // (annotated _Nullable or nullptr), not for unannotated pointers
           // that are merely defaulted to nullable.
           if (!ArgIsNonnull && !isExprExplicitlyNullable(Arg))
             continue;
-          Handler.handleParameterEvidence(CE->getArg(I), Param, Callee,
-                                          ArgIsNonnull);
+          Handler.handleParameterEvidence(CE->getArg(I + ArgOffset), Param,
+                                          Callee, ArgIsNonnull);
         }
         // Parameters with nullptr default arguments are nullable evidence
         // even when callers always pass nonnull explicitly — the function
@@ -1955,10 +1975,19 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
         }
       }
     }
+    // Lambda pointer params default to nonnull (auto-narrowed). Lambdas are
+    // short-lived closures whose callers control what's passed — if a caller
+    // passes null, the bug is at the call site (caught by handleCallExpr's
+    // lambda-aware argument check). Explicit _Nullable overrides this default.
+    bool IsLambda = false;
+    if (const auto *MD = dyn_cast<CXXMethodDecl>(FD))
+      IsLambda = MD->getParent()->isLambda();
+
     for (const auto *Param : FD->parameters()) {
       if (!Param->getType()->isPointerType())
         continue;
-      if (isNonnullType(Param->getType()) || AttrNonnull.contains(Param))
+      if (isNonnullType(Param->getType()) || AttrNonnull.contains(Param) ||
+          (IsLambda && !isExplicitlyNullableType(Param->getType())))
         InitState.NarrowedVars.insert(Param);
     }
   }
