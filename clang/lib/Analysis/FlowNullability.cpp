@@ -290,13 +290,20 @@ static const Expr *unwrapImplicitWrappers(const Expr *E) {
   return E;
 }
 
-/// Check if a callee is std::make_unique or std::make_shared.
-static bool isMakeSmartPtrCall(const Expr *E) {
+/// Check if a smart pointer is constructed from a provably non-null source:
+/// make_unique/make_shared, or a constructor taking a new-expression.
+static bool isNonnullSmartPtrInit(const Expr *E) {
   E = unwrapImplicitWrappers(E);
   if (const auto *CE = dyn_cast<CXXConstructExpr>(E)) {
     if (CE->getNumArgs() == 1)
-      return isMakeSmartPtrCall(CE->getArg(0));
+      return isNonnullSmartPtrInit(CE->getArg(0));
   }
+  // unique_ptr<T>(new T()) wraps the constructor in a functional cast node
+  if (const auto *FCE = dyn_cast<CXXFunctionalCastExpr>(E))
+    return isNonnullSmartPtrInit(FCE->getSubExpr());
+  // new T() — throwing operator new never returns null
+  if (const auto *NE = dyn_cast<CXXNewExpr>(E))
+    return !NE->shouldNullCheckAllocation();
   if (const auto *CE = dyn_cast<CallExpr>(E)) {
     if (const auto *Callee = CE->getDirectCallee()) {
       const auto *DC = Callee->getDeclContext();
@@ -959,11 +966,11 @@ private:
           continue;
         }
 
-        // Track smart pointer initialization
+        // Track smart pointer initialization — narrow if constructed from a
+        // provably non-null source (make_unique, make_shared, new, etc.)
         if (isSmartPointerType(VD->getType()) && VD->hasInit()) {
           const Expr *Init = unwrapImplicitWrappers(VD->getInit());
-          if (isMakeSmartPtrCall(Init)) {
-            // make_unique/make_shared always return non-null
+          if (isNonnullSmartPtrInit(Init)) {
             State.NarrowedVars.insert(VD);
           }
           // Default-constructed, nullptr, or moved-from → nullable (don't
@@ -1620,7 +1627,7 @@ private:
           clearNarrowing();
           const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
 
-          if (isMakeSmartPtrCall(RHS)) {
+          if (isNonnullSmartPtrInit(RHS)) {
             // sp = make_unique<T>(...) — non-null
             markNarrowed();
           } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {

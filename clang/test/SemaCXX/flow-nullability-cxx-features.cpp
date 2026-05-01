@@ -601,6 +601,7 @@ struct unique_ptr {
     explicit operator bool() const { return ptr != nullptr; }
     void reset() { ptr = nullptr; }
     void reset(T* p) { ptr = p; }
+    explicit unique_ptr(T* p) : ptr(p) {}
     unique_ptr() : ptr(nullptr) {}
     unique_ptr(unique_ptr&& other) : ptr(other.ptr) { other.ptr = nullptr; }
     unique_ptr& operator=(unique_ptr&& other) { ptr = other.ptr; other.ptr = nullptr; return *this; }
@@ -685,6 +686,20 @@ void smartptr_test_make_unique_narrows() {
 void smartptr_test_make_shared_narrows() {
     auto sp = std::make_shared<Node>();
     sp->value = 1; // OK -- make_shared always returns non-null
+}
+
+// --- new-expression narrows (throwing new never returns null) ---
+
+void smartptr_test_unique_ptr_new_narrows() {
+    std::unique_ptr<Node> sp(new Node());
+    sp->value = 1; // OK -- new Node() never returns null (throwing new)
+}
+
+void smartptr_test_assign_from_new() {
+    std::unique_ptr<Node> sp;
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+    sp = std::unique_ptr<Node>(new Node());
+    sp->value = 1; // OK -- reassignment from new-expression narrows
 }
 
 // --- reset() makes nullable ---
@@ -987,7 +1002,7 @@ void constexpr_test_discarded() {
 // Live branch correctly warns
 void constexpr_test_live() {
     if constexpr (true) {
-        int * _Nonnull p = nullptr; // expected-warning{{null assigned to a variable of nonnull type}}
+        int * _Nonnull p = nullptr; // expected-warning{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
     }
 }
 
@@ -1011,7 +1026,7 @@ void constexpr_test_deref(int * _Nullable p) {
 template<bool B>
 void constexpr_template_branch() {
     if constexpr (B) {
-        int * _Nonnull p = nullptr; // expected-warning 2{{null assigned to a variable of nonnull type}}
+        int * _Nonnull p = nullptr; // expected-warning 2{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
     }
 }
 
