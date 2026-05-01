@@ -40,4 +40,16 @@ void reassign_make_unique_renarrows() {
     sp->value = 1; // OK — reassignment from make_unique narrows
 }
 
+void new_expression_narrows() {
+    std::unique_ptr<Node> sp(new Node());
+    sp->value = 1; // OK — new Node() never returns null (throwing new)
+}
+
+void reassign_from_new_renarrows() {
+    std::unique_ptr<Node> sp;
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+    sp = std::unique_ptr<Node>(new Node());
+    sp->value = 1; // OK — reassignment from new-expression narrows
+}
+
 #pragma clang assume_nonnull end
