@@ -85,7 +85,7 @@ async function loadExamples() {
                             if (!scriptUrl || isCompiling) return;
                             try {
                                 const code = getEditorValue();
-                                const result = await compileCode(code, []);
+                                const result = await compileCode(code, [], null, getInputFile(code));
                                 const diagnostics = parseDiagnostics(result.stderr);
                                 monaco.editor.setModelMarkers(editor.getModel(), 'clang', diagnostics);
                             } catch (error) {
@@ -114,7 +114,7 @@ async function loadExamples() {
         function parseDiagnostics(stderr) {
             const markers = [];
             const lines = stderr.split('\n');
-            const diagnosticRegex = /^input\.c:(\d+):(\d+):\s+(error|warning|note):\s+(.+)$/;
+            const diagnosticRegex = /^input\.(?:cpp|c):(\d+):(\d+):\s+(error|warning|note):\s+(.+)$/;
 
             for (const line of lines) {
                 const match = line.match(diagnosticRegex);
@@ -140,6 +140,19 @@ async function loadExamples() {
         let isDragging = false;
         let scriptUrl = null;
         let wasmBinary = null;
+
+        // Auto-detect C++ from code content
+        function isCppCode(code) {
+            // Check for C++ keywords and syntax not valid in C
+            return /\b(class|template|namespace|using|public|private|protected|virtual|override|nullptr|auto\s+\w+\s*=|std::)\b/.test(code)
+                || /\b\w+\s*::\s*\w+/.test(code)  // scope resolution
+                || /\bstruct\s+\w+\s*\{[^}]*\b\w+\s*\([^)]*\)\s*(const\s*)?\{/.test(code)  // member functions in struct
+                || /[&]\s*\w+\s*[,)]/.test(code);  // reference params like (int& x) or (Foo& f)
+        }
+
+        function getInputFile(code) {
+            return isCppCode(code) ? 'input.cpp' : 'input.c';
+        }
 
         // Toast notification
         function showToast(message, duration = 2000) {
@@ -261,6 +274,7 @@ async function loadExamples() {
             }
 
             const code = getEditorValue();
+            const codeLang = isCppCode(code) ? 'cpp' : 'c';
             const nullsafeOutput = outputNullsafe.textContent || '(no output yet)';
             const mainlineOutput = outputMainline.textContent || '(no output yet)';
             const analyzerOutput = outputAnalyzer.textContent || '(no output yet)';
@@ -307,7 +321,7 @@ async function loadExamples() {
                 '- **User Agent:** `' + ua + '`\n' +
                 '- **Playground URL:** ' + window.location.href + '\n\n' +
                 '### Code\n' +
-                '\x60\x60\x60c\n' +
+                '\x60\x60\x60' + codeLang + '\n' +
                 code + '\x60\x60\x60\n' +
                 '### Compiler Output\n\n' +
                 '#### With Null Warnings\n' +
@@ -348,6 +362,11 @@ async function loadExamples() {
                 try {
                     const code = decodeURIComponent(escape(atob(encodedCode)));
                     setEditorValue(code);
+
+                    // Update Monaco language for shared code
+                    if (editor && isCppCode(code)) {
+                        monaco.editor.setModelLanguage(editor.getModel(), 'cpp');
+                    }
 
                     // Set dropdown to "Custom Code" or first option to indicate custom code
                     examplesSelect.value = '';
@@ -527,21 +546,26 @@ async function loadExamples() {
 
             try {
                 const code = getEditorValue();
+                const inputFile = getInputFile(code);
+
+                // Update Monaco language to match
+                const lang = inputFile.endsWith('.cpp') ? 'cpp' : 'c';
+                monaco.editor.setModelLanguage(editor.getModel(), lang);
 
                 // Compile all three versions in parallel
                 const [nullsafeResult, mainlineResult, analyzerResult] = await Promise.all([
-                    compileCode(code, []),
-                    compileCode(code, ['-Wno-nullability', '-Wno-flow-nullability']),
-                    compileCode(code, [], analyzerBaseFlags)
+                    compileCode(code, [], null, inputFile),
+                    compileCode(code, ['-Wno-nullability', '-Wno-flow-nullability'], null, inputFile),
+                    compileCode(code, [], analyzerBaseFlags, inputFile)
                 ]);
 
                 const duration = (performance.now() - startTime).toFixed(0);
 
                 // Build command strings
                 const baseArgs = '-fsyntax-only --target=wasm32-unknown-emscripten';
-                const nullsafeCmd = `$ clang ${baseArgs} input.c`;
-                const mainlineCmd = `$ clang ${baseArgs} -Wno-nullability -Wno-flow-nullability input.c`;
-                const analyzerCmd = `$ clang --analyze -analyzer-checker=core.NullDereference,nullability input.c`;
+                const nullsafeCmd = `$ clang ${baseArgs} ${inputFile}`;
+                const mainlineCmd = `$ clang ${baseArgs} -Wno-nullability -Wno-flow-nullability ${inputFile}`;
+                const analyzerCmd = `$ clang --analyze -analyzer-checker=core.NullDereference,nullability ${inputFile}`;
 
                 // Update headers with version and timing
                 const headers = document.querySelectorAll('.output-section-header');
@@ -606,7 +630,7 @@ async function loadExamples() {
             }
         }
 
-        async function compileCode(code, extraFlags = [], baseFlags = null) {
+        async function compileCode(code, extraFlags = [], baseFlags = null, inputFile = 'input.c') {
             return new Promise((resolve, reject) => {
                 const worker = new Worker('compiler-worker.js');
 
@@ -626,7 +650,7 @@ async function loadExamples() {
 
                     if (type === 'ready') {
                         // Worker is ready, send compile request
-                        const msg = { type: 'compile', code, extraFlags };
+                        const msg = { type: 'compile', code, extraFlags, inputFile };
                         if (baseFlags) msg.baseFlags = baseFlags;
                         worker.postMessage(msg);
                     } else if (type === 'stdout') {
