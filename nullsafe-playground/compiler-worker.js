@@ -71,8 +71,8 @@ self.onmessage = function(e) {
         }
 
         try {
-            const { code, extraFlags = [], baseFlags } = data;
-            const inputFile = 'input.c';
+            const { code, extraFlags = [], baseFlags, inputFile: requestedFile } = data;
+            const inputFile = requestedFile || 'input.c';
 
             // Write source file
             FS.writeFile(inputFile, code);
