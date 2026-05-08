@@ -4262,6 +4262,19 @@ void Sema::ActOnFinishCXXInClassMemberInitializer(Decl *D,
   }
 
   FD->setInClassInitializer(InitExpr.get());
+
+  // Warn when a _Nonnull field is initialized with null.
+  if (FD->getType()->isPointerType()) {
+    auto Nullability = FD->getType()->getNullability();
+    if (Nullability && *Nullability == NullabilityKind::NonNull) {
+      Expr *Init = InitExpr.get()->IgnoreParenImpCasts();
+      if (Init->isNullPointerConstant(Context,
+              Expr::NPC_ValueDependentIsNotNull)) {
+        Diag(Init->getExprLoc(), diag::warn_flow_nullable_field_init) << FD;
+        Diag(Init->getExprLoc(), diag::note_nullable_field_init_fix);
+      }
+    }
+  }
 }
 
 /// Find the direct and/or virtual base specifiers that
