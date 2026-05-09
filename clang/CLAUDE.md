@@ -86,7 +86,7 @@ Three narrowing sets in `NullState`:
 - `NarrowedMembers` — `DenseSet<pair<VarDecl*, FieldDecl*>>` for `var->field` member accesses
 - `NarrowedThisMembers` — `DenseSet<const FieldDecl*>` for `this->field` member accesses
 
-Transfer functions handle: `DeclStmt` (nonnull init), `BinaryOperator` (assignment invalidation), `UnaryOperator` (`*` deref check, `++`/`--` invalidation), `MemberExpr` (`->` deref check), `ArraySubscriptExpr` (subscript deref check), `CallExpr` (`__builtin_assume` narrowing).
+Transfer functions handle: `DeclStmt` (nonnull init, alias tracking, smart pointer narrowing), `BinaryOperator` (assignment invalidation, pointer arithmetic on nullable, pointer diff), `UnaryOperator` (`*` deref check, `++`/`--` arithmetic check and invalidation), `MemberExpr` (`->` deref check, smart pointer `operator->` check), `ArraySubscriptExpr` (subscript deref check), `CallExpr` (`__builtin_assume` narrowing, argument checking), `CXXConstructExpr` (constructor argument checking), `InitListExpr` (aggregate init of nonnull fields), `ReturnStmt` (nullable return from nonnull function, all-returns-nonnull inference).
 
 ### Gradual adoption
 
