@@ -79,11 +79,25 @@ self.onmessage = function(e) {
 
             // Build arguments: callers can override the default base flags
             // (e.g. the static analyzer panel uses --analyze instead of -fsyntax-only)
+            // Find clang resource dir from embedded filesystem.
+            // Embedded at /lib/clang/<ver>/ — version changes with LLVM releases.
+            let resourceDir = '/lib/clang/23';
+            try {
+                const vers = FS.readdir('/lib/clang').filter(d => d !== '.' && d !== '..');
+                if (vers.length > 0) resourceDir = `/lib/clang/${vers[0]}`;
+            } catch (e) {
+                // Fall back to default
+            }
+
             const defaultBase = [
                 '-fsyntax-only',
                 '--target=wasm32-unknown-emscripten',
                 '-fflow-sensitive-nullability',
                 '-fnullability-default=nullable',
+                '-resource-dir', resourceDir,
+                '-isystem', '/include/c++/v1',
+                '-isystem', '/include',
+                '-isystem', '/include/compat',
             ];
             const args = [
                 ...(baseFlags || defaultBase),
