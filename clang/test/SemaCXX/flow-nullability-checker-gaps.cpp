@@ -36,24 +36,25 @@ struct OwnerWithNonnullField {
 
 // ==========================================================================
 // GAP 2: Nonnull default argument with null value
-// STATUS: NOT IMPLEMENTED
+// STATUS: IMPLEMENTED
 // ==========================================================================
 
-// XFAIL-GAP: these should warn about null/nullable defaults for nonnull params
-void default_arg_null(int *_Nonnull p = nullptr);
-void default_arg_nullable(int *_Nonnull p = GetNullable());
+void default_arg_null(int *_Nonnull p = nullptr);       // expected-warning{{nullable default argument for nonnull parameter 'p'}}
+                                                         // expected-note@-1{{remove '_Nonnull' from the parameter, or change the default to a nonnull value}}
+void default_arg_nullable(int *_Nonnull p = GetNullable()); // expected-warning{{nullable default argument for nonnull parameter 'p'}}
+                                                             // expected-note@-1{{remove '_Nonnull' from the parameter, or change the default to a nonnull value}}
 void default_arg_ok(int *_Nonnull p = GetNonnull()); // no warning
 
 // ==========================================================================
 // GAP 3: Nonnull member default initializer from nullable function
-// STATUS: PARTIALLY WORKING — nullptr case already warns, but nullable
-//         from function call does not.
+// STATUS: IMPLEMENTED
 // ==========================================================================
 
 struct NonnullMemberDefaultInit {
     int *_Nonnull p = nullptr;        // expected-warning{{initializing nonnull member 'p' with null}}
                                       // expected-note@-1{{remove '_Nonnull' if this member can be null, or remove the null initializer}}
-    int *_Nonnull q = GetNullable();  // XFAIL-GAP: should warn "nullable default initializer"
+    int *_Nonnull q = GetNullable();  // expected-warning{{initializing nonnull member 'q' with null}}
+                                      // expected-note@-1{{remove '_Nonnull' if this member can be null, or remove the null initializer}}
     int *_Nonnull r = GetNonnull();   // no warning
 };
 

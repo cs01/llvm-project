@@ -13090,6 +13090,11 @@ def warn_flow_nullable_member_assignment : Warning<
   InGroup<FlowNullableAssignment>;
 def note_nullable_member_assignment_fix : Note<
   "add a null check before assigning, or remove '_Nonnull' from the member">;
+def warn_flow_nullable_default_arg : Warning<
+  "nullable default argument for nonnull parameter %0">,
+  InGroup<FlowNullableAssignment>;
+def note_nullable_default_arg_fix : Note<
+  "remove '_Nonnull' from the parameter, or change the default to a nonnull value">;
 def note_nullable_assignment_fix : Note<
   "add a null check before assigning, or change the variable type to "
   "'_Nullable'">;
