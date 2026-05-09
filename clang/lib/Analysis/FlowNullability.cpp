@@ -887,6 +887,8 @@ public:
       handleArraySubscript(ASE);
     else if (const auto *CE = dyn_cast<CallExpr>(S))
       handleCallExpr(CE);
+    else if (const auto *CtorE = dyn_cast<CXXConstructExpr>(S))
+      handleConstructExpr(CtorE);
     else if (const auto *RS = dyn_cast<ReturnStmt>(S))
       handleReturnStmt(RS);
   }
@@ -1110,6 +1112,7 @@ private:
               IsZeroOffset = true;
         }
         if (!IsZeroOffset) {
+          // Check the primary pointer operand
           if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
               if (!isNarrowed(VD) && (isNullableType(VD->getType(), StrictMode,
@@ -1117,6 +1120,20 @@ private:
                                       State.NullableVars.contains(VD))) {
                 ++NumArithmeticWarnings;
                 Handler.handleNullableArithmetic(BO, VD->getType());
+              }
+            }
+          }
+          // For pointer difference (p - q), also check the other operand
+          if (OtherExpr && OtherExpr->getType()->isPointerType()) {
+            if (const auto *DRE = dyn_cast<DeclRefExpr>(OtherExpr)) {
+              if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+                if (!isNarrowed(VD) &&
+                    (isNullableType(VD->getType(), StrictMode,
+                                    DefaultNullability) ||
+                     State.NullableVars.contains(VD))) {
+                  ++NumArithmeticWarnings;
+                  Handler.handleNullableArithmetic(BO, VD->getType());
+                }
               }
             }
           }
@@ -1685,6 +1702,36 @@ private:
       if (const auto *FD = getSmartPtrThisMemberDecl(CE->getArg(0))) {
         State.NarrowedThisMembers.erase(FD);
         State.NullableThisMembers.insert(FD);
+      }
+    }
+  }
+
+  // Check constructor arguments against parameter nullability, same as
+  // handleCallExpr does for regular function calls.
+  void handleConstructExpr(const CXXConstructExpr *CE) {
+    const CXXConstructorDecl *Ctor = CE->getConstructor();
+    if (!Ctor)
+      return;
+    const auto *NNAttr = Ctor->getAttr<NonNullAttr>();
+    for (unsigned I = 0, N = std::min(CE->getNumArgs(), Ctor->getNumParams());
+         I < N; ++I) {
+      const ParmVarDecl *Param = Ctor->getParamDecl(I);
+      if (!Param->getType()->isPointerType())
+        continue;
+      bool ParamIsNonnull =
+          isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I));
+      if (ParamIsNonnull) {
+        const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
+        if (isExprNullable(Arg)) {
+          ++NumArgumentWarnings;
+          Handler.handleNullableArgument(CE->getArg(I), Param);
+        }
+        // Narrow the argument — surviving the call proves it was non-null
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
+          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+            if (VD->getType()->isPointerType())
+              State.NarrowedVars.insert(VD);
+        }
       }
     }
   }
