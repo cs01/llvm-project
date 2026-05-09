@@ -1208,21 +1208,32 @@ private:
                 }
               }
             }
-            if (!Narrowed && isNonnullInit(RHS))
-              Narrowed = true;
-            if (!Narrowed && isNonnullType(BO->getRHS()->getType()))
-              Narrowed = true;
-
-            if (Narrowed) {
-              if (IsThisMember)
-                State.NarrowedThisMembers.insert(FD);
-              else if (BaseVD)
-                State.NarrowedMembers.insert({BaseVD, FD});
-            } else if (isNullableType(BO->getRHS()->getType(), StrictMode,
-                                      DefaultNullability) ||
-                       isNullableInit(RHS)) {
+            // Null constant assigned to _Nonnull member — warn immediately.
+            // Check before isNonnullInit/isNonnullType because implicit
+            // casts can propagate _Nonnull from the LHS onto the RHS type.
+            if (!Narrowed && isNonnullType(FD->getType()) &&
+                isNullableInit(RHS) && !isNonnullInit(RHS)) {
               if (IsThisMember)
                 State.NullableThisMembers.insert(FD);
+              ++NumAssignmentWarnings;
+              Handler.handleNullableMemberAssignment(BO, FD);
+            } else {
+              if (!Narrowed && isNonnullInit(RHS))
+                Narrowed = true;
+              if (!Narrowed && isNonnullType(BO->getRHS()->getType()))
+                Narrowed = true;
+
+              if (Narrowed) {
+                if (IsThisMember)
+                  State.NarrowedThisMembers.insert(FD);
+                else if (BaseVD)
+                  State.NarrowedMembers.insert({BaseVD, FD});
+              } else if (isNullableType(BO->getRHS()->getType(), StrictMode,
+                                        DefaultNullability) ||
+                         isNullableInit(RHS)) {
+                if (IsThisMember)
+                  State.NullableThisMembers.insert(FD);
+              }
             }
 
             // Emit evidence for cross-TU inference.
@@ -1284,18 +1295,23 @@ private:
                 }
               }
             }
-            if (isNonnullInit(RHS)) {
+            // Null constant assigned to _Nonnull — warn immediately.
+            // Check before isNonnullInit/isNonnullType because implicit
+            // casts can propagate _Nonnull from the LHS onto the RHS type.
+            if (isNonnullType(VD->getType()) && isNullableInit(RHS) &&
+                !isNonnullInit(RHS)) {
+              State.NullableVars.insert(VD);
+              ++NumAssignmentWarnings;
+              Handler.handleNullableAssignment(BO, VD);
+            } else if (isNonnullInit(RHS)) {
               State.NarrowedVars.insert(VD);
               return;
-            }
-            if (isNonnullType(BO->getRHS()->getType())) {
+            } else if (isNonnullType(BO->getRHS()->getType())) {
               State.NarrowedVars.insert(VD);
             } else if (isNullableType(BO->getRHS()->getType(), StrictMode,
                                       DefaultNullability) ||
                        isNullableInit(RHS)) {
               State.NullableVars.insert(VD);
-              // Flow-sensitive assignment check: warn when assigning a
-              // nullable value to a _Nonnull variable.
               if (isNonnullType(VD->getType())) {
                 ++NumAssignmentWarnings;
                 Handler.handleNullableAssignment(BO, VD);
@@ -1861,8 +1877,14 @@ private:
 
     if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
       if (isa<CXXThisExpr>(Base)) {
-        if (!isThisMemberNarrowed(FD))
+        // If flow analysis marked this member nullable (e.g. assigned nullptr),
+        // that overrides the declared _Nonnull type.
+        if (State.NullableThisMembers.contains(FD)) {
+          ++NumDereferenceWarnings;
+          Handler.handleNullableDereference(DerefExpr, ME->getType());
+        } else if (!isThisMemberNarrowed(FD)) {
           checkDeref(DerefExpr, ME->getType());
+        }
       } else if (const auto *DRE = dyn_cast<DeclRefExpr>(Base)) {
         if (const auto *BaseVD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (!isMemberNarrowed(BaseVD, FD))
@@ -1912,6 +1934,10 @@ public:
   }
   void handleNullableAssignment(const Expr *E, const VarDecl *V) override {
     Inner.handleNullableAssignment(E, V);
+  }
+  void handleNullableMemberAssignment(const Expr *E,
+                                      const FieldDecl *M) override {
+    Inner.handleNullableMemberAssignment(E, M);
   }
   void handleNullableArgument(const Expr *E, const ParmVarDecl *P) override {
     Inner.handleNullableArgument(E, P);

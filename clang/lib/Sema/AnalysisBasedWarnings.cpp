@@ -3012,6 +3012,13 @@ public:
     S.Diag(AssignExpr->getExprLoc(), diag::note_nullable_assignment_fix);
   }
 
+  void handleNullableMemberAssignment(const Expr *AssignExpr,
+                                      const FieldDecl *Member) override {
+    S.Diag(AssignExpr->getExprLoc(), diag::warn_flow_nullable_member_assignment)
+        << Member;
+    S.Diag(AssignExpr->getExprLoc(), diag::note_nullable_member_assignment_fix);
+  }
+
   void handleNullableArgument(const Expr *ArgExpr,
                               const ParmVarDecl *Param) override {
     S.Diag(ArgExpr->getExprLoc(), diag::warn_flow_nullable_argument) << Param;

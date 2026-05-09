@@ -13085,6 +13085,11 @@ def warn_flow_nullable_field_init : Warning<
   InGroup<FlowNullableAssignment>;
 def note_nullable_field_init_fix : Note<
   "remove '_Nonnull' if this member can be null, or remove the null initializer">;
+def warn_flow_nullable_member_assignment : Warning<
+  "assigning nullable pointer to nonnull member %0">,
+  InGroup<FlowNullableAssignment>;
+def note_nullable_member_assignment_fix : Note<
+  "add a null check before assigning, or remove '_Nonnull' from the member">;
 def note_nullable_assignment_fix : Note<
   "add a null check before assigning, or change the variable type to "
   "'_Nullable'">;
