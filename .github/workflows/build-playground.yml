@@ -56,8 +56,64 @@ jobs:
           restore-keys: |
             ccache-wasm-
 
-      - name: Configure WASM build (Null-Safe Clang)
+      - name: Collect headers for WASM virtual filesystem
+        id: sysroot
         run: |
+          SYSROOT="$(pwd)/playground-sysroot"
+          mkdir -p "$SYSROOT/include"
+
+          # --- Emscripten libc (musl) + libc++ headers ---
+          # Trigger Emscripten cache population if needed
+          EMSDK_SYSROOT="$(em-config CACHE)/sysroot/include"
+          if [ ! -d "$EMSDK_SYSROOT" ]; then
+            echo "int main(){}" > /tmp/hello.c
+            emcc /tmp/hello.c -o /tmp/hello.js
+            EMSDK_SYSROOT="$(em-config CACHE)/sysroot/include"
+          fi
+          cp -r "$EMSDK_SYSROOT"/* "$SYSROOT/include/"
+
+          # --- Clang resource headers (stddef.h, stdarg.h, etc.) ---
+          # These are in clang/lib/Headers/ in the source tree.
+          # Clang looks for them at: <resource-dir>/include/
+          CLANG_VER=$(grep 'set(LLVM_VERSION_MAJOR' cmake/Modules/LLVMVersion.cmake | grep -oP '[0-9]+')
+          RESOURCE_DST="${SYSROOT}/lib/clang/${CLANG_VER}/include"
+          mkdir -p "$RESOURCE_DST"
+
+          # Copy essential C/C++ headers only — skip architecture intrinsics
+          # (avx*, arm*, amx*, etc.) to save ~14MB of embedded space
+          for pattern in \
+            '__stddef*' '__stdarg*' '__stdc*' \
+            'stddef.h' 'stdarg.h' 'stdbool.h' 'stdnoreturn.h' 'stdatomic.h' \
+            'stdalign.h' 'stdint.h' \
+            'limits.h' 'float.h' 'inttypes.h' 'iso646.h' \
+            '__clang_hip_*.h' '__wasm*.h' \
+            'unwind.h' 'tgmath.h' 'varargs.h'; do
+            for h in clang/lib/Headers/$pattern; do
+              [ -f "$h" ] && cp "$h" "$RESOURCE_DST/"
+            done
+          done
+
+          echo "=== Embedded sysroot ==="
+          echo "Clang resource headers: $(find "$RESOURCE_DST" -type f | wc -l) files, $(du -sh "$RESOURCE_DST" | cut -f1)"
+          echo "Libc/libc++ headers: $(find "$SYSROOT/include" -type f | wc -l) files, $(du -sh "$SYSROOT/include" | cut -f1)"
+          echo "Total: $(du -sh "$SYSROOT" | cut -f1)"
+
+          echo "sysroot=$SYSROOT" >> "$GITHUB_OUTPUT"
+          echo "clang_ver=$CLANG_VER" >> "$GITHUB_OUTPUT"
+
+      - name: Configure WASM build
+        run: |
+          SYSROOT="${{ steps.sysroot.outputs.sysroot }}"
+          CLANG_VER="${{ steps.sysroot.outputs.clang_ver }}"
+
+          # --embed-file bakes files into the WASM binary's virtual filesystem.
+          # host_path@virtual_path maps where files go in the VFS:
+          #   /lib/clang/<ver>/include — clang resource headers (-resource-dir)
+          #   /include — C stdlib + C++ stdlib + compat headers (-isystem)
+          EMBED_FLAGS=""
+          EMBED_FLAGS+=" --embed-file ${SYSROOT}/lib/clang/${CLANG_VER}/include@/lib/clang/${CLANG_VER}/include"
+          EMBED_FLAGS+=" --embed-file ${SYSROOT}/include@/include"
+
           mkdir -p build-wasm
           cd build-wasm
           emcmake cmake -G Ninja \
@@ -76,7 +132,7 @@ jobs:
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_EXE_LINKER_FLAGS="-sEXPORTED_RUNTIME_METHODS=callMain -sEXIT_RUNTIME=0 -sALLOW_MEMORY_GROWTH=1" \
+            -DCMAKE_EXE_LINKER_FLAGS="-sEXPORTED_RUNTIME_METHODS=callMain -sEXIT_RUNTIME=0 -sALLOW_MEMORY_GROWTH=1 ${EMBED_FLAGS}" \
             ../llvm
 
       - name: Build Null-Safe Clang WASM
@@ -94,6 +150,7 @@ jobs:
           gzip -k artifacts/clang-nullsafe.wasm
           gzip -k artifacts/clang-nullsafe.js
 
+          echo "=== Artifact sizes ==="
           ls -lh artifacts/
 
       - name: Upload artifacts
@@ -118,6 +175,9 @@ jobs:
 
             Built from ${{ github.sha }} on ${{ github.ref_name }}.
             This release is automatically updated on every push that changes compiler source.
+
+            Includes embedded C/C++ standard library headers — `#include <memory>`,
+            `#include <vector>`, `#include <cassert>`, etc. all work in the playground.
 
             ### Files:
             - `clang-nullsafe.wasm` - WebAssembly compiler binary
