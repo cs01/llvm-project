@@ -38,6 +38,8 @@ public:
                                     QualType ReturnType) {}
   virtual void handleNullableAssignment(const Expr *AssignExpr,
                                         const VarDecl *LHSVar) {}
+  virtual void handleNullableMemberAssignment(const Expr *AssignExpr,
+                                              const FieldDecl *Member) {}
   virtual void handleNullableArgument(const Expr *ArgExpr,
                                       const ParmVarDecl *Param) {}
 
