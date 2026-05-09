@@ -889,6 +889,8 @@ public:
       handleCallExpr(CE);
     else if (const auto *CtorE = dyn_cast<CXXConstructExpr>(S))
       handleConstructExpr(CtorE);
+    else if (const auto *ILE = dyn_cast<InitListExpr>(S))
+      handleInitListExpr(ILE);
     else if (const auto *RS = dyn_cast<ReturnStmt>(S))
       handleReturnStmt(RS);
   }
@@ -1733,6 +1735,28 @@ private:
               State.NarrowedVars.insert(VD);
         }
       }
+    }
+  }
+
+  // Check aggregate init lists: S{nullptr, &x} where a field is _Nonnull.
+  void handleInitListExpr(const InitListExpr *ILE) {
+    const auto *RT = ILE->getType()->getAs<RecordType>();
+    if (!RT)
+      return;
+    const RecordDecl *RD = RT->getDecl();
+    if (!RD || !RD->isStruct() && !RD->isClass())
+      return;
+    auto FI = RD->field_begin();
+    for (unsigned I = 0, N = ILE->getNumInits(); I < N && FI != RD->field_end();
+         ++I, ++FI) {
+      const FieldDecl *FD = *FI;
+      if (!FD->getType()->isPointerType())
+        continue;
+      if (!isNonnullType(FD->getType()))
+        continue;
+      const Expr *Init = ILE->getInit(I)->IgnoreParenImpCasts();
+      if (isExprNullable(Init))
+        Handler.handleNullableMemberAssignment(ILE->getInit(I), FD);
     }
   }
 
