@@ -1777,7 +1777,7 @@ private:
     if (!RT)
       return;
     const RecordDecl *RD = RT->getDecl();
-    if (!RD || !RD->isStruct() && !RD->isClass())
+    if (!RD || (!RD->isStruct() && !RD->isClass()))
       return;
     auto FI = RD->field_begin();
     for (unsigned I = 0, N = ILE->getNumInits(); I < N && FI != RD->field_end();
@@ -1788,8 +1788,10 @@ private:
       if (!isNonnullType(FD->getType()))
         continue;
       const Expr *Init = ILE->getInit(I)->IgnoreParenImpCasts();
-      if (isExprNullable(Init))
+      if (isExprNullable(Init)) {
+        ++NumAssignmentWarnings;
         Handler.handleNullableMemberAssignment(ILE->getInit(I), FD);
+      }
     }
   }
 
