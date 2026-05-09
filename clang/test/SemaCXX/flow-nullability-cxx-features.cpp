@@ -597,7 +597,7 @@ struct unique_ptr {
     using element_type = T;
     pointer operator->() { return ptr; }
     element_type& operator*() { return *ptr; }
-    pointer get() { return ptr; }
+    pointer _Nullable get() { return ptr; }
     explicit operator bool() const { return ptr != nullptr; }
     void reset() { ptr = nullptr; }
     void reset(T* p) { ptr = p; }
@@ -614,7 +614,7 @@ struct shared_ptr {
     T* ptr;
     T* operator->() { return ptr; }
     T& operator*() { return *ptr; }
-    T* get() { return ptr; }
+    T* _Nullable get() { return ptr; }
     explicit operator bool() const { return ptr != nullptr; }
     void reset() { ptr = nullptr; }
     void reset(T* p) { ptr = p; }
@@ -788,10 +788,24 @@ void smartptr_test_iterator_no_warn(Container c) {
     it->value = 1; // OK -- iterator, not a smart pointer
 }
 
-// --- .get() returns an unannotated raw pointer, no warning ---
+// --- .get() on un-narrowed smart pointer warns ---
 
-void smartptr_test_get_no_warning(std::unique_ptr<Node> sp) {
-    sp.get()->value = 1; // OK -- get() return type is unannotated
+void smartptr_test_get_warns_unnarrowed(std::unique_ptr<Node> sp) {
+    sp.get()->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+// --- .get() propagates smart pointer narrowing state ---
+
+void smartptr_test_get_propagates_nonnull() {
+    auto sp = std::make_unique<Node>();
+    Node* raw = sp.get();
+    raw->value = 1; // no warning — sp is nonnull, get() propagates that
+}
+
+void smartptr_test_get_propagates_nullable() {
+    std::unique_ptr<Node> empty;
+    Node* raw = empty.get();
+    raw->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // --- Raw pointers still work as before ---

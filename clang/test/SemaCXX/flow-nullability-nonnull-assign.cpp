@@ -3,7 +3,7 @@
 // Covers: field default init, member assignment, local variable assignment,
 // and dereference after null assignment to _Nonnull.
 //
-// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 -Wno-unused-value %s -verify
+// RUN: %clang_cc1 -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 -Wno-unused-value -Wno-nonnull %s -verify
 
 struct Config { int timeout; };
 
@@ -74,4 +74,51 @@ int local_deref_after_null() {
   Config* _Nonnull p = &c;
   p = nullptr; // expected-warning{{assigning nullable pointer to nonnull variable 'p'}} expected-note{{add a null check}}
   return p->timeout; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+// --- Gap 5: Constructor argument checking (CXXConstructExpr) ---
+
+struct TakesNonnull {
+  int *_Nonnull ptr_;
+  TakesNonnull(int *_Nonnull p) : ptr_(p) {}
+};
+
+void ctor_nullable_to_nonnull(int *_Nullable p) {
+  TakesNonnull t(p); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check}}
+}
+
+void ctor_nonnull_ok(int *_Nonnull p) {
+  TakesNonnull t(p); // no warning
+}
+
+void ctor_narrowed_ok(int *_Nullable p) {
+  if (p) {
+    TakesNonnull t(p); // no warning — checked
+  }
+}
+
+void ctor_nullptr() {
+  TakesNonnull t(nullptr); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check}}
+}
+
+// --- Gap 6: Aggregate InitListExpr checking ---
+
+struct AggNonnull {
+  int *_Nonnull p;
+  int *_Nonnull q;
+};
+
+void aggregate_init_null() {
+  int x;
+  AggNonnull a1 = {nullptr, &x}; // expected-warning{{assigning nullable pointer to nonnull member}} expected-note{{add a null check}}
+}
+
+void aggregate_init_nullable(int *_Nullable p) {
+  int x;
+  AggNonnull a2 = {p, &x}; // expected-warning{{assigning nullable pointer to nonnull member}} expected-note{{add a null check}}
+}
+
+void aggregate_init_ok(int *_Nonnull p) {
+  int x;
+  AggNonnull a3 = {p, &x}; // no warning
 }
