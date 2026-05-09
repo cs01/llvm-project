@@ -18,7 +18,9 @@
             '2': 'flow-narrowing',
             '3': 'linked-list',
             '4': 'function-contracts',
-            '5': 'standard-clang-gap'
+            '5': 'standard-clang-gap',
+            '6': 'smart-pointers',
+            '7': 'late-init'
         };
 
         // Reverse mapping from names to numbers
@@ -33,7 +35,9 @@ const exampleFiles = {
     'flow-narrowing': 'examples/flow-narrowing.c',
     'linked-list': 'examples/linked-list.c',
     'function-contracts': 'examples/function-contracts.c',
-    'standard-clang-gap': 'examples/standard-clang-gap.c'
+    'standard-clang-gap': 'examples/standard-clang-gap.c',
+    'smart-pointers': 'examples/smart-pointers.cpp',
+    'late-init': 'examples/late-init.cpp'
 };
 
 // Load all examples at startup
