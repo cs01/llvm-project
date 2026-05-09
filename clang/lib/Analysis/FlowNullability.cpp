@@ -912,9 +912,9 @@ private:
             }
           }
           if (isNonnullType(VD->getType())) {
-            State.NarrowedVars.insert(VD);
             // Flow-sensitive assignment check: warn when initializing a
             // _Nonnull variable with a nullable value.
+            bool InitIsNullable = false;
             if (VD->hasInit()) {
               const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
               // Don't warn if the init is provably non-null via narrowing.
@@ -927,10 +927,18 @@ private:
                   (isNullableType(Init->getType(), StrictMode,
                                   DefaultNullability) ||
                    isNullableInit(Init))) {
+                InitIsNullable = true;
                 ++NumAssignmentWarnings;
                 Handler.handleNullableAssignment(VD->getInit(), VD);
               }
             }
+            // When the init is provably nullable, override the type-based
+            // narrowing — the flow analysis knows better than the declared
+            // type.
+            if (InitIsNullable)
+              State.NullableVars.insert(VD);
+            else
+              State.NarrowedVars.insert(VD);
           } else if (VD->hasInit()) {
             const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
             if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
@@ -1051,6 +1059,18 @@ private:
         if (Handler.isKnownAllReturnsNonnull(Callee))
           return true;
       }
+      // sp.get() on a narrowed smart pointer returns nonnull
+      if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
+        if (const auto *MD = MCE->getMethodDecl()) {
+          if (MD->getDeclName().isIdentifier() && MD->getName() == "get") {
+            const Expr *Obj = MCE->getImplicitObjectArgument();
+            if (Obj && isSmartPointerType(Obj->getType())) {
+              if (const auto *VD = getSmartPtrVarDecl(Obj))
+                return isNarrowed(VD);
+            }
+          }
+        }
+      }
     }
     return false;
   }
@@ -1085,10 +1105,23 @@ private:
     // nothrow new can return null.
     if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
       return NE->shouldNullCheckAllocation();
-    // Stdlib functions known to return null (malloc, fopen, getenv, etc.).
-    if (const auto *CE = dyn_cast<CallExpr>(Init))
+    if (const auto *CE = dyn_cast<CallExpr>(Init)) {
+      // Stdlib functions known to return null (malloc, fopen, getenv, etc.).
       if (isStdlibNullableReturnCall(CE))
         return true;
+      // sp.get() on a non-narrowed smart pointer returns nullable
+      if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
+        if (const auto *MD = MCE->getMethodDecl()) {
+          if (MD->getDeclName().isIdentifier() && MD->getName() == "get") {
+            const Expr *Obj = MCE->getImplicitObjectArgument();
+            if (Obj && isSmartPointerType(Obj->getType())) {
+              if (const auto *VD = getSmartPtrVarDecl(Obj))
+                return !isNarrowed(VD);
+            }
+          }
+        }
+      }
+    }
     return false;
   }
 
@@ -1988,8 +2021,12 @@ public:
   }
 
   // After fixpoint, emit the summary if every return was nonnull.
+  // Respect explicit _Nullable return type — the programmer's annotation
+  // trumps body inference (body may see _Nonnull members that are null
+  // at runtime, e.g. default-constructed smart pointer internals).
   void emitSummary(const FunctionDecl *FD) {
-    if (HasPointerReturn && AllNonnull)
+    if (HasPointerReturn && AllNonnull &&
+        !isExplicitlyNullableType(FD->getReturnType()))
       Inner.handleAllReturnsNonnull(FD);
   }
 

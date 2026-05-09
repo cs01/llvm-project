@@ -802,6 +802,21 @@ void cast_test_ptr_arith_nullable(int* _Nullable p) {
     *q = 0; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
+void ptr_diff_both_checked(int *_Nullable p, int *_Nonnull q) {
+    auto d1 = p - q; // expected-warning{{pointer arithmetic on nullable pointer}} expected-note{{add a null check}}
+    auto d2 = q - p; // expected-warning{{pointer arithmetic on nullable pointer}} expected-note{{add a null check}}
+}
+
+void ptr_diff_both_nonnull(int *_Nonnull p, int *_Nonnull q) {
+    auto d = p - q; // no warning
+}
+
+void ptr_diff_after_check(int *_Nullable p, int *_Nonnull q) {
+    if (p) {
+        auto d = p - q; // no warning — checked
+    }
+}
+
 struct DerivedReinterpret : Base {
     void test_reinterpret_cast_this_to_base() {
         Base *b = reinterpret_cast<Base*>(this);
