@@ -817,6 +817,20 @@ void ptr_diff_after_check(int *_Nullable p, int *_Nonnull q) {
     }
 }
 
+void ptr_arith_all_forms(int *_Nullable p) {
+    p++;  // expected-warning{{pointer arithmetic on nullable pointer}} expected-note{{add a null check}}
+    p--;  // expected-warning{{pointer arithmetic on nullable pointer}} expected-note{{add a null check}}
+    p += 1; // expected-warning{{pointer arithmetic on nullable pointer}} expected-note{{add a null check}}
+    p -= 1; // expected-warning{{pointer arithmetic on nullable pointer}} expected-note{{add a null check}}
+}
+
+void ptr_arith_nonnull_no_warn(int *_Nonnull p) {
+    p++;    // no warning
+    p--;    // no warning
+    p += 1; // no warning
+    auto *q = p + 1; // no warning
+}
+
 struct DerivedReinterpret : Base {
     void test_reinterpret_cast_this_to_base() {
         Base *b = reinterpret_cast<Base*>(this);
