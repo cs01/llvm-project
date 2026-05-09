@@ -303,7 +303,7 @@ void test_sizeof_unevaluated(struct Node * _Nullable p) {
 //===----------------------------------------------------------------------===//
 
 void test_ptr_subtraction(int *a, int *b) {
-    long diff = a - b; // expected-warning{{pointer arithmetic on nullable pointer}} expected-note{{add a null check before performing arithmetic}}
+    long diff = a - b; // expected-warning 2{{pointer arithmetic on nullable pointer}} expected-note 2{{add a null check before performing arithmetic}}
     (void)diff;
 }
 
