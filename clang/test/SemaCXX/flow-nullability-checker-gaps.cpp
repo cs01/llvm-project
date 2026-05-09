@@ -57,12 +57,14 @@ struct AggNonnull {
 
 void test_aggregate_init_null() {
     int x;
-    AggNonnull a1 = {nullptr, &x}; // XFAIL-GAP: should warn "nullable to nonnull"
+    AggNonnull a1 = {nullptr, &x}; // expected-warning{{assigning nullable pointer to nonnull member}}
+                                   // expected-note@-1{{add a null check}}
 }
 
 void test_aggregate_init_nullable(int *_Nullable p) {
     int x;
-    AggNonnull a2 = {p, &x}; // XFAIL-GAP: should warn "nullable to nonnull"
+    AggNonnull a2 = {p, &x}; // expected-warning{{assigning nullable pointer to nonnull member}}
+                              // expected-note@-1{{add a null check}}
 }
 
 void test_aggregate_init_ok(int *_Nonnull p) {
