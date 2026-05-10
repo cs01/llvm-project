@@ -24,6 +24,7 @@ jobs:
             compiler:
               - 'clang/**'
               - 'llvm/**'
+              - '.github/workflows/build-playground.yml'
             playground:
               - 'nullsafe-playground/**'
 
