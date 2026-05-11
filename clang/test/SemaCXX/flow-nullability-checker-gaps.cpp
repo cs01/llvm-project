@@ -138,4 +138,49 @@ void test_release_nulls_smart_ptr() {
     sp->val = 3; // XFAIL-GAP: should warn — sp is null after release
 }
 
+// ==========================================================================
+// GAP 6: Cross-object member nullable tracking (obj.member = nullptr)
+// STATUS: WON'T FIX — requires NullableMembers<VarDecl*,FieldDecl*> set
+// mirroring NarrowedMembers. Pattern is rare outside this-> context;
+// this->member tracking already covers the common class-method case.
+// ==========================================================================
+
+struct CrossObjTarget { int val; };
+struct CrossObj { CrossObjTarget *_Nonnull ptr; };
+
+void cross_object_member_nullable(CrossObj obj) {
+    obj.ptr = nullptr; // expected-warning{{assigning}}
+                       // expected-note@-1{{add a null check}}
+    obj.ptr->val = 1;  // XFAIL-GAP: should warn — obj.ptr is null
+}
+
+// ==========================================================================
+// GAP 7: Aggregate init missing under-initialized _Nonnull fields
+// STATUS: WON'T FIX — overlaps with -Wmissing-field-initializers.
+// Zero-init of omitted fields is a language-level concern, not a
+// flow-analysis concern.
+// ==========================================================================
+
+struct AggNonnull { int *_Nonnull a; int *_Nonnull b; };
+
+void aggregate_underinit(int *_Nonnull p) {
+    AggNonnull s = {p}; // XFAIL-GAP: should warn — b is zero-initialized to null
+}
+
+// ==========================================================================
+// GAP 8: std::move from non-this member smart pointer
+// STATUS: WON'T FIX — requires cross-object member narrowing (GAP 6).
+// auto local = std::move(obj.sp) doesn't inherit narrowing onto local
+// because NarrowedMembers isn't consulted in the move-construct handler.
+// ==========================================================================
+
+void move_from_non_this_member() {
+    struct Holder { std::unique_ptr<Resource> sp; };
+    Holder h;
+    h.sp = std::make_unique<Resource>();
+    auto local = std::move(h.sp);
+    local->val = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+                     // XFAIL-GAP: should not warn — source was narrowed
+}
+
 #pragma clang assume_nonnull end
