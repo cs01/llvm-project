@@ -766,6 +766,16 @@ struct Owner {
             csm_->value = 1; // OK -- narrowed
         }
     }
+
+    void use_get_after_reset_nonnull() {
+        csm_.reset(new Node());
+        csm_.get()->value = 1; // OK -- narrowed via reset(nonnull)
+    }
+
+    void use_get_after_reset_null() {
+        csm_.reset();
+        csm_.get()->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+    }
 };
 
 // --- Assignment from make_unique re-narrows ---
