@@ -801,6 +801,17 @@ class TransferFunctions {
         if (Handler.isKnownAllReturnsNonnull(Callee))
           return;
       }
+      // sp.get() on a narrowed smart pointer is nonnull
+      if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
+        if (const auto *MD = MCE->getMethodDecl()) {
+          if (MD->getDeclName().isIdentifier() && MD->getName() == "get") {
+            const Expr *Obj = MCE->getImplicitObjectArgument();
+            if (Obj && isSmartPointerType(Obj->getType()) &&
+                isSmartPointerNarrowed(Obj, State))
+              return;
+          }
+        }
+      }
     }
     // Throwing operator new never returns null.
     if (const auto *NE = dyn_cast<CXXNewExpr>(Origin)) {
