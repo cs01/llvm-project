@@ -43,6 +43,8 @@ void default_arg_null(int *_Nonnull p = nullptr);       // expected-warning{{nul
                                                          // expected-note@-1{{remove '_Nonnull' from the parameter, or change the default to a nonnull value}}
 void default_arg_nullable(int *_Nonnull p = GetNullable()); // expected-warning{{nullable default argument for nonnull parameter 'p'}}
                                                              // expected-note@-1{{remove '_Nonnull' from the parameter, or change the default to a nonnull value}}
+void default_arg_cast_nullable(int *_Nonnull p = (int*)GetNullable()); // expected-warning{{nullable default argument for nonnull parameter 'p'}}
+                                                                        // expected-note@-1{{remove '_Nonnull' from the parameter, or change the default to a nonnull value}}
 void default_arg_ok(int *_Nonnull p = GetNonnull()); // no warning
 
 // ==========================================================================
@@ -55,6 +57,8 @@ struct NonnullMemberDefaultInit {
                                       // expected-note@-1{{remove '_Nonnull' if this member can be null, or remove the null initializer}}
     int *_Nonnull q = GetNullable();  // expected-warning{{initializing nonnull member 'q' with null}}
                                       // expected-note@-1{{remove '_Nonnull' if this member can be null, or remove the null initializer}}
+    int *_Nonnull q2 = (int*)GetNullable(); // expected-warning{{initializing nonnull member 'q2' with null}}
+                                             // expected-note@-1{{remove '_Nonnull' if this member can be null, or remove the null initializer}}
     int *_Nonnull r = GetNonnull();   // no warning
 };
 

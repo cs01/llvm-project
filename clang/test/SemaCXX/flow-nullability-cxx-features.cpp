@@ -821,6 +821,29 @@ void smartptr_test_get_propagates_nullable() {
     raw->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
+// --- .get() direct dereference respects narrowing ---
+
+void smartptr_test_get_direct_deref_narrowed() {
+    auto sp = std::make_unique<Node>();
+    sp.get()->value = 1; // no warning — sp is narrowed via make_unique
+}
+
+void smartptr_test_get_direct_deref_after_check(std::unique_ptr<Node> sp) {
+    if (sp) {
+        sp.get()->value = 1; // no warning — sp is narrowed via null check
+    }
+}
+
+void smartptr_test_get_direct_deref_after_reset_nonnull(std::unique_ptr<Node> sp) {
+    sp.reset(new Node());
+    sp.get()->value = 1; // no warning — sp is narrowed via reset(nonnull)
+}
+
+void smartptr_test_get_direct_deref_after_reset_null(std::unique_ptr<Node> sp) {
+    sp.reset();
+    sp.get()->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
 // --- Raw pointers still work as before ---
 
 void smartptr_test_raw_ptr_still_warns(Node* _Nullable p) {
