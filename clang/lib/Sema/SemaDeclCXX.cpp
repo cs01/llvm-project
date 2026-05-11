@@ -394,8 +394,7 @@ Sema::ActOnParamDefaultArgument(Decl *param, SourceLocation EqualLoc,
       bool IsNullable = Arg->isNullPointerConstant(
           Context, Expr::NPC_ValueDependentIsNotNull);
       if (!IsNullable) {
-        if (const auto *CE =
-                dyn_cast<CallExpr>(Arg->IgnoreParenCasts())) {
+        if (const auto *CE = dyn_cast<CallExpr>(Arg->IgnoreParenCasts())) {
           auto RetNullability = CE->getType()->getNullability();
           IsNullable = RetNullability &&
                        *RetNullability == NullabilityKind::Nullable;
@@ -4287,7 +4286,8 @@ void Sema::ActOnFinishCXXInClassMemberInitializer(Decl *D,
   FD->setInClassInitializer(InitExpr.get());
 
   // Warn when a _Nonnull field is initialized with null.
-  if (FD->getType()->isPointerType()) {
+  if (getLangOpts().FlowSensitiveNullability &&
+      FD->getType()->isPointerType()) {
     auto Nullability = FD->getType()->getNullability();
     if (Nullability && *Nullability == NullabilityKind::NonNull) {
       Expr *Init = InitExpr.get()->IgnoreParenImpCasts();

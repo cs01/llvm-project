@@ -1045,8 +1045,7 @@ private:
                 Inner = unwrapImplicitWrappers(CCE->getArg(0));
             if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
               if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
-                if (const auto *SrcVD =
-                        getSmartPtrVarDecl(CE->getArg(0))) {
+                if (const auto *SrcVD = getSmartPtrVarDecl(CE->getArg(0))) {
                   if (State.NarrowedVars.contains(SrcVD))
                     State.NarrowedVars.insert(VD);
                   State.NarrowedVars.erase(SrcVD);
@@ -1140,6 +1139,8 @@ private:
             if (Obj && isSmartPointerType(Obj->getType())) {
               if (const auto *VD = getSmartPtrVarDecl(Obj))
                 return isNarrowed(VD);
+              if (const auto *FD = getSmartPtrThisMemberDecl(Obj))
+                return isThisMemberNarrowed(FD);
             }
           }
         }
@@ -1190,6 +1191,8 @@ private:
             if (Obj && isSmartPointerType(Obj->getType())) {
               if (const auto *VD = getSmartPtrVarDecl(Obj))
                 return !isNarrowed(VD);
+              if (const auto *FD = getSmartPtrThisMemberDecl(Obj))
+                return !isThisMemberNarrowed(FD);
             }
           }
         }
@@ -1599,9 +1602,8 @@ private:
         ArgOffset = 1;
       const auto *NNAttr = Callee->getAttr<NonNullAttr>();
       unsigned EffArgs = CE->getNumArgs() - ArgOffset;
-      for (unsigned I = 0,
-                    N = std::min(EffArgs, Callee->getNumParams());
-           I < N; ++I) {
+      for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
+           ++I) {
         const ParmVarDecl *Param = Callee->getParamDecl(I);
         if (!Param->getType()->isPointerType())
           continue;
@@ -1610,15 +1612,13 @@ private:
         // Lambda pointer params default to nonnull (auto-narrowed in body).
         // Verify at call sites: warn when passing nullable to a lambda param
         // that isn't explicitly _Nullable.
-        if (!ParamIsNonnull &&
-            !isExplicitlyNullableType(Param->getType())) {
+        if (!ParamIsNonnull && !isExplicitlyNullableType(Param->getType())) {
           if (const auto *MD = dyn_cast<CXXMethodDecl>(Callee))
             if (MD->getParent()->isLambda())
               ParamIsNonnull = true;
         }
         if (ParamIsNonnull) {
-          const Expr *Arg =
-              CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
+          const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
           // Flow-sensitive argument check: warn when passing a nullable
           // pointer to a _Nonnull parameter.
           if (isExprNullable(Arg)) {
@@ -1641,8 +1641,7 @@ private:
         IsLambdaCall = MD->getParent()->isLambda();
       if (!Callee->getBuiltinID() && !Callee->getDeclName().isEmpty() &&
           !IsLambdaCall) {
-        for (unsigned I = 0,
-                      N = std::min(EffArgs, Callee->getNumParams());
+        for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams());
              I < N; ++I) {
           const ParmVarDecl *Param = Callee->getParamDecl(I);
           if (!Param->getType()->isPointerType())
@@ -1650,8 +1649,7 @@ private:
           // Skip unnamed parameters — no useful evidence without a name.
           if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
             continue;
-          const Expr *Arg =
-              CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
+          const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
           bool ArgIsNonnull = !isExprNullable(Arg);
           // Only emit nullable evidence for explicitly nullable sources
           // (annotated _Nullable or nullptr), not for unannotated pointers
