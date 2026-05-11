@@ -400,7 +400,8 @@ Sema::ActOnParamDefaultArgument(Decl *param, SourceLocation EqualLoc,
       bool IsNullable = Arg->isNullPointerConstant(
           Context, Expr::NPC_ValueDependentIsNotNull);
       if (!IsNullable) {
-        if (const auto *CE = dyn_cast<CallExpr>(Arg)) {
+        if (const auto *CE =
+                dyn_cast<CallExpr>(Arg->IgnoreParenCasts())) {
           auto RetNullability = CE->getType()->getNullability();
           IsNullable = RetNullability &&
                        *RetNullability == NullabilityKind::Nullable;
@@ -4323,11 +4324,14 @@ void Sema::ActOnFinishCXXInClassMemberInitializer(Decl *D,
               Expr::NPC_ValueDependentIsNotNull)) {
         Diag(Init->getExprLoc(), diag::warn_flow_nullable_field_init) << FD;
         Diag(Init->getExprLoc(), diag::note_nullable_field_init_fix);
-      } else if (const auto *CE = dyn_cast<CallExpr>(Init)) {
-        auto RetNullability = CE->getType()->getNullability();
-        if (RetNullability && *RetNullability == NullabilityKind::Nullable) {
-          Diag(Init->getExprLoc(), diag::warn_flow_nullable_field_init) << FD;
-          Diag(Init->getExprLoc(), diag::note_nullable_field_init_fix);
+      } else {
+        const Expr *Unwrapped = Init->IgnoreParenCasts();
+        if (const auto *CE = dyn_cast<CallExpr>(Unwrapped)) {
+          auto RetNullability = CE->getType()->getNullability();
+          if (RetNullability && *RetNullability == NullabilityKind::Nullable) {
+            Diag(Init->getExprLoc(), diag::warn_flow_nullable_field_init) << FD;
+            Diag(Init->getExprLoc(), diag::note_nullable_field_init_fix);
+          }
         }
       }
     }
