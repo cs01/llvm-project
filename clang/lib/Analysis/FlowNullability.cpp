@@ -19,6 +19,7 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/OperationKinds.h"
+#include "clang/AST/ParentMapContext.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/Type.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
@@ -456,6 +457,44 @@ static const FieldDecl *getSmartPtrThisMemberDecl(const Expr *E) {
           return FD;
   }
   return nullptr;
+}
+
+/// Return true if this `std::move(sp)` call appears as the init/RHS of a
+/// smart-pointer construct that handles move-transfer itself (VarDecl
+/// init `auto x = std::move(y);` or `x = std::move(y)` on a smart-ptr LHS).
+/// In that case the source must NOT be marked nullable by the standalone
+/// std::move handler — the parent context needs to read the source's
+/// pre-move narrowed state to inherit it onto the target.
+static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
+                                               ASTContext &Ctx) {
+  auto Parents = Ctx.getParents(*CE);
+  while (!Parents.empty()) {
+    auto Cur = Parents[0];
+    if (const auto *D = Cur.get<Decl>()) {
+      if (const auto *VD = dyn_cast<VarDecl>(D))
+        return isSmartPointerType(VD->getType());
+      return false;
+    }
+    if (const auto *S = Cur.get<Stmt>()) {
+      if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(S)) {
+        if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
+          const Expr *Lhs = OCE->getArg(0);
+          if (getSmartPtrVarDecl(Lhs) || getSmartPtrThisMemberDecl(Lhs))
+            return true;
+        }
+        return false;
+      }
+      if (isa<ExprWithCleanups>(S) || isa<CXXBindTemporaryExpr>(S) ||
+          isa<MaterializeTemporaryExpr>(S) || isa<ImplicitCastExpr>(S) ||
+          isa<ParenExpr>(S) || isa<CXXConstructExpr>(S) ||
+          isa<CXXFunctionalCastExpr>(S)) {
+        Parents = Ctx.getParents(*S);
+        continue;
+      }
+    }
+    return false;
+  }
+  return false;
 }
 
 struct ConditionResult {
@@ -984,9 +1023,32 @@ private:
           const Expr *Init = unwrapImplicitWrappers(VD->getInit());
           if (isNonnullSmartPtrInit(Init)) {
             State.NarrowedVars.insert(VD);
+          } else {
+            // `auto x = std::move(other);` — inherit the source's narrowed
+            // state. The standalone std::move handler skipped the source
+            // erase (see isStdMoveInsideSmartPtrTransferCtx), so the
+            // source's pre-move state is still in NarrowedVars here.
+            const Expr *Inner = Init;
+            if (const auto *CCE = dyn_cast<CXXConstructExpr>(Inner))
+              if (CCE->getNumArgs() == 1)
+                Inner = unwrapImplicitWrappers(CCE->getArg(0));
+            if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
+              if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
+                if (const auto *SrcVD =
+                        getSmartPtrVarDecl(CE->getArg(0))) {
+                  if (State.NarrowedVars.contains(SrcVD))
+                    State.NarrowedVars.insert(VD);
+                  State.NarrowedVars.erase(SrcVD);
+                } else if (const auto *SrcFD =
+                               getSmartPtrThisMemberDecl(CE->getArg(0))) {
+                  if (State.NarrowedThisMembers.contains(SrcFD))
+                    State.NarrowedVars.insert(VD);
+                  State.NarrowedThisMembers.erase(SrcFD);
+                  State.NullableThisMembers.insert(SrcFD);
+                }
+              }
+            }
           }
-          // Default-constructed, nullptr, or moved-from → nullable (don't
-          // narrow)
         }
 
         // Track bool variables assigned from null-comparisons so that
@@ -1615,11 +1677,20 @@ private:
         if (const auto *MD = MCE->getMethodDecl()) {
           if (MD->getDeclName().isIdentifier() && MD->getName() == "reset") {
             // reset(nullptr) makes it null; reset(ptr) makes it non-null;
-            // reset() with no args makes it null.
-            bool ResetsToNonnull =
-                MCE->getNumArgs() > 0 &&
-                !MCE->getArg(0)->IgnoreParenImpCasts()->isNullPointerConstant(
+            // reset() with no args makes it null. Real libc++ declares
+            // reset(pointer p = pointer()), so a no-arg call shows up
+            // here with arg 0 being a CXXDefaultArgExpr — that's "no
+            // user-provided arg" and is equivalent to reset to null,
+            // regardless of how the default is spelled.
+            bool ResetsToNonnull = false;
+            if (MCE->getNumArgs() > 0) {
+              const Expr *Arg = MCE->getArg(0);
+              if (!isa<CXXDefaultArgExpr>(Arg)) {
+                Arg = Arg->IgnoreParenImpCasts();
+                ResetsToNonnull = !Arg->isNullPointerConstant(
                     Ctx, Expr::NPC_ValueDependentIsNotNull);
+              }
+            }
             // Local variable
             if (const auto *VD = getSmartPtrVarDecl(Obj)) {
               State.NarrowedVars.erase(VD);
@@ -1729,8 +1800,13 @@ private:
       }
     }
 
-    // Handle std::move(sp) — marks the source as nullable
-    if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
+    // Handle std::move(sp) — marks the source as nullable. Skip when the
+    // call is wrapped in a smart-pointer transfer context (VarDecl init or
+    // operator= LHS) — those handlers below need the source's pre-move
+    // state to inherit it onto the target, and they handle the source
+    // erase themselves.
+    if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
+        !isStdMoveInsideSmartPtrTransferCtx(CE, Ctx)) {
       if (const auto *VD = getSmartPtrVarDecl(CE->getArg(0))) {
         State.NarrowedVars.erase(VD);
       }
