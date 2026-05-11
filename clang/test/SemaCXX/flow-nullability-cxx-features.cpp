@@ -777,6 +777,19 @@ void smartptr_test_assign_from_make_unique() {
     sp->value = 1; // OK -- assignment from make_unique narrows
 }
 
+// --- Move-construct (VarDecl init) inherits source's narrowed state ---
+// Real libc++'s `auto dst = std::move(src);` wraps std::move in a
+// CXXConstructExpr (the unique_ptr move ctor). Earlier the standalone
+// std::move handler erased the source before the DeclStmt could read
+// its pre-move state, leaving the move target falsely nullable.
+
+void smartptr_test_move_construct_target_narrowed() {
+    auto owner = std::make_unique<Node>();
+    auto new_owner = std::move(owner);
+    new_owner->value = 1;  // OK -- received ownership from narrowed source
+    owner->value = 1;      // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
 // --- Non-std smart pointers should NOT warn ---
 
 void smartptr_test_custom_ptr_no_warn(CustomPtr<Node> cp) {

@@ -30,6 +30,18 @@ void move_makes_nullable() {
     auto sp = std::make_unique<Node>();
     sp->value = 1; // OK
     auto other = std::move(sp);
+    other->value = 1; // OK — move target inherited source's narrowed state
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// `p.reset()` on a real libc++ unique_ptr calls reset(pointer = pointer()),
+// so MCE->getArg(0) is a CXXDefaultArgExpr wrapping a value-init. The
+// handler must treat that form as "no user-provided arg" and mark the
+// pointer null — not as reset-to-nonnull.
+void reset_default_arg_makes_nullable() {
+    auto sp = std::make_unique<Node>();
+    sp->value = 1; // OK
+    sp.reset();
     sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
