@@ -1582,6 +1582,7 @@ private:
             continue;
           if (CR.IsThisMember) {
             State.NarrowedThisMembers.insert(CR.FD);
+            State.NullableThisMembers.erase(CR.FD);
           } else if (CR.VD) {
             if (!CR.FD)
               State.NarrowedVars.insert(CR.VD);
@@ -2348,18 +2349,27 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
               SmallVector<ConditionResult, 2> AndResults;
               decomposeAnd(BO, Ctx, AndResults, &State.BoolGuards);
               for (const auto &CR : AndResults) {
-                if (CR.VD && !CR.FD && !CR.IsThisMember && !CR.Negated) {
+                if (CR.Negated)
+                  continue;
+                if (CR.IsThisMember) {
+                  TrueState.NarrowedThisMembers.insert(CR.FD);
+                  TrueState.NullableThisMembers.erase(CR.FD);
+                } else if (CR.VD && !CR.FD) {
                   TrueState.NarrowedVars.insert(CR.VD);
+                  TrueState.NullableVars.erase(CR.VD);
                   // Also narrow alias target and all siblings
                   const VarDecl *Target = CR.VD;
                   auto AliasIt = TrueState.Aliases.find(CR.VD);
                   if (AliasIt != TrueState.Aliases.end()) {
                     Target = AliasIt->second;
                     TrueState.NarrowedVars.insert(Target);
+                    TrueState.NullableVars.erase(Target);
                   }
                   for (const auto &[AV, TV] : TrueState.Aliases)
-                    if (TV == CR.VD || TV == Target)
+                    if (TV == CR.VD || TV == Target) {
                       TrueState.NarrowedVars.insert(AV);
+                      TrueState.NullableVars.erase(AV);
+                    }
                 }
               }
             }
@@ -2410,6 +2420,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
           NullState &Narrow = CR.Negated ? FalseState : TrueState;
           if (CR.IsThisMember) {
             Narrow.NarrowedThisMembers.insert(CR.FD);
+            Narrow.NullableThisMembers.erase(CR.FD);
           } else if (CR.VD) {
             if (!CR.FD)
               narrowWithAliases(Narrow, CR.VD);
