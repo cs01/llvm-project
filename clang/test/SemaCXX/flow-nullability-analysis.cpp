@@ -699,6 +699,16 @@ void brace_test_or_member_early_return(Node* _Nullable p) {
     p->next->value = 1; // OK - both p and p->next narrowed by early return
 }
 
+void localvar_member_and_decomposition(Node* _Nullable p, int cmd) {
+    if (cmd == 1) {
+        if (p != nullptr && p->next != nullptr && p->next->value > 0) {
+            p->next->value = 2; // OK - p->next narrowed by && in if-body
+        }
+    } else if (cmd == 2 && p != nullptr && p->next != nullptr) {
+        p->next->value = 3; // OK - narrowed through else-if &&
+    }
+}
+
 #pragma clang assume_nonnull end
 
 // ===----------------------------------------------------------------------===//
