@@ -153,6 +153,8 @@ static NullState join(const NullState &A, const NullState &B) {
   // from accumulating stale entries across fixpoint iterations.
   for (const auto *VD : Result.NarrowedVars)
     Result.NullableVars.erase(VD);
+  for (const auto *FD : Result.NarrowedThisMembers)
+    Result.NullableThisMembers.erase(FD);
   LLVM_DEBUG({
     llvm::dbgs() << "  join: narrowed=" << Result.NarrowedVars.size()
                  << " nullable=" << Result.NullableVars.size()
@@ -1584,9 +1586,10 @@ private:
             State.NarrowedThisMembers.insert(CR.FD);
             State.NullableThisMembers.erase(CR.FD);
           } else if (CR.VD) {
-            if (!CR.FD)
+            if (!CR.FD) {
               State.NarrowedVars.insert(CR.VD);
-            else
+              State.NullableVars.erase(CR.VD);
+            } else
               State.NarrowedMembers.insert({CR.VD, CR.FD});
           }
         }
@@ -2354,22 +2357,26 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                 if (CR.IsThisMember) {
                   TrueState.NarrowedThisMembers.insert(CR.FD);
                   TrueState.NullableThisMembers.erase(CR.FD);
-                } else if (CR.VD && !CR.FD) {
-                  TrueState.NarrowedVars.insert(CR.VD);
-                  TrueState.NullableVars.erase(CR.VD);
-                  // Also narrow alias target and all siblings
-                  const VarDecl *Target = CR.VD;
-                  auto AliasIt = TrueState.Aliases.find(CR.VD);
-                  if (AliasIt != TrueState.Aliases.end()) {
-                    Target = AliasIt->second;
-                    TrueState.NarrowedVars.insert(Target);
-                    TrueState.NullableVars.erase(Target);
-                  }
-                  for (const auto &[AV, TV] : TrueState.Aliases)
-                    if (TV == CR.VD || TV == Target) {
-                      TrueState.NarrowedVars.insert(AV);
-                      TrueState.NullableVars.erase(AV);
+                } else if (CR.VD) {
+                  if (CR.FD) {
+                    TrueState.NarrowedMembers.insert({CR.VD, CR.FD});
+                  } else {
+                    TrueState.NarrowedVars.insert(CR.VD);
+                    TrueState.NullableVars.erase(CR.VD);
+                    // Also narrow alias target and all siblings
+                    const VarDecl *Target = CR.VD;
+                    auto AliasIt = TrueState.Aliases.find(CR.VD);
+                    if (AliasIt != TrueState.Aliases.end()) {
+                      Target = AliasIt->second;
+                      TrueState.NarrowedVars.insert(Target);
+                      TrueState.NullableVars.erase(Target);
                     }
+                    for (const auto &[AV, TV] : TrueState.Aliases)
+                      if (TV == CR.VD || TV == Target) {
+                        TrueState.NarrowedVars.insert(AV);
+                        TrueState.NullableVars.erase(AV);
+                      }
+                  }
                 }
               }
             }
