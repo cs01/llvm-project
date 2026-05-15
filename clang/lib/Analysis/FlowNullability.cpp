@@ -1631,8 +1631,10 @@ private:
           }
           if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-              if (VD->getType()->isPointerType())
+              if (VD->getType()->isPointerType()) {
                 State.NarrowedVars.insert(VD);
+                State.NullableVars.erase(VD);
+              }
           }
         }
       }
@@ -1707,8 +1709,12 @@ private:
             // Local variable
             if (const auto *VD = getSmartPtrVarDecl(Obj)) {
               State.NarrowedVars.erase(VD);
-              if (ResetsToNonnull)
+              if (ResetsToNonnull) {
                 State.NarrowedVars.insert(VD);
+                State.NullableVars.erase(VD);
+              } else {
+                State.NullableVars.insert(VD);
+              }
             }
             // this->member
             if (const auto *FD = getSmartPtrThisMemberDecl(Obj)) {
@@ -1766,8 +1772,10 @@ private:
               State.NarrowedMembers.erase({LhsBaseVD, LhsMemberFD});
           };
           auto markNarrowed = [&]() {
-            if (LhsVD)
+            if (LhsVD) {
               State.NarrowedVars.insert(LhsVD);
+              State.NullableVars.erase(LhsVD);
+            }
             if (LhsThisFD) {
               State.NarrowedThisMembers.insert(LhsThisFD);
               State.NullableThisMembers.erase(LhsThisFD);
@@ -1853,8 +1861,10 @@ private:
         // Narrow the argument — surviving the call proves it was non-null
         if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
           if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-            if (VD->getType()->isPointerType())
+            if (VD->getType()->isPointerType()) {
               State.NarrowedVars.insert(VD);
+              State.NullableVars.erase(VD);
+            }
         }
       }
     }
