@@ -642,6 +642,46 @@ struct Widget {
     }
 };
 
+// this->member narrowing must survive reassignment from nullable source.
+// Regression: NullableThisMembers wasn't cleared when NarrowedThisMembers
+// was set, so a post-reassignment null check was ignored.
+struct TreeWalker {
+    Node * _Nullable sel_ = nullptr;
+
+    void reassign_then_standalone_if() {
+        if (sel_ == nullptr) return;
+        sel_ = sel_->parent; // sel_ becomes nullable (parent is _Nullable)
+        if (sel_ != nullptr) {
+            sel_->value = 1; // OK - re-narrowed by if
+        }
+    }
+
+    void reassign_then_short_circuit_and() {
+        if (sel_ == nullptr) return;
+        sel_ = sel_->parent;
+        if (sel_ != nullptr && sel_->value > 0) { // OK - && narrows sel_
+            sel_->value = 1; // OK - still narrowed inside body
+        }
+    }
+
+    void reassign_then_short_circuit_in_else_if(int cmd) {
+        if (sel_ == nullptr) return;
+        if (cmd == 1) {
+            sel_ = sel_->parent;
+        } else if (cmd == 2) {
+            if (sel_ != nullptr && sel_->value > 0) { // OK
+                sel_->value = 1; // OK
+            }
+        }
+    }
+
+    void reassign_no_recheck() {
+        if (sel_ == nullptr) return;
+        sel_ = sel_->parent;
+        sel_->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+    }
+};
+
 void brace_test_and_member_narrowing(Node* _Nullable p) {
     if (p && p->next) {
         p->next->value = 1; // OK - both p and p->next narrowed by && condition
