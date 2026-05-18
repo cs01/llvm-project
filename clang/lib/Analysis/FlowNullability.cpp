@@ -352,8 +352,10 @@ static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
 
   // Get the container — use the VarDecl's declared type to preserve sugar
   // (the implicit const cast on .begin()'s object arg strips it)
-  const Expr *ContainerExpr =
-      BeginCall->getImplicitObjectArgument()->IgnoreParenImpCasts();
+  const Expr *ObjArg = BeginCall->getImplicitObjectArgument();
+  if (!ObjArg)
+    return false;
+  const Expr *ContainerExpr = ObjArg->IgnoreParenImpCasts();
   QualType ContainerType;
   if (const auto *DRE = dyn_cast<DeclRefExpr>(ContainerExpr)) {
     if (const auto *CVD = dyn_cast<VarDecl>(DRE->getDecl()))
