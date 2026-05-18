@@ -595,9 +595,9 @@ struct unique_ptr {
     T* ptr;
     using pointer = T*;
     using element_type = T;
-    pointer operator->() { return ptr; }
-    element_type& operator*() { return *ptr; }
-    pointer _Nullable get() { return ptr; }
+    pointer operator->() const { return ptr; }
+    element_type& operator*() const { return *ptr; }
+    pointer _Nullable get() const { return ptr; }
     explicit operator bool() const { return ptr != nullptr; }
     void reset() { ptr = nullptr; }
     void reset(T* p) { ptr = p; }
@@ -651,6 +651,21 @@ struct Container {
     Iterator begin();
     Iterator end();
 };
+
+// Minimal list mock for container _Nonnull element propagation tests
+namespace std {
+template <typename T>
+struct list {
+    struct const_iterator {
+        const T* _ptr;
+        const T& operator*() const { return *_ptr; }
+        const_iterator& operator++() { return *this; }
+        bool operator!=(const const_iterator& o) const { return _ptr != o._ptr; }
+    };
+    const_iterator begin() const;
+    const_iterator end() const;
+};
+} // namespace std
 
 // --- Basic dereference warnings ---
 
@@ -810,6 +825,34 @@ void smartptr_test_iterator_no_warn(Container c) {
     auto it = c.begin();
     it->value = 1; // OK -- iterator, not a smart pointer
 }
+
+// --- Container _Nonnull element propagation through iterators ---
+// _Nonnull on a smart pointer inside a container's template argument should
+// propagate through iterator dereference to suppress false positive warnings.
+
+class ContainerNonnullTest {
+    std::list<std::unique_ptr<Node> _Nonnull> nonnull_list_;
+    std::list<std::unique_ptr<Node> _Nullable> nullable_list_;
+    std::list<std::unique_ptr<Node>> plain_list_;
+
+    void nonnull_range_for_no_warn() {
+        for (const auto& entry : nonnull_list_) {
+            entry->value = 1; // no warning — _Nonnull element type
+        }
+    }
+
+    void nullable_range_for_warns() {
+        for (const auto& entry : nullable_list_) {
+            entry->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        }
+    }
+
+    void plain_range_for_warns() {
+        for (const auto& entry : plain_list_) {
+            entry->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        }
+    }
+};
 
 // --- .get() on un-narrowed smart pointer warns ---
 

@@ -319,6 +319,64 @@ static bool isNonnullSmartPtrInit(const Expr *E) {
   return false;
 }
 
+/// Check if a smart pointer VarDecl is initialized by dereferencing an iterator
+/// from a container whose element type carries _Nonnull. Covers range-for
+/// desugaring (entry = *__begin, __begin = container.begin()) and manual
+/// iterator loops. Clang's template instantiation strips _Nonnull from
+/// non-pointer types like unique_ptr, so we trace back to the container's
+/// sugar type where the annotation is preserved.
+static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
+  if (!VD->hasInit())
+    return false;
+  const Expr *Init = unwrapImplicitWrappers(VD->getInit());
+
+  // Look for operator* (iterator dereference)
+  const auto *OpCall = dyn_cast<CXXOperatorCallExpr>(Init);
+  if (!OpCall || OpCall->getOperator() != OO_Star || OpCall->getNumArgs() < 1)
+    return false;
+
+  // Get the iterator variable
+  const Expr *IterExpr = OpCall->getArg(0)->IgnoreParenImpCasts();
+  const auto *IterDRE = dyn_cast<DeclRefExpr>(IterExpr);
+  if (!IterDRE)
+    return false;
+  const auto *IterVD = dyn_cast<VarDecl>(IterDRE->getDecl());
+  if (!IterVD || !IterVD->hasInit())
+    return false;
+
+  // The iterator should be initialized from container.begin()
+  const Expr *IterInit = unwrapImplicitWrappers(IterVD->getInit());
+  const auto *BeginCall = dyn_cast<CXXMemberCallExpr>(IterInit);
+  if (!BeginCall)
+    return false;
+
+  // Get the container — use the VarDecl's declared type to preserve sugar
+  // (the implicit const cast on .begin()'s object arg strips it)
+  const Expr *ContainerExpr =
+      BeginCall->getImplicitObjectArgument()->IgnoreParenImpCasts();
+  QualType ContainerType;
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(ContainerExpr)) {
+    if (const auto *CVD = dyn_cast<VarDecl>(DRE->getDecl()))
+      ContainerType = CVD->getType().getNonReferenceType();
+  } else if (const auto *ME = dyn_cast<MemberExpr>(ContainerExpr)) {
+    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+      ContainerType = FD->getType().getNonReferenceType();
+  }
+  if (ContainerType.isNull())
+    return false;
+
+  // Extract the first template argument from the sugar type
+  const auto *TST = ContainerType->getAs<TemplateSpecializationType>();
+  if (!TST || TST->template_arguments().empty())
+    return false;
+  const auto &Arg = TST->template_arguments()[0];
+  if (Arg.getKind() != TemplateArgument::Type)
+    return false;
+
+  QualType ElemType = Arg.getAsType();
+  return isSmartPointerType(ElemType) && isNonnullType(ElemType);
+}
+
 /// Check if a call expression is to a known STL method that always returns
 /// a non-null pointer. This is the compiler-side allowlist for C++ standard
 /// library methods whose return types are unannotated but are contractually
@@ -1032,9 +1090,12 @@ private:
 
         // Track smart pointer initialization — narrow if constructed from a
         // provably non-null source (make_unique, make_shared, new, etc.)
-        if (isSmartPointerType(VD->getType()) && VD->hasInit()) {
+        // Strip reference: range-for loop variables have type const T&.
+        if (isSmartPointerType(VD->getType().getNonReferenceType()) &&
+            VD->hasInit()) {
           const Expr *Init = unwrapImplicitWrappers(VD->getInit());
-          if (isNonnullSmartPtrInit(Init)) {
+          if (isNonnullSmartPtrInit(Init) ||
+              isInitFromNonnullContainerElement(VD)) {
             State.NarrowedVars.insert(VD);
           } else {
             // `auto x = std::move(other);` — inherit the source's narrowed
