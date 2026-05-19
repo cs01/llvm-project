@@ -605,6 +605,12 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   const Expr *E = Cond->IgnoreParenImpCasts();
   E = unwrapBuiltinExpect(E);
 
+  // C++20 rewrites `sp != nullptr` into `!(sp == nullptr)` wrapped in a
+  // CXXRewrittenBinaryOperator. Unwrap to the semantic form so the ! loop
+  // and CXXOperatorCallExpr handler below can process it.
+  if (const auto *RBO = dyn_cast<CXXRewrittenBinaryOperator>(E))
+    E = RBO->getSemanticForm()->IgnoreParenImpCasts();
+
   bool Negated = false;
   while (auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() != UO_LNot)
@@ -664,6 +670,59 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
         }
         if (const auto *ME = dyn_cast<MemberExpr>(PtrExpr)) {
           if (ME->getType()->isPointerType()) {
+            const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+            if (isa<CXXThisExpr>(Base)) {
+              if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+                Results.push_back({nullptr, FD, true, EqNegated});
+                return;
+              }
+            }
+            if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
+              if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
+                if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
+                  Results.push_back({BaseVD, FD, false, EqNegated});
+                  return;
+                }
+              }
+            }
+          }
+        }
+      }
+      return;
+    }
+  }
+
+  // Handle overloaded operator!= / operator== on smart pointers:
+  // `sp != nullptr` is a CXXOperatorCallExpr, not a BinaryOperator.
+  if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(E)) {
+    auto OpKind = OCE->getOperator();
+    if ((OpKind == OO_ExclaimEqual || OpKind == OO_EqualEqual) &&
+        OCE->getNumArgs() == 2) {
+      const Expr *LHS = OCE->getArg(0)->IgnoreParenImpCasts();
+      const Expr *RHS = OCE->getArg(1)->IgnoreParenImpCasts();
+
+      bool LHSIsNull =
+          LHS->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
+      bool RHSIsNull =
+          RHS->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
+
+      if (LHSIsNull || RHSIsNull) {
+        const Expr *PtrExpr = LHSIsNull ? RHS : LHS;
+        PtrExpr = PtrExpr->IgnoreParenImpCasts();
+        bool EqNegated = Negated;
+        if (OpKind == OO_EqualEqual)
+          EqNegated = !EqNegated;
+
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
+          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+            if (isSmartPointerType(VD->getType())) {
+              Results.push_back({VD, nullptr, false, EqNegated});
+              return;
+            }
+          }
+        }
+        if (const auto *ME = dyn_cast<MemberExpr>(PtrExpr)) {
+          if (isSmartPointerType(ME->getType())) {
             const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
             if (isa<CXXThisExpr>(Base)) {
               if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
