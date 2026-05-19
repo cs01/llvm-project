@@ -607,6 +607,10 @@ struct unique_ptr {
     unique_ptr& operator=(unique_ptr&& other) { ptr = other.ptr; other.ptr = nullptr; return *this; }
     unique_ptr(const unique_ptr&) = delete;
     unique_ptr& operator=(const unique_ptr&) = delete;
+    friend bool operator!=(const unique_ptr& a, decltype(nullptr)) { return a.ptr != nullptr; }
+    friend bool operator==(const unique_ptr& a, decltype(nullptr)) { return a.ptr == nullptr; }
+    friend bool operator!=(decltype(nullptr), const unique_ptr& a) { return a.ptr != nullptr; }
+    friend bool operator==(decltype(nullptr), const unique_ptr& a) { return a.ptr == nullptr; }
 };
 
 template <typename T>
@@ -618,6 +622,10 @@ struct shared_ptr {
     explicit operator bool() const { return ptr != nullptr; }
     void reset() { ptr = nullptr; }
     void reset(T* p) { ptr = p; }
+    friend bool operator!=(const shared_ptr& a, decltype(nullptr)) { return a.ptr != nullptr; }
+    friend bool operator==(const shared_ptr& a, decltype(nullptr)) { return a.ptr == nullptr; }
+    friend bool operator!=(decltype(nullptr), const shared_ptr& a) { return a.ptr != nullptr; }
+    friend bool operator==(decltype(nullptr), const shared_ptr& a) { return a.ptr == nullptr; }
 };
 
 template <typename T, typename... Args>
@@ -689,6 +697,45 @@ void smartptr_test_narrowed_negated(std::unique_ptr<Node> sp) {
     if (!sp)
         return;
     sp->value = 1; // OK -- narrowed by early return
+}
+
+// --- Narrowing via operator!= / operator== with nullptr ---
+
+void smartptr_test_narrowed_ne_nullptr(std::unique_ptr<Node> sp) {
+    if (sp != nullptr) {
+        sp->value = 1; // OK -- narrowed by != nullptr
+    }
+}
+
+void smartptr_test_narrowed_ne_nullptr_shared(std::shared_ptr<Node> sp) {
+    if (sp != nullptr) {
+        sp->value = 1; // OK -- narrowed by != nullptr
+    }
+}
+
+void smartptr_test_narrowed_ne_nullptr_reversed(std::unique_ptr<Node> sp) {
+    if (nullptr != sp) {
+        sp->value = 1; // OK -- narrowed by nullptr != sp
+    }
+}
+
+void smartptr_test_narrowed_eq_nullptr_early_return(std::unique_ptr<Node> sp) {
+    if (sp == nullptr)
+        return;
+    sp->value = 1; // OK -- narrowed by == nullptr early return
+}
+
+void smartptr_test_narrowed_ne_nullptr_negated(std::unique_ptr<Node> sp) {
+    if (!(sp != nullptr))
+        return;
+    sp->value = 1; // OK -- !(sp != nullptr) means null, so false edge is narrowed
+}
+
+void smartptr_test_not_narrowed_outside_check(std::unique_ptr<Node> sp) {
+    if (sp != nullptr) {
+        sp->value = 1; // OK
+    }
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 // --- make_unique/make_shared narrow ---
