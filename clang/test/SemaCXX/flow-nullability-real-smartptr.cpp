@@ -64,4 +64,36 @@ void reassign_from_new_renarrows() {
     sp->value = 1; // OK — reassignment from new-expression narrows
 }
 
+// C++20 rewrites `sp != nullptr` into `!(sp == nullptr)` via
+// CXXRewrittenBinaryOperator. Verify flow narrowing sees through it.
+void ne_nullptr_narrows_unique() {
+    std::unique_ptr<Node> sp;
+    if (sp != nullptr) {
+        sp->value = 1; // OK — narrowed by != nullptr
+    }
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void ne_nullptr_narrows_shared(std::shared_ptr<Node> sp) {
+    if (sp != nullptr) {
+        sp->value = 1; // OK — narrowed by != nullptr
+    }
+    // shared_ptr params are not treated as nullable with real headers,
+    // so no warning expected here (separate issue from narrowing)
+}
+
+void eq_nullptr_early_return_narrows() {
+    std::unique_ptr<Node> sp;
+    if (sp == nullptr)
+        return;
+    sp->value = 1; // OK — narrowed by == nullptr early return
+}
+
+void ne_nullptr_reversed_narrows() {
+    std::unique_ptr<Node> sp;
+    if (nullptr != sp) {
+        sp->value = 1; // OK — narrowed by nullptr != sp
+    }
+}
+
 #pragma clang assume_nonnull end
