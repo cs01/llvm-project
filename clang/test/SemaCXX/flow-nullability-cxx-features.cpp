@@ -738,6 +738,30 @@ void smartptr_test_not_narrowed_outside_check(std::unique_ptr<Node> sp) {
     sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
+// --- Short-circuit || with smart pointer null checks ---
+
+void smartptr_test_or_short_circuit(std::unique_ptr<Node> sp, int* _Nullable other) {
+    // anchor == nullptr || anchor->method() — RHS only runs when sp is non-null
+    if (sp == nullptr || sp->value == 0) {
+        return;
+    }
+    sp->value = 1; // OK -- sp narrowed
+}
+
+void smartptr_test_or_short_circuit_rhs_deref(std::unique_ptr<Node> sp) {
+    // The RHS of || only evaluates when LHS is false (sp != nullptr)
+    if (sp == nullptr || sp->value == 42) { // OK -- sp narrowed on RHS of ||
+        return;
+    }
+}
+
+void smartptr_test_or_short_circuit_raw_ptr(int* _Nullable p) {
+    // Same pattern with raw pointer for comparison
+    if (p == nullptr || *p == 42) { // OK -- p narrowed on RHS of ||
+        return;
+    }
+}
+
 // --- make_unique/make_shared narrow ---
 
 void smartptr_test_make_unique_narrows() {
