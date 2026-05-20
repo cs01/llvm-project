@@ -588,14 +588,34 @@ static void decomposeAnd(const Expr *E, ASTContext &Ctx,
   analyzeCondition(E, Ctx, Results, BoolGuards);
 }
 
+/// Recursively flatten a chain of || operators and analyze each leaf.
+/// Used at the IfStmt level to narrow on the false edge of `if (A || B)`.
+static void decomposeOr(const Expr *E, ASTContext &Ctx,
+                        SmallVectorImpl<ConditionResult> &Results,
+                        const NullState::BoolGuardMap *BoolGuards) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *EWC = dyn_cast<ExprWithCleanups>(E))
+    E = EWC->getSubExpr()->IgnoreParenImpCasts();
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_LOr) {
+      decomposeOr(BO->getLHS(), Ctx, Results, BoolGuards);
+      decomposeOr(BO->getRHS(), Ctx, Results, BoolGuards);
+      return;
+    }
+  }
+  analyzeCondition(E, Ctx, Results, BoolGuards);
+}
+
 /// Analyze a branch condition to extract pointer null-check information.
 ///
-/// Note: We decompose && (via decomposeAnd) but intentionally do NOT
-/// decompose ||. For || the CFG already splits each operand into its own
-/// block, so narrowing on the true-edge of individual operands is handled
-/// naturally. Decomposing || on the false-edge (where all operands are
-/// false) would be possible but adds complexity for limited practical gain
-/// — most real null-checks use && or standalone conditions.
+/// We decompose both && (via decomposeAnd) and || (via decomposeOr).
+/// For ||, the CFG splits each operand into its own block, so narrowing
+/// on the true-edge of individual operands is handled naturally. However,
+/// when a || operand creates a C++ temporary with a destructor (e.g.
+/// `func_returning_unique_ptr() == nullptr`), the CFG inserts cleanup
+/// blocks that merge the || operand paths before the IfStmt decision,
+/// defeating per-edge narrowing. decomposeOr recovers this by narrowing
+/// all operands on the false edge at the IfStmt level.
 static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                              SmallVectorImpl<ConditionResult> &Results,
                              const NullState::BoolGuardMap *BoolGuards) {
@@ -2479,7 +2499,13 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
         if (IfCond)
           IfCond = IfCond->IgnoreParenImpCasts();
         if (IfCond) {
-          if (const auto *BO = dyn_cast<BinaryOperator>(IfCond)) {
+          // Unwrap ExprWithCleanups — temp destructors from || RHS
+          // expressions wrap the whole condition but don't affect the
+          // logical structure.
+          const Expr *IfCondInner = IfCond;
+          if (const auto *EWC = dyn_cast<ExprWithCleanups>(IfCondInner))
+            IfCondInner = EWC->getSubExpr()->IgnoreParenImpCasts();
+          if (const auto *BO = dyn_cast<BinaryOperator>(IfCondInner)) {
             if (BO->getOpcode() == BO_LAnd) {
               SmallVector<ConditionResult, 2> AndResults;
               decomposeAnd(BO, Ctx, AndResults, &State.BoolGuards);
@@ -2507,6 +2533,43 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                       if (TV == CR.VD || TV == Target) {
                         TrueState.NarrowedVars.insert(AV);
                         TrueState.NullableVars.erase(AV);
+                      }
+                  }
+                }
+              }
+            } else if (BO->getOpcode() == BO_LOr) {
+              // if (A || B): on the false edge ALL operands were false.
+              // Decompose and narrow each null-check operand on FalseState.
+              // This is needed because temp-destructor cleanup blocks in
+              // the CFG can merge the || operand paths before the IfStmt
+              // decision block, defeating per-edge narrowing.
+              SmallVector<ConditionResult, 2> OrResults;
+              decomposeOr(BO, Ctx, OrResults, &State.BoolGuards);
+              for (const auto &CR : OrResults) {
+                // On the false edge each leaf was false. Negated=true
+                // means ptr is non-null when the leaf is false → narrow.
+                if (!CR.Negated)
+                  continue;
+                if (CR.IsThisMember) {
+                  FalseState.NarrowedThisMembers.insert(CR.FD);
+                  FalseState.NullableThisMembers.erase(CR.FD);
+                } else if (CR.VD) {
+                  if (CR.FD) {
+                    FalseState.NarrowedMembers.insert({CR.VD, CR.FD});
+                  } else {
+                    FalseState.NarrowedVars.insert(CR.VD);
+                    FalseState.NullableVars.erase(CR.VD);
+                    const VarDecl *Target = CR.VD;
+                    auto AliasIt = FalseState.Aliases.find(CR.VD);
+                    if (AliasIt != FalseState.Aliases.end()) {
+                      Target = AliasIt->second;
+                      FalseState.NarrowedVars.insert(Target);
+                      FalseState.NullableVars.erase(Target);
+                    }
+                    for (const auto &[AV, TV] : FalseState.Aliases)
+                      if (TV == CR.VD || TV == Target) {
+                        FalseState.NarrowedVars.insert(AV);
+                        FalseState.NullableVars.erase(AV);
                       }
                   }
                 }

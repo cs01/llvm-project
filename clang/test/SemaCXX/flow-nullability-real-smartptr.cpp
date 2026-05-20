@@ -96,4 +96,53 @@ void ne_nullptr_reversed_narrows() {
     }
 }
 
+// --- || short-circuit and || false-edge narrowing ---
+
+void or_short_circuit_rhs(std::unique_ptr<Node> sp) {
+    if (sp == nullptr || sp->value == 42) { // OK — sp narrowed on RHS of ||
+        return;
+    }
+}
+
+void or_short_circuit_bool(std::unique_ptr<Node> sp) {
+    if (!sp || sp->value == 42) { // OK — sp narrowed on RHS of ||
+        return;
+    }
+}
+
+void or_false_edge_narrows(std::unique_ptr<Node> sp) {
+    if (sp == nullptr || sp->value == 42) {
+        return;
+    }
+    sp->value = 1; // OK — sp narrowed after || early return
+}
+
+// When the || RHS returns a type with a destructor (e.g. unique_ptr),
+// the CFG inserts temp-destructor cleanup blocks that merge the ||
+// operand paths. decomposeOr at the IfStmt level recovers narrowing.
+struct Registry {
+    std::unique_ptr<Node> Lookup(int id);
+    std::unique_ptr<Node> Create();
+};
+
+void or_temp_destructor_false_edge(Registry* reg) {
+    std::unique_ptr<Node> anchor = reg->Create();
+    // RHS creates a temporary unique_ptr whose destructor merges paths
+    if (anchor == nullptr || reg->Lookup(anchor->value) == nullptr) {
+        return;
+    }
+    anchor->value = 1; // OK — narrowed despite temp destructor
+    int v = anchor->value; // OK
+}
+
+void or_temp_destructor_two_vars(Registry* reg,
+                                 std::unique_ptr<Node> a,
+                                 std::unique_ptr<Node> b) {
+    if (a == nullptr || b == nullptr || reg->Lookup(a->value) == nullptr) {
+        return;
+    }
+    a->value = 1; // OK — both narrowed
+    b->value = 2; // OK
+}
+
 #pragma clang assume_nonnull end
