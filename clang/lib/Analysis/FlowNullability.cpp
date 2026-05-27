@@ -195,7 +195,7 @@ static const Expr *getTerminalCondition(const Expr *E) {
 
 static bool isNullableType(QualType Ty, bool StrictMode,
                            NullabilityKind Default) {
-  std::optional<NullabilityKind> Nullability = Ty->getNullability();
+  NullabilityKindOrNone Nullability = Ty->getNullability();
   if (!Nullability)
     return false;
   // Explicit _Nullable always triggers.
@@ -214,12 +214,12 @@ static bool isNullableType(QualType Ty, bool StrictMode,
 /// (unannotated) types that are merely defaulted to nullable. Used for
 /// evidence emission to avoid inferring _Nullable from unannotated sources.
 static bool isExplicitlyNullableType(QualType Ty) {
-  std::optional<NullabilityKind> Nullability = Ty->getNullability();
+  NullabilityKindOrNone Nullability = Ty->getNullability();
   return Nullability && *Nullability == NullabilityKind::Nullable;
 }
 
 static bool isNonnullType(QualType Ty) {
-  std::optional<NullabilityKind> Nullability = Ty->getNullability();
+  NullabilityKindOrNone Nullability = Ty->getNullability();
   return Nullability && *Nullability == NullabilityKind::NonNull;
 }
 
