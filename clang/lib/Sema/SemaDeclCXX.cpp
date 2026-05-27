@@ -396,8 +396,8 @@ Sema::ActOnParamDefaultArgument(Decl *param, SourceLocation EqualLoc,
       if (!IsNullable) {
         if (const auto *CE = dyn_cast<CallExpr>(Arg->IgnoreParenCasts())) {
           auto RetNullability = CE->getType()->getNullability();
-          IsNullable = RetNullability &&
-                       *RetNullability == NullabilityKind::Nullable;
+          IsNullable =
+              RetNullability && *RetNullability == NullabilityKind::Nullable;
         }
       }
       if (IsNullable) {
@@ -4292,7 +4292,7 @@ void Sema::ActOnFinishCXXInClassMemberInitializer(Decl *D,
     if (Nullability && *Nullability == NullabilityKind::NonNull) {
       Expr *Init = InitExpr.get()->IgnoreParenImpCasts();
       if (Init->isNullPointerConstant(Context,
-              Expr::NPC_ValueDependentIsNotNull)) {
+                                      Expr::NPC_ValueDependentIsNotNull)) {
         Diag(Init->getExprLoc(), diag::warn_flow_nullable_field_init) << FD;
         Diag(Init->getExprLoc(), diag::note_nullable_field_init_fix);
       } else {
