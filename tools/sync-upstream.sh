@@ -54,6 +54,9 @@ EXCLUDE_PATTERNS=(
     # nullsafe-headers (fork-specific shim headers)
     'clang/nullsafe-headers/'
 
+    # profiling artifacts
+    '*.profraw'
+
     # misc fork files
     'UPSTREAM_PR_REVIEW.md'
     'clang/cJSON.plist'
