@@ -961,13 +961,119 @@ void chain_test_triple(Node * _Nullable head) {
     }
 }
 
-// Known limitation: multi-level member narrowing
 void chain_test_triple_partial(Node * _Nullable head) {
     if (head && head->next) {
-        // head->next is narrowed, but head->next->next is still nullable.
-        // The analysis currently does not warn here (accepted false negative).
-        head->next->next->value = 42; // no warning (known limitation)
+        // head->next is narrowed, but head->next->next is still nullable
+        head->next->next->value = 42; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
+}
+
+// Nested struct member access (value-typed intermediaries)
+
+struct NestInner {
+    int * _Nullable x;
+};
+
+struct NestOuter {
+    NestInner i;
+};
+
+void nested_member_warn(NestOuter &o) {
+    *(o.i.x) = 10; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void nested_member_narrow(NestOuter &o) {
+    if (o.i.x) {
+        *(o.i.x) = 11; // OK — narrowed by null check
+    }
+}
+
+void nested_member_no_check_after_guard(NestOuter &o) {
+    if (o.i.x) {
+        *(o.i.x) = 11; // OK
+    }
+    *(o.i.x) = 12; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+struct NestDeep {
+    NestOuter o;
+};
+
+void nested_member_triple(NestDeep &d) {
+    *(d.o.i.x) = 10; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    if (d.o.i.x) {
+        *(d.o.i.x) = 11; // OK — narrowed
+    }
+}
+
+struct NestTwoInners {
+    NestInner a;
+    NestInner b;
+};
+
+void nested_member_ambiguity(NestTwoInners &t) {
+    if (t.a.x) {
+        *(t.a.x) = 1; // OK — t.a.x is narrowed
+        *(t.b.x) = 2; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    }
+}
+
+void nested_member_assignment_narrows(NestOuter &o) {
+    int local = 42;
+    o.i.x = &local;
+    *(o.i.x) = 10; // OK — assigned from address-of (nonnull)
+}
+
+void nested_member_assignment_invalidates(NestOuter &o) {
+    int local = 42;
+    o.i.x = &local;
+    *(o.i.x) = 10; // OK
+    o.i.x = nullptr;
+    *(o.i.x) = 11; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void nested_member_early_return(NestOuter &o) {
+    if (!o.i.x) return;
+    *(o.i.x) = 10; // OK — narrowed by early return
+}
+
+void nested_member_and_compound(NestTwoInners &t) {
+    if (t.a.x && t.b.x) {
+        *(t.a.x) = 1; // OK — both narrowed
+        *(t.b.x) = 2; // OK
+    }
+}
+
+// Intermediate struct reassignment must invalidate nested narrowing
+void nested_member_intermediate_invalidation(NestOuter &o) {
+    if (o.i.x) {
+        *(o.i.x) = 1; // OK — narrowed
+        NestInner fresh;
+        o.i = fresh;   // reassign intermediate → invalidates o.i.x narrowing
+        *(o.i.x) = 2;  // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    }
+}
+
+// Noreturn assertion narrowing with nested members
+void nested_member_invariant_basic(NestOuter &o) {
+    INVARIANT(o.i.x);
+    *(o.i.x) = 10; // OK — narrowed by INVARIANT
+}
+
+void nested_member_invariant_msg(NestOuter &o) {
+    INVARIANT_MSG(o.i.x, "must not be null");
+    *(o.i.x) = 10; // OK — narrowed by INVARIANT_MSG
+}
+
+void nested_member_invariant_deep(NestDeep &d) {
+    INVARIANT(d.o.i.x);
+    *(d.o.i.x) = 10; // OK — narrowed by INVARIANT through 3 levels
+}
+
+void nested_member_invariant_no_cross_narrow(NestTwoInners &t) {
+    INVARIANT(t.a.x);
+    *(t.a.x) = 1; // OK — narrowed
+    *(t.b.x) = 2; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
 // Method return chaining

@@ -81,10 +81,9 @@ Per-edge state tracking: `EdgeStates[{PredBlockID, SuccBlockID}]` stores the nar
 
 `getTerminalCondition()` extracts the actual sub-expression being tested in each CFG block. The CFG decomposes `&&`/`||` into separate blocks, but the terminator expression is the full `p && q`. This helper recursively follows the RHS of `&&`/`||` to find the leaf that's actually being evaluated in that block.
 
-Three narrowing sets in `NullState`:
+Two narrowing sets in `NullState`:
 - `NarrowedVars` — `DenseSet<const VarDecl*>` for local variables and parameters
-- `NarrowedMembers` — `DenseSet<pair<VarDecl*, FieldDecl*>>` for `var->field` member accesses
-- `NarrowedThisMembers` — `DenseSet<const FieldDecl*>` for `this->field` member accesses
+- `NarrowedMembers` — `DenseSet<MemberAccessPath>` for member accesses at any depth (`var.field`, `this->field`, `o.inner.x`). A `MemberAccessPath` is a root `VarDecl*` (nullptr for `this->`) plus a `SmallVector<const FieldDecl*>` chain of fields, compared element-wise. `decomposeMemberAccess()` walks any `MemberExpr` chain to build one.
 
 Transfer functions handle: `DeclStmt` (nonnull init, alias tracking, smart pointer narrowing), `BinaryOperator` (assignment invalidation, pointer arithmetic on nullable, pointer diff), `UnaryOperator` (`*` deref check, `++`/`--` arithmetic check and invalidation), `MemberExpr` (`->` deref check, smart pointer `operator->` check), `ArraySubscriptExpr` (subscript deref check), `CallExpr` (`__builtin_assume` narrowing, argument checking), `CXXConstructExpr` (constructor argument checking), `InitListExpr` (aggregate init of nonnull fields), `ReturnStmt` (nullable return from nonnull function, all-returns-nonnull inference).
 
