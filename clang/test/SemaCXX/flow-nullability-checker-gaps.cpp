@@ -140,9 +140,8 @@ void test_release_nulls_smart_ptr() {
 
 // ==========================================================================
 // GAP 6: Cross-object member nullable tracking (obj.member = nullptr)
-// STATUS: WON'T FIX — requires NullableMembers<VarDecl*,FieldDecl*> set
-// mirroring NarrowedMembers. Pattern is rare outside this-> context;
-// this->member tracking already covers the common class-method case.
+// STATUS: FIXED — NullableMembers now stores full MemberAccessPath,
+// tracking nullable state for any member access depth.
 // ==========================================================================
 
 struct CrossObjTarget { int val; };
@@ -151,7 +150,8 @@ struct CrossObj { CrossObjTarget *_Nonnull ptr; };
 void cross_object_member_nullable(CrossObj obj) {
     obj.ptr = nullptr; // expected-warning{{assigning}}
                        // expected-note@-1{{add a null check}}
-    obj.ptr->val = 1;  // XFAIL-GAP: should warn — obj.ptr is null
+    obj.ptr->val = 1;  // expected-warning{{dereference of nullable pointer}}
+                       // expected-note@-1{{add a null check}}
 }
 
 // ==========================================================================
@@ -169,9 +169,8 @@ void aggregate_underinit(int *_Nonnull p) {
 
 // ==========================================================================
 // GAP 8: std::move from non-this member smart pointer
-// STATUS: WON'T FIX — requires cross-object member narrowing (GAP 6).
-// auto local = std::move(obj.sp) doesn't inherit narrowing onto local
-// because NarrowedMembers isn't consulted in the move-construct handler.
+// STATUS: FIXED — getSmartPtrMemberPath now handles var.sp, not just
+// this->sp, so move-construct correctly inherits narrowing.
 // ==========================================================================
 
 void move_from_non_this_member() {
@@ -179,8 +178,7 @@ void move_from_non_this_member() {
     Holder h;
     h.sp = std::make_unique<Resource>();
     auto local = std::move(h.sp);
-    local->val = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
-                     // XFAIL-GAP: should not warn — source was narrowed
+    local->val = 1; // OK — narrowing inherited from h.sp via std::move
 }
 
 #pragma clang assume_nonnull end

@@ -55,7 +55,84 @@ FlowNullabilityHandler::~FlowNullabilityHandler() = default;
 
 namespace {
 
-using MemberKey = std::pair<const VarDecl *, const FieldDecl *>;
+/// Access path from a root variable through a chain of field accesses.
+/// Represents expressions like: var.field, var->inner->field, this->a.b.
+/// Root is nullptr for this-> access paths.
+struct MemberAccessPath {
+  const VarDecl *Root;
+  llvm::SmallVector<const FieldDecl *, 2> Fields;
+
+  const FieldDecl *leafField() const {
+    assert(!Fields.empty() && "leafField() on empty path");
+    return Fields.back();
+  }
+
+  bool operator==(const MemberAccessPath &O) const {
+    return Root == O.Root && Fields == O.Fields;
+  }
+  bool operator!=(const MemberAccessPath &O) const { return !(*this == O); }
+};
+
+} // end anonymous namespace
+
+template <> struct llvm::DenseMapInfo<MemberAccessPath> {
+  static MemberAccessPath getEmptyKey() {
+    return {DenseMapInfo<const VarDecl *>::getEmptyKey(), {}};
+  }
+  static MemberAccessPath getTombstoneKey() {
+    return {DenseMapInfo<const VarDecl *>::getTombstoneKey(), {}};
+  }
+  static unsigned getHashValue(const MemberAccessPath &P) {
+    unsigned H = DenseMapInfo<const VarDecl *>::getHashValue(P.Root);
+    for (const auto *FD : P.Fields)
+      H = llvm::hash_combine(H,
+                             DenseMapInfo<const FieldDecl *>::getHashValue(FD));
+    return H;
+  }
+  static bool isEqual(const MemberAccessPath &L, const MemberAccessPath &R) {
+    return L == R;
+  }
+};
+
+namespace {
+
+/// Walk a MemberExpr chain to its root, collecting FieldDecls along the way.
+/// Returns nullopt if the root is not a VarDecl (via DeclRefExpr) or
+/// CXXThisExpr. Root is nullptr for this-> access paths.
+static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
+  llvm::SmallVector<const FieldDecl *, 2> Fields;
+  E = E->IgnoreParenImpCasts();
+
+  while (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+      Fields.push_back(FD);
+    else
+      return std::nullopt;
+    E = ME->getBase()->IgnoreParenImpCasts();
+  }
+
+  if (Fields.empty())
+    return std::nullopt;
+
+  // Fields are in reverse order (leaf first); flip to root-first.
+  std::reverse(Fields.begin(), Fields.end());
+
+  MemberAccessPath Path;
+  Path.Fields = std::move(Fields);
+
+  if (isa<CXXThisExpr>(E)) {
+    Path.Root = nullptr;
+  } else if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      Path.Root = VD;
+    else
+      return std::nullopt;
+  } else {
+    return std::nullopt;
+  }
+
+  return Path;
+}
 
 /// Per-block dataflow lattice tracking which pointers are narrowed (known
 /// non-null) or nullable. Uses DenseSet for simplicity; a BitVector keyed
@@ -67,13 +144,13 @@ struct NullState {
   // A variable should not be in both NarrowedVars and NullableVars — narrowing
   // is always erased before re-evaluating nullability on reassignment.
   llvm::DenseSet<const VarDecl *> NarrowedVars;
-  llvm::DenseSet<MemberKey> NarrowedMembers;
-  llvm::DenseSet<const FieldDecl *> NarrowedThisMembers;
+  // Unified member narrowing: covers both this->field and var.field paths,
+  // including nested access like var.inner.field (arbitrary depth).
+  llvm::DenseSet<MemberAccessPath> NarrowedMembers;
   llvm::DenseSet<const VarDecl *> NullableVars;
-  // Smart pointer this-members known to be nullable in the current function
-  // (e.g., after reset() or std::move()). Used to avoid false positives on
-  // member smart pointers that are always initialized in the constructor.
-  llvm::DenseSet<const FieldDecl *> NullableThisMembers;
+  // Member access paths known to be nullable at runtime (e.g., smart pointer
+  // members after reset() or std::move()). Parallels NarrowedMembers.
+  llvm::DenseSet<MemberAccessPath> NullableMembers;
 
   // Maps bool variables to the null-check they capture.
   // E.g., bool valid = (p != nullptr) → {valid → (p, false)}
@@ -99,9 +176,8 @@ struct NullState {
   bool operator==(const NullState &Other) const {
     return NarrowedVars == Other.NarrowedVars &&
            NarrowedMembers == Other.NarrowedMembers &&
-           NarrowedThisMembers == Other.NarrowedThisMembers &&
            NullableVars == Other.NullableVars &&
-           NullableThisMembers == Other.NullableThisMembers &&
+           NullableMembers == Other.NullableMembers &&
            BoolGuards == Other.BoolGuards && Aliases == Other.Aliases &&
            AddrOfTargets == Other.AddrOfTargets;
   }
@@ -117,18 +193,15 @@ static NullState join(const NullState &A, const NullState &B) {
   for (const auto &MK : A.NarrowedMembers)
     if (B.NarrowedMembers.contains(MK))
       Result.NarrowedMembers.insert(MK);
-  for (const auto *FD : A.NarrowedThisMembers)
-    if (B.NarrowedThisMembers.contains(FD))
-      Result.NarrowedThisMembers.insert(FD);
   // Nullable = union: if nullable on either path, it's nullable.
   for (const auto *VD : A.NullableVars)
     Result.NullableVars.insert(VD);
   for (const auto *VD : B.NullableVars)
     Result.NullableVars.insert(VD);
-  for (const auto *FD : A.NullableThisMembers)
-    Result.NullableThisMembers.insert(FD);
-  for (const auto *FD : B.NullableThisMembers)
-    Result.NullableThisMembers.insert(FD);
+  for (const auto &Path : A.NullableMembers)
+    Result.NullableMembers.insert(Path);
+  for (const auto &Path : B.NullableMembers)
+    Result.NullableMembers.insert(Path);
   // BoolGuards: keep only entries present in both with the same mapping.
   for (const auto &[BoolVD, GuardInfo] : A.BoolGuards) {
     auto It = B.BoolGuards.find(BoolVD);
@@ -153,8 +226,8 @@ static NullState join(const NullState &A, const NullState &B) {
   // from accumulating stale entries across fixpoint iterations.
   for (const auto *VD : Result.NarrowedVars)
     Result.NullableVars.erase(VD);
-  for (const auto *FD : Result.NarrowedThisMembers)
-    Result.NullableThisMembers.erase(FD);
+  for (const auto &Path : Result.NarrowedMembers)
+    Result.NullableMembers.erase(Path);
   LLVM_DEBUG({
     llvm::dbgs() << "  join: narrowed=" << Result.NarrowedVars.size()
                  << " nullable=" << Result.NullableVars.size()
@@ -261,16 +334,9 @@ static bool isSmartPointerNarrowed(const Expr *E, const NullState &State) {
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
       return State.NarrowedVars.contains(VD);
-  } else if (const auto *ME = dyn_cast<MemberExpr>(E)) {
-    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-      const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-      if (isa<CXXThisExpr>(Base))
-        return State.NarrowedThisMembers.contains(FD);
-      if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
-        if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
-          return State.NarrowedMembers.contains({BaseVD, FD});
-    }
   }
+  if (auto Path = decomposeMemberAccess(E))
+    return State.NarrowedMembers.contains(*Path);
   return false;
 }
 
@@ -509,16 +575,11 @@ static const VarDecl *getSmartPtrVarDecl(const Expr *E) {
 }
 
 /// Get the FieldDecl from a smart pointer this->member expression.
-static const FieldDecl *getSmartPtrThisMemberDecl(const Expr *E) {
-  E = E->IgnoreParenImpCasts();
-  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
-    const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-    if (isa<CXXThisExpr>(Base))
-      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
-        if (isSmartPointerType(FD->getType()))
-          return FD;
-  }
-  return nullptr;
+static std::optional<MemberAccessPath> getSmartPtrMemberPath(const Expr *E) {
+  auto Path = decomposeMemberAccess(E);
+  if (Path && isSmartPointerType(Path->leafField()->getType()))
+    return Path;
+  return std::nullopt;
 }
 
 /// Return true if this `std::move(sp)` call appears as the init/RHS of a
@@ -541,7 +602,7 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
       if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(S)) {
         if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
           const Expr *Lhs = OCE->getArg(0);
-          if (getSmartPtrVarDecl(Lhs) || getSmartPtrThisMemberDecl(Lhs))
+          if (getSmartPtrVarDecl(Lhs) || getSmartPtrMemberPath(Lhs))
             return true;
         }
         return false;
@@ -560,9 +621,8 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
 }
 
 struct ConditionResult {
-  const VarDecl *VD = nullptr;
-  const FieldDecl *FD = nullptr;
-  bool IsThisMember = false;
+  const VarDecl *VD = nullptr;                // local var/param
+  std::optional<MemberAccessPath> MemberPath; // member access chain
   bool Negated = false;
 };
 
@@ -684,27 +744,14 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
 
         if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
           if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-            Results.push_back({VD, nullptr, false, EqNegated});
+            Results.push_back({VD, std::nullopt, EqNegated});
             return;
           }
         }
-        if (const auto *ME = dyn_cast<MemberExpr>(PtrExpr)) {
-          if (ME->getType()->isPointerType()) {
-            const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-            if (isa<CXXThisExpr>(Base)) {
-              if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-                Results.push_back({nullptr, FD, true, EqNegated});
-                return;
-              }
-            }
-            if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
-              if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
-                if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-                  Results.push_back({BaseVD, FD, false, EqNegated});
-                  return;
-                }
-              }
-            }
+        if (auto Path = decomposeMemberAccess(PtrExpr)) {
+          if (Path->leafField()->getType()->isPointerType()) {
+            Results.push_back({nullptr, std::move(Path), EqNegated});
+            return;
           }
         }
       }
@@ -736,28 +783,15 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
         if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
           if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
             if (isSmartPointerType(VD->getType())) {
-              Results.push_back({VD, nullptr, false, EqNegated});
+              Results.push_back({VD, std::nullopt, EqNegated});
               return;
             }
           }
         }
-        if (const auto *ME = dyn_cast<MemberExpr>(PtrExpr)) {
-          if (isSmartPointerType(ME->getType())) {
-            const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-            if (isa<CXXThisExpr>(Base)) {
-              if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-                Results.push_back({nullptr, FD, true, EqNegated});
-                return;
-              }
-            }
-            if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
-              if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
-                if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-                  Results.push_back({BaseVD, FD, false, EqNegated});
-                  return;
-                }
-              }
-            }
+        if (auto Path = decomposeMemberAccess(PtrExpr)) {
+          if (isSmartPointerType(Path->leafField()->getType())) {
+            Results.push_back({nullptr, std::move(Path), EqNegated});
+            return;
           }
         }
       }
@@ -771,7 +805,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       if (auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
         if (auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (VD->getType()->isPointerType()) {
-            Results.push_back({VD, nullptr, false, Negated});
+            Results.push_back({VD, std::nullopt, Negated});
             return;
           }
         }
@@ -788,7 +822,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   if (auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
       if (VD->getType()->isPointerType()) {
-        Results.push_back({VD, nullptr, false, Negated});
+        Results.push_back({VD, std::nullopt, Negated});
         return;
       }
       // Bool intermediary: if (valid) where valid = (p != nullptr)
@@ -797,30 +831,17 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
         if (It != BoolGuards->end()) {
           // XOR: outer ! flips the guard's sense
           Results.push_back(
-              {It->second.first, nullptr, false, Negated != It->second.second});
+              {It->second.first, std::nullopt, Negated != It->second.second});
           return;
         }
       }
     }
   }
 
-  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
-    if (ME->getType()->isPointerType()) {
-      const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-      if (isa<CXXThisExpr>(Base)) {
-        if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-          Results.push_back({nullptr, FD, true, Negated});
-          return;
-        }
-      }
-      if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base)) {
-        if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
-          if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-            Results.push_back({BaseVD, FD, false, Negated});
-            return;
-          }
-        }
-      }
+  if (auto Path = decomposeMemberAccess(E)) {
+    if (Path->leafField()->getType()->isPointerType()) {
+      Results.push_back({nullptr, std::move(Path), Negated});
+      return;
     }
   }
 
@@ -835,24 +856,14 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
           Obj = Obj->IgnoreParenImpCasts();
           if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-              Results.push_back({VD, nullptr, false, Negated});
+              Results.push_back({VD, std::nullopt, Negated});
               return;
             }
           }
-          if (const auto *ObjME = dyn_cast<MemberExpr>(Obj)) {
-            if (const auto *FD = dyn_cast<FieldDecl>(ObjME->getMemberDecl())) {
-              const Expr *ObjBase = ObjME->getBase()->IgnoreParenImpCasts();
-              if (isa<CXXThisExpr>(ObjBase)) {
-                Results.push_back({nullptr, FD, true, Negated});
-                return;
-              }
-              if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(ObjBase)) {
-                if (const auto *BaseVD =
-                        dyn_cast<VarDecl>(BaseDRE->getDecl())) {
-                  Results.push_back({BaseVD, FD, false, Negated});
-                  return;
-                }
-              }
+          if (auto Path = decomposeMemberAccess(Obj)) {
+            if (isSmartPointerType(Path->leafField()->getType())) {
+              Results.push_back({nullptr, std::move(Path), Negated});
+              return;
             }
           }
         }
@@ -876,12 +887,8 @@ class TransferFunctions {
     return State.NarrowedVars.contains(VD);
   }
 
-  bool isMemberNarrowed(const VarDecl *BaseVD, const FieldDecl *FD) const {
-    return State.NarrowedMembers.contains({BaseVD, FD});
-  }
-
-  bool isThisMemberNarrowed(const FieldDecl *FD) const {
-    return State.NarrowedThisMembers.contains(FD);
+  bool isMemberNarrowed(const MemberAccessPath &Path) const {
+    return State.NarrowedMembers.contains(Path);
   }
 
   /// Unwrap explicit casts and pointer arithmetic to find the original
@@ -960,17 +967,10 @@ class TransferFunctions {
         return;
     }
 
-    // Check member narrowing: this->member or var.member
-    if (const auto *ME = dyn_cast<MemberExpr>(Origin)) {
-      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-        const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-        if (isa<CXXThisExpr>(Base) && isThisMemberNarrowed(FD))
-          return;
-        if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
-          if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
-            if (isMemberNarrowed(BaseVD, FD))
-              return;
-      }
+    // Check member narrowing: this->member, var.member, or nested chains
+    if (auto Path = decomposeMemberAccess(Origin)) {
+      if (isMemberNarrowed(*Path))
+        return;
     }
 
     QualType CheckTy = FoundCast ? Origin->getType() : PtrExpr->getType();
@@ -989,9 +989,10 @@ class TransferFunctions {
   }
 
   /// Warn on smart pointer dereference. For local vars/params, always warn
-  /// (they're nullable by default). For this->member smart pointers, only warn
-  /// if there's evidence of nullability in the current function (reset, move,
-  /// or null check) to avoid false positives on members set in constructors.
+  /// (they're nullable by default). For var.member paths, also always warn.
+  /// For this->member paths, only warn if there's evidence of nullability
+  /// in the current function (reset, move, or null check) to avoid false
+  /// positives on members set in constructors.
   void warnSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
     Obj = Obj->IgnoreParenImpCasts();
     // Local variable or parameter — always warn when not narrowed
@@ -1004,11 +1005,17 @@ class TransferFunctions {
         return;
       }
     }
-    // this->member — only warn if known nullable in current function
-    if (const auto *FD = getSmartPtrThisMemberDecl(Obj)) {
-      if (State.NullableThisMembers.contains(FD)) {
+    if (auto Path = getSmartPtrMemberPath(Obj)) {
+      if (Path->Root != nullptr) {
+        // var.member path — always warn (same as local vars)
         ++NumDereferenceWarnings;
-        Handler.handleNullableDereference(DerefExpr, FD->getType());
+        Handler.handleNullableDereference(DerefExpr,
+                                          Path->leafField()->getType());
+      } else if (State.NullableMembers.contains(*Path)) {
+        // this->member path — only warn with evidence
+        ++NumDereferenceWarnings;
+        Handler.handleNullableDereference(DerefExpr,
+                                          Path->leafField()->getType());
       }
     }
   }
@@ -1042,12 +1049,39 @@ class TransferFunctions {
   }
 
   void invalidateMembersFor(const VarDecl *VD) {
-    SmallVector<MemberKey, 4> ToRemove;
-    for (const auto &MK : State.NarrowedMembers)
-      if (MK.first == VD)
-        ToRemove.push_back(MK);
-    for (const auto &MK : ToRemove)
-      State.NarrowedMembers.erase(MK);
+    SmallVector<MemberAccessPath, 4> ToRemove;
+    for (const auto &Path : State.NarrowedMembers)
+      if (Path.Root == VD)
+        ToRemove.push_back(Path);
+    for (const auto &Path : ToRemove)
+      State.NarrowedMembers.erase(Path);
+    ToRemove.clear();
+    for (const auto &Path : State.NullableMembers)
+      if (Path.Root == VD)
+        ToRemove.push_back(Path);
+    for (const auto &Path : ToRemove)
+      State.NullableMembers.erase(Path);
+  }
+
+  // Invalidate all narrowed/nullable member paths that start with Prefix.
+  // e.g. assigning to var.inner invalidates var.inner.x, var.inner.y, etc.
+  void invalidateMembersWithPrefix(const MemberAccessPath &Prefix) {
+    auto removeWithPrefix = [&](llvm::DenseSet<MemberAccessPath> &Set) {
+      SmallVector<MemberAccessPath, 4> ToRemove;
+      for (const auto &Path : Set) {
+        if (Path.Root != Prefix.Root)
+          continue;
+        if (Path.Fields.size() < Prefix.Fields.size())
+          continue;
+        if (std::equal(Prefix.Fields.begin(), Prefix.Fields.end(),
+                       Path.Fields.begin()))
+          ToRemove.push_back(Path);
+      }
+      for (const auto &Path : ToRemove)
+        Set.erase(Path);
+    };
+    removeWithPrefix(State.NarrowedMembers);
+    removeWithPrefix(State.NullableMembers);
   }
 
 public:
@@ -1193,12 +1227,12 @@ private:
                   if (State.NarrowedVars.contains(SrcVD))
                     State.NarrowedVars.insert(VD);
                   State.NarrowedVars.erase(SrcVD);
-                } else if (const auto *SrcFD =
-                               getSmartPtrThisMemberDecl(CE->getArg(0))) {
-                  if (State.NarrowedThisMembers.contains(SrcFD))
+                } else if (auto SrcPath =
+                               getSmartPtrMemberPath(CE->getArg(0))) {
+                  if (State.NarrowedMembers.contains(*SrcPath))
                     State.NarrowedVars.insert(VD);
-                  State.NarrowedThisMembers.erase(SrcFD);
-                  State.NullableThisMembers.insert(SrcFD);
+                  State.NarrowedMembers.erase(*SrcPath);
+                  State.NullableMembers.insert(*SrcPath);
                 }
               }
             }
@@ -1213,7 +1247,7 @@ private:
           SmallVector<ConditionResult, 2> InitResults;
           analyzeCondition(Init, Ctx, InitResults);
           if (InitResults.size() == 1 && InitResults[0].VD &&
-              !InitResults[0].FD)
+              !InitResults[0].MemberPath)
             State.BoolGuards[VD] = {InitResults[0].VD, InitResults[0].Negated};
         }
       }
@@ -1283,8 +1317,8 @@ private:
             if (Obj && isSmartPointerType(Obj->getType())) {
               if (const auto *VD = getSmartPtrVarDecl(Obj))
                 return isNarrowed(VD);
-              if (const auto *FD = getSmartPtrThisMemberDecl(Obj))
-                return isThisMemberNarrowed(FD);
+              if (auto Path = decomposeMemberAccess(Obj))
+                return isMemberNarrowed(*Path);
             }
           }
         }
@@ -1335,8 +1369,8 @@ private:
             if (Obj && isSmartPointerType(Obj->getType())) {
               if (const auto *VD = getSmartPtrVarDecl(Obj))
                 return !isNarrowed(VD);
-              if (const auto *FD = getSmartPtrThisMemberDecl(Obj))
-                return !isThisMemberNarrowed(FD);
+              if (auto Path = decomposeMemberAccess(Obj))
+                return !isMemberNarrowed(*Path);
             }
           }
         }
@@ -1442,78 +1476,59 @@ private:
         }
       }
 
-      // Assignment to a member (this->field, var->field, or s.field)
-      // invalidates any narrowing on that member, then re-narrows if the
-      // RHS is provably non-null (matching local variable behavior).
-      if (const auto *ME = dyn_cast<MemberExpr>(LHS)) {
-        if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-          const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-          bool IsThisMember = isa<CXXThisExpr>(Base);
-          const VarDecl *BaseVD = nullptr;
-          if (!IsThisMember) {
-            if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
-              BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl());
+      // Assignment to a member (this->field, var->field, s.field, or nested
+      // like s.inner.field) invalidates any narrowing on that member, then
+      // re-narrows if the RHS is provably non-null.
+      if (auto LhsPath = decomposeMemberAccess(LHS)) {
+        const FieldDecl *FD = LhsPath->leafField();
+
+        // Invalidate existing narrowing on this path and any nested paths
+        // (e.g. assigning to o.inner invalidates o.inner.x).
+        invalidateMembersWithPrefix(*LhsPath);
+
+        // Re-narrow if RHS is provably non-null (plain assignment only).
+        if (BO->getOpcode() == BO_Assign && FD->getType()->isPointerType()) {
+          const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+          bool Narrowed = false;
+
+          if (const auto *RHSUO = dyn_cast<UnaryOperator>(RHS)) {
+            if (RHSUO->getOpcode() == UO_AddrOf)
+              Narrowed = true;
           }
-
-          // Invalidate existing narrowing state.
-          if (IsThisMember) {
-            State.NarrowedThisMembers.erase(FD);
-            State.NullableThisMembers.erase(FD);
-          } else if (BaseVD) {
-            State.NarrowedMembers.erase({BaseVD, FD});
-          }
-
-          // Re-narrow if RHS is provably non-null (plain assignment only).
-          if (BO->getOpcode() == BO_Assign && FD->getType()->isPointerType()) {
-            const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-            bool Narrowed = false;
-
-            if (const auto *RHSUO = dyn_cast<UnaryOperator>(RHS)) {
-              if (RHSUO->getOpcode() == UO_AddrOf)
-                Narrowed = true;
-            }
-            if (!Narrowed) {
-              if (const auto *RHSDRE = dyn_cast<DeclRefExpr>(RHS)) {
-                if (const auto *RHSVD = dyn_cast<VarDecl>(RHSDRE->getDecl())) {
-                  if (isNonnullType(RHSVD->getType()) || isNarrowed(RHSVD))
-                    Narrowed = true;
-                }
+          if (!Narrowed) {
+            if (const auto *RHSDRE = dyn_cast<DeclRefExpr>(RHS)) {
+              if (const auto *RHSVD = dyn_cast<VarDecl>(RHSDRE->getDecl())) {
+                if (isNonnullType(RHSVD->getType()) || isNarrowed(RHSVD))
+                  Narrowed = true;
               }
             }
-            // Null constant assigned to _Nonnull member — warn immediately.
-            // Check before isNonnullInit/isNonnullType because implicit
-            // casts can propagate _Nonnull from the LHS onto the RHS type.
-            if (!Narrowed && isNonnullType(FD->getType()) &&
-                isNullableInit(RHS) && !isNonnullInit(RHS)) {
-              if (IsThisMember)
-                State.NullableThisMembers.insert(FD);
-              ++NumAssignmentWarnings;
-              Handler.handleNullableMemberAssignment(BO, FD);
-            } else {
-              if (!Narrowed && isNonnullInit(RHS))
-                Narrowed = true;
-              if (!Narrowed && isNonnullType(BO->getRHS()->getType()))
-                Narrowed = true;
-
-              if (Narrowed) {
-                if (IsThisMember)
-                  State.NarrowedThisMembers.insert(FD);
-                else if (BaseVD)
-                  State.NarrowedMembers.insert({BaseVD, FD});
-              } else if (isNullableType(BO->getRHS()->getType(), StrictMode,
-                                        DefaultNullability) ||
-                         isNullableInit(RHS)) {
-                if (IsThisMember)
-                  State.NullableThisMembers.insert(FD);
-              }
-            }
-
-            // Emit evidence for cross-TU inference.
-            // Only emit nullable evidence for explicitly nullable sources,
-            // not for unannotated pointers defaulted to nullable.
-            if (Narrowed || isExprExplicitlyNullable(RHS))
-              Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
           }
+          // Null constant assigned to _Nonnull member — warn immediately.
+          if (!Narrowed && isNonnullType(FD->getType()) &&
+              isNullableInit(RHS) && !isNonnullInit(RHS)) {
+            State.NullableMembers.insert(*LhsPath);
+            ++NumAssignmentWarnings;
+            Handler.handleNullableMemberAssignment(BO, FD);
+          } else {
+            if (!Narrowed && isNonnullInit(RHS))
+              Narrowed = true;
+            if (!Narrowed && isNonnullType(BO->getRHS()->getType()))
+              Narrowed = true;
+
+            if (Narrowed) {
+              State.NarrowedMembers.insert(*LhsPath);
+            } else if (isNullableType(BO->getRHS()->getType(), StrictMode,
+                                      DefaultNullability) ||
+                       isNullableInit(RHS)) {
+              State.NullableMembers.insert(*LhsPath);
+            }
+          }
+
+          // Emit evidence for cross-TU inference.
+          // Only emit nullable evidence for explicitly nullable sources,
+          // not for unannotated pointers defaulted to nullable.
+          if (Narrowed || isExprExplicitlyNullable(RHS))
+            Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
         }
       }
 
@@ -1605,15 +1620,7 @@ private:
             checkVarDeref(UO, VD);
         }
       } else if (const auto *ME = dyn_cast<MemberExpr>(SubExpr)) {
-        const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-        if (isa<CXXThisExpr>(Base)) {
-          if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-            if (!isThisMemberNarrowed(FD))
-              checkDeref(UO, ME->getType());
-          }
-        } else {
-          checkMemberExprDeref(UO, ME);
-        }
+        checkMemberExprDeref(UO, ME);
       } else if (!isa<CXXThisExpr>(SubExpr)) {
         checkExprDeref(UO, SubExpr);
       }
@@ -1724,15 +1731,12 @@ private:
         for (const auto &CR : Results) {
           if (CR.Negated)
             continue;
-          if (CR.IsThisMember) {
-            State.NarrowedThisMembers.insert(CR.FD);
-            State.NullableThisMembers.erase(CR.FD);
+          if (CR.MemberPath) {
+            State.NarrowedMembers.insert(*CR.MemberPath);
+            State.NullableMembers.erase(*CR.MemberPath);
           } else if (CR.VD) {
-            if (!CR.FD) {
-              State.NarrowedVars.insert(CR.VD);
-              State.NullableVars.erase(CR.VD);
-            } else
-              State.NarrowedMembers.insert({CR.VD, CR.FD});
+            State.NarrowedVars.insert(CR.VD);
+            State.NullableVars.erase(CR.VD);
           }
         }
       }
@@ -1858,14 +1862,14 @@ private:
                 State.NullableVars.insert(VD);
               }
             }
-            // this->member
-            if (const auto *FD = getSmartPtrThisMemberDecl(Obj)) {
-              State.NarrowedThisMembers.erase(FD);
+            // member smart pointer (this->sp, var.sp, var.inner.sp, etc.)
+            if (auto Path = getSmartPtrMemberPath(Obj)) {
+              State.NarrowedMembers.erase(*Path);
               if (ResetsToNonnull) {
-                State.NarrowedThisMembers.insert(FD);
-                State.NullableThisMembers.erase(FD);
+                State.NarrowedMembers.insert(*Path);
+                State.NullableMembers.erase(*Path);
               } else {
-                State.NullableThisMembers.insert(FD);
+                State.NullableMembers.insert(*Path);
               }
             }
           }
@@ -1874,56 +1878,38 @@ private:
     }
 
     // Handle sp = nullptr / sp = make_unique(...) / sp = std::move(other)
-    // LHS may be a local (VarDecl), a this-member (FieldDecl), or a
-    // var->field / var.field member access.
+    // LHS may be a local (VarDecl), a this-member, or a member access chain.
     if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
       if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
         const Expr *LhsArg = OCE->getArg(0);
         const VarDecl *LhsVD = getSmartPtrVarDecl(LhsArg);
-        const FieldDecl *LhsThisFD = getSmartPtrThisMemberDecl(LhsArg);
-        // Detect var->field / var.field smart-pointer LHS for invalidation.
-        const VarDecl *LhsBaseVD = nullptr;
-        const FieldDecl *LhsMemberFD = nullptr;
-        if (!LhsVD && !LhsThisFD) {
-          const Expr *Stripped = LhsArg->IgnoreParenImpCasts();
-          if (const auto *ME = dyn_cast<MemberExpr>(Stripped)) {
-            if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-              if (isSmartPointerType(FD->getType())) {
-                const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-                if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
-                  if (const auto *BVD = dyn_cast<VarDecl>(BaseDRE->getDecl())) {
-                    LhsBaseVD = BVD;
-                    LhsMemberFD = FD;
-                  }
-              }
-            }
-          }
+        // Decompose member LHS (this->sp, var.sp, var.inner.sp, etc.)
+        std::optional<MemberAccessPath> LhsMemberPath;
+        if (!LhsVD) {
+          LhsMemberPath = decomposeMemberAccess(LhsArg);
+          if (LhsMemberPath &&
+              !isSmartPointerType(LhsMemberPath->leafField()->getType()))
+            LhsMemberPath = std::nullopt;
         }
 
-        if (LhsVD || LhsThisFD || LhsMemberFD) {
-          // Invalidate prior narrowing — "sp = nullptr" is the default and
-          // must leave state nullable unless the RHS is provably non-null.
+        if (LhsVD || LhsMemberPath) {
           auto clearNarrowing = [&]() {
             if (LhsVD)
               State.NarrowedVars.erase(LhsVD);
-            if (LhsThisFD) {
-              State.NarrowedThisMembers.erase(LhsThisFD);
-              State.NullableThisMembers.insert(LhsThisFD);
+            if (LhsMemberPath) {
+              State.NarrowedMembers.erase(*LhsMemberPath);
+              State.NullableMembers.insert(*LhsMemberPath);
             }
-            if (LhsMemberFD)
-              State.NarrowedMembers.erase({LhsBaseVD, LhsMemberFD});
           };
           auto markNarrowed = [&]() {
             if (LhsVD) {
               State.NarrowedVars.insert(LhsVD);
               State.NullableVars.erase(LhsVD);
             }
-            if (LhsThisFD) {
-              State.NarrowedThisMembers.insert(LhsThisFD);
-              State.NullableThisMembers.erase(LhsThisFD);
+            if (LhsMemberPath) {
+              State.NarrowedMembers.insert(*LhsMemberPath);
+              State.NullableMembers.erase(*LhsMemberPath);
             }
-            if (LhsMemberFD)
-              State.NarrowedMembers.insert({LhsBaseVD, LhsMemberFD});
           };
 
           clearNarrowing();
@@ -1934,8 +1920,8 @@ private:
             markNarrowed();
           } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
             if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
-              // sp = std::move(other) — LHS inherits source's state. Source
-              // tracking only implemented for local-var sources.
+              // sp = std::move(other) — LHS inherits source's state.
+              // Source tracking only implemented for local-var sources.
               if (const auto *SrcVD = getSmartPtrVarDecl(RhsCE->getArg(0))) {
                 if (State.NarrowedVars.contains(SrcVD))
                   markNarrowed();
@@ -1947,6 +1933,13 @@ private:
             }
           }
           // sp = nullptr or non-call — remains nullable (erased above)
+        }
+
+        // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
+        // invalidate any narrowed paths nested under the LHS.
+        if (!LhsVD && !LhsMemberPath) {
+          if (auto StructPath = decomposeMemberAccess(LhsArg))
+            invalidateMembersWithPrefix(*StructPath);
         }
       }
     }
@@ -1973,9 +1966,9 @@ private:
       if (const auto *VD = getSmartPtrVarDecl(CE->getArg(0))) {
         State.NarrowedVars.erase(VD);
       }
-      if (const auto *FD = getSmartPtrThisMemberDecl(CE->getArg(0))) {
-        State.NarrowedThisMembers.erase(FD);
-        State.NullableThisMembers.insert(FD);
+      if (auto Path = getSmartPtrMemberPath(CE->getArg(0))) {
+        State.NarrowedMembers.erase(*Path);
+        State.NullableMembers.insert(*Path);
       }
     }
   }
@@ -2064,17 +2057,10 @@ private:
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
         return isVarNullable(VD);
     }
-    // Member narrowing: this->member or var.member narrowed by null check
-    if (const auto *ME = dyn_cast<MemberExpr>(E)) {
-      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-        const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-        if (isa<CXXThisExpr>(Base) && isThisMemberNarrowed(FD))
-          return false;
-        if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
-          if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
-            if (isMemberNarrowed(BaseVD, FD))
-              return false;
-      }
+    // Member narrowing: this->member, var.member, or nested chains
+    if (auto Path = decomposeMemberAccess(E)) {
+      if (isMemberNarrowed(*Path))
+        return false;
     }
     // Unwrap explicit casts — they don't change null/nonnull status.
     // e.g., static_cast<Base*>(this) should be recognized as nonnull.
@@ -2138,16 +2124,9 @@ private:
         return isExplicitlyNullableType(VD->getType());
       }
     }
-    if (const auto *ME = dyn_cast<MemberExpr>(E)) {
-      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-        const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-        if (isa<CXXThisExpr>(Base) && isThisMemberNarrowed(FD))
-          return false;
-        if (const auto *BaseDRE = dyn_cast<DeclRefExpr>(Base))
-          if (const auto *BaseVD = dyn_cast<VarDecl>(BaseDRE->getDecl()))
-            if (isMemberNarrowed(BaseVD, FD))
-              return false;
-      }
+    if (auto Path = decomposeMemberAccess(E)) {
+      if (isMemberNarrowed(*Path))
+        return false;
     }
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
       return isExprExplicitlyNullable(CE->getSubExpr());
@@ -2222,21 +2201,15 @@ private:
       }
     }
 
-    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl())) {
-      if (isa<CXXThisExpr>(Base)) {
-        // If flow analysis marked this member nullable (e.g. assigned nullptr),
-        // that overrides the declared _Nonnull type.
-        if (State.NullableThisMembers.contains(FD)) {
-          ++NumDereferenceWarnings;
-          Handler.handleNullableDereference(DerefExpr, ME->getType());
-        } else if (!isThisMemberNarrowed(FD)) {
-          checkDeref(DerefExpr, ME->getType());
-        }
-      } else if (const auto *DRE = dyn_cast<DeclRefExpr>(Base)) {
-        if (const auto *BaseVD = dyn_cast<VarDecl>(DRE->getDecl())) {
-          if (!isMemberNarrowed(BaseVD, FD))
-            checkDeref(DerefExpr, ME->getType());
-        }
+    // Use decomposeMemberAccess to handle arbitrary nesting depth.
+    if (auto Path = decomposeMemberAccess(ME)) {
+      // If flow analysis marked this member nullable (e.g. assigned nullptr
+      // or reset()), that overrides the declared _Nonnull type.
+      if (State.NullableMembers.contains(*Path)) {
+        ++NumDereferenceWarnings;
+        Handler.handleNullableDereference(DerefExpr, ME->getType());
+      } else if (!isMemberNarrowed(*Path)) {
+        checkDeref(DerefExpr, ME->getType());
       }
     }
   }
@@ -2506,73 +2479,46 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
           if (const auto *EWC = dyn_cast<ExprWithCleanups>(IfCondInner))
             IfCondInner = EWC->getSubExpr()->IgnoreParenImpCasts();
           if (const auto *BO = dyn_cast<BinaryOperator>(IfCondInner)) {
+            // Narrow a member or variable from a ConditionResult, propagating
+            // through aliases.
+            auto applyNarrowCR = [](NullState &NS, const ConditionResult &CR) {
+              if (CR.MemberPath) {
+                NS.NarrowedMembers.insert(*CR.MemberPath);
+                NS.NullableMembers.erase(*CR.MemberPath);
+              } else if (CR.VD) {
+                NS.NarrowedVars.insert(CR.VD);
+                NS.NullableVars.erase(CR.VD);
+                const VarDecl *Target = CR.VD;
+                auto AliasIt = NS.Aliases.find(CR.VD);
+                if (AliasIt != NS.Aliases.end()) {
+                  Target = AliasIt->second;
+                  NS.NarrowedVars.insert(Target);
+                  NS.NullableVars.erase(Target);
+                }
+                for (const auto &[AV, TV] : NS.Aliases)
+                  if (TV == CR.VD || TV == Target) {
+                    NS.NarrowedVars.insert(AV);
+                    NS.NullableVars.erase(AV);
+                  }
+              }
+            };
+
             if (BO->getOpcode() == BO_LAnd) {
               SmallVector<ConditionResult, 2> AndResults;
               decomposeAnd(BO, Ctx, AndResults, &State.BoolGuards);
               for (const auto &CR : AndResults) {
                 if (CR.Negated)
                   continue;
-                if (CR.IsThisMember) {
-                  TrueState.NarrowedThisMembers.insert(CR.FD);
-                  TrueState.NullableThisMembers.erase(CR.FD);
-                } else if (CR.VD) {
-                  if (CR.FD) {
-                    TrueState.NarrowedMembers.insert({CR.VD, CR.FD});
-                  } else {
-                    TrueState.NarrowedVars.insert(CR.VD);
-                    TrueState.NullableVars.erase(CR.VD);
-                    // Also narrow alias target and all siblings
-                    const VarDecl *Target = CR.VD;
-                    auto AliasIt = TrueState.Aliases.find(CR.VD);
-                    if (AliasIt != TrueState.Aliases.end()) {
-                      Target = AliasIt->second;
-                      TrueState.NarrowedVars.insert(Target);
-                      TrueState.NullableVars.erase(Target);
-                    }
-                    for (const auto &[AV, TV] : TrueState.Aliases)
-                      if (TV == CR.VD || TV == Target) {
-                        TrueState.NarrowedVars.insert(AV);
-                        TrueState.NullableVars.erase(AV);
-                      }
-                  }
-                }
+                applyNarrowCR(TrueState, CR);
               }
             } else if (BO->getOpcode() == BO_LOr) {
               // if (A || B): on the false edge ALL operands were false.
-              // Decompose and narrow each null-check operand on FalseState.
-              // This is needed because temp-destructor cleanup blocks in
-              // the CFG can merge the || operand paths before the IfStmt
-              // decision block, defeating per-edge narrowing.
               SmallVector<ConditionResult, 2> OrResults;
               decomposeOr(BO, Ctx, OrResults, &State.BoolGuards);
               for (const auto &CR : OrResults) {
-                // On the false edge each leaf was false. Negated=true
-                // means ptr is non-null when the leaf is false → narrow.
                 if (!CR.Negated)
                   continue;
-                if (CR.IsThisMember) {
-                  FalseState.NarrowedThisMembers.insert(CR.FD);
-                  FalseState.NullableThisMembers.erase(CR.FD);
-                } else if (CR.VD) {
-                  if (CR.FD) {
-                    FalseState.NarrowedMembers.insert({CR.VD, CR.FD});
-                  } else {
-                    FalseState.NarrowedVars.insert(CR.VD);
-                    FalseState.NullableVars.erase(CR.VD);
-                    const VarDecl *Target = CR.VD;
-                    auto AliasIt = FalseState.Aliases.find(CR.VD);
-                    if (AliasIt != FalseState.Aliases.end()) {
-                      Target = AliasIt->second;
-                      FalseState.NarrowedVars.insert(Target);
-                      FalseState.NullableVars.erase(Target);
-                    }
-                    for (const auto &[AV, TV] : FalseState.Aliases)
-                      if (TV == CR.VD || TV == Target) {
-                        FalseState.NarrowedVars.insert(AV);
-                        FalseState.NullableVars.erase(AV);
-                      }
-                  }
-                }
+                applyNarrowCR(FalseState, CR);
               }
             }
           }
@@ -2620,14 +2566,11 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
         analyzeCondition(Cond, Ctx, Results, &State.BoolGuards);
         for (const auto &CR : Results) {
           NullState &Narrow = CR.Negated ? FalseState : TrueState;
-          if (CR.IsThisMember) {
-            Narrow.NarrowedThisMembers.insert(CR.FD);
-            Narrow.NullableThisMembers.erase(CR.FD);
+          if (CR.MemberPath) {
+            Narrow.NarrowedMembers.insert(*CR.MemberPath);
+            Narrow.NullableMembers.erase(*CR.MemberPath);
           } else if (CR.VD) {
-            if (!CR.FD)
-              narrowWithAliases(Narrow, CR.VD);
-            else
-              Narrow.NarrowedMembers.insert({CR.VD, CR.FD});
+            narrowWithAliases(Narrow, CR.VD);
           }
         }
       }

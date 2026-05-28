@@ -275,6 +275,81 @@ require('lspconfig').clangd.setup({
 })
 ```
 
+## Implementation overview
+
+The analysis is a forward, intraprocedural dataflow pass over Clang's CFG (control flow graph) — it analyzes one function at a time, following the same architecture as the existing ThreadSafety and UninitializedValues analyses. It does not use MLIR or ClangIR — it operates on the AST-level CFG that Clang already builds for its existing warnings infrastructure. Cross-function reasoning is handled separately via call-graph ordering and annotations (see "Cross-function evidence" below).
+
+### Lattice
+
+The abstract state at each program point is a `NullState` containing:
+
+- **Narrowed sets** — pointers proven non-null by control flow (null checks, nonnull init, etc.)
+- **Nullable sets** — pointers known to hold nullable values
+- **Auxiliary maps** — bool guards, aliases, address-of targets (described below)
+
+The core logic is as follows: If a pointer is in a nullable set (or has nullable type) and is NOT in a narrowed set, dereferencing it is a warning.
+
+#### Narrowed sets
+
+There are two narrowed sets, one for plain variables and one for member access chains:
+
+`NarrowedVars` is a `DenseSet<const VarDecl*>` for local variables and parameters. When you write `if (p)`, the variable `p` is added to this set on the true branch.
+
+`NarrowedMembers` is a `DenseSet<MemberAccessPath>` for field accesses. A `MemberAccessPath` is a small struct: a `const VarDecl*` root plus a `SmallVector<const FieldDecl*>` chain of fields, compared element-wise by pointer identity. So `s->x` is `{Root=s, Fields=[x]}`, `o.inner.x` is `{Root=o, Fields=[inner, x]}`, and `this->field` uses a null root as a sentinel (safe because the analysis is intraprocedural — `this` is always the same object within a single function, and `FieldDecl` pointers are unique per class).
+
+#### Nullable sets
+
+`NullableVars` is a `DenseSet<const VarDecl*>` tracking variables known to hold nullable values. `NullableThisMembers` is a `DenseSet<const FieldDecl*>` that tracks `this->` smart pointer members that become nullable at runtime after `reset()` or `std::move()`.
+
+#### Auxiliary tracking
+
+- **Bool guards**: `bool ok = (p != nullptr)` lets a later `if (ok)` narrow `p`.
+- **Aliases**: `q = p` means narrowing either one narrows both.
+- **Address-of targets**: `pp = &p` means a store through `*pp` invalidates `p`'s narrowing.
+
+#### Merging
+
+At control flow join points, narrowed and nullable sets merge differently. Narrowed uses intersection — a pointer is only narrowed after a merge if ALL incoming paths agree. Nullable uses union — if a pointer was nullable on ANY incoming path, it stays nullable. This is conservative in both directions: won't lose track of a potential null source, and won't claim a pointer is safe unless every path proved it.
+
+### Per-edge state tracking
+
+Rather than storing one state per block, the analysis stores state per CFG edge (`EdgeStates[{PredBlockID, SuccBlockID}]`). This is what makes branch-sensitive narrowing work: after `if (p)`, the true and false edges carry different narrowing information. Entry state for each block is computed by merging all predecessor edge states using the join rules above.
+
+### Transfer functions
+
+The analysis walks each CFG block statement-by-statement:
+
+**Dereferences** (`*p`, `p->m`, `p[i]`, `p + n`): if `p` is nullable and not narrowed, emit a warning.
+**Null checks** (`if (p)`, `if (p != nullptr)`): the true-edge state adds `p` to the narrowed set; the false edge does not (and vice versa for `if (!p)`).
+**Assignments** (`p = expr`): if the RHS is nonnull, narrow; if nullable, remove from the narrowed set and add to the nullable set.
+**Declarations** (`int *p = nonnull_expr`): narrow at initialization.
+**Assertions / early returns**: `if (!p) return;` narrows `p` in the post-dominating code, since execution only continues when `p` is non-null.
+
+A `decomposeMemberAccess()` helper walks any `MemberExpr` chain to its root (`DeclRefExpr` or `CXXThisExpr`), collecting `FieldDecl`s along the way. This is used uniformly for both single-level (`s.x`) and nested (`o.inner.x`) member accesses — the same code path handles all depths.
+
+Compound conditions (`&&`, `||`) are handled naturally by the CFG, which decomposes them into separate blocks with edges for short-circuit evaluation. One subtlety: the CFG terminator for each decomposed block is still the full compound expression (e.g., `p && q`), not the individual leaf. A helper `getTerminalCondition()` recursively follows the RHS of `&&`/`||` chains to find the leaf sub-expression actually being evaluated in that block — this is what lets per-edge narrowing apply to the correct variable at each branch point.
+
+### Iteration
+
+The analysis processes CFG blocks in reverse-post-order using a worklist. It repeats until the state stabilizes (fixpoint iteration) — if processing a block changes the outgoing state, its successors are re-enqueued. In practice, most functions converge in a single pass. Loops may require a second iteration, but since the lattice is finite (narrowed sets can only shrink at merge points, nullable sets can only grow) and monotone, convergence is guaranteed and fast.
+
+### Cross-function evidence within a TU
+
+Functions are analyzed in reverse call-graph order within each translation unit, using Tarjan's SCC algorithm. This means callees are always analyzed before their callers, regardless of source order. If a function is proven to return nonnull on all paths (without requiring annotation), that evidence is recorded and callers automatically narrow the return value — no annotation needed.
+
+### Complexity
+
+The analysis is linear in practice, O(n · h) worst-case — where n is the number of CFG blocks and h is the lattice height (bounded by the number of tracked pointers). There is no path enumeration, no constraint solving, and no exponential blowup. This is a deliberate tradeoff: a SAT-based approach (like the Clang Static Analyzer) can reason about deeper inter-variable relationships, but at a cost that makes it impractical to run on every compilation. This analysis is lightweight enough to run as part of a normal build with no measurable compile-time impact, catching the large majority of real-world null dereferences — unchecked nullable pointer used directly — with zero false positives from post-null-check code.
+
+### Code layout
+
+| File | Role |
+|---|---|
+| lib/Analysis/FlowNullability.cpp | The analysis: CFG walk, transfer functions, edge state, fixpoint |
+| include/clang/Analysis/Analyses/FlowNullability.h | Handler interface (FlowNullabilityHandler) and entry point |
+| lib/Sema/AnalysisBasedWarnings.cpp | Glue: builds CFG, runs analysis, converts callbacks to S.Diag() calls |
+| lib/Sema/SemaDecl.cpp | Gradual adoption: decides per-function whether to enable the analysis |
+
 ## License
 
 Same as LLVM — Apache 2.0 with LLVM Exceptions.

@@ -980,6 +980,134 @@ void smartptr_test_raw_ptr_narrowed(Node* _Nullable p) {
     }
 }
 
+// --- Nested member smart pointer (var.member.sp) ---
+
+struct InnerSp { std::unique_ptr<Node> sp; };
+struct OuterSp { InnerSp inner; };
+
+void nested_sp_deref_warns(OuterSp &o) {
+    o.inner.sp->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void nested_sp_narrowed_by_check(OuterSp &o) {
+    if (o.inner.sp) {
+        o.inner.sp->value = 1; // OK -- narrowed
+    }
+}
+
+void nested_sp_narrowed_ne_nullptr(OuterSp &o) {
+    if (o.inner.sp != nullptr) {
+        o.inner.sp->value = 1; // OK -- narrowed
+    }
+}
+
+void nested_sp_assign_make_unique(OuterSp &o) {
+    o.inner.sp = std::make_unique<Node>();
+    o.inner.sp->value = 1; // OK -- narrowed via make_unique
+}
+
+void nested_sp_reset_makes_nullable(OuterSp &o) {
+    o.inner.sp = std::make_unique<Node>();
+    o.inner.sp->value = 1; // OK
+    o.inner.sp.reset();
+    o.inner.sp->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void nested_sp_reset_nonnull_narrows(OuterSp &o) {
+    o.inner.sp.reset(new Node());
+    o.inner.sp->value = 1; // OK -- reset(nonnull) narrows
+}
+
+void nested_sp_move_makes_source_nullable(OuterSp &o) {
+    o.inner.sp = std::make_unique<Node>();
+    auto local = std::move(o.inner.sp);
+    local->value = 1;          // OK -- inherited narrowing from source
+    o.inner.sp->value = 1;     // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void nested_sp_assign_null_via_reset(OuterSp &o) {
+    o.inner.sp = std::make_unique<Node>();
+    o.inner.sp->value = 1; // OK
+    o.inner.sp.reset();
+    o.inner.sp->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void nested_sp_re_narrow_after_reset(OuterSp &o) {
+    o.inner.sp.reset();
+    o.inner.sp = std::make_unique<Node>();
+    o.inner.sp->value = 1; // OK -- re-narrowed
+}
+
+void nested_sp_guard_scoping(OuterSp &o) {
+    if (o.inner.sp) {
+        o.inner.sp->value = 1; // OK
+    }
+    o.inner.sp->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void nested_sp_early_return(OuterSp &o) {
+    if (!o.inner.sp) return;
+    o.inner.sp->value = 1; // OK -- narrowed by early return
+}
+
+// Two sibling smart pointers — narrowing one must not affect the other
+struct TwoSps { std::unique_ptr<Node> a; std::unique_ptr<Node> b; };
+
+void nested_sp_sibling_independence(TwoSps &t) {
+    if (t.a) {
+        t.a->value = 1; // OK -- t.a narrowed
+        t.b->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    }
+}
+
+void nested_sp_both_narrowed(TwoSps &t) {
+    if (t.a && t.b) {
+        t.a->value = 1; // OK
+        t.b->value = 1; // OK
+    }
+}
+
+// Intermediate struct reassignment invalidates nested smart pointer narrowing.
+// Uses move assignment since InnerSp contains a unique_ptr (no copy).
+void nested_sp_intermediate_invalidation(OuterSp &o) {
+    o.inner.sp = std::make_unique<Node>();
+    o.inner.sp->value = 1; // OK
+    InnerSp fresh;
+    o.inner = std::move(fresh);
+    o.inner.sp->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+// --- this->nested smart pointer member ---
+
+struct OwnerNested {
+    InnerSp inner_;
+
+    void deref_no_evidence() {
+        // No evidence of nullability — don't warn (same as this->csm_ heuristic)
+        inner_.sp->value = 1; // OK
+    }
+
+    void narrowed_by_check() {
+        if (inner_.sp) {
+            inner_.sp->value = 1; // OK
+        }
+    }
+
+    void reset_makes_nullable() {
+        inner_.sp = std::make_unique<Node>();
+        inner_.sp->value = 1; // OK
+        inner_.sp.reset();
+        inner_.sp->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    }
+
+    void move_makes_source_nullable() {
+        inner_.sp = std::make_unique<Node>();
+        auto local = std::move(inner_.sp);
+        local->value = 1;       // OK
+        inner_.sp->value = 1;   // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    }
+};
+
 #pragma clang assume_nonnull end
 
 // ===----------------------------------------------------------------------===//
