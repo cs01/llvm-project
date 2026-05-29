@@ -916,6 +916,35 @@ void cast_test_deref_cast_addr_of_different_type(Derived& d) {
     (*static_cast<Base*>(&d)).x = 1; // OK -- address-of is non-null
 }
 
+// Alias tracking through explicit casts: narrowing the source after the
+// cast should propagate through the alias to suppress false positives.
+void cast_alias_narrowing_after_cast(void * _Nullable ptr) {
+    void **layout = static_cast<void **>(ptr);
+    if (ptr != nullptr) {
+        (void)layout[0]; // OK -- ptr narrowed, layout aliases ptr through cast
+    }
+}
+
+void cast_alias_assert_after_cast(Base * _Nullable b) {
+    Derived *d = static_cast<Derived *>(b);
+    if (b) {
+        d->y = 1; // OK -- b narrowed, d aliases b through static_cast
+    }
+}
+
+void cast_alias_still_warns_without_check(void * _Nullable ptr) {
+    void **layout = static_cast<void **>(ptr);
+    (void)layout[0]; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void cast_alias_reassign(Base * _Nullable a, Base * _Nullable b) {
+    Derived *d = static_cast<Derived *>(a);
+    d = static_cast<Derived *>(b);
+    if (b) {
+        d->y = 1; // OK -- d re-aliased to b, b narrowed
+    }
+}
+
 #pragma clang assume_nonnull end
 
 // ===----------------------------------------------------------------------===//
