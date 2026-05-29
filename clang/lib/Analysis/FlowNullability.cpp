@@ -251,6 +251,22 @@ static const Expr *unwrapBuiltinExpect(const Expr *E) {
   return E;
 }
 
+/// Strip an explicit cast-to-bool so the underlying condition is visible.
+/// glibc/libstdc++ define assert(expr) as
+///   (static_cast<bool>(expr) ? void(0) : __assert_fail(...))
+/// IgnoreParenImpCasts() only removes implicit casts, leaving the explicit
+/// CXXStaticCastExpr<bool> in place; without stripping it the condition handler
+/// never sees the pointer being tested and fails to narrow it. Loop to handle
+/// nested explicit bool casts.
+static const Expr *ignoreExplicitBoolCast(const Expr *E) {
+  while (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
+    if (!CE->getType()->isBooleanType())
+      break;
+    E = CE->getSubExpr()->IgnoreParenImpCasts();
+  }
+  return E;
+}
+
 /// Extract the rightmost leaf of a && / || chain.
 /// The CFG decomposes `a && b && c` into separate blocks — each operand
 /// becomes its own block's terminator condition. So for `if (a && b && c)`,
@@ -684,6 +700,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
 
   const Expr *E = Cond->IgnoreParenImpCasts();
   E = unwrapBuiltinExpect(E);
+  E = ignoreExplicitBoolCast(E);
 
   // C++20 rewrites `sp != nullptr` into `!(sp == nullptr)` wrapped in a
   // CXXRewrittenBinaryOperator. Unwrap to the semantic form so the ! loop
@@ -696,7 +713,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
     if (UO->getOpcode() != UO_LNot)
       break;
     Negated = !Negated;
-    E = UO->getSubExpr()->IgnoreParenImpCasts();
+    E = ignoreExplicitBoolCast(UO->getSubExpr()->IgnoreParenImpCasts());
   }
 
   // !(A && B): the CFG merges the && operand paths before the if-decision,
