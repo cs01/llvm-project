@@ -387,6 +387,89 @@ void test_if_abort(int *_Nullable p) {
   (void)*p; // no warning
 }
 
+// --- Real glibc/libstdc++ assert() shape: static_cast<bool>(expr) ? ... ---
+// libc's <cassert> expands assert(expr) to
+//   (static_cast<bool>(expr) ? void(0) : __assert_fail(...))
+// The explicit cast-to-bool must be stripped or the pointer is never narrowed.
+#define REAL_ASSERT(expr) \
+  (static_cast<bool>(expr) ? void(0) : abort_fn())
+
+void test_real_assert_macro(int *_Nullable p) {
+  REAL_ASSERT(p);
+  (void)*p; // no warning -- assert narrowed p to non-null
+}
+
+void test_real_assert_via_cast(void *_Nullable q) {
+  REAL_ASSERT(q);
+  int *p = reinterpret_cast<int *>(q);
+  (void)*p; // no warning -- q narrowed, p aliases q through the cast
+}
+
+// Direct static_cast<bool> in an if-condition narrows too.
+void test_static_cast_bool_cond(int *_Nullable p) {
+  if (static_cast<bool>(p))
+    (void)*p; // no warning
+}
+
+// Negated explicit bool cast: if (!static_cast<bool>(p)) return;
+void test_static_cast_bool_negated(int *_Nullable p) {
+  if (!static_cast<bool>(p))
+    return;
+  (void)*p; // no warning
+}
+
+// Sanity: without any check the deref still warns.
+void test_real_assert_absent_still_warns(int *_Nullable p) {
+  (void)*p; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+// Sibling cast forms: ignoreExplicitBoolCast() peels any ExplicitCastExpr
+// whose type is bool, not just CXXStaticCastExpr. Lock in the other AST
+// node kinds so a refactor of the helper can't silently regress one of them
+// (a regression here SUPPRESSES warnings -- the dangerous direction).
+
+// C-style cast `(bool)p` -- CStyleCastExpr.
+void test_cstyle_bool_cast(int *_Nullable p) {
+  if ((bool)p)
+    (void)*p; // no warning
+}
+
+// Functional cast `bool(p)` -- CXXFunctionalCastExpr.
+void test_functional_bool_cast(int *_Nullable p) {
+  if (bool(p))
+    (void)*p; // no warning
+}
+
+// Nested explicit bool casts -- exercises the loop in ignoreExplicitBoolCast.
+void test_nested_bool_cast(int *_Nullable p) {
+  if (static_cast<bool>(static_cast<bool>(p)))
+    (void)*p; // no warning
+}
+
+// Negated C-style bool cast on the early-return edge.
+void test_cstyle_bool_cast_negated(int *_Nullable p) {
+  if (!(bool)p)
+    return;
+  (void)*p; // no warning
+}
+
+// Bool cast wrapping a member access narrows the member.
+struct BoolCastBox {
+  int *_Nullable m;
+};
+void test_bool_cast_member(BoolCastBox b) {
+  if (static_cast<bool>(b.m))
+    (void)*b.m; // no warning
+}
+
+// Negative control: the reinterpret_cast alias path must STILL warn when no
+// assert narrowed the source. Pairs with test_real_assert_via_cast above to
+// prove the suppression there is conditional on the narrowing, not blanket.
+void test_via_cast_without_assert_warns(void *_Nullable q) {
+  int *p = reinterpret_cast<int *>(q);
+  (void)*p; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
 // ==========================================================================
 // CONVERGENCE: loops with nullable pointers
 // (from crubit/nullability/test/convergence.cc)
