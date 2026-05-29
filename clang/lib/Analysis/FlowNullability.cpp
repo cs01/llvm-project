@@ -1127,8 +1127,12 @@ private:
         // Track raw pointer initialization
         if (VD->getType()->isPointerType()) {
           // Alias tracking: int *y = x → {y → canonical(x)}
+          // Look through explicit casts so that
+          // T* y = static_cast<T*>(x) also creates the alias.
           if (VD->hasInit()) {
             const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
+            while (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
+              Init = CE->getSubExpr()->IgnoreParenImpCasts();
             if (const auto *InitDRE = dyn_cast<DeclRefExpr>(Init)) {
               if (const auto *InitVD = dyn_cast<VarDecl>(InitDRE->getDecl())) {
                 if (InitVD->getType()->isPointerType())
@@ -1556,7 +1560,11 @@ private:
             const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
 
             // Alias tracking: y = x → {y → canonical(x)}
-            if (const auto *RHSDRE = dyn_cast<DeclRefExpr>(RHS)) {
+            // Look through explicit casts (y = static_cast<T*>(x)).
+            const Expr *AliasRHS = RHS;
+            while (const auto *CE = dyn_cast<ExplicitCastExpr>(AliasRHS))
+              AliasRHS = CE->getSubExpr()->IgnoreParenImpCasts();
+            if (const auto *RHSDRE = dyn_cast<DeclRefExpr>(AliasRHS)) {
               if (const auto *RHSVD = dyn_cast<VarDecl>(RHSDRE->getDecl())) {
                 if (RHSVD->getType()->isPointerType())
                   State.Aliases[VD] = resolveAlias(RHSVD);
