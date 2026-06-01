@@ -16,6 +16,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/OperationKinds.h"
@@ -297,6 +298,125 @@ static bool isNullableType(QualType Ty, bool StrictMode,
       Default == NullabilityKind::Nullable)
     return true;
   return false;
+}
+
+/// When a MemberExpr's type is a bare pointer (no nullability), check if the
+/// field's type came from a template parameter whose argument carries
+/// nullability. E.g. Box<int*_Nullable>::val has type 'int*' in the AST, but
+/// the template argument is 'int*_Nullable'.
+/// We recover nullability from the sugared type on the base expression, since
+/// ClassTemplateSpecializationDecl strips the sugar from its TemplateArguments.
+static QualType getTemplateArgTypeForField(const MemberExpr *ME) {
+  const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl());
+  if (!FD)
+    return QualType();
+  const auto *RD = dyn_cast<CXXRecordDecl>(FD->getParent());
+  if (!RD)
+    return QualType();
+  const auto *CTSD = dyn_cast<ClassTemplateSpecializationDecl>(RD);
+  if (!CTSD)
+    return QualType();
+  // Get the original (pattern) field to find the TemplateTypeParmType
+  CXXRecordDecl *Pattern = CTSD->getSpecializedTemplate()->getTemplatedDecl();
+  for (const auto *PatternField : Pattern->fields()) {
+    if (PatternField->getDeclName() != FD->getDeclName())
+      continue;
+    const auto *TTPT = PatternField->getType()->getAs<TemplateTypeParmType>();
+    if (!TTPT || TTPT->getDepth() != 0)
+      return QualType();
+    unsigned ArgIdx = TTPT->getIndex();
+    // Get template args from the SUGARED type on the base expression,
+    // not the CTSD (which strips nullability sugar).
+    QualType BaseType = ME->getBase()->IgnoreParenImpCasts()->getType();
+    // Strip references and pointers to get to the record type
+    BaseType = BaseType.getNonReferenceType();
+    if (BaseType->isPointerType())
+      BaseType = BaseType->getPointeeType();
+    if (const auto *TST = BaseType->getAs<TemplateSpecializationType>()) {
+      auto TArgs = TST->template_arguments();
+      if (ArgIdx < TArgs.size() &&
+          TArgs[ArgIdx].getKind() == TemplateArgument::Type)
+        return TArgs[ArgIdx].getAsType();
+    }
+    return QualType();
+  }
+  return QualType();
+}
+
+/// Same as above but for method return types. When Container<int*_Nullable>
+/// has method `T get()`, the return type in the instantiation is `int*` but
+/// the template argument carries `_Nullable`.
+static QualType
+getTemplateArgTypeForMethodReturn(const CXXMemberCallExpr *MCE) {
+  const auto *MD = MCE->getMethodDecl();
+  if (!MD)
+    return QualType();
+  // Case 1: member function template (e.g. S::get<int*_Nullable>()).
+  // The template args are on the function itself. Get the sugared args
+  // from the MemberExpr in the call, not from the FunctionDecl (which
+  // strips sugar on implicit instantiations).
+  if (const auto *FT = MD->getPrimaryTemplate()) {
+    const FunctionDecl *Pattern = FT->getTemplatedDecl();
+    const auto *TTPT = Pattern->getReturnType()->getAs<TemplateTypeParmType>();
+    if (TTPT && TTPT->getDepth() == 0) {
+      unsigned ArgIdx = TTPT->getIndex();
+      // Get sugared template args from the MemberExpr
+      const auto *ME = dyn_cast<MemberExpr>(MCE->getCallee());
+      if (ME && ME->hasExplicitTemplateArgs()) {
+        auto Args = ME->template_arguments();
+        if (ArgIdx < Args.size() &&
+            Args[ArgIdx].getArgument().getKind() == TemplateArgument::Type)
+          return Args[ArgIdx].getArgument().getAsType();
+      }
+    }
+  }
+
+  // Case 2: class template method (e.g. Container<int*_Nullable>::get()).
+  const auto *RD = dyn_cast<CXXRecordDecl>(MD->getParent());
+  if (!RD)
+    return QualType();
+  const auto *CTSD = dyn_cast<ClassTemplateSpecializationDecl>(RD);
+  if (!CTSD)
+    return QualType();
+  // Use getInstantiatedFromMemberFunction to get the uninstantiated pattern
+  // method directly, avoiding fragile name+arity matching across overloads.
+  const FunctionDecl *PatternMethod = MD->getInstantiatedFromMemberFunction();
+  if (!PatternMethod) {
+    // Fallback for methods not directly instantiated (e.g. inherited)
+    CXXRecordDecl *Pattern = CTSD->getSpecializedTemplate()->getTemplatedDecl();
+    for (const auto *PM : Pattern->methods()) {
+      if (PM->getDeclName() == MD->getDeclName() &&
+          PM->getNumParams() == MD->getNumParams()) {
+        PatternMethod = PM;
+        break;
+      }
+    }
+  }
+  if (PatternMethod) {
+    const auto *TTPT =
+        PatternMethod->getReturnType()->getAs<TemplateTypeParmType>();
+    if (!TTPT || TTPT->getDepth() != 0)
+      return QualType();
+    unsigned ArgIdx = TTPT->getIndex();
+    // Get template args from the sugared type on the implicit object arg.
+    // IgnoreParenImpCasts to see through the const-qualification cast that
+    // strips template argument sugar.
+    const Expr *Obj = MCE->getImplicitObjectArgument();
+    if (!Obj)
+      return QualType();
+    QualType BaseType =
+        Obj->IgnoreParenImpCasts()->getType().getNonReferenceType();
+    if (BaseType->isPointerType())
+      BaseType = BaseType->getPointeeType();
+    if (const auto *TST = BaseType->getAs<TemplateSpecializationType>()) {
+      auto TArgs = TST->template_arguments();
+      if (ArgIdx < TArgs.size() &&
+          TArgs[ArgIdx].getKind() == TemplateArgument::Type)
+        return TArgs[ArgIdx].getAsType();
+    }
+    return QualType();
+  }
+  return QualType();
 }
 
 /// Returns true only for explicitly _Nullable types, NOT for unspecified
@@ -960,10 +1080,18 @@ class TransferFunctions {
     // Call to a function proven to always return non-null — skip.
     // Also skip known STL methods that contractually return nonnull.
     if (const auto *CE = dyn_cast<CallExpr>(Origin)) {
-      if (isStlNonnullReturnCall(CE))
+      // Check if the return type comes from a template parameter with
+      // nullable argument before trusting STL/all-returns-nonnull skips.
+      bool TemplateOverride = false;
+      if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
+        QualType ArgTy = getTemplateArgTypeForMethodReturn(MCE);
+        if (!ArgTy.isNull() && ArgTy->getNullability())
+          TemplateOverride = true;
+      }
+      if (!TemplateOverride && isStlNonnullReturnCall(CE))
         return;
       if (const auto *Callee = CE->getDirectCallee()) {
-        if (Handler.isKnownAllReturnsNonnull(Callee))
+        if (!TemplateOverride && Handler.isKnownAllReturnsNonnull(Callee))
           return;
       }
       // sp.get() on a narrowed smart pointer is nonnull
@@ -991,6 +1119,15 @@ class TransferFunctions {
     }
 
     QualType CheckTy = FoundCast ? Origin->getType() : PtrExpr->getType();
+    // If the type has no nullability, check for template argument nullability
+    // on method return types (e.g. Container<int*_Nullable>::get())
+    if (!CheckTy->getNullability()) {
+      if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(PtrExpr)) {
+        QualType ArgTy = getTemplateArgTypeForMethodReturn(MCE);
+        if (!ArgTy.isNull() && ArgTy->getNullability())
+          CheckTy = ArgTy;
+      }
+    }
     checkDeref(DerefExpr, CheckTy);
   }
 
@@ -2234,7 +2371,15 @@ private:
         ++NumDereferenceWarnings;
         Handler.handleNullableDereference(DerefExpr, ME->getType());
       } else if (!isMemberNarrowed(*Path)) {
-        checkDeref(DerefExpr, ME->getType());
+        QualType CheckTy = ME->getType();
+        // If the member type has no nullability, check if it came from a
+        // template parameter whose argument carries nullability.
+        if (!CheckTy->getNullability()) {
+          QualType ArgTy = getTemplateArgTypeForField(ME);
+          if (!ArgTy.isNull() && ArgTy->getNullability())
+            CheckTy = ArgTy;
+        }
+        checkDeref(DerefExpr, CheckTy);
       }
     }
   }
