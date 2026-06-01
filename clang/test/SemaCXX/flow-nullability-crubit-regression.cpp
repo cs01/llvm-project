@@ -652,6 +652,80 @@ void test_arith_warning_group(int *_Nullable p) {
 }
 
 // ==========================================================================
+// TEMPLATE NULLABILITY: nullability propagated through template type params
+// ==========================================================================
+
+template<typename T> struct TBox { T val; T get() const { return val; } };
+template<typename A, typename B> struct TPair { A first; B second; };
+template<typename T> struct TOuter { TBox<T> inner; };
+
+// --- Class template field: Box<int*_Nullable>::val ---
+void test_template_field_nullable(TBox<int *_Nullable> &b) {
+  (void)*b.val; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+void test_template_field_nonnull(TBox<int *_Nonnull> &b) {
+  (void)*b.val; // no warning
+}
+
+// --- Class template method return: Container<int*_Nullable>::get() ---
+void test_template_method_nullable(TBox<int *_Nullable> &b) {
+  (void)*b.get(); // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+void test_template_method_nonnull(TBox<int *_Nonnull> &b) {
+  (void)*b.get(); // no warning
+}
+
+// --- Pair: distinguish first (_Nullable) from second (_Nonnull) ---
+void test_template_pair(TPair<int *_Nullable, int *_Nonnull> &p) {
+  (void)*p.first;  // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+  (void)*p.second; // no warning
+}
+
+// --- Member function template: S::get<int*_Nullable>() ---
+struct TGetS {
+  template<typename T> T get();
+};
+void test_member_func_template(TGetS &s) {
+  (void)*s.get<int *_Nullable>();  // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+  (void)*s.get<int *_Nonnull>();   // no warning
+  (void)*s.get<int *>();           // no warning (unannotated, but nonnull under assume_nonnull)
+}
+
+// --- Member function template with multiple params ---
+struct TGetMulti {
+  template<int I, typename T, int J> T getT();
+};
+void test_member_func_template_multi(TGetMulti &s) {
+  (void)*s.getT<0, int *_Nullable, 1>(); // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+  (void)*s.getT<0, int *_Nonnull, 1>();  // no warning
+}
+
+// --- Member function template on class template ---
+template<typename T0> struct TGetClass {
+  template<typename TN> TN getTN();
+};
+void test_class_and_func_template(TGetClass<int> &s) {
+  (void)*s.getTN<int *_Nullable>();  // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+  (void)*s.getTN<int *_Nonnull>();   // no warning
+}
+
+// --- Chained template .get() returns nullable directly ---
+struct TOptional {
+  template<typename T> T get();
+};
+void test_chained_template_get(TOptional &o) {
+  (void)*o.get<int *_Nullable>(); // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+  (void)*o.get<int *_Nonnull>();  // no warning
+}
+
+// --- Narrowing works with template fields ---
+void test_template_field_narrowed(TBox<int *_Nullable> &b) {
+  if (b.val) {
+    (void)*b.val; // no warning -- narrowed by check
+  }
+}
+
+// ==========================================================================
 // PERMANENT GAPS: patterns requiring SAT-solver disjunctive reasoning
 // Crubit can prove these safe; nullable-clang cannot (by design).
 // ==========================================================================
