@@ -76,6 +76,10 @@ EXCLUDE_PATTERNS=(
     'llvm/'
     'clang/include/clang/Support/Compiler.h'
 
+    # Lex changes (whitespace/comment-only, not part of feature)
+    'clang/lib/Lex/'
+    'clang/include/clang/Basic/DiagnosticLexKinds.td'
+
     # lldb config
     'lldb/'
 )
