@@ -4475,7 +4475,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     }
   } else {
     bool isFunctionOrMethod = false;
-    switch (state.getDeclarator().getContext()) {
+    switch (auto context = state.getDeclarator().getContext()) {
     case DeclaratorContext::ObjCParameter:
     case DeclaratorContext::ObjCResult:
     case DeclaratorContext::Prototype:
@@ -4528,12 +4528,14 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
           complainAboutInferringWithinChunk = wrappingKind;
           if (inAssumeNonNullRegion) {
             inferNullability = NullabilityKind::NonNull;
+            inferNullabilityCS =
+                (context == DeclaratorContext::ObjCParameter ||
+                 context == DeclaratorContext::ObjCResult);
           } else {
             // Use Unspecified instead of the raw default so the flow checker
             // can distinguish explicit _Nullable from default-inferred.
             inferNullability = NullabilityKind::Unspecified;
           }
-          inferNullabilityCS = false;
         }
         break;
 
@@ -4617,19 +4619,11 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
           break;
 
         case PointerDeclaratorKind::SingleLevelPointer:
-          if (!inAssumeNonNullRegion &&
-              !S.getSourceManager().isInSystemHeader(D.getBeginLoc())) {
-            inferNullability = NullabilityKind::Unspecified;
-          }
-          inferNullabilityCS = false;
-          break;
-
         case PointerDeclaratorKind::MaybePointerToCFRef:
           if (!inAssumeNonNullRegion &&
               !S.getSourceManager().isInSystemHeader(D.getBeginLoc())) {
             inferNullability = NullabilityKind::Unspecified;
           }
-          inferNullabilityCS = false;
           break;
         }
       }
@@ -4720,12 +4714,19 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
   // If the type itself could have nullability but does not, infer pointer
   // nullability and perform consistency checking.
   if (S.CodeSynthesisContexts.empty()) {
-    // Skip conversion operators (operator T*()) — their return type is
-    // part of the operator's identity, and applying default nullability
-    // would change the type identity, breaking overload resolution and
-    // causing spurious diagnostics on the conversion result type.
-    if (D.getName().getKind() != UnqualifiedIdKind::IK_ConversionFunctionId &&
-        shouldHaveNullability(T) && !T->getNullability()) {
+    // In -fnullability-default injection mode, skip conversion operators
+    // (operator T*()) — their return type is part of the operator's
+    // identity, and applying default nullability would change the type
+    // identity, breaking overload resolution and causing spurious
+    // diagnostics on the conversion result type. With injection off this
+    // must not fire, so assume_nonnull inference and
+    // -Wnullability-completeness keep covering conversion operators.
+    bool skipConversionFunction =
+        D.getName().getKind() == UnqualifiedIdKind::IK_ConversionFunctionId &&
+        S.getLangOpts().getNullabilityDefault() !=
+            NullabilityKind::Unspecified;
+    if (!skipConversionFunction && shouldHaveNullability(T) &&
+        !T->getNullability()) {
       if (isVaList(T)) {
         // Record that we've seen a pointer, but do nothing else.
         if (NumPointersRemaining > 0)
