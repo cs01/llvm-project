@@ -4525,8 +4525,13 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
             (!S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
              S.getLangOpts().getNullabilityDefault() !=
                  NullabilityKind::Unspecified)) {
-          complainAboutInferringWithinChunk = wrappingKind;
           if (inAssumeNonNullRegion) {
+            // Only the genuine `#pragma clang assume_nonnull` path complains
+            // about inferring within an array/reference chunk. The
+            // -fnullability-default injection path must not, since its fixit
+            // would suggest inserting _Nonnull at a nested type position where
+            // it doesn't belong.
+            complainAboutInferringWithinChunk = wrappingKind;
             inferNullability = NullabilityKind::NonNull;
             inferNullabilityCS =
                 (context == DeclaratorContext::ObjCParameter ||
