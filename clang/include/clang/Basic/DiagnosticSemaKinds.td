@@ -13062,7 +13062,7 @@ def warn_flow_nullable_dereference : Warning<
   InGroup<FlowNullableDereference>;
 def warn_null_init_nonnull : Warning<
   "null assigned to a variable of nonnull type %0">,
-  InGroup<FlowNullableDereference>;
+  InGroup<FlowNullableAssignment>;
 def note_nullable_dereference_fix : Note<
   "add a null check before dereferencing, or annotate as '_Nonnull' if this "
   "pointer cannot be null">;
