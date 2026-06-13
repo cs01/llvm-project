@@ -886,6 +886,36 @@ void smartptr_test_move_construct_target_narrowed() {
     owner->value = 1;      // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
+// --- Move-assign (operator=) inherits source's narrowed state ---
+// The std::move RHS of a smart-ptr operator= is a transfer context: the
+// LHS inherits the source's pre-move narrowing and the source becomes
+// nullable. isStdMoveInsideSmartPtrTransferCtx detects this via the
+// function-scoped ParentMap (operator= LHS is a smart-ptr var/member),
+// so the standalone std::move handler skips the source erase and lets
+// the operator= handler perform the transfer.
+
+void smartptr_test_move_assign_target_narrowed() {
+    auto src = std::make_unique<Node>();
+    std::unique_ptr<Node> dst;
+    dst = std::move(src);
+    dst->value = 1;  // OK -- inherited narrowing via move-assign
+    src->value = 1;  // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// --- Bare std::move as a function argument is NOT a transfer context ---
+// Here std::move(sp) is just an argument to consume(), not the init/RHS of
+// a smart-ptr construct, so the standalone handler nullifies the source.
+// This is the case isStdMoveInsideSmartPtrTransferCtx must return false for.
+
+void consume_sp(std::unique_ptr<Node> p);
+
+void smartptr_test_move_bare_arg_nullifies_source() {
+    auto sp = std::make_unique<Node>();
+    sp->value = 1;          // OK -- narrowed by make_unique
+    consume_sp(std::move(sp));
+    sp->value = 1;          // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
 // --- Non-std smart pointers should NOT warn ---
 
 void smartptr_test_custom_ptr_no_warn(CustomPtr<Node> cp) {
@@ -1288,16 +1318,11 @@ void exception_test_noexcept_narrowing(Node * _Nullable p) noexcept {
 
 #pragma clang assume_nonnull begin
 
-// Known limitation: the warn_null_init_nonnull check fires during
-// declaration processing, before if-constexpr discarding. This means
-// _Nonnull p = nullptr in a discarded branch still warns. Suppressing
-// this would require tracking discarded-branch state at decl processing
-// time, which Clang doesn't expose. In practice, writing explicit
-// _Nonnull p = nullptr in a discarded branch is very rare.
-
+// A discarded if-constexpr branch is parsed in a DiscardedStatement
+// evaluation context, so the null-init-of-nonnull check is suppressed there.
 void constexpr_test_discarded() {
     if constexpr (false) {
-        int * _Nonnull p = nullptr; // expected-warning{{null assigned to a variable of nonnull type}}
+        int * _Nonnull p = nullptr; // no warning: discarded branch
     }
 }
 
