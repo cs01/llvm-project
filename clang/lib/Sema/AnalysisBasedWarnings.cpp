@@ -2977,6 +2977,23 @@ class FlowNullabilityReporter : public FlowNullabilityHandler {
   // SCCs where we can't reliably infer all-returns-nonnull without a
   // fixpoint, but still want to read existing results and emit warnings).
   bool SuppressInference = false;
+  // Diagnostics are buffered here during the dataflow fixpoint and emitted
+  // by emitDiagnostics() afterwards (same pattern as ThreadSafetyReporter).
+  // Transfer functions run on every block re-visit, so emitting directly
+  // from the callbacks duplicates warnings and evidence remarks whenever a
+  // back-edge changes a block's entry state.
+  DiagList Warnings;
+  // Dedupe key: (diag ID, location, distinguishing argument). The same
+  // callback can fire repeatedly for the same statement across re-visits.
+  llvm::DenseSet<std::tuple<unsigned, SourceLocation, const void *>>
+      SeenDiags;
+
+  /// Returns true the first time this (ID, Loc, Arg) triple is seen since
+  /// the last emitDiagnostics().
+  bool isFirst(unsigned DiagID, SourceLocation Loc,
+               const void *Arg = nullptr) {
+    return SeenDiags.insert({DiagID, Loc, Arg}).second;
+  }
 
 public:
   FlowNullabilityReporter(Sema &S,
@@ -2985,44 +3002,89 @@ public:
       : S(S), AllReturnsNonnullFuncs(NonnullFuncs),
         SuppressInference(SuppressInference) {}
 
+  /// Emit all buffered diagnostics in source-location order, then reset the
+  /// buffers. Call after each runFlowNullabilityAnalysis invocation.
+  void emitDiagnostics() {
+    Warnings.sort(SortDiagBySourceLocation(S.getSourceManager()));
+    for (const auto &Diag : Warnings) {
+      S.Diag(Diag.first.first, Diag.first.second);
+      for (const auto &Note : Diag.second)
+        S.Diag(Note.first, Note.second);
+    }
+    Warnings.clear();
+    // Reset per-function so cross-function behavior (e.g. one warning per
+    // template instantiation) is unchanged.
+    SeenDiags.clear();
+  }
+
   void handleNullableDereference(const Expr *DerefExpr,
                                  QualType PtrType) override {
-    S.Diag(DerefExpr->getExprLoc(), diag::warn_flow_nullable_dereference)
-        << PtrType;
-    S.Diag(DerefExpr->getExprLoc(), diag::note_nullable_dereference_fix);
+    SourceLocation Loc = DerefExpr->getExprLoc();
+    if (!isFirst(diag::warn_flow_nullable_dereference, Loc,
+                 PtrType.getAsOpaquePtr()))
+      return;
+    PartialDiagnosticAt Warning(
+        Loc, S.PDiag(diag::warn_flow_nullable_dereference) << PtrType);
+    PartialDiagnosticAt Note(Loc,
+                             S.PDiag(diag::note_nullable_dereference_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
   void handleNullableArithmetic(const Expr *ArithExpr,
                                 QualType PtrType) override {
-    S.Diag(ArithExpr->getExprLoc(), diag::warn_flow_nullable_arithmetic)
-        << PtrType;
-    S.Diag(ArithExpr->getExprLoc(), diag::note_nullable_arithmetic_fix);
+    SourceLocation Loc = ArithExpr->getExprLoc();
+    if (!isFirst(diag::warn_flow_nullable_arithmetic, Loc,
+                 PtrType.getAsOpaquePtr()))
+      return;
+    PartialDiagnosticAt Warning(
+        Loc, S.PDiag(diag::warn_flow_nullable_arithmetic) << PtrType);
+    PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_arithmetic_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
   void handleNullableReturn(const Expr *ReturnExpr, QualType ExprType,
                             QualType ReturnType) override {
-    S.Diag(ReturnExpr->getExprLoc(), diag::warn_flow_nullable_return);
-    S.Diag(ReturnExpr->getExprLoc(), diag::note_nullable_return_fix);
+    SourceLocation Loc = ReturnExpr->getExprLoc();
+    if (!isFirst(diag::warn_flow_nullable_return, Loc))
+      return;
+    PartialDiagnosticAt Warning(Loc,
+                                S.PDiag(diag::warn_flow_nullable_return));
+    PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_return_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
   void handleNullableAssignment(const Expr *AssignExpr,
                                 const VarDecl *LHSVar) override {
-    S.Diag(AssignExpr->getExprLoc(), diag::warn_flow_nullable_assignment)
-        << LHSVar;
-    S.Diag(AssignExpr->getExprLoc(), diag::note_nullable_assignment_fix);
+    SourceLocation Loc = AssignExpr->getExprLoc();
+    if (!isFirst(diag::warn_flow_nullable_assignment, Loc, LHSVar))
+      return;
+    PartialDiagnosticAt Warning(
+        Loc, S.PDiag(diag::warn_flow_nullable_assignment) << LHSVar);
+    PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_assignment_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
   void handleNullableMemberAssignment(const Expr *AssignExpr,
                                       const FieldDecl *Member) override {
-    S.Diag(AssignExpr->getExprLoc(), diag::warn_flow_nullable_member_assignment)
-        << Member;
-    S.Diag(AssignExpr->getExprLoc(), diag::note_nullable_member_assignment_fix);
+    SourceLocation Loc = AssignExpr->getExprLoc();
+    if (!isFirst(diag::warn_flow_nullable_member_assignment, Loc, Member))
+      return;
+    PartialDiagnosticAt Warning(
+        Loc, S.PDiag(diag::warn_flow_nullable_member_assignment) << Member);
+    PartialDiagnosticAt Note(
+        Loc, S.PDiag(diag::note_nullable_member_assignment_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
   void handleNullableArgument(const Expr *ArgExpr,
                               const ParmVarDecl *Param) override {
-    S.Diag(ArgExpr->getExprLoc(), diag::warn_flow_nullable_argument) << Param;
-    S.Diag(ArgExpr->getExprLoc(), diag::note_nullable_argument_fix);
+    SourceLocation Loc = ArgExpr->getExprLoc();
+    if (!isFirst(diag::warn_flow_nullable_argument, Loc, Param))
+      return;
+    PartialDiagnosticAt Warning(
+        Loc, S.PDiag(diag::warn_flow_nullable_argument) << Param);
+    PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_argument_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
   /// Format a declaration's source location as "file:line:col" for evidence
@@ -3060,9 +3122,14 @@ public:
     unsigned DiagID = IsNonnull
                           ? diag::remark_nullsafe_member_evidence_nonnull
                           : diag::remark_nullsafe_member_evidence_nullable;
-    S.Diag(AssignExpr->getExprLoc(), DiagID)
-        << Member->getName() << getParentName(Member->getParent())
-        << getDeclLocStr(Member);
+    SourceLocation Loc = AssignExpr->getExprLoc();
+    if (!isFirst(DiagID, Loc, Member))
+      return;
+    PartialDiagnosticAt Remark(Loc, S.PDiag(DiagID)
+                                        << Member->getName()
+                                        << getParentName(Member->getParent())
+                                        << getDeclLocStr(Member));
+    Warnings.emplace_back(std::move(Remark), OptionalNotes());
   }
 
   void handleReturnEvidence(const Expr *RetExpr, const FunctionDecl *Func,
@@ -3070,9 +3137,14 @@ public:
     unsigned DiagID = IsNonnull
                           ? diag::remark_nullsafe_return_evidence_nonnull
                           : diag::remark_nullsafe_return_evidence_nullable;
-    S.Diag(RetExpr->getExprLoc(), DiagID)
-        << Func->getNameAsString() << getParentName(Func->getParent())
-        << getDeclLocStr(Func);
+    SourceLocation Loc = RetExpr->getExprLoc();
+    if (!isFirst(DiagID, Loc, Func))
+      return;
+    PartialDiagnosticAt Remark(Loc, S.PDiag(DiagID)
+                                        << Func->getNameAsString()
+                                        << getParentName(Func->getParent())
+                                        << getDeclLocStr(Func));
+    Warnings.emplace_back(std::move(Remark), OptionalNotes());
   }
 
   void handleParameterEvidence(const Expr *ArgExpr, const ParmVarDecl *Param,
@@ -3080,16 +3152,29 @@ public:
                                bool IsNonnull) override {
     unsigned DiagID = IsNonnull ? diag::remark_nullsafe_param_evidence_nonnull
                                 : diag::remark_nullsafe_param_evidence_nullable;
-    S.Diag(ArgExpr->getExprLoc(), DiagID)
-        << Param->getName() << Func->getNameAsString() << getDeclLocStr(Param);
+    SourceLocation Loc = ArgExpr->getExprLoc();
+    if (!isFirst(DiagID, Loc, Param))
+      return;
+    PartialDiagnosticAt Remark(Loc, S.PDiag(DiagID)
+                                        << Param->getName()
+                                        << Func->getNameAsString()
+                                        << getDeclLocStr(Param));
+    Warnings.emplace_back(std::move(Remark), OptionalNotes());
   }
 
   void handleAllReturnsNonnull(const FunctionDecl *Func) override {
     if (SuppressInference)
       return;
+    // Record immediately (not deferred to emitDiagnostics) — later functions
+    // in the call-graph order read this set during their own analysis.
     AllReturnsNonnullFuncs.insert(Func->getCanonicalDecl());
-    S.Diag(Func->getLocation(), diag::remark_nullsafe_all_returns_nonnull)
-        << Func->getNameAsString();
+    SourceLocation Loc = Func->getLocation();
+    if (!isFirst(diag::remark_nullsafe_all_returns_nonnull, Loc, Func))
+      return;
+    PartialDiagnosticAt Remark(
+        Loc, S.PDiag(diag::remark_nullsafe_all_returns_nonnull)
+                 << Func->getNameAsString());
+    Warnings.emplace_back(std::move(Remark), OptionalNotes());
   }
 
   bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const override {
@@ -3188,8 +3273,10 @@ static void FlowNullabilityTUAnalysis(
         FlowNullabilityReporter SCCReporter(S, AllReturnsNonnullFuncs,
                                             /*SuppressInference=*/true);
         runFlowNullabilityAnalysis(AC, SCCReporter, StrictMode, Default);
+        SCCReporter.emitDiagnostics();
       } else {
         runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default);
+        Reporter.emitDiagnostics();
       }
     }
   }

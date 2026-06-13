@@ -44,6 +44,8 @@
 STATISTIC(NumFunctionsAnalyzed, "Number of functions analyzed");
 STATISTIC(NumBlocksProcessed, "Number of CFG blocks processed");
 STATISTIC(NumFixpointIterations, "Number of fixpoint iterations");
+STATISTIC(NumFixpointBailouts,
+          "Number of analyses stopped by the block-visit safety cap");
 STATISTIC(NumDereferenceWarnings, "Number of nullable dereference warnings");
 STATISTIC(NumArithmeticWarnings, "Number of nullable arithmetic warnings");
 STATISTIC(NumReturnWarnings, "Number of nullable return warnings");
@@ -843,15 +845,21 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   if (Negated) {
     if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
       if (BO->getOpcode() == BO_LAnd) {
-        // Flatten nested && and analyze each leaf
-        decomposeAnd(BO, Ctx, Results, BoolGuards);
+        // Flatten nested && into a LOCAL vector — Results may already hold
+        // leaves appended by an outer decomposeAnd/decomposeOr (e.g.
+        // `if (x && !(a && b))`), and the erase/flip below must not clobber
+        // them.
+        SmallVector<ConditionResult, 4> AndResults;
+        decomposeAnd(BO, Ctx, AndResults, BoolGuards);
         // Keep only sub-conditions where the pointer is non-null when the
         // sub-condition is true (Negated=false). Flip to Negated=true so
         // narrowing lands on the false edge of the outer !.
-        llvm::erase_if(Results,
+        llvm::erase_if(AndResults,
                        [](const ConditionResult &CR) { return CR.Negated; });
-        for (auto &CR : Results)
+        for (auto &CR : AndResults) {
           CR.Negated = true;
+          Results.push_back(std::move(CR));
+        }
         return;
       }
     }
@@ -2572,11 +2580,25 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   BlockEntryStates[Entry.getBlockID()] = InitState;
   Worklist.enqueueBlock(&Entry);
 
-  // Fixpoint iteration. Termination is guaranteed because the lattice has
-  // finite height (bounded by the number of declarations in the function)
-  // and the edge-state comparison ensures each block is only re-processed
-  // when its entry state actually changes.
+  // Fixpoint iteration. Blocks are only re-processed when their entry state
+  // changes, which bounds iteration in practice — but the lattice is not
+  // provably monotone (NullableVars can be erased by transfer functions;
+  // BoolGuards/Aliases are both inserted and erased), so cap total block
+  // visits as a termination safety net. The bound is generous: well-behaved
+  // functions converge in a few visits per block.
+  const unsigned MaxBlockVisits = Cfg->size() * 64;
+  unsigned BlockVisits = 0;
+  bool HitVisitCap = false;
   while (const CFGBlock *Block = Worklist.dequeue()) {
+    if (++BlockVisits > MaxBlockVisits) {
+      // Bail out of a (likely) non-converging analysis. Diagnostics buffered
+      // so far still get emitted by the caller — they reflect states that
+      // were actually observed — but all-returns-nonnull inference is
+      // suppressed below since a summary from a partial run could be wrong.
+      ++NumFixpointBailouts;
+      HitVisitCap = true;
+      break;
+    }
     unsigned BlockID = Block->getBlockID();
     ++NumBlocksProcessed;
     ++NumFixpointIterations;
@@ -2769,7 +2791,10 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   // After the fixpoint: emit all-returns-nonnull summary for functions
   // whose return type is a pointer and whose every return is provably
   // non-null. Skip lambdas/non-identifier functions (same guard as
-  // per-return evidence).
+  // per-return evidence). Skip entirely if the visit cap fired — inference
+  // from a partial run is not trustworthy.
+  if (HitVisitCap)
+    return;
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl())) {
     if (FD->getReturnType()->isPointerType() &&
         FD->getDeclName().isIdentifier()) {
