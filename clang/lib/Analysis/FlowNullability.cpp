@@ -20,7 +20,7 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/OperationKinds.h"
-#include "clang/AST/ParentMapContext.h"
+#include "clang/AST/ParentMap.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/Type.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
@@ -726,32 +726,61 @@ static std::optional<MemberAccessPath> getSmartPtrMemberPath(const Expr *E) {
 /// In that case the source must NOT be marked nullable by the standalone
 /// std::move handler — the parent context needs to read the source's
 /// pre-move narrowed state to inherit it onto the target.
+///
+/// We walk parents with the function-scoped \ref ParentMap (from
+/// AnalysisDeclContext) rather than ASTContext::getParents: the latter
+/// lazily materializes a translation-unit-wide parent map on first use,
+/// an expensive, memory-heavy structure to pay for in a per-function
+/// analysis. ParentMap is built once from this function's body and cached.
+///
+/// Note CFG evaluation order makes "thread the context down from the
+/// parent" infeasible here: the inner std::move CallExpr is visited
+/// before its enclosing DeclStmt / operator=, so the parent that performs
+/// the transfer has not run yet when this call is processed.
 static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
-                                               ASTContext &Ctx) {
-  auto Parents = Ctx.getParents(*CE);
-  while (!Parents.empty()) {
-    auto Cur = Parents[0];
-    if (const auto *D = Cur.get<Decl>()) {
-      if (const auto *VD = dyn_cast<VarDecl>(D))
-        return isSmartPointerType(VD->getType());
+                                               const ParentMap &PM) {
+  // In a ParentMap, a VarDecl initializer's parent is the DeclStmt itself
+  // (DeclStmt::children() yields the init exprs), so reaching a DeclStmt
+  // means we're in a VarDecl-init context. Match the declarator whose init
+  // is the node we walked up from; for a single-declarator DeclStmt (the
+  // common `auto x = std::move(y);`) the init-pointer match may differ from
+  // VD->getInit() across wrapper nodes, so fall back to the sole declarator.
+  auto isSmartPtrInitDecl = [](const DeclStmt *DS, const Stmt *Init) -> bool {
+    const VarDecl *Sole = nullptr;
+    unsigned NumInited = 0;
+    for (const auto *D : DS->decls()) {
+      if (const auto *VD = dyn_cast<VarDecl>(D)) {
+        if (VD->getInit() == Init)
+          return isSmartPointerType(VD->getType());
+        if (VD->hasInit()) {
+          ++NumInited;
+          Sole = VD;
+        }
+      }
+    }
+    if (NumInited == 1)
+      return isSmartPointerType(Sole->getType());
+    return false;
+  };
+
+  const Stmt *Child = CE;
+  for (const Stmt *S = PM.getParent(CE); S; S = PM.getParent(S)) {
+    if (const auto *DS = dyn_cast<DeclStmt>(S))
+      return isSmartPtrInitDecl(DS, Child);
+    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(S)) {
+      if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
+        const Expr *Lhs = OCE->getArg(0);
+        if (getSmartPtrVarDecl(Lhs) || getSmartPtrMemberPath(Lhs))
+          return true;
+      }
       return false;
     }
-    if (const auto *S = Cur.get<Stmt>()) {
-      if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(S)) {
-        if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
-          const Expr *Lhs = OCE->getArg(0);
-          if (getSmartPtrVarDecl(Lhs) || getSmartPtrMemberPath(Lhs))
-            return true;
-        }
-        return false;
-      }
-      if (isa<ExprWithCleanups>(S) || isa<CXXBindTemporaryExpr>(S) ||
-          isa<MaterializeTemporaryExpr>(S) || isa<ImplicitCastExpr>(S) ||
-          isa<ParenExpr>(S) || isa<CXXConstructExpr>(S) ||
-          isa<CXXFunctionalCastExpr>(S)) {
-        Parents = Ctx.getParents(*S);
-        continue;
-      }
+    if (isa<ExprWithCleanups>(S) || isa<CXXBindTemporaryExpr>(S) ||
+        isa<MaterializeTemporaryExpr>(S) || isa<ImplicitCastExpr>(S) ||
+        isa<ParenExpr>(S) || isa<CXXConstructExpr>(S) ||
+        isa<CXXFunctionalCastExpr>(S)) {
+      Child = S;
+      continue;
     }
     return false;
   }
@@ -1257,6 +1286,14 @@ public:
   const FunctionDecl *EnclosingFunc = nullptr;
 
   void setEnclosingFunc(const FunctionDecl *FD) { EnclosingFunc = FD; }
+
+  // Function-scoped parent map (from AnalysisDeclContext), used to detect
+  // smart-pointer move-transfer context cheaply — see
+  // isStdMoveInsideSmartPtrTransferCtx. Avoids the TU-wide cost of
+  // ASTContext::getParents.
+  const ParentMap *ParentMapPtr = nullptr;
+
+  void setParentMap(const ParentMap *PM) { ParentMapPtr = PM; }
 
   void visit(const Stmt *S) {
     if (!S)
@@ -2131,8 +2168,11 @@ private:
     // operator= LHS) — those handlers below need the source's pre-move
     // state to inherit it onto the target, and they handle the source
     // erase themselves.
+    // A missing parent map defaults to "not a transfer context", i.e. a
+    // bare std::move that nullifies the source — the conservative behavior.
     if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
-        !isStdMoveInsideSmartPtrTransferCtx(CE, Ctx)) {
+        (!ParentMapPtr ||
+         !isStdMoveInsideSmartPtrTransferCtx(CE, *ParentMapPtr))) {
       if (const auto *VD = getSmartPtrVarDecl(CE->getArg(0))) {
         State.NarrowedVars.erase(VD);
       }
@@ -2476,6 +2516,11 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
 
   ++NumFunctionsAnalyzed;
   ASTContext &Ctx = AC.getASTContext();
+  // Function-scoped parent map, built once from this function's body and
+  // cached by AnalysisDeclContext. Used by the std::move handler to detect
+  // smart-pointer transfer context without ASTContext::getParents (which
+  // would lazily build a TU-wide parent map — too costly per function).
+  const ParentMap &PM = AC.getParentMap();
   LLVM_DEBUG({
     if (const auto *ND = dyn_cast_or_null<NamedDecl>(AC.getDecl()))
       llvm::dbgs() << "flow-nullability: analyzing '" << ND->getNameAsString()
@@ -2649,6 +2694,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     TransferFunctions TF(State, Tracker, Ctx, StrictMode, Default);
     if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl()))
       TF.setEnclosingFunc(FD);
+    TF.setParentMap(&PM);
     for (const auto &Elem : *Block) {
       if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
         TF.visit(CS->getStmt());
