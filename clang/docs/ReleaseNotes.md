@@ -255,6 +255,16 @@ features cannot lower the translation-unit ABI level;
   path share one module cache, and is only sound when no module needs the path
   -- a lookup that would have resolved through an ignored path simply fails.
 
+- New option `-f[no-]flow-sensitive-nullability` added to enable a
+  flow-sensitive, intraprocedural analysis that diagnoses uses of `_Nullable`
+  pointers that may be null on the path where they occur. It is off by default.
+
+- New option `-fnullability-default=` added to control how unannotated
+  pointers are treated by the flow-sensitive nullability analysis. Accepted
+  values are `unspecified` (the default), `nullable`, and `nonnull`; a
+  non-`unspecified` value also opts every function in the translation unit
+  into the analysis.
+
 ### Deprecated Compiler Flags
 
 ### Modified Compiler Flags
@@ -276,6 +286,22 @@ features cannot lower the translation-unit ABI level;
 - Clang now properly propagates attributes on class and variable templates to their redeclarations, which will result in redeclarations not interfering with diagnostics. (#GH209812)
 
 ### Improvements to Clang's diagnostics
+
+- Added the `-Wflow-nullability` family of warnings, driven by a new
+  flow-sensitive, intraprocedural nullability analysis (enabled with
+  `-fflow-sensitive-nullability`). It tracks null checks through the control
+  flow of a function and warns about dereferences, arithmetic, returns,
+  assignments, and arguments where a `_Nullable` pointer may be null on that
+  path, via the subgroups `-Wflow-nullable-dereference`,
+  `-Wflow-nullable-arithmetic`, `-Wflow-nullable-return`,
+  `-Wflow-nullable-assignment`, and `-Wflow-nullable-argument`. The analysis
+  recognizes common narrowing idioms and models `std::unique_ptr` /
+  `shared_ptr` / `weak_ptr`, and is opt-in per function (via
+  `#pragma clang assume_nonnull` regions, explicit annotations, or
+  `-fnullability-default=`). `-Rnullsafe-evidence` emits remarks for
+  annotation-migration tooling. See the User's Manual and Language Extensions
+  documentation for details.
+
 
 - `-Wfortify-source` now diagnoses when `strlcat` or `__builtin_strlcat` is called with a size
   argument larger than the destination buffer.
