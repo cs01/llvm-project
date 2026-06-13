@@ -1190,9 +1190,11 @@ public:
   NamedDecl *getCurFunctionOrMethodDecl() const;
 
   /// Warn if we're implicitly casting from a _Nullable pointer type to a
-  /// _Nonnull one. If \p SrcExpr is provided and flow-sensitive nullability
-  /// is enabled, the warning is suppressed when the expression is provably
-  /// non-null despite its declared type.
+  /// _Nonnull one. When flow-sensitive nullability is enabled AND the
+  /// enclosing function will actually be analyzed by the flow checker (it
+  /// opted in via -fnullability-default or explicit annotations), this legacy
+  /// type-based warning is suppressed in favor of the flow analysis's better
+  /// coverage. \p SrcExpr is the converted expression, if available.
   void diagnoseNullableToNonnullConversion(QualType DstType, QualType SrcType,
                                            SourceLocation Loc,
                                            Expr *SrcExpr = nullptr);

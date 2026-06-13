@@ -702,8 +702,22 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
   // works correctly under -fnullability-default=nullable. The type-based
   // warning would only add false positives (e.g., after if (p) return p;
   // where p's declared type is still _Nullable but the flow proves nonnull).
-  if (getLangOpts().FlowSensitiveNullability)
-    return;
+  //
+  // BUT the flow analysis only runs on a function that opted in: either a
+  // non-unspecified -fnullability-default is in effect, or the enclosing
+  // function carries explicit nullability annotations (see getAnalyzableDecl's
+  // opt-in gate in AnalysisBasedWarnings.cpp). If neither holds, the enclosing
+  // function is never analyzed, so suppressing here would leave the conversion
+  // unwarned by anyone. Only suppress when flow analysis will actually cover
+  // this expression; otherwise fall through to the legacy type-based warning.
+  if (getLangOpts().FlowSensitiveNullability) {
+    bool DefaultOptsIn =
+        getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified;
+    const FunctionDecl *EnclosingFD = getCurFunctionDecl();
+    if (DefaultOptsIn ||
+        (EnclosingFD && functionHasNullabilityAnnotations(EnclosingFD)))
+      return;
+  }
 
   Diag(Loc, diag::warn_nullability_lost) << SrcType << DstType;
 }
@@ -712,23 +726,29 @@ bool Sema::functionHasNullabilityAnnotations(const FunctionDecl *FD) const {
   if (!FD || FD->isInvalidDecl())
     return false;
 
-  // Check return type
-  QualType ReturnType = FD->getReturnType();
-  if (!ReturnType.isNull() && !ReturnType->isDependentType()) {
-    if (ReturnType->getNullability())
-      return true;
-  }
+  // Annotations may live on a separate declaration (e.g. a header prototype)
+  // while the definition we're handed is unannotated. Opt-in must consider the
+  // whole redeclaration chain, otherwise a function that opted in via its
+  // prototype would be silently skipped by the flow analysis.
+  for (const FunctionDecl *Redecl : FD->redecls()) {
+    // Check return type
+    QualType ReturnType = Redecl->getReturnType();
+    if (!ReturnType.isNull() && !ReturnType->isDependentType()) {
+      if (ReturnType->getNullability())
+        return true;
+    }
 
-  // Check parameters — during early function processing, parameters might
-  // not be fully set up, so guard with param_empty().
-  if (!FD->param_empty()) {
-    for (const ParmVarDecl *Param : FD->parameters()) {
-      if (!Param)
-        continue;
-      QualType ParamType = Param->getType();
-      if (!ParamType.isNull() && !ParamType->isDependentType()) {
-        if (ParamType->getNullability())
-          return true;
+    // Check parameters — during early function processing, parameters might
+    // not be fully set up, so guard with param_empty().
+    if (!Redecl->param_empty()) {
+      for (const ParmVarDecl *Param : Redecl->parameters()) {
+        if (!Param)
+          continue;
+        QualType ParamType = Param->getType();
+        if (!ParamType.isNull() && !ParamType->isDependentType()) {
+          if (ParamType->getNullability())
+            return true;
+        }
       }
     }
   }
