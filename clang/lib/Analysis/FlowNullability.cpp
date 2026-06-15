@@ -2500,6 +2500,243 @@ public:
   }
 };
 
+/// Seed the analysis's entry state: narrow parameters that are provably
+/// non-null on entry (declared _Nonnull, __attribute__((nonnull)), or a
+/// lambda's pointer params, which default to nonnull).
+static NullState seedEntryState(const Decl *D) {
+  NullState InitState;
+  const auto *FD = dyn_cast_or_null<FunctionDecl>(D);
+  if (!FD)
+    return InitState;
+
+  // Collect parameters declared nonnull via __attribute__((nonnull)) —
+  // either the whole-function form (applies to every pointer param) or
+  // the indexed form (nonnull(N...), 1-based).
+  llvm::SmallPtrSet<const ParmVarDecl *, 4> AttrNonnull;
+  for (const auto *NNA : FD->specific_attrs<NonNullAttr>()) {
+    if (NNA->args_size() == 0) {
+      // Applies to every pointer parameter.
+      for (const auto *P : FD->parameters())
+        if (P->getType()->isPointerType())
+          AttrNonnull.insert(P);
+    } else {
+      for (const ParamIdx &Idx : NNA->args()) {
+        unsigned I = Idx.getASTIndex();
+        if (I < FD->getNumParams())
+          AttrNonnull.insert(FD->getParamDecl(I));
+      }
+    }
+  }
+  // Lambda pointer params default to nonnull (auto-narrowed). Lambdas are
+  // short-lived closures whose callers control what's passed — if a caller
+  // passes null, the bug is at the call site (caught by handleCallExpr's
+  // lambda-aware argument check). Explicit _Nullable overrides this default.
+  bool IsLambda = false;
+  if (const auto *MD = dyn_cast<CXXMethodDecl>(FD))
+    IsLambda = MD->getParent()->isLambda();
+
+  for (const auto *Param : FD->parameters()) {
+    if (!Param->getType()->isPointerType())
+      continue;
+    if (isNonnullType(Param->getType()) || AttrNonnull.contains(Param) ||
+        (IsLambda && !isExplicitlyNullableType(Param->getType())))
+      InitState.NarrowedVars.insert(Param);
+  }
+  return InitState;
+}
+
+/// Emit nonnull/nullable evidence for constructor member initializer lists.
+/// These use CXXCtorInitializer (': field(expr)'), not BinaryOperator, so the
+/// dataflow's assignment handler never sees them.
+static void emitCtorInitEvidence(const Decl *D, ASTContext &Ctx,
+                                 const NullState &InitState,
+                                 ReturnNonnullTracker &Tracker) {
+  const auto *CD = dyn_cast_or_null<CXXConstructorDecl>(D);
+  if (!CD)
+    return;
+  for (const auto *CI : CD->inits()) {
+    if (!CI->isAnyMemberInitializer())
+      continue;
+    const FieldDecl *FD = CI->getMember();
+    if (!FD || !FD->getType()->isPointerType())
+      continue;
+    const Expr *Init = CI->getInit();
+    if (!Init)
+      continue;
+    Init = Init->IgnoreParenImpCasts();
+    bool IsNonnull = false;
+    // Check if the init expression is provably non-null.
+    if (isNonnullType(Init->getType()))
+      IsNonnull = true;
+    // Check if init refers to a parameter already narrowed to nonnull
+    // (e.g., via __attribute__((nonnull)) on the constructor).
+    if (!IsNonnull) {
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(Init))
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+          if (InitState.NarrowedVars.contains(VD))
+            IsNonnull = true;
+    }
+    if (!IsNonnull) {
+      if (const auto *UO = dyn_cast<UnaryOperator>(Init))
+        if (UO->getOpcode() == UO_AddrOf)
+          IsNonnull = true;
+    }
+    if (!IsNonnull) {
+      if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
+        if (!NE->shouldNullCheckAllocation())
+          IsNonnull = true;
+    }
+    if (!IsNonnull && isa<CXXThisExpr>(Init))
+      IsNonnull = true;
+    // Only emit nullable evidence for explicitly nullable sources
+    // (annotated _Nullable or nullptr), not for unannotated parameters.
+    bool IsExplicitlyNullable =
+        !IsNonnull &&
+        (Init->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull) ||
+         isExplicitlyNullableType(Init->getType()));
+    if (IsNonnull || IsExplicitlyNullable)
+      Tracker.handleMemberAssignEvidence(Init, FD, IsNonnull);
+  }
+}
+
+/// Apply branch-condition narrowing to a block's outgoing edges. Given the
+/// block's terminator (an `if`, loop, `&&`/`||`, or `?:`) and the state at the
+/// end of the block, fill in the per-edge states: the edge that proves a
+/// pointer non-null gets it inserted into NarrowedVars. TrueState/FalseState
+/// start as copies of the block-exit state and are narrowed in place.
+static void narrowOnTerminator(const CFGBlock *Block, const NullState &State,
+                               ASTContext &Ctx, NullState &TrueState,
+                               NullState &FalseState) {
+  const Stmt *Term = Block->getTerminatorStmt();
+  if (!Term)
+    return;
+
+  const Expr *Cond = nullptr;
+  if (const auto *IS = dyn_cast<IfStmt>(Term)) {
+    const Expr *IfCond = IS->getCond();
+    if (IfCond)
+      IfCond = IfCond->IgnoreParenImpCasts();
+    if (IfCond) {
+      // Unwrap ExprWithCleanups — temp destructors from || RHS
+      // expressions wrap the whole condition but don't affect the
+      // logical structure.
+      const Expr *IfCondInner = IfCond;
+      if (const auto *EWC = dyn_cast<ExprWithCleanups>(IfCondInner))
+        IfCondInner = EWC->getSubExpr()->IgnoreParenImpCasts();
+      if (const auto *BO = dyn_cast<BinaryOperator>(IfCondInner)) {
+        // Narrow a member or variable from a ConditionResult, propagating
+        // through aliases.
+        auto applyNarrowCR = [](NullState &NS, const ConditionResult &CR) {
+          if (CR.MemberPath) {
+            NS.NarrowedMembers.insert(*CR.MemberPath);
+            NS.NullableMembers.erase(*CR.MemberPath);
+          } else if (CR.VD) {
+            NS.NarrowedVars.insert(CR.VD);
+            NS.NullableVars.erase(CR.VD);
+            const VarDecl *Target = CR.VD;
+            auto AliasIt = NS.Aliases.find(CR.VD);
+            if (AliasIt != NS.Aliases.end()) {
+              Target = AliasIt->second;
+              NS.NarrowedVars.insert(Target);
+              NS.NullableVars.erase(Target);
+            }
+            for (const auto &[AV, TV] : NS.Aliases)
+              if (TV == CR.VD || TV == Target) {
+                NS.NarrowedVars.insert(AV);
+                NS.NullableVars.erase(AV);
+              }
+          }
+        };
+
+        if (BO->getOpcode() == BO_LAnd) {
+          SmallVector<ConditionResult, 2> AndResults;
+          decomposeAnd(BO, Ctx, AndResults, &State.BoolGuards);
+          for (const auto &CR : AndResults) {
+            if (CR.Negated)
+              continue;
+            applyNarrowCR(TrueState, CR);
+          }
+        } else if (BO->getOpcode() == BO_LOr) {
+          // if (A || B): on the false edge ALL operands were false.
+          SmallVector<ConditionResult, 2> OrResults;
+          decomposeOr(BO, Ctx, OrResults, &State.BoolGuards);
+          for (const auto &CR : OrResults) {
+            if (!CR.Negated)
+              continue;
+            applyNarrowCR(FalseState, CR);
+          }
+        }
+      }
+    }
+    Cond = getTerminalCondition(IS->getCond());
+  } else if (const auto *WS = dyn_cast<WhileStmt>(Term)) {
+    Cond = getTerminalCondition(WS->getCond());
+  } else if (const auto *FS = dyn_cast<ForStmt>(Term)) {
+    if (FS->getCond())
+      Cond = getTerminalCondition(FS->getCond());
+  } else if (const auto *DS = dyn_cast<DoStmt>(Term)) {
+    Cond = getTerminalCondition(DS->getCond());
+  } else if (const auto *BO = dyn_cast<BinaryOperator>(Term)) {
+    if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
+      Cond = getTerminalCondition(BO->getLHS());
+  } else if (const auto *CO = dyn_cast<ConditionalOperator>(Term)) {
+    Cond = getTerminalCondition(CO->getCond());
+  }
+
+  // Propagate narrowing through aliases: when VD is narrowed on an edge,
+  // also narrow its alias target and all vars sharing the same canonical
+  // target. E.g., y = x; z = x; if (z) → narrow z, x, AND y.
+  auto narrowWithAliases = [&](NullState &NS, const VarDecl *VD) {
+    NS.NarrowedVars.insert(VD);
+    NS.NullableVars.erase(VD);
+    // Forward: VD aliases Target → also narrow Target
+    const VarDecl *Target = VD;
+    auto AliasIt = NS.Aliases.find(VD);
+    if (AliasIt != NS.Aliases.end()) {
+      Target = AliasIt->second;
+      NS.NarrowedVars.insert(Target);
+      NS.NullableVars.erase(Target);
+    }
+    // Reverse: narrow all vars aliasing VD or its canonical target
+    for (const auto &[AliasVD, AliasTarget] : NS.Aliases) {
+      if (AliasTarget == VD || AliasTarget == Target) {
+        NS.NarrowedVars.insert(AliasVD);
+        NS.NullableVars.erase(AliasVD);
+      }
+    }
+  };
+
+  if (Cond) {
+    SmallVector<ConditionResult, 2> Results;
+    analyzeCondition(Cond, Ctx, Results, &State.BoolGuards);
+    for (const auto &CR : Results) {
+      NullState &Narrow = CR.Negated ? FalseState : TrueState;
+      if (CR.MemberPath) {
+        Narrow.NarrowedMembers.insert(*CR.MemberPath);
+        Narrow.NullableMembers.erase(*CR.MemberPath);
+      } else if (CR.VD) {
+        narrowWithAliases(Narrow, CR.VD);
+      }
+    }
+  }
+}
+
+/// After the fixpoint, emit the all-returns-nonnull summary for a function
+/// whose return type is a pointer and whose every return is provably
+/// non-null. Skipped if the visit cap fired, since inference from a partial
+/// run is not trustworthy.
+static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
+                                         ReturnNonnullTracker &Tracker) {
+  if (HitVisitCap)
+    return;
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D)) {
+    if (FD->getReturnType()->isPointerType() &&
+        FD->getDeclName().isIdentifier()) {
+      Tracker.emitSummary(FD);
+    }
+  }
+}
+
 } // end anonymous namespace
 
 void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
@@ -2534,93 +2771,8 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   ForwardDataflowWorklist Worklist(*Cfg, AC);
 
   const CFGBlock &Entry = Cfg->getEntry();
-  NullState InitState;
-
-  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl())) {
-    // Collect parameters declared nonnull via __attribute__((nonnull)) —
-    // either the whole-function form (applies to every pointer param) or
-    // the indexed form (nonnull(N...), 1-based).
-    llvm::SmallPtrSet<const ParmVarDecl *, 4> AttrNonnull;
-    for (const auto *NNA : FD->specific_attrs<NonNullAttr>()) {
-      if (NNA->args_size() == 0) {
-        // Applies to every pointer parameter.
-        for (const auto *P : FD->parameters())
-          if (P->getType()->isPointerType())
-            AttrNonnull.insert(P);
-      } else {
-        for (const ParamIdx &Idx : NNA->args()) {
-          unsigned I = Idx.getASTIndex();
-          if (I < FD->getNumParams())
-            AttrNonnull.insert(FD->getParamDecl(I));
-        }
-      }
-    }
-    // Lambda pointer params default to nonnull (auto-narrowed). Lambdas are
-    // short-lived closures whose callers control what's passed — if a caller
-    // passes null, the bug is at the call site (caught by handleCallExpr's
-    // lambda-aware argument check). Explicit _Nullable overrides this default.
-    bool IsLambda = false;
-    if (const auto *MD = dyn_cast<CXXMethodDecl>(FD))
-      IsLambda = MD->getParent()->isLambda();
-
-    for (const auto *Param : FD->parameters()) {
-      if (!Param->getType()->isPointerType())
-        continue;
-      if (isNonnullType(Param->getType()) || AttrNonnull.contains(Param) ||
-          (IsLambda && !isExplicitlyNullableType(Param->getType())))
-        InitState.NarrowedVars.insert(Param);
-    }
-  }
-
-  // Emit evidence for constructor member initializer lists.
-  // These use CXXCtorInitializer (': field(expr)'), not BinaryOperator,
-  // so the dataflow's assignment handler never sees them.
-  if (const auto *CD = dyn_cast_or_null<CXXConstructorDecl>(AC.getDecl())) {
-    for (const auto *CI : CD->inits()) {
-      if (!CI->isAnyMemberInitializer())
-        continue;
-      const FieldDecl *FD = CI->getMember();
-      if (!FD || !FD->getType()->isPointerType())
-        continue;
-      const Expr *Init = CI->getInit();
-      if (!Init)
-        continue;
-      Init = Init->IgnoreParenImpCasts();
-      bool IsNonnull = false;
-      // Check if the init expression is provably non-null.
-      if (isNonnullType(Init->getType()))
-        IsNonnull = true;
-      // Check if init refers to a parameter already narrowed to nonnull
-      // (e.g., via __attribute__((nonnull)) on the constructor).
-      if (!IsNonnull) {
-        if (const auto *DRE = dyn_cast<DeclRefExpr>(Init))
-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-            if (InitState.NarrowedVars.contains(VD))
-              IsNonnull = true;
-      }
-      if (!IsNonnull) {
-        if (const auto *UO = dyn_cast<UnaryOperator>(Init))
-          if (UO->getOpcode() == UO_AddrOf)
-            IsNonnull = true;
-      }
-      if (!IsNonnull) {
-        if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
-          if (!NE->shouldNullCheckAllocation())
-            IsNonnull = true;
-      }
-      if (!IsNonnull && isa<CXXThisExpr>(Init))
-        IsNonnull = true;
-      // Only emit nullable evidence for explicitly nullable sources
-      // (annotated _Nullable or nullptr), not for unannotated parameters.
-      bool IsExplicitlyNullable =
-          !IsNonnull &&
-          (Init->isNullPointerConstant(AC.getASTContext(),
-                                       Expr::NPC_ValueDependentIsNotNull) ||
-           isExplicitlyNullableType(Init->getType()));
-      if (IsNonnull || IsExplicitlyNullable)
-        Tracker.handleMemberAssignEvidence(Init, FD, IsNonnull);
-    }
-  }
+  NullState InitState = seedEntryState(AC.getDecl());
+  emitCtorInitEvidence(AC.getDecl(), Ctx, InitState, Tracker);
 
   BlockEntryStates[Entry.getBlockID()] = InitState;
   Worklist.enqueueBlock(&Entry);
@@ -2702,117 +2854,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
 
     NullState TrueState = State;
     NullState FalseState = State;
-
-    if (const Stmt *Term = Block->getTerminatorStmt()) {
-      const Expr *Cond = nullptr;
-      if (const auto *IS = dyn_cast<IfStmt>(Term)) {
-        const Expr *IfCond = IS->getCond();
-        if (IfCond)
-          IfCond = IfCond->IgnoreParenImpCasts();
-        if (IfCond) {
-          // Unwrap ExprWithCleanups — temp destructors from || RHS
-          // expressions wrap the whole condition but don't affect the
-          // logical structure.
-          const Expr *IfCondInner = IfCond;
-          if (const auto *EWC = dyn_cast<ExprWithCleanups>(IfCondInner))
-            IfCondInner = EWC->getSubExpr()->IgnoreParenImpCasts();
-          if (const auto *BO = dyn_cast<BinaryOperator>(IfCondInner)) {
-            // Narrow a member or variable from a ConditionResult, propagating
-            // through aliases.
-            auto applyNarrowCR = [](NullState &NS, const ConditionResult &CR) {
-              if (CR.MemberPath) {
-                NS.NarrowedMembers.insert(*CR.MemberPath);
-                NS.NullableMembers.erase(*CR.MemberPath);
-              } else if (CR.VD) {
-                NS.NarrowedVars.insert(CR.VD);
-                NS.NullableVars.erase(CR.VD);
-                const VarDecl *Target = CR.VD;
-                auto AliasIt = NS.Aliases.find(CR.VD);
-                if (AliasIt != NS.Aliases.end()) {
-                  Target = AliasIt->second;
-                  NS.NarrowedVars.insert(Target);
-                  NS.NullableVars.erase(Target);
-                }
-                for (const auto &[AV, TV] : NS.Aliases)
-                  if (TV == CR.VD || TV == Target) {
-                    NS.NarrowedVars.insert(AV);
-                    NS.NullableVars.erase(AV);
-                  }
-              }
-            };
-
-            if (BO->getOpcode() == BO_LAnd) {
-              SmallVector<ConditionResult, 2> AndResults;
-              decomposeAnd(BO, Ctx, AndResults, &State.BoolGuards);
-              for (const auto &CR : AndResults) {
-                if (CR.Negated)
-                  continue;
-                applyNarrowCR(TrueState, CR);
-              }
-            } else if (BO->getOpcode() == BO_LOr) {
-              // if (A || B): on the false edge ALL operands were false.
-              SmallVector<ConditionResult, 2> OrResults;
-              decomposeOr(BO, Ctx, OrResults, &State.BoolGuards);
-              for (const auto &CR : OrResults) {
-                if (!CR.Negated)
-                  continue;
-                applyNarrowCR(FalseState, CR);
-              }
-            }
-          }
-        }
-        Cond = getTerminalCondition(IS->getCond());
-      } else if (const auto *WS = dyn_cast<WhileStmt>(Term)) {
-        Cond = getTerminalCondition(WS->getCond());
-      } else if (const auto *FS = dyn_cast<ForStmt>(Term)) {
-        if (FS->getCond())
-          Cond = getTerminalCondition(FS->getCond());
-      } else if (const auto *DS = dyn_cast<DoStmt>(Term)) {
-        Cond = getTerminalCondition(DS->getCond());
-      } else if (const auto *BO = dyn_cast<BinaryOperator>(Term)) {
-        if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
-          Cond = getTerminalCondition(BO->getLHS());
-      } else if (const auto *CO = dyn_cast<ConditionalOperator>(Term)) {
-        Cond = getTerminalCondition(CO->getCond());
-      }
-
-      // Propagate narrowing through aliases: when VD is narrowed on an edge,
-      // also narrow its alias target and all vars sharing the same canonical
-      // target. E.g., y = x; z = x; if (z) → narrow z, x, AND y.
-      auto narrowWithAliases = [&](NullState &NS, const VarDecl *VD) {
-        NS.NarrowedVars.insert(VD);
-        NS.NullableVars.erase(VD);
-        // Forward: VD aliases Target → also narrow Target
-        const VarDecl *Target = VD;
-        auto AliasIt = NS.Aliases.find(VD);
-        if (AliasIt != NS.Aliases.end()) {
-          Target = AliasIt->second;
-          NS.NarrowedVars.insert(Target);
-          NS.NullableVars.erase(Target);
-        }
-        // Reverse: narrow all vars aliasing VD or its canonical target
-        for (const auto &[AliasVD, AliasTarget] : NS.Aliases) {
-          if (AliasTarget == VD || AliasTarget == Target) {
-            NS.NarrowedVars.insert(AliasVD);
-            NS.NullableVars.erase(AliasVD);
-          }
-        }
-      };
-
-      if (Cond) {
-        SmallVector<ConditionResult, 2> Results;
-        analyzeCondition(Cond, Ctx, Results, &State.BoolGuards);
-        for (const auto &CR : Results) {
-          NullState &Narrow = CR.Negated ? FalseState : TrueState;
-          if (CR.MemberPath) {
-            Narrow.NarrowedMembers.insert(*CR.MemberPath);
-            Narrow.NullableMembers.erase(*CR.MemberPath);
-          } else if (CR.VD) {
-            narrowWithAliases(Narrow, CR.VD);
-          }
-        }
-      }
-    }
+    narrowOnTerminator(Block, State, Ctx, TrueState, FalseState);
 
     unsigned SucIdx = 0;
     for (auto SI = Block->succ_begin(), SE = Block->succ_end(); SI != SE;
@@ -2834,17 +2876,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     }
   }
 
-  // After the fixpoint: emit all-returns-nonnull summary for functions
-  // whose return type is a pointer and whose every return is provably
-  // non-null. Skip lambdas/non-identifier functions (same guard as
-  // per-return evidence). Skip entirely if the visit cap fired — inference
-  // from a partial run is not trustworthy.
-  if (HitVisitCap)
-    return;
-  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl())) {
-    if (FD->getReturnType()->isPointerType() &&
-        FD->getDeclName().isIdentifier()) {
-      Tracker.emitSummary(FD);
-    }
-  }
+  // After the fixpoint: emit the all-returns-nonnull summary (skipped if the
+  // visit cap fired, since a summary from a partial run could be wrong).
+  emitAllReturnsNonnullSummary(AC.getDecl(), HitVisitCap, Tracker);
 }
