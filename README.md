@@ -235,7 +235,7 @@ This eliminates false-positive warnings from STL usage without requiring header 
 
 - **Intra-TU only** — call-graph-based inference works within a single translation unit. Cross-TU contracts are expressed with `_Nonnull`/`_Nullable` annotations (which can be inferred via `-Rnullsafe-evidence` remarks and external tooling).
 - **Null safety only** — doesn't catch buffer overflows, use-after-free, or other memory bugs.
-- **Known false positives** — `reinterpret_cast` results are always treated as nullable (even `reinterpret_cast<T*>(this)`).
+- **Pointer casts** — explicit pointer-to-pointer casts (C-style, `static_cast`, `reinterpret_cast`) propagate the operand's nullability and narrowing, both at dereference and in branch conditions (`if ((T*)p) { *p; }` narrows `p`). A cast from a non-pointer source (e.g. `reinterpret_cast<T*>(some_integer)`) cannot inherit nullability and follows the default.
 
 ## Installation
 
