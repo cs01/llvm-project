@@ -832,6 +832,34 @@ void cast_test_explicit_nonnull_dest() {
     d->y = 1; // OK - explicit _Nonnull on dest type
 }
 
+// A cast in the guard condition must narrow symmetrically with the read side:
+// without check-side cast see-through, these guarded derefs were false positives.
+void cast_test_guard_cast_cond_bare_deref() {
+    Base *b = getCastNullable();
+    if ((Base *)b) { b->x = 1; } // OK - cast guard narrows b
+}
+
+void cast_test_guard_cast_cond_cast_deref() {
+    Base *b = getCastNullable();
+    if ((Base *)b) { ((Base *)b)->x = 1; } // OK - cast guard + cast deref both narrow
+}
+
+void cast_test_guard_cast_ne_null() {
+    Base *b = getCastNullable();
+    if ((Base *)b != nullptr) { b->x = 1; } // OK - cast in comparison narrows b
+}
+
+void cast_test_guard_negated_cast_early_return() {
+    Base *b = getCastNullable();
+    if (!(Base *)b) return;
+    b->x = 1; // OK - negated cast guard narrows on the fall-through path
+}
+
+void cast_test_unguarded_cast_still_warns() {
+    Base *b = getCastNullable();
+    ((Base *)b)->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
 // reinterpret_cast on this + pointer arithmetic
 
 struct CastFoo {

@@ -885,6 +885,13 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
     E = ignoreExplicitBoolCast(UO->getSubExpr()->IgnoreParenImpCasts());
   }
 
+  // An explicit pointer-to-pointer cast in the condition (e.g. `if ((T*)p)`)
+  // otherwise hides the underlying VarDecl from narrowing. The deref/read side
+  // already sees through such casts (lookThroughPtrToPtrCasts at the deref
+  // sites), so without this the check side is stricter than the read side and a
+  // guarded `if ((T*)p) { *p; }` produces a false positive.
+  E = lookThroughPtrToPtrCasts(E);
+
   // !(A && B): the CFG merges the && operand paths before the if-decision,
   // so individual narrowing from the && blocks is lost at the merge.
   // Recursively decompose the && to narrow ALL operands on the false edge
@@ -933,6 +940,9 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
           if (AssignBO->getOpcode() == BO_Assign)
             PtrExpr = AssignBO->getLHS()->IgnoreParenImpCasts();
         }
+
+        // Mirror the read-side cast see-through: `(T*)p != nullptr` narrows p.
+        PtrExpr = lookThroughPtrToPtrCasts(PtrExpr);
 
         if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
           if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
