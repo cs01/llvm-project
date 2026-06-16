@@ -79,7 +79,8 @@ public:
 void runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                                 FlowNullabilityHandler &Handler,
                                 bool StrictMode,
-                                NullabilityKind DefaultNullability);
+                                NullabilityKind DefaultNullability,
+                                bool StdlibAnnotations = true);
 
 } // namespace clang
 
