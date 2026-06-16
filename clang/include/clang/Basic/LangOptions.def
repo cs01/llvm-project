@@ -144,6 +144,7 @@ LANGOPT(PointerAuthBlockDescriptorPointers, 1, 0, NotCompatible, "enable signed 
 // Nullability options
 ENUM_LANGOPT(NullabilityDefault, NullabilityKind, 2, NullabilityKind::Unspecified, NotCompatible, "default nullability for unannotated pointers")
 LANGOPT(FlowSensitiveNullability, 1, 0, NotCompatible, "enable flow-sensitive nullability analysis")
+LANGOPT(NullabilityStdlibAnnotations, 1, 1, NotCompatible, "treat known stdlib functions (malloc/fopen/...) as returning nullable pointers")
 
 LANGOPT(DoubleSquareBracketAttributes, 1, 0, NotCompatible, "'[[]]' attributes extension for all language standard modes")
 LANGOPT(ExperimentalLateParseAttributes, 1, 0, NotCompatible, "experimental late parsing of attributes")
