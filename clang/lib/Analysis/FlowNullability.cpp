@@ -270,6 +270,24 @@ static const Expr *ignoreExplicitBoolCast(const Expr *E) {
   return E;
 }
 
+/// See through explicit pointer-to-pointer casts on a dereference operand to
+/// recover the underlying tracked expression (a DeclRefExpr/MemberExpr whose
+/// flow-narrowing state we track). IgnoreParenImpCasts() strips implicit casts
+/// but leaves explicit C-style/static/reinterpret casts in place, so
+/// `*(int*)o` loses the link to the VarDecl `o` and its narrowing/nullable
+/// state. We only look through casts whose source AND result are pointer types
+/// (a relabeling of a pointer value) — never integer->pointer or other casts,
+/// which genuinely produce a new value with no tracked origin.
+static const Expr *lookThroughPtrToPtrCasts(const Expr *E) {
+  while (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
+    const Expr *Sub = CE->getSubExpr()->IgnoreParenImpCasts();
+    if (!CE->getType()->isPointerType() || !Sub->getType()->isPointerType())
+      break;
+    E = Sub;
+  }
+  return E;
+}
+
 /// Extract the rightmost leaf of a && / || chain.
 /// The CFG decomposes `a && b && c` into separate blocks — each operand
 /// becomes its own block's terminator condition. So for `if (a && b && c)`,
@@ -1056,6 +1074,9 @@ class TransferFunctions {
   ASTContext &Ctx;
   bool StrictMode;
   NullabilityKind DefaultNullability;
+  // When false, the built-in stdlib nullable-return list (malloc/fopen/...) is
+  // ignored (-fno-nullability-stdlib-annotations).
+  bool StdlibAnnotations;
 
   bool isNarrowed(const VarDecl *VD) const {
     return State.NarrowedVars.contains(VD);
@@ -1063,6 +1084,12 @@ class TransferFunctions {
 
   bool isMemberNarrowed(const MemberAccessPath &Path) const {
     return State.NarrowedMembers.contains(Path);
+  }
+
+  /// Gate the built-in stdlib nullable-return list on the langopt so
+  /// -fno-nullability-stdlib-annotations fully disables it.
+  bool isStdlibNullableReturn(const CallExpr *CE) const {
+    return StdlibAnnotations && isStdlibNullableReturnCall(CE);
   }
 
   /// Unwrap explicit casts and pointer arithmetic to find the original
@@ -1278,9 +1305,11 @@ class TransferFunctions {
 public:
   TransferFunctions(NullState &State, FlowNullabilityHandler &Handler,
                     ASTContext &Ctx, bool StrictMode,
-                    NullabilityKind DefaultNullability)
+                    NullabilityKind DefaultNullability,
+                    bool StdlibAnnotations)
       : State(State), Handler(Handler), Ctx(Ctx), StrictMode(StrictMode),
-        DefaultNullability(DefaultNullability) {}
+        DefaultNullability(DefaultNullability),
+        StdlibAnnotations(StdlibAnnotations) {}
 
   // The enclosing function declaration, needed for return type checking.
   const FunctionDecl *EnclosingFunc = nullptr;
@@ -1504,7 +1533,7 @@ private:
     // or a known STL method that contractually returns nonnull.
     // Stdlib nullable functions (malloc, fopen, etc.) are explicitly excluded.
     if (const auto *CE = dyn_cast<CallExpr>(Init)) {
-      if (isStdlibNullableReturnCall(CE))
+      if (isStdlibNullableReturn(CE))
         return false;
       if (isStlNonnullReturnCall(CE))
         return true;
@@ -1562,7 +1591,7 @@ private:
       return NE->shouldNullCheckAllocation();
     if (const auto *CE = dyn_cast<CallExpr>(Init)) {
       // Stdlib functions known to return null (malloc, fopen, getenv, etc.).
-      if (isStdlibNullableReturnCall(CE))
+      if (isStdlibNullableReturn(CE))
         return true;
       // sp.get() on a non-narrowed smart pointer returns nullable
       if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
@@ -1819,7 +1848,8 @@ private:
 
   void handleUnaryOperator(const UnaryOperator *UO) {
     if (UO->getOpcode() == UO_Deref) {
-      const Expr *SubExpr = UO->getSubExpr()->IgnoreParenImpCasts();
+      const Expr *SubExpr =
+          lookThroughPtrToPtrCasts(UO->getSubExpr()->IgnoreParenImpCasts());
 
       if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
@@ -1864,7 +1894,8 @@ private:
     if (!ME->isArrow())
       return;
 
-    const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+    const Expr *Base =
+        lookThroughPtrToPtrCasts(ME->getBase()->IgnoreParenImpCasts());
 
     if (isa<CXXThisExpr>(Base))
       return;
@@ -1900,7 +1931,8 @@ private:
   }
 
   void handleArraySubscript(const ArraySubscriptExpr *ASE) {
-    const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
+    const Expr *Base =
+        lookThroughPtrToPtrCasts(ASE->getBase()->IgnoreParenImpCasts());
     if (const auto *UO = dyn_cast<UnaryOperator>(Base))
       if (UO->getOpcode() == UO_AddrOf)
         return;
@@ -2281,7 +2313,7 @@ private:
     // regardless of the declared return type.
     if (const auto *CE = dyn_cast<CallExpr>(E)) {
       // Stdlib nullable returns (malloc, fopen, etc.) are provably nullable.
-      if (isStdlibNullableReturnCall(CE))
+      if (isStdlibNullableReturn(CE))
         return true;
       if (isStlNonnullReturnCall(CE))
         return false;
@@ -2342,7 +2374,7 @@ private:
       return isExprExplicitlyNullable(CE->getSubExpr());
     if (const auto *CE = dyn_cast<CallExpr>(E)) {
       // Stdlib nullable returns are provably nullable (for evidence emission).
-      if (isStdlibNullableReturnCall(CE))
+      if (isStdlibNullableReturn(CE))
         return true;
       if (isStlNonnullReturnCall(CE))
         return false;
@@ -2742,7 +2774,8 @@ static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
 void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                                        FlowNullabilityHandler &Handler,
                                        bool StrictMode,
-                                       NullabilityKind Default) {
+                                       NullabilityKind Default,
+                                       bool StdlibAnnotations) {
   CFG *Cfg = AC.getCFG();
   if (!Cfg)
     return;
@@ -2843,7 +2876,8 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     }
     BlockEntryStates[BlockID] = State;
 
-    TransferFunctions TF(State, Tracker, Ctx, StrictMode, Default);
+    TransferFunctions TF(State, Tracker, Ctx, StrictMode, Default,
+                         StdlibAnnotations);
     if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl()))
       TF.setEnclosingFunc(FD);
     TF.setParentMap(&PM);

@@ -2308,3 +2308,64 @@ void range_for_test_c_array() {
 void range_for_test_deref_still_warns(int* _Nullable p) {
     (void)*p; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
+
+// ===----------------------------------------------------------------------===//
+// Dereference through explicit pointer-to-pointer casts.
+//
+// IgnoreParenImpCasts() strips implicit casts but not explicit C-style,
+// static_cast, or reinterpret_cast. Without seeing through them, the deref of a
+// pointer obtained by casting a tracked nullable pointer lost the link to the
+// underlying VarDecl, so neither its nullable state nor its narrowing was found
+// (silent false negatives, and false positives once it reached the type-only
+// path). The analysis now looks through pointer-to-pointer casts at the deref
+// site to recover the tracked decl.
+// ===----------------------------------------------------------------------===//
+
+int* _Nullable cast_src();
+
+// Cast-then-deref of a nullable pointer must warn.
+int cast_deref_warns() {
+    int* _Nullable o = cast_src();
+    return *(int*)o; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// Same, but the narrowed pointer must stay silent (no false positive).
+int cast_deref_narrowed_silent() {
+    int* _Nullable o = cast_src();
+    if (o) { return *(int*)o; } // no warning: narrowed
+    return 0;
+}
+
+// Nested / double cast still recovers the underlying decl.
+int cast_deref_double_warns() {
+    int* _Nullable o = cast_src();
+    return *(int*)(void*)o; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// C++ static_cast through a related pointer type.
+struct CastBase { int x; };
+struct CastDerived : CastBase { int y; };
+CastDerived* _Nullable derived_src();
+
+int static_cast_deref_warns() {
+    CastDerived* _Nullable d = derived_src();
+    return static_cast<CastBase*>(d)->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int static_cast_deref_narrowed_silent() {
+    CastDerived* _Nullable d = derived_src();
+    if (d) { return static_cast<CastBase*>(d)->x; } // no warning: narrowed
+    return 0;
+}
+
+// C++ reinterpret_cast.
+int reinterpret_cast_deref_warns() {
+    int* _Nullable o = cast_src();
+    return *reinterpret_cast<long*>(o); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// Subscript through a cast.
+int cast_subscript_warns() {
+    int* _Nullable o = cast_src();
+    return ((int*)o)[0]; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
