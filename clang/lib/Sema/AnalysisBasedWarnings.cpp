@@ -3184,6 +3184,40 @@ public:
   }
 };
 
+/// Opt-in check for ObjC methods and blocks, mirroring
+/// Sema::functionHasNullabilityAnnotations for plain functions: under an
+/// unspecified default these are analyzed only if they carry an explicit
+/// nullability annotation on the return type or a parameter. Without this gate
+/// they would be analyzed purely on -fflow-sensitive-nullability, so
+/// flow-tracked nullability (malloc()/= nil/...) could warn on a fully
+/// unannotated method or block that never opted in — stricter than the
+/// FunctionDecl path. assume_nonnull regions bake nullability into the types at
+/// parse time, so audited ObjC/block code still opts in here.
+static bool objcOrBlockHasNullabilityAnnotations(const Decl *D) {
+  auto typeHasNullability = [](QualType T) {
+    return !T.isNull() && !T->isDependentType() && T->getNullability();
+  };
+  if (const auto *MD = dyn_cast<ObjCMethodDecl>(D)) {
+    if (typeHasNullability(MD->getReturnType()))
+      return true;
+    for (const ParmVarDecl *P : MD->parameters())
+      if (P && typeHasNullability(P->getType()))
+        return true;
+    return false;
+  }
+  if (const auto *BD = dyn_cast<BlockDecl>(D)) {
+    for (const ParmVarDecl *P : BD->parameters())
+      if (P && typeHasNullability(P->getType()))
+        return true;
+    if (const TypeSourceInfo *TSI = BD->getSignatureAsWritten())
+      if (const auto *FPT = TSI->getType()->getAs<FunctionProtoType>())
+        if (typeHasNullability(FPT->getReturnType()))
+          return true;
+    return false;
+  }
+  return false;
+}
+
 /// Check whether a Decl should be analyzed for flow-sensitive nullability.
 /// Handles FunctionDecl, ObjCMethodDecl, and BlockDecl (ObjC/C blocks).
 static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
@@ -3215,15 +3249,18 @@ static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
       S.SourceMgr.isInSystemHeader(Def->getLocation()))
     return nullptr;
 
-  // Opt-in: only analyze if -fnullability-default is set, or the function
-  // has explicit nullability annotations.
+  // Opt-in: only analyze if -fnullability-default is set, or the decl has
+  // explicit nullability annotations. This gate applies symmetrically to
+  // FunctionDecls, ObjC methods, and blocks so an unannotated decl is never
+  // analyzed on -fflow-sensitive-nullability alone (which would otherwise let
+  // flow-tracked nullability warn without any opt-in).
   if (Default == NullabilityKind::Unspecified) {
     if (const auto *FD = dyn_cast<FunctionDecl>(Def)) {
       if (!S.functionHasNullabilityAnnotations(FD))
         return nullptr;
+    } else if (!objcOrBlockHasNullabilityAnnotations(Def)) {
+      return nullptr;
     }
-    // ObjC methods and blocks in nullability-audited regions get annotations
-    // baked in during parsing, so checking their types suffices.
   }
   return Def;
 }
