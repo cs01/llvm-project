@@ -14166,6 +14166,7 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
     // not warn. The flow analysis itself naturally skips these (they aren't in
     // the CFG); this type-based check needs the explicit gate.
     if (VDecl && Init && getLangOpts().FlowSensitiveNullability &&
+        !ExprEvalContexts.empty() &&
         !ExprEvalContexts.back().isDiscardedStatementContext()) {
       QualType VDeclType = VDecl->getType();
       if (auto Nullability = VDeclType->getNullability()) {
