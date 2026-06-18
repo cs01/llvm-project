@@ -2397,3 +2397,32 @@ int cast_subscript_warns() {
     int* _Nullable o = cast_src();
     return ((int*)o)[0]; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
+
+// dynamic_cast<T*> is NOT a relabeling: it returns null when the runtime type
+// check fails, so its result is nullable even when the source is _Nonnull.
+// It must NOT be seen through like static/reinterpret/C-style casts.
+struct DynBase { virtual ~DynBase(); int x; };
+struct DynDerived : DynBase { int y; };
+
+// Deref of a dynamic_cast<T*> result warns even though the source is nonnull.
+int dynamic_cast_deref_warns(DynBase* _Nonnull p) {
+    return dynamic_cast<DynDerived*>(p)->y; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// Same via unary deref of the cast result.
+int dynamic_cast_unary_deref_warns(DynBase* _Nonnull p) {
+    return (*dynamic_cast<DynDerived*>(p)).y; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// The narrowed `if (auto *d = dynamic_cast<T*>(p))` idiom is safe: the deref is
+// on the narrowed VarDecl, not on the cast expression, so no warning.
+int dynamic_cast_narrowed_silent(DynBase* _Nonnull p) {
+    if (auto* d = dynamic_cast<DynDerived*>(p)) { return d->y; } // no warning: narrowed
+    return 0;
+}
+
+// dynamic_cast to a reference (not a pointer) throws rather than returning
+// null, so it is not treated as nullable.
+int dynamic_cast_ref_silent(DynBase* _Nonnull p) {
+    return dynamic_cast<DynDerived&>(*p).y; // no warning: reference cast
+}
