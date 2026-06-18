@@ -4719,17 +4719,20 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
   // If the type itself could have nullability but does not, infer pointer
   // nullability and perform consistency checking.
   if (S.CodeSynthesisContexts.empty()) {
-    // In -fnullability-default injection mode, skip conversion operators
-    // (operator T*()) — their return type is part of the operator's
-    // identity, and applying default nullability would change the type
-    // identity, breaking overload resolution and causing spurious
-    // diagnostics on the conversion result type. With injection off this
-    // must not fire, so assume_nonnull inference and
-    // -Wnullability-completeness keep covering conversion operators.
+    // Skip conversion operators (operator T*()) in ALL modes. Their return
+    // type is the conversion-type-id, parsed separately and carried in
+    // ReturnTypeInfo; inferring nullability here attaches an AttributedType
+    // to the declarator's return-type chunk but NOT to ReturnTypeInfo, so the
+    // two TypeLocs diverge in size and GetTypeSourceInfoForDeclarator's memcpy
+    // trips `TL.getFullDataSize() == CurrTL.getFullDataSize()` (assertion abort
+    // in asserts builds; silent mismatched copy otherwise). Inference would
+    // also change the operator's type identity, breaking overload resolution.
+    // This must hold under assume_nonnull / -fflow-sensitive-nullability too,
+    // not just -fnullability-default injection: with injection off this region
+    // is identical to upstream, where the same inference crashes an asserts
+    // build on `operator T*()` inside an assume_nonnull region.
     bool skipConversionFunction =
-        D.getName().getKind() == UnqualifiedIdKind::IK_ConversionFunctionId &&
-        S.getLangOpts().getNullabilityDefault() !=
-            NullabilityKind::Unspecified;
+        D.getName().getKind() == UnqualifiedIdKind::IK_ConversionFunctionId;
     if (!skipConversionFunction && shouldHaveNullability(T) &&
         !T->getNullability()) {
       if (isVaList(T)) {
