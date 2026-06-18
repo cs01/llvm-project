@@ -5,6 +5,8 @@
 // RUN: %clang_cc1 -fsyntax-only -std=c++11 -verify %s
 // RUN: %clang_cc1 -fsyntax-only -std=c++17 -verify %s
 
+// expected-no-diagnostics
+
 struct Node {
   int value;
   Node *_Nullable next;
@@ -53,14 +55,17 @@ struct ConvPlain {
   operator int *();
 };
 
-// Inside an assume_nonnull region upstream infers _Nonnull on the member
-// declarator's return type but not on the separately-processed
-// conversion-type-id, so the two types mismatch and upstream errors.
-// Reproducing that error proves the fork's conversion-operator exclusion is
-// inactive when default-injection mode is off (bug-for-bug upstream parity);
-// the previously ungated exclusion silenced it.
+// A pointer-returning conversion operator inside an assume_nonnull region must
+// compile cleanly and must NOT crash. Nullability inference is skipped for
+// conversion functions (their return type is the conversion-type-id, parsed
+// separately into ReturnTypeInfo), so the declarator's return-type chunk and
+// the conversion-type-id stay the same size. Inferring _Nonnull here attached
+// an AttributedType to only one of them, tripping the TypeLoc size assertion in
+// GetTypeSourceInfoForDeclarator (assertion abort in asserts builds). This is
+// inherited upstream behavior with injection off; the fork now skips inference
+// on conversion functions in all modes. `operator int *()` is valid C++.
 #pragma clang assume_nonnull begin
 struct ConvInferred {
-  operator int *(); // expected-error{{cannot specify any part of a return type in the declaration of a conversion function; put the complete type after 'operator'}}
+  operator int *(); // no diagnostic, no crash
 };
 #pragma clang assume_nonnull end
