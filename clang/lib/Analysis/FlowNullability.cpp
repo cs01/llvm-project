@@ -278,8 +278,16 @@ static const Expr *ignoreExplicitBoolCast(const Expr *E) {
 /// state. We only look through casts whose source AND result are pointer types
 /// (a relabeling of a pointer value) — never integer->pointer or other casts,
 /// which genuinely produce a new value with no tracked origin.
+///
+/// `dynamic_cast<T*>` is explicitly NOT seen through: unlike a static/C-style/
+/// reinterpret cast it is not a relabeling — it returns null when the runtime
+/// type check fails, so a non-null source can yield a null result. Seeing
+/// through it would suppress a real null-deref warning on
+/// `dynamic_cast<T*>(p)->f`.
 static const Expr *lookThroughPtrToPtrCasts(const Expr *E) {
   while (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
+    if (isa<CXXDynamicCastExpr>(CE))
+      break;
     const Expr *Sub = CE->getSubExpr()->IgnoreParenImpCasts();
     if (!CE->getType()->isPointerType() || !Sub->getType()->isPointerType())
       break;
@@ -706,6 +714,14 @@ static bool isStdlibNullableReturnCall(const CallExpr *CE) {
     return false;
   const auto &DeclName = FD->getDeclName();
   if (!DeclName.isIdentifier())
+    return false;
+  // Match only the real C library functions, which live at global scope (or in
+  // std, e.g. std::malloc from <cstdlib>). A user function that merely shares
+  // the spelling — namespace my { int *malloc(); } — must NOT be treated as
+  // nullable; name-only matching would otherwise produce false positives on
+  // unrelated code under -fnullability-default=nonnull.
+  const DeclContext *DC = FD->getDeclContext()->getRedeclContext();
+  if (!DC->isTranslationUnit() && !DC->isStdNamespace())
     return false;
   StringRef Name = FD->getName();
   // Keep sorted for easy scanning; use StringSwitch for clean matching.
@@ -1142,6 +1158,21 @@ class TransferFunctions {
   /// Unwraps casts/arithmetic to avoid template-instantiation false
   /// positives where _Nullable is baked into cast result types.
   void checkExprDeref(const Expr *DerefExpr, const Expr *PtrExpr) {
+    // dynamic_cast<T*> yields null when the runtime type check fails, so
+    // dereferencing its result directly is a real null-deref risk regardless
+    // of the source's nullability. unwrapCastsAndArithmetic below would strip
+    // the cast and inspect the (possibly _Nonnull) source, hiding this — so
+    // catch it up front. The narrowed `if (auto *d = dynamic_cast<T*>(p)) ...`
+    // idiom is unaffected: there the deref is on the VarDecl `d`, not the cast.
+    if (const auto *DCE =
+            dyn_cast<CXXDynamicCastExpr>(PtrExpr->IgnoreParenImpCasts())) {
+      if (DCE->getType()->isPointerType()) {
+        ++NumDereferenceWarnings;
+        Handler.handleNullableDereference(DerefExpr, DCE->getType());
+        return;
+      }
+    }
+
     bool FoundCast = false;
     const Expr *Origin = unwrapCastsAndArithmetic(PtrExpr, FoundCast);
 
