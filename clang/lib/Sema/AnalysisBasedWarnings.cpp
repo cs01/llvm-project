@@ -3370,16 +3370,22 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
 
   // Flow-sensitive nullability: analyze the whole TU in call-graph order
   // so that all-returns-nonnull inference works regardless of source order.
-  // Check all nullsafe warning groups — any one being enabled is enough.
+  // Run if ANY nullsafe warning group is enabled. The same analysis also
+  // produces the -Rnullsafe-evidence remarks, so gate on those too — otherwise
+  // `-Wno-flow-nullability -Rnullsafe-evidence` silently drops independently
+  // requested evidence (the remarks all share the NullsafeEvidence group, so
+  // one representative ID reflects the group's state).
+  bool AnyFlowWarning =
+      !Diags.isIgnored(diag::warn_flow_nullable_dereference,
+                       SourceLocation()) ||
+      !Diags.isIgnored(diag::warn_flow_nullable_arithmetic, SourceLocation()) ||
+      !Diags.isIgnored(diag::warn_flow_nullable_return, SourceLocation()) ||
+      !Diags.isIgnored(diag::warn_flow_nullable_assignment, SourceLocation()) ||
+      !Diags.isIgnored(diag::warn_flow_nullable_argument, SourceLocation());
+  bool EvidenceRequested = !Diags.isIgnored(
+      diag::remark_nullsafe_all_returns_nonnull, SourceLocation());
   if (S.getLangOpts().FlowSensitiveNullability &&
-      (!Diags.isIgnored(diag::warn_flow_nullable_dereference,
-                        SourceLocation()) ||
-       !Diags.isIgnored(diag::warn_flow_nullable_arithmetic,
-                        SourceLocation()) ||
-       !Diags.isIgnored(diag::warn_flow_nullable_return, SourceLocation()) ||
-       !Diags.isIgnored(diag::warn_flow_nullable_assignment,
-                        SourceLocation()) ||
-       !Diags.isIgnored(diag::warn_flow_nullable_argument, SourceLocation())))
+      (AnyFlowWarning || EvidenceRequested))
     FlowNullabilityTUAnalysis(S, TU, IPData->AllReturnsNonnullFuncs);
 }
 
