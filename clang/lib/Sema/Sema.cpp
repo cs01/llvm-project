@@ -713,9 +713,21 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
   if (getLangOpts().FlowSensitiveNullability) {
     bool DefaultOptsIn =
         getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified;
-    const FunctionDecl *EnclosingFD = getCurFunctionDecl();
+    // The enclosing decl the flow checker would analyze may be a block or an
+    // ObjC method, not just a function/lambda — getCurFunctionDecl is null in
+    // those contexts. Pick the innermost one (block, then method, then
+    // function) and apply the same opt-in gate as getAnalyzableDecl, otherwise
+    // an annotated ObjC method/block under an unspecified default would get
+    // both this legacy warning AND the flow warning.
+    const Decl *EnclosingDecl = nullptr;
+    if (sema::BlockScopeInfo *BSI = getCurBlock())
+      EnclosingDecl = BSI->TheDecl;
+    else if (ObjCMethodDecl *MD = getCurMethodDecl())
+      EnclosingDecl = MD;
+    else
+      EnclosingDecl = getCurFunctionDecl(/*AllowLambda=*/true);
     if (DefaultOptsIn ||
-        (EnclosingFD && functionHasNullabilityAnnotations(EnclosingFD)))
+        (EnclosingDecl && declHasNullabilityAnnotations(EnclosingDecl)))
       return;
   }
 
@@ -753,6 +765,34 @@ bool Sema::functionHasNullabilityAnnotations(const FunctionDecl *FD) const {
     }
   }
 
+  return false;
+}
+
+bool Sema::declHasNullabilityAnnotations(const Decl *D) const {
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D))
+    return functionHasNullabilityAnnotations(FD);
+
+  auto typeHasNullability = [](QualType T) {
+    return !T.isNull() && !T->isDependentType() && T->getNullability();
+  };
+  if (const auto *MD = dyn_cast_or_null<ObjCMethodDecl>(D)) {
+    if (typeHasNullability(MD->getReturnType()))
+      return true;
+    for (const ParmVarDecl *P : MD->parameters())
+      if (P && typeHasNullability(P->getType()))
+        return true;
+    return false;
+  }
+  if (const auto *BD = dyn_cast_or_null<BlockDecl>(D)) {
+    for (const ParmVarDecl *P : BD->parameters())
+      if (P && typeHasNullability(P->getType()))
+        return true;
+    if (const TypeSourceInfo *TSI = BD->getSignatureAsWritten())
+      if (const auto *FPT = TSI->getType()->getAs<FunctionProtoType>())
+        if (typeHasNullability(FPT->getReturnType()))
+          return true;
+    return false;
+  }
   return false;
 }
 
