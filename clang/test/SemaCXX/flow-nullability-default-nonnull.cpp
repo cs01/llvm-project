@@ -45,4 +45,34 @@ void test_local_nonnull_ok() {
     p->x = 1; // OK - explicit _Nonnull
 }
 
+// Ternary self-guard: `cond ? cond : fallback` — the true arm is non-null
+// because the condition tested it. Mirrors redis hyperloglog.c hllSparseAdd's
+// `p = prev ? prev : sparse;` where both arms are non-null on their branch.
+void test_ternary_self_guard(Entity* fallback) {
+    Entity* _Nullable prev = getNullable();
+    Entity* p = prev ? prev : fallback;
+    p->x = 1; // OK - true arm guarded by cond, false arm nonnull
+}
+
+void test_ternary_self_guard_via_local() {
+    Entity* _Nullable prev = getNullable();
+    Entity stack;
+    Entity* p = prev ? prev : &stack;
+    p->x = 1; // OK - true arm guarded, false arm is address-of
+}
+
+// Explicit-comparison form of the same guard.
+void test_ternary_ne_null_guard(Entity* fallback) {
+    Entity* _Nullable prev = getNullable();
+    Entity* p = (prev != nullptr) ? prev : fallback;
+    p->x = 1; // OK
+}
+
+// Negative: a ternary whose selected arm can genuinely be null still warns.
+void test_ternary_unguarded_arm_warns(int cond) {
+    Entity* _Nullable maybe = getNullable();
+    Entity* p = cond ? maybe : getNullable();
+    p->x = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
 #pragma clang assume_nonnull end
