@@ -1531,15 +1531,53 @@ private:
   /// this, _Nonnull typed, narrowed var, cast of non-null, pointer arith).
   /// See also: isExprProvablyNonnull() in Sema.cpp, which is a similar
   /// heuristic used to suppress nullable-to-nonnull conversion warnings.
+  /// Within a ternary `Cond ? T : F`, an arm can be provably non-null purely
+  /// because the condition guards it: `p ? p : fallback` yields non-null `p`
+  /// in the true arm even though `p` is nullable in general. Returns whether
+  /// `Cond` narrows the pointer named by `Arm` to non-null on the branch that
+  /// selects it (TrueBranch = the `?` arm, otherwise the `:` arm).
+  bool armNarrowedByCondition(const Expr *Arm, const Expr *Cond,
+                              bool TrueBranch) const {
+    if (!Arm || !Cond)
+      return false;
+    Arm = lookThroughPtrToPtrCasts(Arm->IgnoreParenImpCasts());
+    SmallVector<ConditionResult, 2> Results;
+    analyzeCondition(Cond, Ctx, Results, &State.BoolGuards);
+    for (const auto &CR : Results) {
+      // A true-branch arm needs the pointer non-null when Cond is true
+      // (Negated == false); a false-branch arm when Cond is false.
+      if (CR.Negated == TrueBranch)
+        continue;
+      if (CR.VD) {
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(Arm))
+          if (DRE->getDecl() == CR.VD)
+            return true;
+      } else if (CR.MemberPath) {
+        if (auto Path = decomposeMemberAccess(Arm))
+          if (*Path == *CR.MemberPath)
+            return true;
+      }
+    }
+    return false;
+  }
+
   bool isNonnullInit(const Expr *Init) const {
     if (!Init)
       return false;
     Init = Init->IgnoreParenImpCasts();
-    // Ternary: both arms must be provably non-null. If either arm might
-    // be null, the whole expression might be null, so report not-nonnull.
-    if (const auto *CO = dyn_cast<ConditionalOperator>(Init))
-      return isNonnullInit(CO->getTrueExpr()) &&
-             isNonnullInit(CO->getFalseExpr());
+    // Ternary: both arms must be provably non-null. An arm counts as non-null
+    // if it is unconditionally so, or if the condition guards it (the common
+    // `p ? p : fallback` idiom, where the true arm's `p` is non-null because
+    // the condition tested it). If either arm might still be null, the whole
+    // expression might be null.
+    if (const auto *CO = dyn_cast<ConditionalOperator>(Init)) {
+      const Expr *Cond = CO->getCond();
+      bool TrueOK = isNonnullInit(CO->getTrueExpr()) ||
+                    armNarrowedByCondition(CO->getTrueExpr(), Cond, true);
+      bool FalseOK = isNonnullInit(CO->getFalseExpr()) ||
+                     armNarrowedByCondition(CO->getFalseExpr(), Cond, false);
+      return TrueOK && FalseOK;
+    }
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
         if (isNonnullType(VD->getType()) || isNarrowed(VD))
@@ -1617,10 +1655,18 @@ private:
     // on the expression's type.
     if (Init->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
       return true;
-    // Ternary: either arm being nullable taints the whole expression.
-    if (const auto *CO = dyn_cast<ConditionalOperator>(Init))
-      return isNullableInit(CO->getTrueExpr()) ||
-             isNullableInit(CO->getFalseExpr());
+    // Ternary: either arm being nullable taints the whole expression, unless
+    // the condition guards that arm non-null on the branch that selects it
+    // (`p ? p : fallback` — the true arm's `p` is non-null because tested).
+    if (const auto *CO = dyn_cast<ConditionalOperator>(Init)) {
+      const Expr *Cond = CO->getCond();
+      bool TrueNullable = isNullableInit(CO->getTrueExpr()) &&
+                          !armNarrowedByCondition(CO->getTrueExpr(), Cond, true);
+      bool FalseNullable =
+          isNullableInit(CO->getFalseExpr()) &&
+          !armNarrowedByCondition(CO->getFalseExpr(), Cond, false);
+      return TrueNullable || FalseNullable;
+    }
     if (isNullableType(Init->getType(), StrictMode, DefaultNullability))
       return true;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
