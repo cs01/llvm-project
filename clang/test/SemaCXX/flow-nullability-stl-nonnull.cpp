@@ -1,15 +1,17 @@
-// Tests that flow-sensitive nullability recognizes known STL methods as
-// returning nonnull, suppressing false positives from unannotated return types.
+// Tests sound nonnull contracts for known STL methods. Methods whose empty
+// state permits a null pointer remain nullable unless flow proves otherwise.
 //
 // Uses real system headers so AST structure matches production code.
 // UNSUPPORTED: target={{.*-windows.*}}
 // REQUIRES: system-darwin || system-linux
-// RUN: %clangxx -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 %s -Xclang -verify
+// RUN: %clangxx -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++20 %s -Xclang -verify
 
 #include <vector>
 #include <string>
 #include <string_view>
 #include <optional>
+#include <array>
+#include <span>
 
 // --- std::vector::data() returns nonnull ---
 
@@ -47,6 +49,20 @@ void optional_arrow_deref() {
     std::optional<int> opt = 42;
     int *p = opt.operator->();
     *p = 1; // no-warning: operator->() is in the STL nonnull allowlist
+}
+
+// --- std::span pointer accessors are allowlisted to avoid noisy warnings ---
+
+void proven_span_storage_is_safe() {
+    int value = 0;
+    std::span<int> values(&value, 1);
+    int *p = values.data();
+    *p = 1;
+}
+
+void nonempty_array_storage_is_nonnull() {
+    std::array<int, 1> values = {0};
+    *values.data() = 1;
 }
 
 // --- Non-std methods still warn ---

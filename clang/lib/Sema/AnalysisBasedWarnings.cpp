@@ -3329,31 +3329,12 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
       S.getLangOpts().EnableLifetimeSafetyTUAnalysis)
     LifetimeSafetyTUAnalysis(S, TU, LSStats);
 
-  // Flow-sensitive nullability: analyze the whole TU in call-graph order
-  // so that all-returns-nonnull inference works regardless of source order.
-  // Run if ANY nullsafe warning group is enabled. The same analysis also
-  // produces the -Rnullsafe-evidence remarks, so gate on those too — otherwise
-  // `-Wno-flow-nullability -Rnullsafe-evidence` silently drops independently
-  // requested evidence (the remarks all share the NullsafeEvidence group, so
-  // one representative ID reflects the group's state).
-  // Keep the diagnostic-state lookups under the langopt so a TU built without
-  // -fflow-sensitive-nullability pays nothing (six isIgnored calls otherwise
-  // run on every TU).
-  if (S.getLangOpts().FlowSensitiveNullability) {
-    bool AnyFlowWarning =
-        !Diags.isIgnored(diag::warn_flow_nullable_dereference,
-                         SourceLocation()) ||
-        !Diags.isIgnored(diag::warn_flow_nullable_arithmetic,
-                         SourceLocation()) ||
-        !Diags.isIgnored(diag::warn_flow_nullable_return, SourceLocation()) ||
-        !Diags.isIgnored(diag::warn_flow_nullable_assignment,
-                         SourceLocation()) ||
-        !Diags.isIgnored(diag::warn_flow_nullable_argument, SourceLocation());
-    bool EvidenceRequested = !Diags.isIgnored(
-        diag::remark_nullsafe_all_returns_nonnull, SourceLocation());
-    if (AnyFlowWarning || EvidenceRequested)
-      FlowNullabilityTUAnalysis(S, TU, IPData->AllReturnsNonnullFuncs);
-  }
+  // Analyze the whole TU in call-graph order whenever the language feature is
+  // enabled. Diagnostic state at an invalid SourceLocation only reflects the
+  // command line and cannot detect warnings re-enabled by a source pragma;
+  // emission at each real source location still applies all suppression rules.
+  if (S.getLangOpts().FlowSensitiveNullability)
+    FlowNullabilityTUAnalysis(S, TU, IPData->AllReturnsNonnullFuncs);
 }
 
 void clang::sema::AnalysisBasedWarnings::IssueWarnings(

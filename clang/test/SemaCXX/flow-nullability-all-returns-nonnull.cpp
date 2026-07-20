@@ -79,6 +79,19 @@ Node *getNodeOrNull(Widget *_Nonnull w, bool flag) {
     return nullptr; // expected-remark{{returns nullable}}
 }
 
+// An unannotated return is unknown: it emits no cross-TU evidence, but must
+// still invalidate the local all-returns-nonnull summary.
+Node *getNodeOrUnknown(Widget *_Nonnull w, Node *unknown, bool flag) {
+    if (flag)
+        return &w->node; // expected-remark{{returns nonnull}}
+    return unknown;
+}
+
+void caller_unknown_still_warns(Widget *_Nonnull w, Node *unknown) {
+    Node *n = getNodeOrUnknown(w, unknown, true); // expected-remark-re{{parameter 'w' of 'getNodeOrUnknown' (declared at {{.*}}) called with nonnull argument}}
+    n->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
 // ===----------------------------------------------------------------------===//
 // Void return / non-pointer return — should NOT trigger
 // ===----------------------------------------------------------------------===//
