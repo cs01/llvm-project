@@ -9,10 +9,15 @@
 // RUN: %clangxx -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable -std=c++17 %s -Xclang -verify
 
 #include <memory>
+#include <utility>
 
 struct Node {
+    virtual ~Node();
     int value;
 };
+
+struct DerivedNode : Node {};
+Node * _Nullable maybe_node();
 
 #pragma clang assume_nonnull begin
 
@@ -34,6 +39,21 @@ void move_makes_nullable() {
     sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
+void declared_nonnull_move_sources_warn() {
+    std::unique_ptr<Node> _Nonnull constructed = std::make_unique<Node>();
+    auto target = std::move(constructed);
+    target->value = 1;
+    constructed->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+
+    std::unique_ptr<Node> _Nonnull assigned = std::make_unique<Node>();
+    target = std::move(assigned);
+    assigned->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+
+    std::unique_ptr<Node> _Nonnull bare = std::make_unique<Node>();
+    static_cast<void>(std::move(bare));
+    bare->value = 1; // OK — std::move alone is only a cast
+}
+
 // `p.reset()` on a real libc++ unique_ptr calls reset(pointer = pointer()),
 // so MCE->getArg(0) is a CXXDefaultArgExpr wrapping a value-init. The
 // handler must treat that form as "no user-provided arg" and mark the
@@ -44,6 +64,70 @@ void reset_default_arg_makes_nullable() {
     sp.reset();
     sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
+
+void reset_argument_flow(Node * _Nullable p, Node &node) {
+    auto sp = std::make_unique<Node>();
+    sp.reset(p);
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+
+    sp.reset(maybe_node());
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+
+    sp.reset(dynamic_cast<DerivedNode *>(&node));
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+
+    sp.reset(nullptr);
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+
+    sp.reset(new Node());
+    sp->value = 1;
+
+    sp.reset(&node);
+    sp->value = 1;
+
+    if (p) {
+        sp.reset(p);
+        sp->value = 1;
+    }
+}
+
+void declared_nonnull_reset_unknown_uses_contract(Node * _Nullable p,
+                                                  Node &node) {
+    std::unique_ptr<Node> _Nonnull sp = std::make_unique<Node>();
+    sp.reset(p);
+    sp->value = 1;
+
+    sp.reset(maybe_node());
+    sp->value = 1;
+
+    sp.reset(dynamic_cast<DerivedNode *>(&node));
+    sp->value = 1;
+
+    sp.reset(nullptr);
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+struct SmartOwner {
+    std::unique_ptr<Node> sp;
+
+    void resetMember(Node * _Nullable p, Node &node) {
+        sp = std::make_unique<Node>();
+        sp.reset(p);
+        sp->value = 1; // Unknown reset falls back to the member's declaration.
+        sp.reset(dynamic_cast<DerivedNode *>(&node));
+        sp->value = 1;
+        sp.reset();
+        sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+        sp.reset(new Node());
+        sp->value = 1;
+        sp.reset(&node);
+        sp->value = 1;
+        if (p) {
+            sp.reset(p);
+            sp->value = 1;
+        }
+    }
+};
 
 void reassign_make_unique_renarrows() {
     std::unique_ptr<Node> sp;
