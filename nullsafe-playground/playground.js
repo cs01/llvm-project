@@ -678,7 +678,14 @@ async function loadExamples() {
                     completed = true;
                     clearTimeout(timeout);
                     worker.terminate();
-                    reject(error);
+                    reject(new Error(error.message || 'Compiler worker failed to start'));
+                };
+
+                worker.onmessageerror = function() {
+                    completed = true;
+                    clearTimeout(timeout);
+                    worker.terminate();
+                    reject(new Error('Browser could not deliver data to the compiler worker'));
                 };
 
                 // Send the pre-loaded WASM binary to the worker
