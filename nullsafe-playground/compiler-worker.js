@@ -4,6 +4,29 @@
 
 let isReady = false;
 
+// Some browsers reject resizable WebAssembly memory in TextDecoder.decode().
+// Emscripten decodes strings directly from that memory, so make a fixed copy
+// only when its generated runtime passes a resizable buffer.
+function installResizableTextDecoderWorkaround() {
+    if (typeof TextDecoder === 'undefined') return;
+
+    const nativeDecode = TextDecoder.prototype.decode;
+    TextDecoder.prototype.decode = function(input, options) {
+        if (input) {
+            const buffer = ArrayBuffer.isView(input) ? input.buffer : input;
+            if (buffer.resizable === true || buffer.growable === true) {
+                const bytes = ArrayBuffer.isView(input)
+                    ? new Uint8Array(buffer, input.byteOffset, input.byteLength)
+                    : new Uint8Array(buffer);
+                input = bytes.slice();
+            }
+        }
+        return nativeDecode.call(this, input, options);
+    };
+}
+
+installResizableTextDecoderWorkaround();
+
 // Handle messages from main thread
 self.onmessage = function(e) {
     const { type, ...data } = e.data;
