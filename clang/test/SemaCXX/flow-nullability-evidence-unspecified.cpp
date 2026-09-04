@@ -110,3 +110,17 @@ void assign_nullptr(S *_Nonnull s) {
 void assign_nonnull(S *_Nonnull s, int * _Nonnull p) {
     s->field = p; // expected-remark-re{{member 'field' of S (declared at {{.*}}) assigned from nonnull source}}
 }
+
+// ===----------------------------------------------------------------------===//
+// Parameter evidence: nonnull-parameter narrowing runs before evidence
+// ===----------------------------------------------------------------------===//
+// Only the second parameter is _Nonnull, but surviving the call proves p
+// non-null, so the evidence for the first parameter must be nonnull too.
+// If evidence were emitted before the narrowing pass, 'a' would get no
+// remark at all (p is null-unspecified).
+
+void two_params(int *a, int *_Nonnull b);
+
+void call_two_params(int *p) {
+    two_params(p, p); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}} expected-remark-re{{parameter 'a' of 'two_params' (declared at {{.*}}) called with nonnull argument}} expected-remark-re{{parameter 'b' of 'two_params' (declared at {{.*}}) called with nonnull argument}}
+}
