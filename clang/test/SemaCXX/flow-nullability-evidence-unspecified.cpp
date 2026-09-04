@@ -124,3 +124,20 @@ void two_params(int *a, int *_Nonnull b);
 void call_two_params(int *p) {
     two_params(p, p); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}} expected-remark-re{{parameter 'a' of 'two_params' (declared at {{.*}}) called with nonnull argument}} expected-remark-re{{parameter 'b' of 'two_params' (declared at {{.*}}) called with nonnull argument}}
 }
+
+// ===----------------------------------------------------------------------===//
+// Flow taint on a _Nonnull local is provable nullable evidence
+// ===----------------------------------------------------------------------===//
+// The declared _Nonnull does not win over an assignment of null: the argument
+// and return evidence say nullable, and no all-returns-nonnull summary is
+// inferred.
+
+void pass_tainted_nonnull() {
+    int *_Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
+    takes_ptr(a); // expected-remark-re{{parameter 'p' of 'takes_ptr' (declared at {{.*}}) called with nullable argument}}
+}
+
+int *return_tainted_nonnull() {
+    int *_Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
+    return a; // expected-remark-re{{function 'return_tainted_nonnull' of global scope (declared at {{.*}}) returns nullable}}
+}
