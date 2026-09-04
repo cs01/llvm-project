@@ -1610,13 +1610,13 @@ private:
         const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
         // A ternary's merged type inherits _Nullable from either arm
         // even when the condition guards that arm (p ? p : q), so
-        // only the arm-aware isNullableInit may judge it.
+        // only the arm-aware isExprNullable may judge it.
         bool IsTernary = isa<AbstractConditionalOperator>(Init);
         if (!isExprNarrowedNonnull(Init) && !isNonnullInit(Init) &&
             !isNonnullType(Init->getType()) &&
             ((!IsTernary &&
               isNullableType(Init->getType(), DefaultNullability)) ||
-             isNullableInit(Init))) {
+             isExprNullable(Init))) {
           InitIsNullable = true;
           ++NumAssignmentWarnings;
           Handler.handleNullableAssignment(VD->getInit(), VD);
@@ -1645,7 +1645,7 @@ private:
         bool IsTernary = isa<AbstractConditionalOperator>(TypeExpr);
         if ((!IsTernary &&
              isNullableType(TypeExpr->getType(), DefaultNullability)) ||
-            isNullableInit(Init)) {
+            isExprNullable(Init)) {
           State.markNullable(VD);
         } else if (HasCast) {
           // The cast source is not nullable, which overrides any _Nullable
@@ -1961,7 +1961,7 @@ private:
       bool Narrowed = isExprNarrowedNonnull(RHS);
       bool IsTernary = isa<AbstractConditionalOperator>(RHS);
       // Null constant assigned to _Nonnull member: warn immediately.
-      if (!Narrowed && isNonnullType(FD->getType()) && isNullableInit(RHS) &&
+      if (!Narrowed && isNonnullType(FD->getType()) && isExprNullable(RHS) &&
           !isNonnullInit(RHS)) {
         State.markNullable(LhsPath);
         ++NumAssignmentWarnings;
@@ -1973,7 +1973,7 @@ private:
           State.markNarrowed(LhsPath);
         } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
                                                  DefaultNullability)) ||
-                   isNullableInit(RHS)) {
+                   isExprNullable(RHS)) {
           State.markNullable(LhsPath);
         }
       }
@@ -2025,14 +2025,14 @@ private:
       recordPointerSource(VD, RHS);
 
       // Ternary merged types are judged arm-by-arm by
-      // isNullableInit/isNonnullInit (see VisitDeclStmt).
+      // isExprNullable/isNonnullInit (see VisitDeclStmt).
       bool IsTernary = isa<AbstractConditionalOperator>(RHS);
       const auto *RHSUO = dyn_cast<UnaryOperator>(RHS);
       if (RHSUO && RHSUO->getOpcode() == UO_AddrOf) {
         narrowAsAddrOf(VD, RHSUO);
       } else if (isExprNarrowedNonnull(RHS)) {
         State.markNarrowed(VD);
-      } else if (isNonnullType(VD->getType()) && isNullableInit(RHS) &&
+      } else if (isNonnullType(VD->getType()) && isExprNullable(RHS) &&
                  !isNonnullInit(RHS)) {
         // Null constant assigned to _Nonnull: warn immediately.
         // Check before isNonnullInit/isNonnullType because implicit
@@ -2046,7 +2046,7 @@ private:
         State.markNarrowed(VD);
       } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
                                                DefaultNullability)) ||
-                 isNullableInit(RHS)) {
+                 isExprNullable(RHS)) {
         State.markNullable(VD);
         if (isNonnullType(VD->getType())) {
           ++NumAssignmentWarnings;
@@ -2296,7 +2296,7 @@ private:
 
   /// Record VD = <member path> so later narrowing of either side reaches
   /// the other. The path's current narrowed/nullable state is copied onto VD
-  /// by the caller's isExprNarrowedNonnull/isNullableInit checks.
+  /// by the caller's isExprNarrowedNonnull/isExprNullable checks.
   void trackMemberCopy(const VarDecl *VD, const Expr *Init) {
     Init = lookThroughPtrToPtrCasts(Init->IgnoreParenImpCasts());
     auto Path = decomposeMemberAccess(Init);
@@ -2485,65 +2485,6 @@ private:
     return isNonnullType(Init->getType());
   }
 
-  /// Check if an init expression is nullable, either by type or because it
-  /// refers to a variable known to be nullable. Unwraps casts to propagate
-  /// nullability through cast chains (e.g., (Derived *)nullableBase).
-  bool isNullableInit(const Expr *Init) const {
-    if (!Init)
-      return false;
-    Init = stripOpaqueValue(Init->IgnoreParenImpCasts());
-    // Pointer dynamic_cast is nullable even when its source is non-null, and
-    // under the nonnull default its unannotated result type says nothing, so
-    // this rule is what keeps T *q = dynamic_cast<T *>(p) from narrowing q.
-    if (const auto *DCE = dyn_cast<CXXDynamicCastExpr>(Init))
-      if (DCE->getType()->isPointerType())
-        return true;
-    if (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
-      return isNullableInit(CE->getSubExpr());
-    // Null pointer constants (nullptr, NULL, (T*)0) are always nullable.
-    // The common type of a ternary like cond ? p : (T*)0 may strip the
-    // qualifier, so we must look at the arm directly rather than relying
-    // on the expression's type.
-    if (Init->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
-      return true;
-    // Ternary: either arm being nullable taints the whole expression, unless
-    // the condition guards that arm non-null on the branch that selects it
-    // (p ? p : fallback: the true arm's p is non-null because tested).
-    if (const auto *CO = dyn_cast<AbstractConditionalOperator>(Init)) {
-      const Expr *Cond = CO->getCond();
-      const Expr *TrueArm = CO->getTrueExpr();
-      const Expr *FalseArm = CO->getFalseExpr();
-      bool TrueNullable = isNullableInit(TrueArm) &&
-                          !armNarrowedByCondition(TrueArm, Cond, true);
-      bool FalseNullable = isNullableInit(FalseArm) &&
-                           !armNarrowedByCondition(FalseArm, Cond, false);
-      return TrueNullable || FalseNullable;
-    }
-    if (isNullableType(Init->getType(), DefaultNullability))
-      return true;
-    // A variable or member path the flow analysis marked nullable (assigned
-    // null or reset) is nullable regardless of its declared type.
-    if (auto R = PtrRef::fromExpr(Init))
-      return State.isNullable(*R);
-    // nothrow new can return null.
-    if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
-      return NE->shouldNullCheckAllocation();
-    if (const auto *CE = dyn_cast<CallExpr>(Init)) {
-      // Stdlib functions known to return null (malloc, fopen, getenv, etc.).
-      if (isStdlibNullableReturn(CE))
-        return true;
-      // sp.get() on a non-narrowed smart pointer returns nullable. Falls
-      // through when the receiver is neither a smart pointer variable nor a
-      // member path.
-      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
-        auto R = PtrRef::fromExpr(Obj);
-        if (R && (R->Path || isSmartPointerType(R->getType())))
-          return !isSmartPointerNarrowed(Obj);
-      }
-    }
-    return false;
-  }
-
   /// Warn when a nullable pointer reaches a nonnull parameter, then narrow
   /// the argument variable: surviving the call proves it non-null.
   void checkNonnullParamArg(const Expr *ArgExpr, const ParmVarDecl *Param) {
@@ -2567,33 +2508,37 @@ private:
                         : isNullableType(Ty, DefaultNullability);
   }
 
-  /// Flow-aware nullable check: considers both the declared type and the
-  /// dynamic state, so narrowing suppresses the warning and reset/move makes
-  /// a variable nullable even if its type isn't.
-  bool isVarNullable(const VarDecl *VD, bool ExplicitOnly = false) const {
-    if (isNarrowed(VD) || isNonnullType(VD->getType()))
-      return false;
-    return State.NullableVars.contains(VD) ||
-           isNullableByType(VD->getType(), ExplicitOnly);
-  }
-
-  /// Check if an expression resolves to a nullable pointer, considering flow.
+  /// Whether E may be null, considering flow. This is the one judgment used
+  /// at every site (initializer, assignment, argument, return, dereference of
+  /// a ternary), so a tracked pointer is judged by its flow state before its
+  /// declared type: narrowing overrides a declared _Nullable and taint
+  /// (assigned null, reset, moved-from) overrides a declared _Nonnull.
   /// With ExplicitOnly (used for evidence emission) only provably nullable
   /// sources count: an explicit _Nullable annotation, a null constant, or
   /// flow-tracked nullable state. Unannotated pointers merely defaulted to
-  /// nullable do not, so no _Nullable is ever inferred from them.
+  /// nullable do not, so no _Nullable is ever inferred from them, and a
+  /// ternary is judged by its merged type.
   bool isExprNullable(const Expr *E, bool ExplicitOnly = false) const {
     if (!E)
       return false;
     E = E->IgnoreParenImpCasts();
     if (!ExplicitOnly)
       E = stripOpaqueValue(E);
+    // Null pointer constants (nullptr, NULL, (T*)0) are always nullable.
+    // The common type of a ternary like cond ? p : (T*)0 may strip the
+    // qualifier, so the arm is judged directly rather than by the
+    // expression's type.
     if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
       return true;
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        return isVarNullable(VD, ExplicitOnly);
-    }
+    // Pointer dynamic_cast is nullable even when its source is non-null, and
+    // under the nonnull default its unannotated result type says nothing, so
+    // this rule is what keeps T *q = dynamic_cast<T *>(p) from narrowing q.
+    if (const auto *DCE = dyn_cast<CXXDynamicCastExpr>(E))
+      if (DCE->getType()->isPointerType())
+        return true;
+    // Other casts preserve null-ness (static_cast<Base*>(this) is non-null).
+    if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
+      return isExprNullable(CE->getSubExpr(), ExplicitOnly);
     // Ternary: nullable iff some arm is nullable and the condition does not
     // guard that arm (p ? p : &x is non-null even though p is nullable,
     // because the true arm is only selected when p tested non-null). The
@@ -2610,17 +2555,18 @@ private:
         return TrueNullable || FalseNullable;
       }
     }
-    if (auto Path = decomposeMemberAccess(E)) {
-      if (isMemberNarrowed(*Path))
+    // A tracked variable or member path: flow state first, then the declared
+    // type of the variable or leaf field.
+    if (auto R = PtrRef::fromExpr(E)) {
+      if (State.isNarrowed(*R))
         return false;
-    }
-    // Pointer dynamic_cast is nullable even when its source is non-null.
-    if (const auto *DCE = dyn_cast<CXXDynamicCastExpr>(E))
-      if (DCE->getType()->isPointerType())
+      if (State.isNullable(*R))
         return true;
-    // Other casts preserve null-ness (static_cast<Base*>(this) is non-null).
-    if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
-      return isExprNullable(CE->getSubExpr(), ExplicitOnly);
+      return isNullableByType(R->getType(), ExplicitOnly);
+    }
+    // Throwing operator new never returns null; nothrow new can.
+    if (const auto *NE = dyn_cast<CXXNewExpr>(E))
+      return NE->shouldNullCheckAllocation();
     if (const auto *CE = dyn_cast<CallExpr>(E)) {
       // Stdlib nullable returns (malloc, fopen, etc.) are provably nullable.
       if (isStdlibNullableReturn(CE))
@@ -2631,6 +2577,19 @@ private:
         if (Handler.isKnownAllReturnsNonnull(Callee))
           return false;
       }
+      // sp.get() follows the smart pointer's flow state. Falls through when
+      // the receiver is neither a smart pointer variable nor a member path.
+      // An unnarrowed receiver is not provably nullable, so ExplicitOnly
+      // falls through to the (unannotated) return type instead.
+      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
+        auto R = PtrRef::fromExpr(Obj);
+        if (R && (R->Path || isSmartPointerType(R->getType()))) {
+          if (isSmartPointerNarrowed(Obj))
+            return false;
+          if (!ExplicitOnly)
+            return true;
+        }
+      }
     }
     if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
       if (UO->getOpcode() == UO_AddrOf)
@@ -2638,11 +2597,6 @@ private:
     }
     if (isa<CXXThisExpr>(E))
       return false;
-    // Throwing operator new never returns null.
-    if (const auto *NE = dyn_cast<CXXNewExpr>(E)) {
-      if (!NE->shouldNullCheckAllocation())
-        return false;
-    }
     // For non-variable expressions, fall back to the declared type.
     return isNullableByType(E->getType(), ExplicitOnly);
   }
