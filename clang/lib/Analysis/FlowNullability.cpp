@@ -965,6 +965,169 @@ static void decomposeChain(const Expr *E, BinaryOperatorKind Op,
   analyzeCondition(E, Ctx, Results, BoolGuards);
 }
 
+/// !(A && B): every && operand held when the outer ! is false, so narrow
+/// all of them on that edge. Returns true when E was handled.
+static bool analyzeNegatedAnd(const Expr *E, bool Negated, ASTContext &Ctx,
+                              SmallVectorImpl<ConditionResult> &Results,
+                              const NullState::BoolGuardMap *BoolGuards) {
+  // !(A && B): the CFG merges the && operand paths before the if-decision,
+  // so individual narrowing from the && blocks is lost at the merge.
+  // Recursively decompose the && to narrow ALL operands on the false edge
+  // (where && was true -> all operands are true -> all pointers non-null).
+  if (Negated) {
+    if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+      if (BO->getOpcode() == BO_LAnd) {
+        // Flatten nested && into a LOCAL vector: Results may already hold
+        // leaves appended by an outer decomposeChain (e.g.
+        // if (x && !(a && b))), and the erase/flip below must not clobber
+        // them.
+        SmallVector<ConditionResult, 4> AndResults;
+        decomposeChain(BO, BO_LAnd, Ctx, AndResults, BoolGuards);
+        // Keep only sub-conditions where the pointer is non-null when the
+        // sub-condition is true (Negated=false). Flip to Negated=true so
+        // narrowing lands on the false edge of the outer !.
+        llvm::erase_if(AndResults,
+                       [](const ConditionResult &CR) { return CR.Negated; });
+        for (auto &CR : AndResults) {
+          CR.Negated = true;
+          Results.push_back(std::move(CR));
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/// p != nullptr / p == nullptr on a raw pointer, and flag == true / flag != 0
+/// on a guard variable. Returns true when BO was such a comparison.
+static bool analyzeNullCompare(const BinaryOperator *BO, bool Negated,
+                               ASTContext &Ctx,
+                               SmallVectorImpl<ConditionResult> &Results,
+                               const NullState::BoolGuardMap *BoolGuards) {
+  if (BO->getOpcode() == BO_NE || BO->getOpcode() == BO_EQ) {
+    const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+    const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+    bool EqNegated = Negated;
+    if (BO->getOpcode() == BO_EQ)
+      EqNegated = !EqNegated;
+
+    // Guard variable compared against a constant: flag == true,
+    // flag != 0, flag == false. The comparison is true exactly when
+    // the guard equals the constant (for ==) or its opposite (for !=), so
+    // the stored facts flip when that target truth value is false.
+    if (BoolGuards) {
+      for (auto [GuardSide, ConstSide] :
+           {std::pair{LHS, RHS}, std::pair{RHS, LHS}}) {
+        const auto *DRE = dyn_cast<DeclRefExpr>(GuardSide);
+        if (!DRE)
+          continue;
+        const auto *GuardVD = dyn_cast<VarDecl>(DRE->getDecl());
+        if (!GuardVD || !GuardVD->getType()->isIntegerType())
+          continue;
+        auto It = BoolGuards->find(GuardVD);
+        if (It == BoolGuards->end())
+          continue;
+        std::optional<bool> CV = constantTruth(ConstSide, Ctx);
+        if (!CV)
+          continue;
+        // EqNegated means the comparison is effectively == (a bare ==,
+        // or != under an odd number of !), so it holds when the guard
+        // equals CV; otherwise it holds when the guard equals !CV.
+        bool GuardTruthWhenTrue = EqNegated ? *CV : !*CV;
+        bool Flip = !GuardTruthWhenTrue;
+        for (ConditionResult CR : It->second) {
+          CR.Negated = CR.Negated != Flip;
+          Results.push_back(std::move(CR));
+        }
+        return true;
+      }
+    }
+
+    // IgnoreParenCasts, not ImpCasts: C spells null constants as
+    // (T *)0 and that explicit cast is not a null pointer constant in
+    // Clang's C mode.
+    bool LHSIsNull = LHS->IgnoreParenCasts()->isNullPointerConstant(
+        Ctx, Expr::NPC_ValueDependentIsNotNull);
+    bool RHSIsNull = RHS->IgnoreParenCasts()->isNullPointerConstant(
+        Ctx, Expr::NPC_ValueDependentIsNotNull);
+
+    if (LHSIsNull || RHSIsNull) {
+      const Expr *PtrExpr = LHSIsNull ? RHS : LHS;
+
+      // Unwrap assignment-in-condition: (p = f()) != nullptr -> narrow p
+      if (const auto *AssignBO = dyn_cast<BinaryOperator>(PtrExpr)) {
+        if (AssignBO->getOpcode() == BO_Assign)
+          PtrExpr = AssignBO->getLHS()->IgnoreParenImpCasts();
+      }
+
+      // Mirror the read-side cast see-through: (T*)p != nullptr narrows p.
+      PtrExpr = lookThroughPtrToPtrCasts(PtrExpr);
+
+      if (auto R = PtrRef::fromExpr(PtrExpr))
+        if (R->getType()->isPointerType())
+          Results.push_back({std::move(*R), EqNegated});
+    }
+    return true;
+  }
+  return false;
+}
+
+/// sp != nullptr / sp == nullptr through an overloaded operator on a smart
+/// pointer. Returns true when OCE was such a comparison.
+static bool
+analyzeSmartPtrNullCompare(const CXXOperatorCallExpr *OCE, bool Negated,
+                           ASTContext &Ctx,
+                           SmallVectorImpl<ConditionResult> &Results) {
+  auto OpKind = OCE->getOperator();
+  if ((OpKind == OO_ExclaimEqual || OpKind == OO_EqualEqual) &&
+      OCE->getNumArgs() == 2) {
+    const Expr *LHS = OCE->getArg(0)->IgnoreParenImpCasts();
+    const Expr *RHS = OCE->getArg(1)->IgnoreParenImpCasts();
+
+    bool LHSIsNull =
+        LHS->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
+    bool RHSIsNull =
+        RHS->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
+
+    if (LHSIsNull || RHSIsNull) {
+      const Expr *PtrExpr = LHSIsNull ? RHS : LHS;
+      PtrExpr = PtrExpr->IgnoreParenImpCasts();
+      bool EqNegated = Negated;
+      if (OpKind == OO_EqualEqual)
+        EqNegated = !EqNegated;
+
+      if (auto R = PtrRef::fromExpr(PtrExpr))
+        if (isSmartPointerType(R->getType()))
+          Results.push_back({std::move(*R), EqNegated});
+    }
+    return true;
+  }
+  return false;
+}
+
+/// if (sp) on a smart pointer: an implicit operator bool() call.
+static void
+analyzeSmartPtrBoolConversion(const CXXMemberCallExpr *MCE, bool Negated,
+                              SmallVectorImpl<ConditionResult> &Results) {
+  if (const auto *CD =
+          dyn_cast_or_null<CXXConversionDecl>(MCE->getMethodDecl())) {
+    if (CD->getConversionType()->isBooleanType()) {
+      const Expr *Obj = MCE->getImplicitObjectArgument();
+      if (Obj && isSmartPointerType(Obj->getType())) {
+        // Obj's type was already checked above, so a variable needs no
+        // further type test; only a path's leaf field does.
+        if (auto R = PtrRef::fromExpr(Obj)) {
+          if (R->VD || isSmartPointerType(R->getType())) {
+            Results.push_back({std::move(*R), Negated});
+            return;
+          }
+        }
+      }
+    }
+  }
+}
+
 /// Analyze a branch condition into ConditionResult facts (see the file
 /// overview). The CFG splits && and || operands into their own blocks, but a
 /// || operand creating a temporary with a destructor (f() == nullptr on a
@@ -1002,129 +1165,18 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   // guarded if ((T*)p) { *p; } produces a false positive.
   E = lookThroughPtrToPtrCasts(E);
 
-  // !(A && B): the CFG merges the && operand paths before the if-decision,
-  // so individual narrowing from the && blocks is lost at the merge.
-  // Recursively decompose the && to narrow ALL operands on the false edge
-  // (where && was true -> all operands are true -> all pointers non-null).
-  if (Negated) {
-    if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
-      if (BO->getOpcode() == BO_LAnd) {
-        // Flatten nested && into a LOCAL vector: Results may already hold
-        // leaves appended by an outer decomposeChain (e.g.
-        // if (x && !(a && b))), and the erase/flip below must not clobber
-        // them.
-        SmallVector<ConditionResult, 4> AndResults;
-        decomposeChain(BO, BO_LAnd, Ctx, AndResults, BoolGuards);
-        // Keep only sub-conditions where the pointer is non-null when the
-        // sub-condition is true (Negated=false). Flip to Negated=true so
-        // narrowing lands on the false edge of the outer !.
-        llvm::erase_if(AndResults,
-                       [](const ConditionResult &CR) { return CR.Negated; });
-        for (auto &CR : AndResults) {
-          CR.Negated = true;
-          Results.push_back(std::move(CR));
-        }
-        return;
-      }
-    }
-  }
+  if (analyzeNegatedAnd(E, Negated, Ctx, Results, BoolGuards))
+    return;
 
-  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
-    if (BO->getOpcode() == BO_NE || BO->getOpcode() == BO_EQ) {
-      const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
-      const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-      bool EqNegated = Negated;
-      if (BO->getOpcode() == BO_EQ)
-        EqNegated = !EqNegated;
-
-      // Guard variable compared against a constant: flag == true,
-      // flag != 0, flag == false. The comparison is true exactly when
-      // the guard equals the constant (for ==) or its opposite (for !=), so
-      // the stored facts flip when that target truth value is false.
-      if (BoolGuards) {
-        for (auto [GuardSide, ConstSide] :
-             {std::pair{LHS, RHS}, std::pair{RHS, LHS}}) {
-          const auto *DRE = dyn_cast<DeclRefExpr>(GuardSide);
-          if (!DRE)
-            continue;
-          const auto *GuardVD = dyn_cast<VarDecl>(DRE->getDecl());
-          if (!GuardVD || !GuardVD->getType()->isIntegerType())
-            continue;
-          auto It = BoolGuards->find(GuardVD);
-          if (It == BoolGuards->end())
-            continue;
-          std::optional<bool> CV = constantTruth(ConstSide, Ctx);
-          if (!CV)
-            continue;
-          // EqNegated means the comparison is effectively == (a bare ==,
-          // or != under an odd number of !), so it holds when the guard
-          // equals CV; otherwise it holds when the guard equals !CV.
-          bool GuardTruthWhenTrue = EqNegated ? *CV : !*CV;
-          bool Flip = !GuardTruthWhenTrue;
-          for (ConditionResult CR : It->second) {
-            CR.Negated = CR.Negated != Flip;
-            Results.push_back(std::move(CR));
-          }
-          return;
-        }
-      }
-
-      // IgnoreParenCasts, not ImpCasts: C spells null constants as
-      // (T *)0 and that explicit cast is not a null pointer constant in
-      // Clang's C mode.
-      bool LHSIsNull = LHS->IgnoreParenCasts()->isNullPointerConstant(
-          Ctx, Expr::NPC_ValueDependentIsNotNull);
-      bool RHSIsNull = RHS->IgnoreParenCasts()->isNullPointerConstant(
-          Ctx, Expr::NPC_ValueDependentIsNotNull);
-
-      if (LHSIsNull || RHSIsNull) {
-        const Expr *PtrExpr = LHSIsNull ? RHS : LHS;
-
-        // Unwrap assignment-in-condition: (p = f()) != nullptr -> narrow p
-        if (const auto *AssignBO = dyn_cast<BinaryOperator>(PtrExpr)) {
-          if (AssignBO->getOpcode() == BO_Assign)
-            PtrExpr = AssignBO->getLHS()->IgnoreParenImpCasts();
-        }
-
-        // Mirror the read-side cast see-through: (T*)p != nullptr narrows p.
-        PtrExpr = lookThroughPtrToPtrCasts(PtrExpr);
-
-        if (auto R = PtrRef::fromExpr(PtrExpr))
-          if (R->getType()->isPointerType())
-            Results.push_back({std::move(*R), EqNegated});
-      }
+  if (const auto *BO = dyn_cast<BinaryOperator>(E))
+    if (analyzeNullCompare(BO, Negated, Ctx, Results, BoolGuards))
       return;
-    }
-  }
 
   // Handle overloaded operator!= / operator== on smart pointers:
   // sp != nullptr is a CXXOperatorCallExpr, not a BinaryOperator.
-  if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(E)) {
-    auto OpKind = OCE->getOperator();
-    if ((OpKind == OO_ExclaimEqual || OpKind == OO_EqualEqual) &&
-        OCE->getNumArgs() == 2) {
-      const Expr *LHS = OCE->getArg(0)->IgnoreParenImpCasts();
-      const Expr *RHS = OCE->getArg(1)->IgnoreParenImpCasts();
-
-      bool LHSIsNull =
-          LHS->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
-      bool RHSIsNull =
-          RHS->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
-
-      if (LHSIsNull || RHSIsNull) {
-        const Expr *PtrExpr = LHSIsNull ? RHS : LHS;
-        PtrExpr = PtrExpr->IgnoreParenImpCasts();
-        bool EqNegated = Negated;
-        if (OpKind == OO_EqualEqual)
-          EqNegated = !EqNegated;
-
-        if (auto R = PtrRef::fromExpr(PtrExpr))
-          if (isSmartPointerType(R->getType()))
-            Results.push_back({std::move(*R), EqNegated});
-      }
+  if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(E))
+    if (analyzeSmartPtrNullCompare(OCE, Negated, Ctx, Results))
       return;
-    }
-  }
 
   if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_Deref) {
@@ -1174,24 +1226,8 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
 
   // Handle smart pointer implicit bool conversion: if (sp) { ... }
   // The AST represents this as a CXXMemberCallExpr to operator bool().
-  if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(E)) {
-    if (const auto *CD =
-            dyn_cast_or_null<CXXConversionDecl>(MCE->getMethodDecl())) {
-      if (CD->getConversionType()->isBooleanType()) {
-        const Expr *Obj = MCE->getImplicitObjectArgument();
-        if (Obj && isSmartPointerType(Obj->getType())) {
-          // Obj's type was already checked above, so a variable needs no
-          // further type test; only a path's leaf field does.
-          if (auto R = PtrRef::fromExpr(Obj)) {
-            if (R->VD || isSmartPointerType(R->getType())) {
-              Results.push_back({std::move(*R), Negated});
-              return;
-            }
-          }
-        }
-      }
-    }
-  }
+  if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(E))
+    analyzeSmartPtrBoolConversion(MCE, Negated, Results);
 }
 
 /// Extract the null-check facts a guard variable's initializer or assigned
@@ -1363,110 +1399,11 @@ public:
     for (const auto *D : DS->decls()) {
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
         if (VD->getType()->isPointerType()) {
-          if (VD->hasInit())
-            recordPointerSource(VD, VD->getInit());
-
-          if (isNonnullType(VD->getType())) {
-            // Flow-sensitive assignment check: warn when initializing a
-            // _Nonnull variable with a nullable value.
-            bool InitIsNullable = false;
-            if (VD->hasInit()) {
-              const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
-              // A ternary's merged type inherits _Nullable from either arm
-              // even when the condition guards that arm (p ? p : q), so
-              // only the arm-aware isNullableInit may judge it.
-              bool IsTernary = isa<AbstractConditionalOperator>(Init);
-              // Don't warn if the init is provably non-null via narrowing.
-              if (!isExprNarrowedNonnull(Init) && !isNonnullInit(Init) &&
-                  !isNonnullType(Init->getType()) &&
-                  ((!IsTernary &&
-                    isNullableType(Init->getType(), DefaultNullability)) ||
-                   isNullableInit(Init))) {
-                InitIsNullable = true;
-                ++NumAssignmentWarnings;
-                Handler.handleNullableAssignment(VD->getInit(), VD);
-              }
-            }
-            // When the init is provably nullable, override the type-based
-            // narrowing: the flow analysis knows better than the declared
-            // type.
-            if (InitIsNullable)
-              State.markNullable(VD);
-            else
-              State.markNarrowed(VD);
-          } else if (VD->hasInit()) {
-            const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
-            if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
-              // Only address-of narrows; other unary operators leave the
-              // variable untracked.
-              if (UO->getOpcode() == UO_AddrOf)
-                narrowAsAddrOf(VD, UO);
-            } else if (isExprNarrowedNonnull(Init) || isNonnullInit(Init) ||
-                       isNonnullType(Init->getType())) {
-              State.markNarrowed(VD);
-            } else {
-              // Unwrap explicit casts to check the SOURCE type, not the
-              // cast result type. Template instantiations can bake
-              // _Nullable into cast result types even when the source is
-              // unannotated (e.g. static_cast<T*>(void_ptr)).
-              bool HasCast = false;
-              const Expr *TypeExpr = stripNonDynamicCasts(Init, &HasCast);
-              // Ternary merged types are judged arm-by-arm (see above).
-              bool IsTernary = isa<AbstractConditionalOperator>(TypeExpr);
-              if ((!IsTernary &&
-                   isNullableType(TypeExpr->getType(), DefaultNullability)) ||
-                  isNullableInit(Init)) {
-                State.markNullable(VD);
-              } else if (HasCast) {
-                // The cast source is not nullable: narrow the var to
-                // override any _Nullable baked into the var's own type
-                // by template instantiation.
-                State.markNarrowed(VD);
-              }
-            }
-          }
+          handlePointerVarInit(VD);
           continue;
         }
-
-        // Track smart pointer initialization: narrow if constructed from a
-        // provably non-null source (make_unique, make_shared, new, etc.)
-        // Strip reference: range-for loop variables have type const T&.
-        if (isSmartPointerType(VD->getType().getNonReferenceType()) &&
-            VD->hasInit()) {
-          const Expr *Init = unwrapImplicitWrappers(VD->getInit());
-          if (isNonnullSmartPtrInit(Init) ||
-              isInitFromNonnullContainerElement(VD)) {
-            State.markNarrowed(VD);
-          } else {
-            // auto x = std::move(other); inherits the source's narrowed
-            // state. The standalone std::move handler skipped the source
-            // erase (see isStdMoveInsideSmartPtrTransferCtx), so the
-            // source's pre-move state is still in NarrowedVars here.
-            const Expr *Inner = Init;
-            if (const auto *CCE = dyn_cast<CXXConstructExpr>(Inner))
-              if (CCE->getNumArgs() == 1)
-                Inner = unwrapImplicitWrappers(CCE->getArg(0));
-            if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
-              if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
-                if (auto Src = smartPtrRef(CE->getArg(0))) {
-                  if (State.isNarrowed(*Src))
-                    State.markNarrowed(VD);
-                  State.markNullable(*Src);
-                }
-              }
-            }
-          }
-        }
-
-        // Track guard variables initialized from null-checks so that
-        // intermediaries like bool valid = (p != nullptr) or
-        // int ok = p ? 1 : 0 later narrow p when used as a condition.
-        if (VD->getType()->isIntegerType() && VD->hasInit()) {
-          SmallVector<ConditionResult, 2> Facts;
-          computeGuardFacts(VD->getInit(), Ctx, State.BoolGuards, Facts);
-          if (!Facts.empty())
-            State.BoolGuards[VD] = std::move(Facts);
-        }
+        handleSmartPtrVarInit(VD);
+        recordGuardInit(VD);
       }
     }
   }
@@ -1672,6 +1609,117 @@ public:
   }
 
 private:
+  /// Classify a raw pointer variable from its initializer: record aliases,
+  /// warn on a nullable init of a _Nonnull variable, then narrow or taint.
+  void handlePointerVarInit(const VarDecl *VD) {
+    if (VD->hasInit())
+      recordPointerSource(VD, VD->getInit());
+
+    if (isNonnullType(VD->getType())) {
+      // Flow-sensitive assignment check: warn when initializing a
+      // _Nonnull variable with a nullable value.
+      bool InitIsNullable = false;
+      if (VD->hasInit()) {
+        const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
+        // A ternary's merged type inherits _Nullable from either arm
+        // even when the condition guards that arm (p ? p : q), so
+        // only the arm-aware isNullableInit may judge it.
+        bool IsTernary = isa<AbstractConditionalOperator>(Init);
+        // Don't warn if the init is provably non-null via narrowing.
+        if (!isExprNarrowedNonnull(Init) && !isNonnullInit(Init) &&
+            !isNonnullType(Init->getType()) &&
+            ((!IsTernary &&
+              isNullableType(Init->getType(), DefaultNullability)) ||
+             isNullableInit(Init))) {
+          InitIsNullable = true;
+          ++NumAssignmentWarnings;
+          Handler.handleNullableAssignment(VD->getInit(), VD);
+        }
+      }
+      // When the init is provably nullable, override the type-based
+      // narrowing: the flow analysis knows better than the declared
+      // type.
+      if (InitIsNullable)
+        State.markNullable(VD);
+      else
+        State.markNarrowed(VD);
+    } else if (VD->hasInit()) {
+      const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
+      if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
+        // Only address-of narrows; other unary operators leave the
+        // variable untracked.
+        if (UO->getOpcode() == UO_AddrOf)
+          narrowAsAddrOf(VD, UO);
+      } else if (isExprNarrowedNonnull(Init) || isNonnullInit(Init) ||
+                 isNonnullType(Init->getType())) {
+        State.markNarrowed(VD);
+      } else {
+        // Unwrap explicit casts to check the SOURCE type, not the
+        // cast result type. Template instantiations can bake
+        // _Nullable into cast result types even when the source is
+        // unannotated (e.g. static_cast<T*>(void_ptr)).
+        bool HasCast = false;
+        const Expr *TypeExpr = stripNonDynamicCasts(Init, &HasCast);
+        // Ternary merged types are judged arm-by-arm (see above).
+        bool IsTernary = isa<AbstractConditionalOperator>(TypeExpr);
+        if ((!IsTernary &&
+             isNullableType(TypeExpr->getType(), DefaultNullability)) ||
+            isNullableInit(Init)) {
+          State.markNullable(VD);
+        } else if (HasCast) {
+          // The cast source is not nullable: narrow the var to
+          // override any _Nullable baked into the var's own type
+          // by template instantiation.
+          State.markNarrowed(VD);
+        }
+      }
+    }
+  }
+
+  /// Track smart pointer initialization: narrow if constructed from a
+  /// provably non-null source (make_unique, make_shared, new, etc.)
+  void handleSmartPtrVarInit(const VarDecl *VD) {
+    // Strip reference: range-for loop variables have type const T&.
+    if (isSmartPointerType(VD->getType().getNonReferenceType()) &&
+        VD->hasInit()) {
+      const Expr *Init = unwrapImplicitWrappers(VD->getInit());
+      if (isNonnullSmartPtrInit(Init) ||
+          isInitFromNonnullContainerElement(VD)) {
+        State.markNarrowed(VD);
+      } else {
+        // auto x = std::move(other); inherits the source's narrowed
+        // state. The standalone std::move handler skipped the source
+        // erase (see isStdMoveInsideSmartPtrTransferCtx), so the
+        // source's pre-move state is still in NarrowedVars here.
+        const Expr *Inner = Init;
+        if (const auto *CCE = dyn_cast<CXXConstructExpr>(Inner))
+          if (CCE->getNumArgs() == 1)
+            Inner = unwrapImplicitWrappers(CCE->getArg(0));
+        if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
+          if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
+            if (auto Src = smartPtrRef(CE->getArg(0))) {
+              if (State.isNarrowed(*Src))
+                State.markNarrowed(VD);
+              State.markNullable(*Src);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Track guard variables initialized from null-checks so that
+  /// intermediaries like bool valid = (p != nullptr) or
+  /// int ok = p ? 1 : 0 later narrow p when used as a condition.
+  void recordGuardInit(const VarDecl *VD) {
+    if (VD->getType()->isIntegerType() && VD->hasInit()) {
+      SmallVector<ConditionResult, 2> Facts;
+      computeGuardFacts(VD->getInit(), Ctx, State.BoolGuards, Facts);
+      if (!Facts.empty())
+        State.BoolGuards[VD] = std::move(Facts);
+    }
+  }
+
   /// __builtin_assume(cond) narrows pointers mentioned in cond.
   void narrowFromBuiltinAssume(const CallExpr *CE, const FunctionDecl *Callee) {
     if (Callee->getBuiltinID() == Builtin::BI__builtin_assume &&
