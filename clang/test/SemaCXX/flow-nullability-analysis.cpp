@@ -528,14 +528,17 @@ void bool_test_guard_in_and(Node * _Nullable p, Node * _Nullable q) {
     }
 }
 
-// Bool guard does not track compound conditions
+// Bool guard built from a conjunction: guard true means every conjunct held
 
-void bool_test_compound_not_tracked(Node * _Nullable p, Node * _Nullable q) {
+void bool_test_compound_tracked(Node * _Nullable p, Node * _Nullable q) {
     bool both = (p && q);
     if (both) {
-        // Compound conditions are not decomposed into per-variable guards
+        (void)p->value; // OK
+        (void)q->value; // OK
+    }
+    if (!both) {
+        // Guard false says nothing about either operand
         (void)p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
-        (void)q->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 }
 
