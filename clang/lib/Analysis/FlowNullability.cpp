@@ -1373,9 +1373,9 @@ public:
             // narrowing: the flow analysis knows better than the declared
             // type.
             if (InitIsNullable)
-              State.NullableVars.insert(VD);
+              State.markNullable(VD);
             else
-              State.NarrowedVars.insert(VD);
+              State.markNarrowed(VD);
           } else if (VD->hasInit()) {
             const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
             if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
@@ -1385,7 +1385,7 @@ public:
                 narrowAsAddrOf(VD, UO);
             } else if (isExprNarrowedNonnull(Init) || isNonnullInit(Init) ||
                        isNonnullType(Init->getType())) {
-              State.NarrowedVars.insert(VD);
+              State.markNarrowed(VD);
             } else {
               // Unwrap explicit casts to check the SOURCE type, not the
               // cast result type. Template instantiations can bake
@@ -1398,12 +1398,12 @@ public:
               if ((!IsTernary &&
                    isNullableType(TypeExpr->getType(), DefaultNullability)) ||
                   isNullableInit(Init)) {
-                State.NullableVars.insert(VD);
+                State.markNullable(VD);
               } else if (HasCast) {
                 // The cast source is not nullable: narrow the var to
                 // override any _Nullable baked into the var's own type
                 // by template instantiation.
-                State.NarrowedVars.insert(VD);
+                State.markNarrowed(VD);
               }
             }
           }
@@ -1418,7 +1418,7 @@ public:
           const Expr *Init = unwrapImplicitWrappers(VD->getInit());
           if (isNonnullSmartPtrInit(Init) ||
               isInitFromNonnullContainerElement(VD)) {
-            State.NarrowedVars.insert(VD);
+            State.markNarrowed(VD);
           } else {
             // auto x = std::move(other); inherits the source's narrowed
             // state. The standalone std::move handler skipped the source
@@ -1432,12 +1432,12 @@ public:
               if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
                 if (const auto *SrcVD = getSmartPtrVarDecl(CE->getArg(0))) {
                   if (isNarrowed(SrcVD))
-                    State.NarrowedVars.insert(VD);
+                    State.markNarrowed(VD);
                   State.markNullable(SrcVD);
                 } else if (auto SrcPath =
                                getSmartPtrMemberPath(CE->getArg(0))) {
                   if (isMemberNarrowed(*SrcPath))
-                    State.NarrowedVars.insert(VD);
+                    State.markNarrowed(VD);
                   State.markNullable(*SrcPath);
                 }
               }
@@ -1547,18 +1547,18 @@ public:
           // Null constant assigned to _Nonnull member: warn immediately.
           if (!Narrowed && isNonnullType(FD->getType()) &&
               isNullableInit(RHS) && !isNonnullInit(RHS)) {
-            State.NullableMembers.insert(*LhsPath);
+            State.markNullable(*LhsPath);
             ++NumAssignmentWarnings;
             Handler.handleNullableMemberAssignment(BO, FD);
           } else {
             Narrowed = Narrowed || isNonnullInit(RHS) ||
                        isNonnullType(BO->getRHS()->getType());
             if (Narrowed) {
-              State.NarrowedMembers.insert(*LhsPath);
+              State.markNarrowed(*LhsPath);
             } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
                                                      DefaultNullability)) ||
                        isNullableInit(RHS)) {
-              State.NullableMembers.insert(*LhsPath);
+              State.markNullable(*LhsPath);
             }
           }
 
@@ -1618,23 +1618,23 @@ public:
             if (RHSUO && RHSUO->getOpcode() == UO_AddrOf) {
               narrowAsAddrOf(VD, RHSUO);
             } else if (isExprNarrowedNonnull(RHS)) {
-              State.NarrowedVars.insert(VD);
+              State.markNarrowed(VD);
             } else if (isNonnullType(VD->getType()) && isNullableInit(RHS) &&
                        !isNonnullInit(RHS)) {
               // Null constant assigned to _Nonnull: warn immediately.
               // Check before isNonnullInit/isNonnullType because implicit
               // casts can propagate _Nonnull from the LHS onto the RHS type.
-              State.NullableVars.insert(VD);
+              State.markNullable(VD);
               ++NumAssignmentWarnings;
               Handler.handleNullableAssignment(BO, VD);
             } else if (isNonnullInit(RHS)) {
-              State.NarrowedVars.insert(VD);
+              State.markNarrowed(VD);
             } else if (isNonnullType(BO->getRHS()->getType())) {
-              State.NarrowedVars.insert(VD);
+              State.markNarrowed(VD);
             } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
                                                      DefaultNullability)) ||
                        isNullableInit(RHS)) {
-              State.NullableVars.insert(VD);
+              State.markNullable(VD);
               if (isNonnullType(VD->getType())) {
                 ++NumAssignmentWarnings;
                 Handler.handleNullableAssignment(BO, VD);
@@ -1850,17 +1850,17 @@ public:
               State.NarrowedVars.erase(VD);
               State.NullableVars.erase(VD);
               if (Result == ResetNullability::Nonnull)
-                State.NarrowedVars.insert(VD);
+                State.markNarrowed(VD);
               else if (Result == ResetNullability::Null)
-                State.NullableVars.insert(VD);
+                State.markNullable(VD);
             }
             if (auto Path = getSmartPtrMemberPath(Obj)) {
               State.NarrowedMembers.erase(*Path);
               State.NullableMembers.erase(*Path);
               if (Result == ResetNullability::Nonnull)
-                State.NarrowedMembers.insert(*Path);
+                State.markNarrowed(*Path);
               else if (Result == ResetNullability::Null)
-                State.NullableMembers.insert(*Path);
+                State.markNullable(*Path);
             }
           }
         }
@@ -2307,7 +2307,7 @@ private:
   /// VD = &local: VD is non-null, and remember the target so a later store
   /// through VD (*VD = x) can drop the target's narrowing.
   void narrowAsAddrOf(const VarDecl *VD, const UnaryOperator *AddrOf) {
-    State.NarrowedVars.insert(VD);
+    State.markNarrowed(VD);
     if (const auto *TgtDRE =
             dyn_cast<DeclRefExpr>(AddrOf->getSubExpr()->IgnoreParenImpCasts()))
       if (const auto *TgtVD = dyn_cast<VarDecl>(TgtDRE->getDecl()))
@@ -2710,7 +2710,7 @@ static NullState seedEntryState(const Decl *D) {
       continue;
     if (isNonnullType(Param->getType()) || AttrNonnull.contains(Param) ||
         (IsLambda && !isExplicitlyNullableType(Param->getType())))
-      InitState.NarrowedVars.insert(Param);
+      InitState.markNarrowed(Param);
   }
   return InitState;
 }
