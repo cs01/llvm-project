@@ -1605,8 +1605,10 @@ private:
   /// Classify a raw pointer variable from its initializer: record aliases,
   /// warn on a nullable init of a _Nonnull variable, then narrow or taint.
   void handlePointerVarInit(const VarDecl *VD) {
-    if (VD->hasInit())
+    if (VD->hasInit()) {
       recordPointerSource(VD, VD->getInit());
+      recordTernaryPointerGuard(VD, VD->getInit());
+    }
 
     if (isNonnullType(VD->getType())) {
       bool InitIsNullable = false;
@@ -1703,6 +1705,55 @@ private:
       if (!Facts.empty())
         State.BoolGuards[VD] = std::move(Facts);
     }
+  }
+
+  /// The inverse of recordGuardInit. A pointer initialized from a ternary
+  /// with one provably non-null arm and one null constant is non-null
+  /// exactly when the condition holds, so p = c ? &x : nullptr records
+  /// {c -> [(p, Negated=false)]} and a later if (c) narrows p through the
+  /// existing guard-variable path. The condition must be a plain integer
+  /// variable (optionally negated); anything else has no VarDecl to key on.
+  void recordTernaryPointerGuard(const VarDecl *PtrVD, const Expr *Init) {
+    if (!Init || !PtrVD->getType()->isPointerType())
+      return;
+    const auto *CO =
+        dyn_cast<AbstractConditionalOperator>(Init->IgnoreParenImpCasts());
+    if (!CO)
+      return;
+    const Expr *TrueArm = CO->getTrueExpr()->IgnoreParenImpCasts();
+    const Expr *FalseArm = CO->getFalseExpr()->IgnoreParenImpCasts();
+    bool TrueIsNull =
+        TrueArm->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
+    bool FalseIsNull =
+        FalseArm->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
+    if (TrueIsNull == FalseIsNull)
+      return;
+    // c ? maybenull : nullptr proves nothing on the true edge, so the
+    // surviving arm has to be provably non-null.
+    const Expr *NonnullArm = TrueIsNull ? FalseArm : TrueArm;
+    if (!isNonnullInit(NonnullArm) && !isExprNarrowedNonnull(NonnullArm) &&
+        !isNonnullType(NonnullArm->getType()))
+      return;
+    bool Negated = TrueIsNull;
+    const Expr *Cond = CO->getCond()->IgnoreParenImpCasts();
+    while (const auto *UO = dyn_cast<UnaryOperator>(Cond)) {
+      if (UO->getOpcode() != UO_LNot)
+        break;
+      Negated = !Negated;
+      Cond = UO->getSubExpr()->IgnoreParenImpCasts();
+    }
+    const auto *DRE = dyn_cast<DeclRefExpr>(Cond);
+    if (!DRE)
+      return;
+    const auto *GuardVD = dyn_cast<VarDecl>(DRE->getDecl());
+    if (!GuardVD || !GuardVD->getType()->isIntegerType())
+      return;
+    ConditionResult CR{PtrRef{PtrVD, std::nullopt}, Negated};
+    auto &Facts = State.BoolGuards[GuardVD];
+    // Re-recording on each fixpoint iteration must not grow the vector, or
+    // the block entry state never compares equal and never converges.
+    if (!llvm::is_contained(Facts, CR))
+      Facts.push_back(CR);
   }
 
   /// __builtin_assume(cond) narrows pointers mentioned in cond.
@@ -2027,6 +2078,7 @@ private:
     if (BO->getOpcode() == BO_Assign) {
       const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
       recordPointerSource(VD, RHS);
+      recordTernaryPointerGuard(VD, RHS);
 
       // Ternary merged types are judged arm-by-arm by
       // isExprNullable/isNonnullInit (see VisitDeclStmt).
