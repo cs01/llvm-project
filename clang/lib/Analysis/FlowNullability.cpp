@@ -1539,35 +1539,24 @@ class TransferFunctions {
   /// Remove any BoolGuards with a fact about the given pointer variable,
   /// directly or as the root of a member path.
   void invalidateBoolGuardsFor(const VarDecl *VD) {
-    SmallVector<const VarDecl *, 2> ToRemove;
-    for (const auto &[BoolVD, Facts] : State.BoolGuards)
-      for (const auto &CR : Facts)
-        if (CR.VD == VD || (CR.MemberPath && CR.MemberPath->Root == VD)) {
-          ToRemove.push_back(BoolVD);
-          break;
-        }
-    for (const auto *BoolVD : ToRemove)
-      State.BoolGuards.erase(BoolVD);
+    State.BoolGuards.remove_if([VD](const auto &Entry) {
+      return llvm::any_of(Entry.second, [VD](const ConditionResult &CR) {
+        return CR.VD == VD || (CR.MemberPath && CR.MemberPath->Root == VD);
+      });
+    });
   }
 
   /// Remove BoolGuards and member aliases that mention a member path under
   /// Prefix (the path was just assigned, so the facts are stale).
   void invalidateGuardsAndAliasesWithPrefix(const MemberAccessPath &Prefix) {
-    SmallVector<const VarDecl *, 2> ToRemove;
-    for (const auto &[BoolVD, Facts] : State.BoolGuards)
-      for (const auto &CR : Facts)
-        if (CR.MemberPath && pathHasPrefix(*CR.MemberPath, Prefix)) {
-          ToRemove.push_back(BoolVD);
-          break;
-        }
-    for (const auto *BoolVD : ToRemove)
-      State.BoolGuards.erase(BoolVD);
-    ToRemove.clear();
-    for (const auto &[AliasVD, Path] : State.MemberAliases)
-      if (pathHasPrefix(Path, Prefix))
-        ToRemove.push_back(AliasVD);
-    for (const auto *AliasVD : ToRemove)
-      State.MemberAliases.erase(AliasVD);
+    State.BoolGuards.remove_if([&Prefix](const auto &Entry) {
+      return llvm::any_of(Entry.second, [&Prefix](const ConditionResult &CR) {
+        return CR.MemberPath && pathHasPrefix(*CR.MemberPath, Prefix);
+      });
+    });
+    State.MemberAliases.remove_if([&Prefix](const auto &Entry) {
+      return pathHasPrefix(Entry.second, Prefix);
+    });
   }
 
   /// True when the pointer-valued expression is known non-null right now:
@@ -1628,12 +1617,8 @@ class TransferFunctions {
   /// Remove any Aliases that target the given pointer variable (the alias
   /// source was reassigned, so copies of its old value are stale).
   void invalidateAliasesFor(const VarDecl *VD) {
-    SmallVector<const VarDecl *, 2> ToRemove;
-    for (const auto &[AliasVD, TargetVD] : State.Aliases)
-      if (TargetVD == VD)
-        ToRemove.push_back(AliasVD);
-    for (const auto *AliasVD : ToRemove)
-      State.Aliases.erase(AliasVD);
+    State.Aliases.remove_if(
+        [VD](const auto &Entry) { return Entry.second == VD; });
   }
 
   /// The recorded canonical alias target of VD (the map is depth-1), or VD
@@ -1645,24 +1630,13 @@ class TransferFunctions {
 
   /// Drop every narrowed/nullable member path and member alias rooted at VD.
   void invalidateMembersFor(const VarDecl *VD) {
-    SmallVector<MemberAccessPath, 4> ToRemove;
-    for (const auto &Path : State.NarrowedMembers)
-      if (Path.Root == VD)
-        ToRemove.push_back(Path);
-    for (const auto &Path : ToRemove)
-      State.NarrowedMembers.erase(Path);
-    ToRemove.clear();
-    for (const auto &Path : State.NullableMembers)
-      if (Path.Root == VD)
-        ToRemove.push_back(Path);
-    for (const auto &Path : ToRemove)
-      State.NullableMembers.erase(Path);
-    SmallVector<const VarDecl *, 2> AliasesToRemove;
-    for (const auto &[AliasVD, Path] : State.MemberAliases)
-      if (Path.Root == VD)
-        AliasesToRemove.push_back(AliasVD);
-    for (const auto *AliasVD : AliasesToRemove)
-      State.MemberAliases.erase(AliasVD);
+    auto RootedAtVD = [VD](const MemberAccessPath &Path) {
+      return Path.Root == VD;
+    };
+    State.NarrowedMembers.remove_if(RootedAtVD);
+    State.NullableMembers.remove_if(RootedAtVD);
+    State.MemberAliases.remove_if(
+        [&](const auto &Entry) { return RootedAtVD(Entry.second); });
   }
 
   /// Drop every fact that named VD's old value: member paths rooted at it,
@@ -1680,16 +1654,11 @@ class TransferFunctions {
   /// Invalidate all narrowed/nullable member paths that start with Prefix.
   /// e.g. assigning to var.inner invalidates var.inner.x, var.inner.y, etc.
   void invalidateMembersWithPrefix(const MemberAccessPath &Prefix) {
-    auto removeWithPrefix = [&](llvm::DenseSet<MemberAccessPath> &Set) {
-      SmallVector<MemberAccessPath, 4> ToRemove;
-      for (const auto &Path : Set)
-        if (pathHasPrefix(Path, Prefix))
-          ToRemove.push_back(Path);
-      for (const auto &Path : ToRemove)
-        Set.erase(Path);
+    auto HasPrefix = [&Prefix](const MemberAccessPath &Path) {
+      return pathHasPrefix(Path, Prefix);
     };
-    removeWithPrefix(State.NarrowedMembers);
-    removeWithPrefix(State.NullableMembers);
+    State.NarrowedMembers.remove_if(HasPrefix);
+    State.NullableMembers.remove_if(HasPrefix);
     invalidateGuardsAndAliasesWithPrefix(Prefix);
   }
 
