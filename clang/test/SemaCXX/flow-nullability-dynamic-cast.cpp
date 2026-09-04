@@ -95,3 +95,38 @@ void memberAssignFromDynamicCastWarns(Holder &h, Base *_Nonnull p) {
   h.d = dynamic_cast<Derived *>(p); // expected-remark-re{{member 'd' of Holder (declared at {{.*}}) assigned from nullable source}}
   h.d->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
+
+// ===----------------------------------------------------------------------===//
+// A dynamic_cast nested under arithmetic or another cast is still the origin
+// ===----------------------------------------------------------------------===//
+// Unwrapping at a dereference site must stop at the dynamic_cast rather than
+// judging its (non-null) source.
+
+void derefDynamicCastPlusOne(Base *_Nonnull p) {
+  (*(dynamic_cast<Derived *>(p) + 1)).value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void arrowDynamicCastPlusOne(Base *_Nonnull p) {
+  (dynamic_cast<Derived *>(p) + 1)->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void staticCastOfDynamicCastPlusOne(Base *_Nonnull p) {
+  static_cast<Derived *>(dynamic_cast<Derived *>(p) + 1)->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void staticCastOfDynamicCast(Base *_Nonnull p) {
+  static_cast<Derived *>(dynamic_cast<Derived *>(p))->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+  (*static_cast<Derived *>(dynamic_cast<Derived *>(p))).value = 2; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void starDynamicCast(Base *_Nonnull p) {
+  (*dynamic_cast<Derived *>(p)).value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void narrowedDynamicCastArithmeticIsSafe(Base *_Nonnull p) {
+  if (auto *q = dynamic_cast<Derived *>(p)) {
+    (*(q + 1)).value = 1;
+    (q + 1)->value = 2;
+    static_cast<Derived *>(q + 1)->value = 3;
+  }
+}

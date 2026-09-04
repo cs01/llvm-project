@@ -1317,11 +1317,15 @@ static const Expr *smartPtrGetReceiver(const CallExpr *CE) {
 /// expression. Template instantiations can bake _Nullable into a cast's
 /// result type even when the source is unannotated, so when FoundCast is
 /// set callers must judge nullability on the source type, not the cast.
+/// Stops at a dynamic_cast, which can yield null from a non-null source: the
+/// cast itself is then the origin.
 static const Expr *unwrapCastsAndArithmetic(const Expr *E, bool &FoundCast) {
   FoundCast = false;
   while (true) {
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
       FoundCast = true;
+      if (isa<CXXDynamicCastExpr>(CE))
+        break;
       E = CE->getSubExpr()->IgnoreParenImpCasts();
     } else if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
       if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
@@ -2130,20 +2134,19 @@ private:
   /// Unwraps casts/arithmetic to avoid template-instantiation false
   /// positives where _Nullable is baked into cast result types.
   void checkExprDeref(const Expr *DerefExpr, const Expr *PtrExpr) {
+    bool FoundCast = false;
+    const Expr *Origin = unwrapCastsAndArithmetic(PtrExpr, FoundCast);
+
     // dynamic_cast<T*> yields null on a failed runtime check regardless of the
-    // source's nullability, and unwrapCastsAndArithmetic below would hide that
-    // by inspecting the source, so catch it up front. The narrowed idiom
+    // source's nullability, so it is judged as the origin even under further
+    // casts or arithmetic. The narrowed idiom
     // if (auto *d = dynamic_cast<T*>(p)) derefs the VarDecl d, not the cast.
-    if (const auto *DCE =
-            dyn_cast<CXXDynamicCastExpr>(PtrExpr->IgnoreParenImpCasts())) {
+    if (const auto *DCE = dyn_cast<CXXDynamicCastExpr>(Origin)) {
       if (DCE->getType()->isPointerType()) {
         reportDeref(DerefExpr, DCE->getType());
         return;
       }
     }
-
-    bool FoundCast = false;
-    const Expr *Origin = unwrapCastsAndArithmetic(PtrExpr, FoundCast);
 
     // *(p ? p : fallback): the merged type of a ternary inherits _Nullable
     // from an arm the condition guards, so judge the arms flow-sensitively.
