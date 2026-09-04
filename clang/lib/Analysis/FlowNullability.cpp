@@ -62,12 +62,14 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 #include <optional>
 #include <utility>
 
@@ -887,6 +889,8 @@ static void decomposeAnd(const Expr *E, ASTContext &Ctx,
                          SmallVectorImpl<ConditionResult> &Results,
                          const NullState::BoolGuardMap *BoolGuards) {
   E = E->IgnoreParenImpCasts();
+  if (const auto *EWC = dyn_cast<ExprWithCleanups>(E))
+    E = EWC->getSubExpr()->IgnoreParenImpCasts();
   if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
     if (BO->getOpcode() == BO_LAnd) {
       decomposeAnd(BO->getLHS(), Ctx, Results, BoolGuards);
@@ -938,7 +942,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
     E = RBO->getSemanticForm()->IgnoreParenImpCasts();
 
   bool Negated = false;
-  while (auto *UO = dyn_cast<UnaryOperator>(E)) {
+  while (const auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() != UO_LNot)
       break;
     Negated = !Negated;
@@ -1100,8 +1104,8 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_Deref) {
       const Expr *SubExpr = UO->getSubExpr()->IgnoreParenImpCasts();
-      if (auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
-        if (auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (VD->getType()->isPointerType()) {
             Results.push_back({VD, std::nullopt, Negated});
             return;
@@ -1117,8 +1121,8 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       E = AssignBO->getLHS()->IgnoreParenImpCasts();
   }
 
-  if (auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-    if (auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
       if (VD->getType()->isPointerType()) {
         Results.push_back({VD, std::nullopt, Negated});
         return;
@@ -1274,6 +1278,10 @@ class TransferFunctions {
   // When false, the built-in stdlib nullable-return list (malloc/fopen/...) is
   // ignored (-fno-nullability-stdlib-annotations).
   bool StdlibAnnotations;
+  // The enclosing function declaration, needed for return type checking.
+  const FunctionDecl *EnclosingFunc;
+  // Function-scoped parent map; see isStdMoveInsideSmartPtrTransferCtx.
+  const ParentMap *ParentMapPtr;
 
   bool isNarrowed(const VarDecl *VD) const {
     return State.NarrowedVars.contains(VD);
@@ -1343,7 +1351,7 @@ class TransferFunctions {
   /// set callers must judge nullability on the source type, not the cast.
   static const Expr *unwrapCastsAndArithmetic(const Expr *E, bool &FoundCast) {
     FoundCast = false;
-    for (;;) {
+    while (true) {
       if (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
         FoundCast = true;
         E = CE->getSubExpr()->IgnoreParenImpCasts();
@@ -1479,7 +1487,7 @@ class TransferFunctions {
       LLVM_DEBUG(llvm::dbgs()
                  << "  deref: var '" << VD->getNameAsString() << "'\n");
       ++NumDereferenceWarnings;
-      return Handler.handleNullableDereference(DerefExpr, Ty);
+      Handler.handleNullableDereference(DerefExpr, Ty);
     }
   }
 
@@ -1692,20 +1700,12 @@ class TransferFunctions {
 public:
   TransferFunctions(NullState &State, FlowNullabilityHandler &Handler,
                     ReturnSummary &Returns, ASTContext &Ctx,
-                    NullabilityKind DefaultNullability, bool StdlibAnnotations)
+                    NullabilityKind DefaultNullability, bool StdlibAnnotations,
+                    const FunctionDecl *EnclosingFunc, const ParentMap *PM)
       : State(State), Handler(Handler), Returns(Returns), Ctx(Ctx),
         DefaultNullability(DefaultNullability),
-        StdlibAnnotations(StdlibAnnotations) {}
-
-  // The enclosing function declaration, needed for return type checking.
-  const FunctionDecl *EnclosingFunc = nullptr;
-
-  void setEnclosingFunc(const FunctionDecl *FD) { EnclosingFunc = FD; }
-
-  // Function-scoped parent map; see isStdMoveInsideSmartPtrTransferCtx.
-  const ParentMap *ParentMapPtr = nullptr;
-
-  void setParentMap(const ParentMap *PM) { ParentMapPtr = PM; }
+        StdlibAnnotations(StdlibAnnotations), EnclosingFunc(EnclosingFunc),
+        ParentMapPtr(PM) {}
 
   void visit(const Stmt *S) {
     if (!S)
@@ -1984,11 +1984,12 @@ private:
     // (p ? p : fallback: the true arm's p is non-null because tested).
     if (const auto *CO = dyn_cast<AbstractConditionalOperator>(Init)) {
       const Expr *Cond = CO->getCond();
-      bool TrueNullable = isNullableInit(CO->getTrueExpr()) &&
-                          !armNarrowedByCondition(CO->getTrueExpr(), Cond, true);
-      bool FalseNullable =
-          isNullableInit(CO->getFalseExpr()) &&
-          !armNarrowedByCondition(CO->getFalseExpr(), Cond, false);
+      const Expr *TrueArm = CO->getTrueExpr();
+      const Expr *FalseArm = CO->getFalseExpr();
+      bool TrueNullable = isNullableInit(TrueArm) &&
+                          !armNarrowedByCondition(TrueArm, Cond, true);
+      bool FalseNullable = isNullableInit(FalseArm) &&
+                           !armNarrowedByCondition(FalseArm, Cond, false);
       return TrueNullable || FalseNullable;
     }
     if (isNullableType(Init->getType(), DefaultNullability))
@@ -3002,6 +3003,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   ForwardDataflowWorklist Worklist(*Cfg, AC);
 
   const CFGBlock &Entry = Cfg->getEntry();
+  const auto *EnclosingFunc = dyn_cast_or_null<FunctionDecl>(AC.getDecl());
   NullState InitState = seedEntryState(AC.getDecl());
   emitCtorInitEvidence(AC.getDecl(), Ctx, InitState, Handler);
 
@@ -3074,10 +3076,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     BlockEntryStates[BlockID] = State;
 
     TransferFunctions TF(State, Handler, Returns, Ctx, Default,
-                         StdlibAnnotations);
-    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(AC.getDecl()))
-      TF.setEnclosingFunc(FD);
-    TF.setParentMap(&PM);
+                         StdlibAnnotations, EnclosingFunc, &PM);
     for (const auto &Elem : *Block) {
       if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
         TF.visit(CS->getStmt());
