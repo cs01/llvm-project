@@ -3328,7 +3328,6 @@ static void FlowNullabilityTUAnalysis(
 
   FlowNullabilityReporter Reporter(S, AllReturnsNonnullFuncs);
   NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
-  bool StrictMode = (Default != NullabilityKind::Unspecified);
   bool StdlibAnnotations = S.getLangOpts().NullabilityStdlibAnnotations;
 
   // scc_iterator visits SCCs in reverse topological order: if SCC A calls
@@ -3356,12 +3355,10 @@ static void FlowNullabilityTUAnalysis(
         // were already proven nonnull are still used for narrowing.
         FlowNullabilityReporter SCCReporter(S, AllReturnsNonnullFuncs,
                                             /*SuppressInference=*/true);
-        runFlowNullabilityAnalysis(AC, SCCReporter, StrictMode, Default,
-                                   StdlibAnnotations);
+        runFlowNullabilityAnalysis(AC, SCCReporter, Default, StdlibAnnotations);
         SCCReporter.emitDiagnostics();
       } else {
-        runFlowNullabilityAnalysis(AC, Reporter, StrictMode, Default,
-                                   StdlibAnnotations);
+        runFlowNullabilityAnalysis(AC, Reporter, Default, StdlibAnnotations);
         Reporter.emitDiagnostics();
       }
     }
