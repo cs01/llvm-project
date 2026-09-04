@@ -20,7 +20,6 @@
 namespace clang {
 
 class AnalysisDeclContext;
-class CXXRecordDecl;
 class Expr;
 class FieldDecl;
 class FunctionDecl;
@@ -48,11 +47,6 @@ public:
   virtual void handleMemberAssignEvidence(const Expr *AssignExpr,
                                           const FieldDecl *Member,
                                           bool IsNonnull) {}
-
-  /// Analysis bookkeeping: called for every pointer-valued return expression.
-  /// \p IsNonnull is true only when the expression is provably non-null.
-  virtual void handlePointerReturn(const Expr *RetExpr,
-                                   const FunctionDecl *Func, bool IsNonnull) {}
 
   /// Evidence collection: called when a function returns a pointer.
   /// \p IsNonnull is true if the returned expression is provably non-null.
@@ -83,7 +77,6 @@ public:
 
 void runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                                 FlowNullabilityHandler &Handler,
-                                bool StrictMode,
                                 NullabilityKind DefaultNullability,
                                 bool StdlibAnnotations = true);
 
