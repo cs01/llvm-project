@@ -187,16 +187,44 @@ static bool pathHasPrefix(const MemberAccessPath &Path,
 
 namespace {
 
+/// A tracked pointer: a local variable or parameter, or a member access path
+/// (exactly one of VD and Path is set).
+struct PtrRef {
+  const VarDecl *VD = nullptr;
+  std::optional<MemberAccessPath> Path;
+
+  /// Resolve E (parens and implicit casts ignored) to a tracked pointer, or
+  /// nullopt when it is neither a DeclRefExpr to a VarDecl nor a member
+  /// access chain rooted at a VarDecl or this.
+  static std::optional<PtrRef> fromExpr(const Expr *E) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+        return PtrRef{VD, std::nullopt};
+      return std::nullopt;
+    }
+    if (auto P = decomposeMemberAccess(E))
+      return PtrRef{nullptr, std::move(P)};
+    return std::nullopt;
+  }
+  /// Declared type of the variable or the leaf field.
+  QualType getType() const {
+    return VD ? VD->getType() : Path->leafField()->getType();
+  }
+  bool operator==(const PtrRef &O) const {
+    return VD == O.VD && Path == O.Path;
+  }
+};
+
 /// One fact extracted from a branch condition (or a guard variable's
-/// initializer): the pointer named by VD or MemberPath is non-null when the
-/// condition is true (Negated=false) or when it is false (Negated=true).
+/// initializer): the pointer Ref is non-null when the condition is true
+/// (Negated=false) or when it is false (Negated=true).
 struct ConditionResult {
-  const VarDecl *VD = nullptr;                // local var/param
-  std::optional<MemberAccessPath> MemberPath; // member access chain
+  PtrRef Ref;
   bool Negated = false;
 
   bool operator==(const ConditionResult &O) const {
-    return VD == O.VD && MemberPath == O.MemberPath && Negated == O.Negated;
+    return Ref == O.Ref && Negated == O.Negated;
   }
 };
 
@@ -263,6 +291,37 @@ struct NullState {
   void markNullable(const MemberAccessPath &P) {
     NarrowedMembers.erase(P);
     NullableMembers.insert(P);
+  }
+
+  bool isNarrowed(const PtrRef &R) const {
+    return R.VD ? NarrowedVars.contains(R.VD)
+                : NarrowedMembers.contains(*R.Path);
+  }
+  bool isNullable(const PtrRef &R) const {
+    return R.VD ? NullableVars.contains(R.VD)
+                : NullableMembers.contains(*R.Path);
+  }
+  void markNarrowed(const PtrRef &R) {
+    if (R.VD)
+      markNarrowed(R.VD);
+    else
+      markNarrowed(*R.Path);
+  }
+  void markNullable(const PtrRef &R) {
+    if (R.VD)
+      markNullable(R.VD);
+    else
+      markNullable(*R.Path);
+  }
+  /// Forget both the narrowed and the nullable fact about R.
+  void clear(const PtrRef &R) {
+    if (R.VD) {
+      NarrowedVars.erase(R.VD);
+      NullableVars.erase(R.VD);
+    } else {
+      NarrowedMembers.erase(*R.Path);
+      NullableMembers.erase(*R.Path);
+    }
   }
 
   bool operator==(const NullState &Other) const {
@@ -1042,19 +1101,9 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
         // Mirror the read-side cast see-through: (T*)p != nullptr narrows p.
         PtrExpr = lookThroughPtrToPtrCasts(PtrExpr);
 
-        if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-            if (VD->getType()->isPointerType())
-              Results.push_back({VD, std::nullopt, EqNegated});
-            return;
-          }
-        }
-        if (auto Path = decomposeMemberAccess(PtrExpr)) {
-          if (Path->leafField()->getType()->isPointerType()) {
-            Results.push_back({nullptr, std::move(Path), EqNegated});
-            return;
-          }
-        }
+        if (auto R = PtrRef::fromExpr(PtrExpr))
+          if (R->getType()->isPointerType())
+            Results.push_back({std::move(*R), EqNegated});
       }
       return;
     }
@@ -1081,20 +1130,9 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
         if (OpKind == OO_EqualEqual)
           EqNegated = !EqNegated;
 
-        if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-            if (isSmartPointerType(VD->getType())) {
-              Results.push_back({VD, std::nullopt, EqNegated});
-              return;
-            }
-          }
-        }
-        if (auto Path = decomposeMemberAccess(PtrExpr)) {
-          if (isSmartPointerType(Path->leafField()->getType())) {
-            Results.push_back({nullptr, std::move(Path), EqNegated});
-            return;
-          }
-        }
+        if (auto R = PtrRef::fromExpr(PtrExpr))
+          if (isSmartPointerType(R->getType()))
+            Results.push_back({std::move(*R), EqNegated});
       }
       return;
     }
@@ -1106,7 +1144,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (VD->getType()->isPointerType()) {
-            Results.push_back({VD, std::nullopt, Negated});
+            Results.push_back({PtrRef{VD, std::nullopt}, Negated});
             return;
           }
         }
@@ -1120,10 +1158,11 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       E = AssignBO->getLHS()->IgnoreParenImpCasts();
   }
 
-  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+  if (auto R = PtrRef::fromExpr(E)) {
+    if (R->VD) {
+      const VarDecl *VD = R->VD;
       if (VD->getType()->isPointerType()) {
-        Results.push_back({VD, std::nullopt, Negated});
+        Results.push_back({std::move(*R), Negated});
         return;
       }
       // Guard intermediary: if (valid) where valid = (p != nullptr). Integer
@@ -1139,12 +1178,8 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
           return;
         }
       }
-    }
-  }
-
-  if (auto Path = decomposeMemberAccess(E)) {
-    if (Path->leafField()->getType()->isPointerType()) {
-      Results.push_back({nullptr, std::move(Path), Negated});
+    } else if (R->getType()->isPointerType()) {
+      Results.push_back({std::move(*R), Negated});
       return;
     }
   }
@@ -1157,16 +1192,11 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       if (CD->getConversionType()->isBooleanType()) {
         const Expr *Obj = MCE->getImplicitObjectArgument();
         if (Obj && isSmartPointerType(Obj->getType())) {
-          Obj = Obj->IgnoreParenImpCasts();
-          if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
-            if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-              Results.push_back({VD, std::nullopt, Negated});
-              return;
-            }
-          }
-          if (auto Path = decomposeMemberAccess(Obj)) {
-            if (isSmartPointerType(Path->leafField()->getType())) {
-              Results.push_back({nullptr, std::move(Path), Negated});
+          // Obj's type was already checked above, so a variable needs no
+          // further type test; only a path's leaf field does.
+          if (auto R = PtrRef::fromExpr(Obj)) {
+            if (R->VD || isSmartPointerType(R->getType())) {
+              Results.push_back({std::move(*R), Negated});
               return;
             }
           }
@@ -1244,10 +1274,10 @@ static void narrowVarWithAliases(NullState &NS, const VarDecl *VD) {
 /// Apply one condition fact to a state (the caller picks the edge state
 /// matching CR.Negated).
 static void applyNarrowing(NullState &NS, const ConditionResult &CR) {
-  if (CR.MemberPath)
-    narrowMemberPath(NS, *CR.MemberPath);
-  else if (CR.VD)
-    narrowVarWithAliases(NS, CR.VD);
+  if (CR.Ref.Path)
+    narrowMemberPath(NS, *CR.Ref.Path);
+  else if (CR.Ref.VD)
+    narrowVarWithAliases(NS, CR.Ref.VD);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2241,7 +2271,7 @@ private:
   void invalidateBoolGuardsFor(const VarDecl *VD) {
     State.BoolGuards.remove_if([VD](const auto &Entry) {
       return llvm::any_of(Entry.second, [VD](const ConditionResult &CR) {
-        return CR.VD == VD || (CR.MemberPath && CR.MemberPath->Root == VD);
+        return CR.Ref.VD == VD || (CR.Ref.Path && CR.Ref.Path->Root == VD);
       });
     });
   }
@@ -2251,7 +2281,7 @@ private:
   void invalidateGuardsAndAliasesWithPrefix(const MemberAccessPath &Prefix) {
     State.BoolGuards.remove_if([&Prefix](const auto &Entry) {
       return llvm::any_of(Entry.second, [&Prefix](const ConditionResult &CR) {
-        return CR.MemberPath && pathHasPrefix(*CR.MemberPath, Prefix);
+        return CR.Ref.Path && pathHasPrefix(*CR.Ref.Path, Prefix);
       });
     });
     State.MemberAliases.remove_if([&Prefix](const auto &Entry) {
@@ -2375,6 +2405,9 @@ private:
     // OpaqueValueExpr; look through it to the pointer it names.
     Arm =
         lookThroughPtrToPtrCasts(stripOpaqueValue(Arm->IgnoreParenImpCasts()));
+    auto ArmRef = PtrRef::fromExpr(Arm);
+    if (!ArmRef)
+      return false;
     SmallVector<ConditionResult, 2> Results;
     analyzeCondition(Cond, Ctx, Results, &State.BoolGuards);
     for (const auto &CR : Results) {
@@ -2382,15 +2415,8 @@ private:
       // (Negated == false); a false-branch arm when Cond is false.
       if (CR.Negated == TrueBranch)
         continue;
-      if (CR.VD) {
-        if (const auto *DRE = dyn_cast<DeclRefExpr>(Arm))
-          if (DRE->getDecl() == CR.VD)
-            return true;
-      } else if (CR.MemberPath) {
-        if (auto Path = decomposeMemberAccess(Arm))
-          if (*Path == *CR.MemberPath)
-            return true;
-      }
+      if (*ArmRef == CR.Ref)
+        return true;
     }
     return false;
   }
