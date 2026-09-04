@@ -349,6 +349,22 @@ static const Expr *lookThroughPtrToPtrCasts(const Expr *E) {
   return E;
 }
 
+/// Strip explicit casts, stopping at dynamic_cast (which can yield null from
+/// a non-null source, so provenance does not carry through it). Unlike
+/// lookThroughPtrToPtrCasts this does not require pointer types on both
+/// sides. *FoundCast is set when any explicit cast was seen.
+static const Expr *stripNonDynamicCasts(const Expr *E,
+                                        bool *FoundCast = nullptr) {
+  while (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
+    if (FoundCast)
+      *FoundCast = true;
+    if (isa<CXXDynamicCastExpr>(CE))
+      break;
+    E = CE->getSubExpr()->IgnoreParenImpCasts();
+  }
+  return E;
+}
+
 /// Extract the rightmost leaf of a && / || chain.
 /// The CFG decomposes `a && b && c` into separate blocks — each operand
 /// becomes its own block's terminator condition. So for `if (a && b && c)`,
@@ -541,30 +557,6 @@ static bool isSmartPointerType(QualType Ty) {
     return false;
   StringRef Name = RD->getName();
   return Name == "unique_ptr" || Name == "shared_ptr" || Name == "weak_ptr";
-}
-
-/// Check if a smart pointer expression (the implicit object of operator->)
-/// is narrowed in the current state.
-static bool isSmartPointerNarrowed(const Expr *E, const NullState &State) {
-  E = E->IgnoreParenImpCasts();
-  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      return State.NarrowedVars.contains(VD);
-  }
-  if (auto Path = decomposeMemberAccess(E))
-    return State.NarrowedMembers.contains(*Path);
-  return false;
-}
-
-static bool isSmartPointerNullable(const Expr *E, const NullState &State) {
-  E = E->IgnoreParenImpCasts();
-  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      return State.NullableVars.contains(VD);
-  }
-  if (auto Path = decomposeMemberAccess(E))
-    return State.NullableMembers.contains(*Path);
-  return false;
 }
 
 /// Strip implicit wrappers that real standard library headers introduce
@@ -1308,6 +1300,54 @@ class TransferFunctions {
     return State.NarrowedMembers.contains(Path);
   }
 
+  /// Whether a smart pointer expression (the implicit object of operator->
+  /// or operator*) is narrowed in the current state.
+  bool isSmartPointerNarrowed(const Expr *E) const {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+        return State.NarrowedVars.contains(VD);
+    }
+    if (auto Path = decomposeMemberAccess(E))
+      return State.NarrowedMembers.contains(*Path);
+    return false;
+  }
+
+  bool isSmartPointerNullable(const Expr *E) const {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+        return State.NullableVars.contains(VD);
+    }
+    if (auto Path = decomposeMemberAccess(E))
+      return State.NullableMembers.contains(*Path);
+    return false;
+  }
+
+  /// Warn on a smart pointer dereference unless the pointer is narrowed or
+  /// declared _Nonnull. Flow facts after reset/move override the declared
+  /// contract.
+  void checkSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
+    if (isSmartPointerNullable(Obj) ||
+        (!isSmartPointerDeclaredNonnull(Obj) && !isSmartPointerNarrowed(Obj)))
+      warnSmartPtrDeref(DerefExpr, Obj);
+  }
+
+  /// The smart pointer receiver of an sp.get() call, or nullptr when CE is
+  /// not such a call.
+  static const Expr *smartPtrGetReceiver(const CallExpr *CE) {
+    const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE);
+    if (!MCE)
+      return nullptr;
+    const auto *MD = MCE->getMethodDecl();
+    if (!MD || !MD->getDeclName().isIdentifier() || MD->getName() != "get")
+      return nullptr;
+    const Expr *Obj = MCE->getImplicitObjectArgument();
+    if (!Obj || !isSmartPointerType(Obj->getType()))
+      return nullptr;
+    return Obj;
+  }
+
   /// Gate the built-in stdlib nullable-return list on the langopt so
   /// -fno-nullability-stdlib-annotations fully disables it.
   bool isStdlibNullableReturn(const CallExpr *CE) const {
@@ -1364,9 +1404,9 @@ class TransferFunctions {
     // dynamic_cast<T*> yields null when the runtime type check fails, so
     // dereferencing its result directly is a real null-deref risk regardless
     // of the source's nullability. unwrapCastsAndArithmetic below would strip
-    // the cast and inspect the (possibly _Nonnull) source, hiding this — so
-    // catch it up front. The narrowed `if (auto *d = dynamic_cast<T*>(p)) ...`
-    // idiom is unaffected: there the deref is on the VarDecl `d`, not the cast.
+    // the cast and inspect the (possibly _Nonnull) source, hiding this, so
+    // catch it up front. The narrowed if (auto *d = dynamic_cast<T*>(p)) ...
+    // idiom is unaffected: there the deref is on the VarDecl d, not the cast.
     if (const auto *DCE =
             dyn_cast<CXXDynamicCastExpr>(PtrExpr->IgnoreParenImpCasts())) {
       if (DCE->getType()->isPointerType()) {
@@ -1379,7 +1419,7 @@ class TransferFunctions {
     bool FoundCast = false;
     const Expr *Origin = unwrapCastsAndArithmetic(PtrExpr, FoundCast);
 
-    // `*(p ? p : fallback)`: the merged type of a ternary inherits _Nullable
+    // *(p ? p : fallback): the merged type of a ternary inherits _Nullable
     // from an arm the condition guards, so judge the arms flow-sensitively.
     if (isa<AbstractConditionalOperator>(Origin)) {
       if (isExprNullable(Origin)) {
@@ -1388,7 +1428,7 @@ class TransferFunctions {
       }
       return;
     }
-    // `*p++`, `*(p + 1)`: the dereferenced value is p's, so use p's flow
+    // *p++, *(p + 1): the dereferenced value is p's, so use p's flow
     // state rather than the arithmetic expression's type.
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Origin)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
@@ -1406,7 +1446,7 @@ class TransferFunctions {
     if (const auto *UO = dyn_cast<UnaryOperator>(Origin))
       if (UO->getOpcode() == UO_AddrOf)
         return;
-    // Call to a function proven to always return non-null — skip.
+    // Call to a function proven to always return non-null: skip.
     // Also skip known STL methods that contractually return nonnull.
     if (const auto *CE = dyn_cast<CallExpr>(Origin)) {
       // Check if the return type comes from a template parameter with
@@ -1424,16 +1464,9 @@ class TransferFunctions {
           return;
       }
       // sp.get() on a narrowed smart pointer is nonnull
-      if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
-        if (const auto *MD = MCE->getMethodDecl()) {
-          if (MD->getDeclName().isIdentifier() && MD->getName() == "get") {
-            const Expr *Obj = MCE->getImplicitObjectArgument();
-            if (Obj && isSmartPointerType(Obj->getType()) &&
-                isSmartPointerNarrowed(Obj, State))
-              return;
-          }
-        }
-      }
+      if (const Expr *Obj = smartPtrGetReceiver(CE))
+        if (isSmartPointerNarrowed(Obj))
+          return;
     }
     // Throwing operator new never returns null.
     if (const auto *NE = dyn_cast<CXXNewExpr>(Origin)) {
@@ -1468,6 +1501,16 @@ class TransferFunctions {
                  << "  deref: var '" << VD->getNameAsString() << "'\n");
       ++NumDereferenceWarnings;
       return Handler.handleNullableDereference(DerefExpr, Ty);
+    }
+  }
+
+  /// Arithmetic on a pointer implies it is valid, so warn when the operand
+  /// variable may be null and has not been narrowed.
+  void checkVarArithmetic(const Expr *ArithExpr, const VarDecl *VD) {
+    if (!isNarrowed(VD) && (isNullableType(VD->getType(), DefaultNullability) ||
+                            State.NullableVars.contains(VD))) {
+      ++NumArithmeticWarnings;
+      Handler.handleNullableArithmetic(ArithExpr, VD->getType());
     }
   }
 
@@ -1577,6 +1620,29 @@ class TransferFunctions {
     State.MemberAliases[VD] = *Path;
   }
 
+  /// Record where VD's new value came from after VD = RHS (or VD's
+  /// initializer): an alias to another pointer variable, seen through
+  /// explicit casts so T *y = static_cast<T *>(x) also aliases, and a copy
+  /// of a member path.
+  void recordPointerSource(const VarDecl *VD, const Expr *RHS) {
+    RHS = RHS->IgnoreParenImpCasts();
+    if (const auto *SrcDRE = dyn_cast<DeclRefExpr>(stripNonDynamicCasts(RHS)))
+      if (const auto *SrcVD = dyn_cast<VarDecl>(SrcDRE->getDecl()))
+        if (SrcVD->getType()->isPointerType())
+          State.Aliases[VD] = resolveAlias(SrcVD);
+    trackMemberCopy(VD, RHS);
+  }
+
+  /// VD = &local: VD is non-null, and remember the target so a later store
+  /// through VD (*VD = x) can drop the target's narrowing.
+  void narrowAsAddrOf(const VarDecl *VD, const UnaryOperator *AddrOf) {
+    State.NarrowedVars.insert(VD);
+    if (const auto *TgtDRE =
+            dyn_cast<DeclRefExpr>(AddrOf->getSubExpr()->IgnoreParenImpCasts()))
+      if (const auto *TgtVD = dyn_cast<VarDecl>(TgtDRE->getDecl()))
+        State.AddrOfTargets[VD] = TgtVD;
+  }
+
   /// Remove any Aliases that target the given pointer variable (the alias
   /// source was reassigned, so copies of its old value are stale).
   void invalidateAliasesFor(const VarDecl *VD) {
@@ -1616,20 +1682,26 @@ class TransferFunctions {
       State.MemberAliases.erase(AliasVD);
   }
 
+  /// Drop every fact that named VD's old value: member paths rooted at it,
+  /// guards and aliases that mention it, and its own alias and address-of
+  /// records. Does not touch VD's own narrowed/nullable flags.
+  void forgetFactsAbout(const VarDecl *VD) {
+    invalidateMembersFor(VD);
+    invalidateBoolGuardsFor(VD);
+    invalidateAliasesFor(VD);
+    State.Aliases.erase(VD);
+    State.MemberAliases.erase(VD);
+    State.AddrOfTargets.erase(VD);
+  }
+
   // Invalidate all narrowed/nullable member paths that start with Prefix.
   // e.g. assigning to var.inner invalidates var.inner.x, var.inner.y, etc.
   void invalidateMembersWithPrefix(const MemberAccessPath &Prefix) {
     auto removeWithPrefix = [&](llvm::DenseSet<MemberAccessPath> &Set) {
       SmallVector<MemberAccessPath, 4> ToRemove;
-      for (const auto &Path : Set) {
-        if (Path.Root != Prefix.Root)
-          continue;
-        if (Path.Fields.size() < Prefix.Fields.size())
-          continue;
-        if (std::equal(Prefix.Fields.begin(), Prefix.Fields.end(),
-                       Path.Fields.begin()))
+      for (const auto &Path : Set)
+        if (pathHasPrefix(Path, Prefix))
           ToRemove.push_back(Path);
-      }
       for (const auto &Path : ToRemove)
         Set.erase(Path);
     };
@@ -1689,24 +1761,8 @@ private:
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
         // Track raw pointer initialization
         if (VD->getType()->isPointerType()) {
-          // Alias tracking: int *y = x stores {y -> canonical(x)}
-          // Look through explicit casts so that
-          // T* y = static_cast<T*>(x) also creates the alias.
-          if (VD->hasInit()) {
-            const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
-            while (const auto *CE = dyn_cast<ExplicitCastExpr>(Init)) {
-              if (isa<CXXDynamicCastExpr>(CE))
-                break;
-              Init = CE->getSubExpr()->IgnoreParenImpCasts();
-            }
-            if (const auto *InitDRE = dyn_cast<DeclRefExpr>(Init)) {
-              if (const auto *InitVD = dyn_cast<VarDecl>(InitDRE->getDecl())) {
-                if (InitVD->getType()->isPointerType())
-                  State.Aliases[VD] = resolveAlias(InitVD);
-              }
-            }
-            trackMemberCopy(VD, VD->getInit());
-          }
+          if (VD->hasInit())
+            recordPointerSource(VD, VD->getInit());
           if (isNonnullType(VD->getType())) {
             // Flow-sensitive assignment check: warn when initializing a
             // _Nonnull variable with a nullable value.
@@ -1738,14 +1794,10 @@ private:
           } else if (VD->hasInit()) {
             const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
             if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
-              if (UO->getOpcode() == UO_AddrOf) {
-                State.NarrowedVars.insert(VD);
-                // T** pp = &local: remember target for *pp invalidation.
-                if (const auto *TgtDRE = dyn_cast<DeclRefExpr>(
-                        UO->getSubExpr()->IgnoreParenImpCasts()))
-                  if (const auto *TgtVD = dyn_cast<VarDecl>(TgtDRE->getDecl()))
-                    State.AddrOfTargets[VD] = TgtVD;
-              }
+              // Only address-of narrows; other unary operators leave the
+              // variable untracked.
+              if (UO->getOpcode() == UO_AddrOf)
+                narrowAsAddrOf(VD, UO);
             } else if (isExprNarrowedNonnull(Init) || isNonnullInit(Init) ||
                        isNonnullType(Init->getType())) {
               State.NarrowedVars.insert(VD);
@@ -1754,14 +1806,8 @@ private:
               // cast result type. Template instantiations can bake
               // _Nullable into cast result types even when the source is
               // unannotated (e.g. static_cast<T*>(void_ptr)).
-              const Expr *TypeExpr = Init;
               bool HasCast = false;
-              while (const auto *CE = dyn_cast<ExplicitCastExpr>(TypeExpr)) {
-                HasCast = true;
-                if (isa<CXXDynamicCastExpr>(CE))
-                  break;
-                TypeExpr = CE->getSubExpr()->IgnoreParenImpCasts();
-              }
+              const Expr *TypeExpr = stripNonDynamicCasts(Init, &HasCast);
               // Ternary merged types are judged arm-by-arm (see above).
               bool IsTernary = isa<AbstractConditionalOperator>(TypeExpr);
               if ((!IsTernary &&
@@ -1928,18 +1974,11 @@ private:
           return true;
       }
       // sp.get() on a narrowed smart pointer returns nonnull
-      if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
-        if (const auto *MD = MCE->getMethodDecl()) {
-          if (MD->getDeclName().isIdentifier() && MD->getName() == "get") {
-            const Expr *Obj = MCE->getImplicitObjectArgument();
-            if (Obj && isSmartPointerType(Obj->getType())) {
-              if (const auto *VD = getSmartPtrVarDecl(Obj))
-                return isNarrowed(VD);
-              if (auto Path = decomposeMemberAccess(Obj))
-                return isMemberNarrowed(*Path);
-            }
-          }
-        }
+      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
+        if (const auto *VD = getSmartPtrVarDecl(Obj))
+          return isNarrowed(VD);
+        if (auto Path = decomposeMemberAccess(Obj))
+          return isMemberNarrowed(*Path);
       }
     }
     // Anything else whose own type is _Nonnull (a call to T *_Nonnull f(),
@@ -1993,18 +2032,11 @@ private:
       if (isStdlibNullableReturn(CE))
         return true;
       // sp.get() on a non-narrowed smart pointer returns nullable
-      if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
-        if (const auto *MD = MCE->getMethodDecl()) {
-          if (MD->getDeclName().isIdentifier() && MD->getName() == "get") {
-            const Expr *Obj = MCE->getImplicitObjectArgument();
-            if (Obj && isSmartPointerType(Obj->getType())) {
-              if (const auto *VD = getSmartPtrVarDecl(Obj))
-                return !isNarrowed(VD);
-              if (auto Path = decomposeMemberAccess(Obj))
-                return !isMemberNarrowed(*Path);
-            }
-          }
-        }
+      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
+        if (const auto *VD = getSmartPtrVarDecl(Obj))
+          return !isNarrowed(VD);
+        if (auto Path = decomposeMemberAccess(Obj))
+          return !isMemberNarrowed(*Path);
       }
     }
     return false;
@@ -2033,29 +2065,14 @@ private:
         }
         if (!IsZeroOffset) {
           // Check the primary pointer operand
-          if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
-            if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-              if (!isNarrowed(VD) &&
-                  (isNullableType(VD->getType(), DefaultNullability) ||
-                   State.NullableVars.contains(VD))) {
-                ++NumArithmeticWarnings;
-                Handler.handleNullableArithmetic(BO, VD->getType());
-              }
-            }
-          }
+          if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr))
+            if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+              checkVarArithmetic(BO, VD);
           // For pointer difference (p - q), also check the other operand
-          if (OtherExpr && OtherExpr->getType()->isPointerType()) {
-            if (const auto *DRE = dyn_cast<DeclRefExpr>(OtherExpr)) {
-              if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-                if (!isNarrowed(VD) &&
-                    (isNullableType(VD->getType(), DefaultNullability) ||
-                     State.NullableVars.contains(VD))) {
-                  ++NumArithmeticWarnings;
-                  Handler.handleNullableArithmetic(BO, VD->getType());
-                }
-              }
-            }
-          }
+          if (OtherExpr && OtherExpr->getType()->isPointerType())
+            if (const auto *DRE = dyn_cast<DeclRefExpr>(OtherExpr))
+              if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+                checkVarArithmetic(BO, VD);
         }
       }
     }
@@ -2063,18 +2080,10 @@ private:
     // Compound pointer arithmetic: p += i, p -= i
     if (BO->getOpcode() == BO_AddAssign || BO->getOpcode() == BO_SubAssign) {
       const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
-      if (LHS->getType()->isPointerType()) {
-        if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS)) {
-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-            if (!isNarrowed(VD) &&
-                (isNullableType(VD->getType(), DefaultNullability) ||
-                 State.NullableVars.contains(VD))) {
-              ++NumArithmeticWarnings;
-              Handler.handleNullableArithmetic(BO, VD->getType());
-            }
-          }
-        }
-      }
+      if (LHS->getType()->isPointerType())
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS))
+          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+            checkVarArithmetic(BO, VD);
     }
 
     if (BO->isAssignmentOp()) {
@@ -2152,7 +2161,7 @@ private:
           // Emit evidence for cross-TU inference.
           // Only emit nullable evidence for explicitly nullable sources,
           // not for unannotated pointers defaulted to nullable.
-          if (Narrowed || isExprExplicitlyNullable(RHS))
+          if (Narrowed || isExprNullable(RHS, /*ExplicitOnly=*/true))
             Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
         }
       }
@@ -2179,12 +2188,7 @@ private:
           // the old value.
           if (BO->getOpcode() == BO_AddAssign ||
               BO->getOpcode() == BO_SubAssign) {
-            invalidateMembersFor(VD);
-            invalidateBoolGuardsFor(VD);
-            invalidateAliasesFor(VD);
-            State.Aliases.erase(VD);
-            State.MemberAliases.erase(VD);
-            State.AddrOfTargets.erase(VD);
+            forgetFactsAbout(VD);
             return;
           }
           // Self-assignment (p = p, p = (T *)p) changes nothing.
@@ -2197,43 +2201,15 @@ private:
           }
           State.NarrowedVars.erase(VD);
           State.NullableVars.erase(VD);
-          invalidateMembersFor(VD);
-          invalidateBoolGuardsFor(VD);
-          // Invalidate aliases: VD is being reassigned, so any alias
-          // pointing TO VD (i.e., "other = VD" from earlier) is stale.
-          invalidateAliasesFor(VD);
-          State.Aliases.erase(VD);
-          State.MemberAliases.erase(VD);
-          // Reassigning VD drops any stale "VD holds &target" tracking.
-          State.AddrOfTargets.erase(VD);
+          forgetFactsAbout(VD);
 
           if (BO->getOpcode() == BO_Assign) {
             const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-
-            // Alias tracking: y = x stores {y -> canonical(x)}
-            // Look through explicit casts (y = static_cast<T*>(x)).
-            const Expr *AliasRHS = RHS;
-            while (const auto *CE = dyn_cast<ExplicitCastExpr>(AliasRHS)) {
-              if (isa<CXXDynamicCastExpr>(CE))
-                break;
-              AliasRHS = CE->getSubExpr()->IgnoreParenImpCasts();
-            }
-            if (const auto *RHSDRE = dyn_cast<DeclRefExpr>(AliasRHS)) {
-              if (const auto *RHSVD = dyn_cast<VarDecl>(RHSDRE->getDecl())) {
-                if (RHSVD->getType()->isPointerType())
-                  State.Aliases[VD] = resolveAlias(RHSVD);
-              }
-            }
-            trackMemberCopy(VD, BO->getRHS());
+            recordPointerSource(VD, RHS);
 
             if (const auto *RHSUO = dyn_cast<UnaryOperator>(RHS)) {
               if (RHSUO->getOpcode() == UO_AddrOf) {
-                State.NarrowedVars.insert(VD);
-                // pp = &local: record for *pp invalidation.
-                if (const auto *TgtDRE = dyn_cast<DeclRefExpr>(
-                        RHSUO->getSubExpr()->IgnoreParenImpCasts()))
-                  if (const auto *TgtVD = dyn_cast<VarDecl>(TgtDRE->getDecl()))
-                    State.AddrOfTargets[VD] = TgtVD;
+                narrowAsAddrOf(VD, RHSUO);
                 return;
               }
             }
@@ -2299,18 +2275,8 @@ private:
       if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (VD->getType()->isPointerType()) {
-            // Warn on arithmetic of non-narrowed nullable pointer
-            if (!isNarrowed(VD) &&
-                (isNullableType(VD->getType(), DefaultNullability) ||
-                 State.NullableVars.contains(VD))) {
-              ++NumArithmeticWarnings;
-              Handler.handleNullableArithmetic(UO, VD->getType());
-            }
-            invalidateMembersFor(VD);
-            invalidateBoolGuardsFor(VD);
-            invalidateAliasesFor(VD);
-            State.Aliases.erase(VD);
-            State.MemberAliases.erase(VD);
+            checkVarArithmetic(UO, VD);
+            forgetFactsAbout(VD);
           } else if (VD->getType()->isIntegerType()) {
             // A guard flag that changes value no longer encodes the check.
             State.BoolGuards.erase(VD);
@@ -2337,13 +2303,8 @@ private:
         // For non-smart-pointer types (iterators etc), skip as before.
         if (OCE->getNumArgs() >= 1) {
           const Expr *Obj = OCE->getArg(0);
-          if (isSmartPointerType(Obj->getType())) {
-            // Flow facts after reset/move override the declared contract.
-            if (isSmartPointerNullable(Obj, State) ||
-                (!isSmartPointerDeclaredNonnull(Obj) &&
-                 !isSmartPointerNarrowed(Obj, State)))
-              warnSmartPtrDeref(ME, Obj);
-          }
+          if (isSmartPointerType(Obj->getType()))
+            checkSmartPtrDeref(ME, Obj);
         }
         return;
       }
@@ -2385,7 +2346,7 @@ private:
   }
 
   /// Handle function calls. By design, calls do NOT invalidate pointer
-  /// narrowing — even when a pointer's address is taken (&p) and passed as
+  /// narrowing, even when a pointer's address is taken (&p) and passed as
   /// a T** argument. This is a pragmatic trade-off: invalidating on
   /// address-escape would produce excessive false positives on common
   /// patterns (output parameters, init functions). The same approach is
@@ -2403,12 +2364,12 @@ private:
             applyNarrowing(State, CR);
       }
 
-      // Narrow pointers passed to _Nonnull parameters — surviving the call
+      // Narrow pointers passed to _Nonnull parameters: surviving the call
       // proves the pointer was non-null. Recognizes both Clang _Nonnull
       // and GCC-style __attribute__((nonnull)).
       //
       // For CXXOperatorCallExpr on member operators (e.g. lambda operator()),
-      // getArg(0) is the implicit object — real args start at offset 1.
+      // getArg(0) is the implicit object; real args start at offset 1.
       unsigned ArgOffset = 0;
       if (isa<CXXOperatorCallExpr>(CE) && isa<CXXMethodDecl>(Callee))
         ArgOffset = 1;
@@ -2460,7 +2421,7 @@ private:
           const ParmVarDecl *Param = Callee->getParamDecl(I);
           if (!Param->getType()->isPointerType())
             continue;
-          // Skip unnamed parameters — no useful evidence without a name.
+          // Skip unnamed parameters: no useful evidence without a name.
           if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
             continue;
           const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
@@ -2468,13 +2429,13 @@ private:
           // Only emit nullable evidence for explicitly nullable sources
           // (annotated _Nullable or nullptr), not for unannotated pointers
           // that are merely defaulted to nullable.
-          if (!ArgIsNonnull && !isExprExplicitlyNullable(Arg))
+          if (!ArgIsNonnull && !isExprNullable(Arg, /*ExplicitOnly=*/true))
             continue;
           Handler.handleParameterEvidence(CE->getArg(I + ArgOffset), Param,
                                           Callee, ArgIsNonnull);
         }
         // Parameters with nullptr default arguments are nullable evidence
-        // even when callers always pass nonnull explicitly — the function
+        // even when callers always pass nonnull explicitly: the function
         // can be called without that argument, receiving nullptr.
         for (unsigned I = 0, N = Callee->getNumParams(); I < N; ++I) {
           const ParmVarDecl *Param = Callee->getParamDecl(I);
@@ -2493,7 +2454,7 @@ private:
       }
     }
 
-    // Handle sp.reset() / sp.reset(ptr) — CXXMemberCallExpr
+    // Handle sp.reset() / sp.reset(ptr), a CXXMemberCallExpr
     if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
       const Expr *Obj = MCE->getImplicitObjectArgument();
       if (Obj && isSmartPointerType(Obj->getType())) {
@@ -2503,7 +2464,7 @@ private:
             // unknown pointer arguments clear both facts, falling back to any
             // declared smart-pointer contract. Real libc++ declares
             // reset(pointer p = pointer()), so a no-arg call shows up
-            // here with arg 0 being a CXXDefaultArgExpr — that's "no
+            // here with arg 0 being a CXXDefaultArgExpr; that's "no
             // user-provided arg" and is equivalent to reset to null,
             // regardless of how the default is spelled.
             enum class ResetNullability { Null, Nonnull, Unknown };
@@ -2583,11 +2544,11 @@ private:
           const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
 
           if (isNonnullSmartPtrInit(RHS)) {
-            // sp = make_unique<T>(...) — non-null
+            // sp = make_unique<T>(...): non-null
             markNarrowed();
           } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
             if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
-              // sp = std::move(other) — LHS inherits source's state.
+              // sp = std::move(other): LHS inherits source's state.
               // Source tracking only implemented for local-var sources.
               if (const auto *SrcVD = getSmartPtrVarDecl(RhsCE->getArg(0))) {
                 if (State.NarrowedVars.contains(SrcVD))
@@ -2596,11 +2557,11 @@ private:
                 State.NullableVars.insert(SrcVD);
               }
             } else if (isNonnullType(RhsCE->getType())) {
-              // sp = someFunction() — only narrow if return type is _Nonnull
+              // sp = someFunction(): only narrow if return type is _Nonnull
               markNarrowed();
             }
           }
-          // sp = nullptr or non-call — remains nullable (erased above)
+          // sp = nullptr or non-call: remains nullable (erased above)
         }
 
         // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
@@ -2612,22 +2573,18 @@ private:
       }
     }
 
-    // Handle *sp (operator*) on smart pointers — same as operator->
+    // Handle *sp (operator*) on smart pointers, same as operator->
     if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
       if (OCE->getOperator() == OO_Star && OCE->getNumArgs() >= 1) {
         const Expr *Obj = OCE->getArg(0);
-        if (isSmartPointerType(Obj->getType())) {
-          if (isSmartPointerNullable(Obj, State) ||
-              (!isSmartPointerDeclaredNonnull(Obj) &&
-               !isSmartPointerNarrowed(Obj, State)))
-            warnSmartPtrDeref(CE, Obj);
-        }
+        if (isSmartPointerType(Obj->getType()))
+          checkSmartPtrDeref(CE, Obj);
       }
     }
 
     // Handle bare std::move(sp) by invalidating narrowing. Skip when the
     // call is wrapped in a smart-pointer transfer context (VarDecl init or
-    // operator= LHS) — those handlers below need the source's pre-move
+    // operator= LHS): those handlers below need the source's pre-move
     // state to inherit it onto the target, and they handle the source
     // erase themselves.
     // A missing parent map defaults to "not a transfer context", i.e. a
@@ -2702,46 +2659,56 @@ private:
     }
   }
 
-  /// Flow-aware nullable check: returns true if the expression is nullable
-  /// considering both declared type and dynamic state (NarrowedVars,
-  /// NullableVars). This goes beyond the type-based check: it respects
-  /// null checks (narrowing suppresses the warning) and dynamic nullability
-  /// (reset/move makes a variable nullable even if its type isn't).
-  bool isVarNullable(const VarDecl *VD) const {
-    if (isNarrowed(VD))
+  /// Declared-type nullability. With ExplicitOnly only an explicit _Nullable
+  /// counts; otherwise _Null_unspecified also counts under
+  /// -fnullability-default=nullable.
+  bool isNullableByType(QualType Ty, bool ExplicitOnly) const {
+    return ExplicitOnly ? isExplicitlyNullableType(Ty)
+                        : isNullableType(Ty, DefaultNullability);
+  }
+
+  /// Flow-aware nullable check: considers both the declared type and the
+  /// dynamic state, so narrowing suppresses the warning and reset/move makes
+  /// a variable nullable even if its type isn't.
+  bool isVarNullable(const VarDecl *VD, bool ExplicitOnly = false) const {
+    if (isNarrowed(VD) || isNonnullType(VD->getType()))
       return false;
-    if (isNonnullType(VD->getType()))
-      return false;
-    if (isNullableType(VD->getType(), DefaultNullability))
-      return true;
-    if (State.NullableVars.contains(VD))
-      return true;
-    return false;
+    return State.NullableVars.contains(VD) ||
+           isNullableByType(VD->getType(), ExplicitOnly);
   }
 
   /// Check if an expression resolves to a nullable pointer, considering flow.
-  bool isExprNullable(const Expr *E) const {
+  /// With ExplicitOnly (used for evidence emission) only provably nullable
+  /// sources count: an explicit _Nullable annotation, a null constant, or
+  /// flow-tracked nullable state. Unannotated pointers merely defaulted to
+  /// nullable do not, so no _Nullable is ever inferred from them.
+  bool isExprNullable(const Expr *E, bool ExplicitOnly = false) const {
     if (!E)
       return false;
-    E = stripOpaqueValue(E->IgnoreParenImpCasts());
+    E = E->IgnoreParenImpCasts();
+    if (!ExplicitOnly)
+      E = stripOpaqueValue(E);
     if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
       return true;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        return isVarNullable(VD);
+        return isVarNullable(VD, ExplicitOnly);
     }
     // Ternary: nullable iff some arm is nullable and the condition does not
     // guard that arm (p ? p : &x is non-null even though p is nullable,
-    // because the true arm is only selected when p tested non-null).
-    if (const auto *CO = dyn_cast<AbstractConditionalOperator>(E)) {
-      const Expr *Cond = CO->getCond();
-      bool TrueNullable =
-          isExprNullable(CO->getTrueExpr()) &&
-          !armNarrowedByCondition(CO->getTrueExpr(), Cond, true);
-      bool FalseNullable =
-          isExprNullable(CO->getFalseExpr()) &&
-          !armNarrowedByCondition(CO->getFalseExpr(), Cond, false);
-      return TrueNullable || FalseNullable;
+    // because the true arm is only selected when p tested non-null). The
+    // ExplicitOnly form judges a ternary by its merged type below.
+    if (!ExplicitOnly) {
+      if (const auto *CO = dyn_cast<AbstractConditionalOperator>(E)) {
+        const Expr *Cond = CO->getCond();
+        bool TrueNullable =
+            isExprNullable(CO->getTrueExpr()) &&
+            !armNarrowedByCondition(CO->getTrueExpr(), Cond, true);
+        bool FalseNullable =
+            isExprNullable(CO->getFalseExpr()) &&
+            !armNarrowedByCondition(CO->getFalseExpr(), Cond, false);
+        return TrueNullable || FalseNullable;
+      }
     }
     // Member narrowing: this->member, var.member, or nested chains
     if (auto Path = decomposeMemberAccess(E)) {
@@ -2755,7 +2722,7 @@ private:
     // Other pointer-to-pointer casts preserve null/nonnull status.
     // e.g., static_cast<Base*>(this) should be recognized as nonnull.
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
-      return isExprNullable(CE->getSubExpr());
+      return isExprNullable(CE->getSubExpr(), ExplicitOnly);
     // Call to a function proven to always return non-null, or a known
     // STL method that contractually returns nonnull: not nullable
     // regardless of the declared return type.
@@ -2783,70 +2750,8 @@ private:
       if (!NE->shouldNullCheckAllocation())
         return false;
     }
-    // For non-variable expressions, fall back to type-based check
-    if (isNullableType(E->getType(), DefaultNullability))
-      return true;
-    return false;
-  }
-
-  /// Stricter nullable check for evidence emission: returns true only when
-  /// the expression is provably nullable (explicit _Nullable annotation,
-  /// nullptr literal, flow-tracked nullable state), NOT for unannotated
-  /// pointers that are merely defaulted to nullable by the compiler flag.
-  /// This prevents false _Nullable inference from unspecified sources.
-  bool isExprExplicitlyNullable(const Expr *E) const {
-    if (!E)
-      return false;
-    E = E->IgnoreParenImpCasts();
-    // nullptr / NULL / (T*)0 — always provably nullable
-    if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
-      return true;
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-        if (isNarrowed(VD))
-          return false;
-        if (isNonnullType(VD->getType()))
-          return false;
-        // Flow-tracked nullable (e.g., after reset() or assignment from null)
-        if (State.NullableVars.contains(VD))
-          return true;
-        // Only explicit _Nullable annotation counts, not unspecified
-        return isExplicitlyNullableType(VD->getType());
-      }
-    }
-    if (auto Path = decomposeMemberAccess(E)) {
-      if (isMemberNarrowed(*Path))
-        return false;
-    }
-    // A pointer dynamic_cast has a defined null result on cast failure.
-    if (const auto *DCE = dyn_cast<CXXDynamicCastExpr>(E))
-      if (DCE->getType()->isPointerType())
-        return true;
-    if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
-      return isExprExplicitlyNullable(CE->getSubExpr());
-    if (const auto *CE = dyn_cast<CallExpr>(E)) {
-      // Stdlib nullable returns are provably nullable (for evidence emission).
-      if (isStdlibNullableReturn(CE))
-        return true;
-      if (isStlNonnullReturnCall(CE))
-        return false;
-      if (const auto *Callee = CE->getDirectCallee()) {
-        if (Handler.isKnownAllReturnsNonnull(Callee))
-          return false;
-      }
-    }
-    if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
-      if (UO->getOpcode() == UO_AddrOf)
-        return false;
-    }
-    if (isa<CXXThisExpr>(E))
-      return false;
-    if (const auto *NE = dyn_cast<CXXNewExpr>(E)) {
-      if (!NE->shouldNullCheckAllocation())
-        return false;
-    }
-    // For non-variable expressions, only explicit _Nullable counts
-    return isExplicitlyNullableType(E->getType());
+    // For non-variable expressions, fall back to the declared type.
+    return isNullableByType(E->getType(), ExplicitOnly);
   }
 
   void handleReturnStmt(const ReturnStmt *RS) {
@@ -2869,7 +2774,7 @@ private:
     if (EnclosingFunc->getDeclName().isIdentifier()) {
       // Only emit nullable return evidence for explicitly nullable sources,
       // not for unannotated pointers defaulted to nullable.
-      if (RetIsNonnull || isExprExplicitlyNullable(RetVal))
+      if (RetIsNonnull || isExprNullable(RetVal, /*ExplicitOnly=*/true))
         Handler.handleReturnEvidence(RetVal, EnclosingFunc, RetIsNonnull);
     }
 
@@ -2887,12 +2792,8 @@ private:
       if (OCE->getOperator() == OO_Arrow) {
         if (OCE->getNumArgs() >= 1) {
           const Expr *Obj = OCE->getArg(0);
-          if (isSmartPointerType(Obj->getType())) {
-            if (isSmartPointerNullable(Obj, State) ||
-                (!isSmartPointerDeclaredNonnull(Obj) &&
-                 !isSmartPointerNarrowed(Obj, State)))
-              warnSmartPtrDeref(DerefExpr, Obj);
-          }
+          if (isSmartPointerType(Obj->getType()))
+            checkSmartPtrDeref(DerefExpr, Obj);
         }
         return;
       }
