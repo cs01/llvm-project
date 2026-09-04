@@ -2492,6 +2492,12 @@ private:
     if (!Init)
       return false;
     Init = stripOpaqueValue(Init->IgnoreParenImpCasts());
+    // Pointer dynamic_cast is nullable even when its source is non-null, and
+    // under the nonnull default its unannotated result type says nothing, so
+    // this rule is what keeps T *q = dynamic_cast<T *>(p) from narrowing q.
+    if (const auto *DCE = dyn_cast<CXXDynamicCastExpr>(Init))
+      if (DCE->getType()->isPointerType())
+        return true;
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(Init))
       return isNullableInit(CE->getSubExpr());
     // Null pointer constants (nullptr, NULL, (T*)0) are always nullable.
