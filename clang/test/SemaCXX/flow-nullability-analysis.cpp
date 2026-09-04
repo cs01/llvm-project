@@ -1613,6 +1613,36 @@ void dupdiag_test_checked(int * _Nullable p) {
 #pragma clang assume_nonnull end
 
 // ===----------------------------------------------------------------------===//
+// Flow taint on a _Nonnull variable is judged the same at every site
+// ===----------------------------------------------------------------------===//
+// A _Nonnull local assigned null is nullable at the argument and return sites
+// too, not only at the initializer and at a dereference.
+
+void taint_takes_nonnull(int * _Nonnull);
+
+void taint_nonnull_tainted_arg() {
+    int * _Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
+    taint_takes_nonnull(a); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}}
+}
+
+int * _Nonnull taint_ret_tainted() {
+    int * _Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
+    return a; // expected-warning{{returning nullable pointer from function with nonnull return type}} expected-note{{add a null check before returning}}
+}
+
+void taint_nonnull_reassigned_ok(int x) {
+    int * _Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
+    a = &x;
+    taint_takes_nonnull(a); // OK - reassigned to a non-null value
+}
+
+int * _Nonnull taint_ret_reassigned_ok(int x) {
+    int * _Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
+    a = &x;
+    return a; // OK - reassigned to a non-null value
+}
+
+// ===----------------------------------------------------------------------===//
 // Else-branch narrowing
 // ===----------------------------------------------------------------------===//
 

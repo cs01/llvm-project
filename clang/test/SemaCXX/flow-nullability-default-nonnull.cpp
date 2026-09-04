@@ -76,3 +76,28 @@ void test_ternary_unguarded_arm_warns(int cond) {
 }
 
 #pragma clang assume_nonnull end
+
+// ===----------------------------------------------------------------------===//
+// A narrowed _Nullable ternary arm is judged the same at every site
+// ===----------------------------------------------------------------------===//
+// Outside the pragma so unannotated() really is unannotated: under the nonnull
+// default its result is not nullable by type, so only the _Nullable arm can
+// taint the ternary, and narrowing that arm must silence the initializer just
+// as it silences the argument site.
+
+int *unannotated();
+void takes_nonnull(int *_Nonnull);
+
+void narrowed_ternary_arm(int *_Nullable p, bool c) {
+    if (p) {
+        int *_Nonnull q = c ? p : unannotated(); // OK - p narrowed by the guard
+        (void)q;
+        takes_nonnull(c ? p : unannotated()); // OK - same value, same verdict
+    }
+}
+
+void unguarded_ternary_arm_warns(int *_Nullable p, bool c) {
+    int *_Nonnull q = c ? p : unannotated(); // expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
+    (void)q;
+    takes_nonnull(c ? p : unannotated()); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}}
+}
