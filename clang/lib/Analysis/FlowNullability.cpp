@@ -89,6 +89,10 @@ using namespace clang;
 
 FlowNullabilityHandler::~FlowNullabilityHandler() = default;
 
+//===----------------------------------------------------------------------===//
+// Access paths and AST helpers
+//===----------------------------------------------------------------------===//
+
 namespace {
 
 /// Access path from a root variable through a chain of field accesses.
@@ -130,8 +134,6 @@ template <> struct llvm::DenseMapInfo<MemberAccessPath> {
   }
 };
 
-namespace {
-
 /// Walk a MemberExpr chain to its root, collecting FieldDecls along the way.
 /// Returns nullopt if the root is not a VarDecl (via DeclRefExpr) or
 /// CXXThisExpr. Root is nullptr for this-> access paths.
@@ -168,6 +170,20 @@ static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
 
   return Path;
 }
+
+static bool pathHasPrefix(const MemberAccessPath &Path,
+                          const MemberAccessPath &Prefix) {
+  return Path.Root == Prefix.Root &&
+         Path.Fields.size() >= Prefix.Fields.size() &&
+         std::equal(Prefix.Fields.begin(), Prefix.Fields.end(),
+                    Path.Fields.begin());
+}
+
+//===----------------------------------------------------------------------===//
+// Lattice
+//===----------------------------------------------------------------------===//
+
+namespace {
 
 /// One fact extracted from a branch condition (or a guard variable's
 /// initializer): the pointer named by VD or MemberPath is non-null when the
@@ -242,6 +258,8 @@ struct NullState {
   bool operator!=(const NullState &Other) const { return !(*this == Other); }
 };
 
+} // end anonymous namespace
+
 static NullState join(const NullState &A, const NullState &B) {
   NullState Result;
   // Narrowed = intersection: only narrowed if ALL paths agree.
@@ -300,6 +318,10 @@ static NullState join(const NullState &A, const NullState &B) {
   });
   return Result;
 }
+
+//===----------------------------------------------------------------------===//
+// Expression unwrapping helpers
+//===----------------------------------------------------------------------===//
 
 static const Expr *unwrapBuiltinExpect(const Expr *E) {
   if (const auto *CE = dyn_cast<CallExpr>(E)) {
@@ -396,6 +418,10 @@ static const Expr *getTerminalCondition(const Expr *E) {
   }
   return E;
 }
+
+//===----------------------------------------------------------------------===//
+// Type and stdlib helpers
+//===----------------------------------------------------------------------===//
 
 static bool isNullableType(QualType Ty, NullabilityKind Default) {
   NullabilityKindOrNone Nullability = Ty->getNullability();
@@ -700,7 +726,7 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
   if (DeclName.isIdentifier()) {
     MethodName = MD->getName();
   } else if (DeclName.getNameKind() == DeclarationName::CXXOperatorName) {
-    IsArrowOp = (DeclName.getCXXOverloadedOperator() == OO_Arrow);
+    IsArrowOp = DeclName.getCXXOverloadedOperator() == OO_Arrow;
   }
 
   // std::vector<T>::data(), begin(), end()
@@ -850,6 +876,10 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
   }
   return false;
 }
+
+//===----------------------------------------------------------------------===//
+// Condition analysis
+//===----------------------------------------------------------------------===//
 
 // Forward declaration: decomposeAnd calls analyzeCondition on leaves.
 static void
@@ -1232,6 +1262,59 @@ static void applyNarrowing(NullState &NS, const ConditionResult &CR) {
     narrowVarWithAliases(NS, CR.VD);
 }
 
+//===----------------------------------------------------------------------===//
+// Transfer functions
+//===----------------------------------------------------------------------===//
+
+/// The smart pointer receiver of an sp.get() call, or nullptr when CE is
+/// not such a call.
+static const Expr *smartPtrGetReceiver(const CallExpr *CE) {
+  const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE);
+  if (!MCE)
+    return nullptr;
+  const auto *MD = MCE->getMethodDecl();
+  if (!MD || !MD->getDeclName().isIdentifier() || MD->getName() != "get")
+    return nullptr;
+  const Expr *Obj = MCE->getImplicitObjectArgument();
+  if (!Obj || !isSmartPointerType(Obj->getType()))
+    return nullptr;
+  return Obj;
+}
+
+/// Unwrap explicit casts and pointer arithmetic to the original pointer
+/// expression. Template instantiations can bake _Nullable into a cast's
+/// result type even when the source is unannotated, so when FoundCast is
+/// set callers must judge nullability on the source type, not the cast.
+static const Expr *unwrapCastsAndArithmetic(const Expr *E, bool &FoundCast) {
+  FoundCast = false;
+  while (true) {
+    if (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
+      FoundCast = true;
+      E = CE->getSubExpr()->IgnoreParenImpCasts();
+    } else if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+      if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
+        E = BO->getLHS()->getType()->isPointerType()
+                ? BO->getLHS()->IgnoreParenImpCasts()
+                : BO->getRHS()->IgnoreParenImpCasts();
+      } else {
+        break;
+      }
+    } else if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+      // *p++ / *++p: the value dereferenced is p (or p+1), so its
+      // null-ness is p's.
+      if (UO->isIncrementDecrementOp())
+        E = UO->getSubExpr()->IgnoreParenImpCasts();
+      else
+        break;
+    } else {
+      break;
+    }
+  }
+  return E;
+}
+
+namespace {
+
 /// Aggregate of every pointer-valued return seen during one function's
 /// fixpoint; feeds the all-returns-nonnull summary emitted afterwards.
 struct ReturnSummary {
@@ -1298,57 +1381,10 @@ class TransferFunctions {
       warnSmartPtrDeref(DerefExpr, Obj);
   }
 
-  /// The smart pointer receiver of an sp.get() call, or nullptr when CE is
-  /// not such a call.
-  static const Expr *smartPtrGetReceiver(const CallExpr *CE) {
-    const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE);
-    if (!MCE)
-      return nullptr;
-    const auto *MD = MCE->getMethodDecl();
-    if (!MD || !MD->getDeclName().isIdentifier() || MD->getName() != "get")
-      return nullptr;
-    const Expr *Obj = MCE->getImplicitObjectArgument();
-    if (!Obj || !isSmartPointerType(Obj->getType()))
-      return nullptr;
-    return Obj;
-  }
-
   /// Gate the built-in stdlib nullable-return list on the langopt so
   /// -fno-nullability-stdlib-annotations fully disables it.
   bool isStdlibNullableReturn(const CallExpr *CE) const {
     return StdlibAnnotations && isStdlibNullableReturnCall(CE);
-  }
-
-  /// Unwrap explicit casts and pointer arithmetic to the original pointer
-  /// expression. Template instantiations can bake _Nullable into a cast's
-  /// result type even when the source is unannotated, so when FoundCast is
-  /// set callers must judge nullability on the source type, not the cast.
-  static const Expr *unwrapCastsAndArithmetic(const Expr *E, bool &FoundCast) {
-    FoundCast = false;
-    while (true) {
-      if (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
-        FoundCast = true;
-        E = CE->getSubExpr()->IgnoreParenImpCasts();
-      } else if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
-        if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
-          E = BO->getLHS()->getType()->isPointerType()
-                  ? BO->getLHS()->IgnoreParenImpCasts()
-                  : BO->getRHS()->IgnoreParenImpCasts();
-        } else {
-          break;
-        }
-      } else if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
-        // *p++ / *++p: the value dereferenced is p (or p+1), so its
-        // null-ness is p's.
-        if (UO->isIncrementDecrementOp())
-          E = UO->getSubExpr()->IgnoreParenImpCasts();
-        else
-          break;
-      } else {
-        break;
-      }
-    }
-    return E;
   }
 
   void checkDeref(const Expr *DerefExpr, QualType PtrType) {
@@ -1492,7 +1528,7 @@ class TransferFunctions {
       }
     }
     if (auto Path = getSmartPtrMemberPath(Obj)) {
-      if (Path->Root != nullptr) {
+      if (Path->Root) {
         ++NumDereferenceWarnings;
         Handler.handleNullableDereference(DerefExpr,
                                           Path->leafField()->getType());
@@ -1516,14 +1552,6 @@ class TransferFunctions {
         }
     for (const auto *BoolVD : ToRemove)
       State.BoolGuards.erase(BoolVD);
-  }
-
-  static bool pathHasPrefix(const MemberAccessPath &Path,
-                            const MemberAccessPath &Prefix) {
-    return Path.Root == Prefix.Root &&
-           Path.Fields.size() >= Prefix.Fields.size() &&
-           std::equal(Prefix.Fields.begin(), Prefix.Fields.end(),
-                      Path.Fields.begin());
   }
 
   /// Remove BoolGuards and member aliases that mention a member path under
@@ -2753,6 +2781,12 @@ private:
   }
 };
 
+} // end anonymous namespace
+
+//===----------------------------------------------------------------------===//
+// Driver
+//===----------------------------------------------------------------------===//
+
 /// Seed the analysis's entry state: narrow parameters that are provably
 /// non-null on entry (declared _Nonnull, __attribute__((nonnull)), or a
 /// lambda's pointer params, which default to nonnull).
@@ -2935,8 +2969,6 @@ static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
     Handler.handleAllReturnsNonnull(FD);
 }
 
-} // end anonymous namespace
-
 void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                                        FlowNullabilityHandler &Handler,
                                        NullabilityKind Default,
@@ -2996,9 +3028,8 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
       FirstPred = false;
     }
 
-    for (auto PI = Block->pred_begin(), PE = Block->pred_end(); PI != PE;
-         ++PI) {
-      if (const CFGBlock *Pred = *PI) {
+    for (const CFGBlock *Pred : Block->preds()) {
+      if (Pred) {
         LLVM_DEBUG(llvm::dbgs() << " B" << Pred->getBlockID());
         EdgeKey EK = {Pred->getBlockID(), BlockID};
         auto It = EdgeStates.find(EK);
@@ -3041,21 +3072,19 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     NullState FalseState = State;
     narrowOnTerminator(Block, State, Ctx, TrueState, FalseState);
 
-    unsigned SucIdx = 0;
-    for (auto SI = Block->succ_begin(), SE = Block->succ_end(); SI != SE;
-         ++SI, ++SucIdx) {
-      if (const CFGBlock *Succ = *SI) {
+    for (const auto &[SucIdx, Succ] : llvm::enumerate(Block->succs())) {
+      if (const CFGBlock *SuccBlock = Succ) {
         const NullState &SuccState =
             (Block->succ_size() == 2) ? (SucIdx == 0 ? TrueState : FalseState)
                                       : State;
-        EdgeKey EK = {BlockID, Succ->getBlockID()};
+        EdgeKey EK = {BlockID, SuccBlock->getBlockID()};
         auto It = EdgeStates.find(EK);
         if (It == EdgeStates.end() || It->second != SuccState) {
           LLVM_DEBUG(llvm::dbgs()
-                     << "    edge B" << BlockID << "->B" << Succ->getBlockID()
-                     << " changed, enqueuing\n");
+                     << "    edge B" << BlockID << "->B"
+                     << SuccBlock->getBlockID() << " changed, enqueuing\n");
           EdgeStates[EK] = SuccState;
-          Worklist.enqueueBlock(Succ);
+          Worklist.enqueueBlock(SuccBlock);
         }
       }
     }
