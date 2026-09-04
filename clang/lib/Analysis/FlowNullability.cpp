@@ -875,22 +875,11 @@ static bool isStdlibNullableReturnCall(const CallExpr *CE) {
       .Default(false);
 }
 
-/// Get the VarDecl from a smart pointer expression, if it's a simple
-/// DeclRefExpr to a VarDecl.
-static const VarDecl *getSmartPtrVarDecl(const Expr *E) {
-  E = E->IgnoreParenImpCasts();
-  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
-    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      if (isSmartPointerType(VD->getType()))
-        return VD;
-  return nullptr;
-}
-
-/// Get the FieldDecl from a smart pointer this->member expression.
-static std::optional<MemberAccessPath> getSmartPtrMemberPath(const Expr *E) {
-  auto Path = decomposeMemberAccess(E);
-  if (Path && isSmartPointerType(Path->leafField()->getType()))
-    return Path;
+/// The tracked pointer E names, if its declared type is a std smart pointer.
+static std::optional<PtrRef> smartPtrRef(const Expr *E) {
+  auto R = PtrRef::fromExpr(E);
+  if (R && isSmartPointerType(R->getType()))
+    return R;
   return std::nullopt;
 }
 
@@ -928,8 +917,7 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
       return isSmartPtrInitDecl(DS, Child);
     if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(S)) {
       if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
-        const Expr *Lhs = OCE->getArg(0);
-        if (getSmartPtrVarDecl(Lhs) || getSmartPtrMemberPath(Lhs))
+        if (smartPtrRef(OCE->getArg(0)))
           return true;
       }
       return false;
@@ -1460,15 +1448,10 @@ public:
                 Inner = unwrapImplicitWrappers(CCE->getArg(0));
             if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
               if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
-                if (const auto *SrcVD = getSmartPtrVarDecl(CE->getArg(0))) {
-                  if (isNarrowed(SrcVD))
+                if (auto Src = smartPtrRef(CE->getArg(0))) {
+                  if (State.isNarrowed(*Src))
                     State.markNarrowed(VD);
-                  State.markNullable(SrcVD);
-                } else if (auto SrcPath =
-                               getSmartPtrMemberPath(CE->getArg(0))) {
-                  if (isMemberNarrowed(*SrcPath))
-                    State.markNarrowed(VD);
-                  State.markNullable(*SrcPath);
+                  State.markNullable(*Src);
                 }
               }
             }
@@ -1876,21 +1859,12 @@ public:
                   Result = ResetNullability::Unknown;
               }
             }
-            if (const auto *VD = getSmartPtrVarDecl(Obj)) {
-              State.NarrowedVars.erase(VD);
-              State.NullableVars.erase(VD);
+            if (auto R = smartPtrRef(Obj)) {
+              State.clear(*R);
               if (Result == ResetNullability::Nonnull)
-                State.markNarrowed(VD);
+                State.markNarrowed(*R);
               else if (Result == ResetNullability::Null)
-                State.markNullable(VD);
-            }
-            if (auto Path = getSmartPtrMemberPath(Obj)) {
-              State.NarrowedMembers.erase(*Path);
-              State.NullableMembers.erase(*Path);
-              if (Result == ResetNullability::Nonnull)
-                State.markNarrowed(*Path);
-              else if (Result == ResetNullability::Null)
-                State.markNullable(*Path);
+                State.markNullable(*R);
             }
           }
         }
@@ -1902,57 +1876,40 @@ public:
     if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
       if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
         const Expr *LhsArg = OCE->getArg(0);
-        const VarDecl *LhsVD = getSmartPtrVarDecl(LhsArg);
-        // Decompose member LHS (this->sp, var.sp, var.inner.sp, etc.)
-        std::optional<MemberAccessPath> LhsMemberPath;
-        if (!LhsVD) {
-          LhsMemberPath = decomposeMemberAccess(LhsArg);
-          if (LhsMemberPath &&
-              !isSmartPointerType(LhsMemberPath->leafField()->getType()))
-            LhsMemberPath = std::nullopt;
-        }
+        std::optional<PtrRef> Lhs = smartPtrRef(LhsArg);
 
-        if (LhsVD || LhsMemberPath) {
-          auto markNarrowed = [&]() {
-            if (LhsVD)
-              State.markNarrowed(LhsVD);
-            if (LhsMemberPath)
-              State.markNarrowed(*LhsMemberPath);
-          };
-
+        if (Lhs) {
           // Clear the LHS's proof. A local only loses its narrowing; a member
           // path is additionally marked nullable.
-          if (LhsVD)
-            State.NarrowedVars.erase(LhsVD);
-          if (LhsMemberPath)
-            State.markNullable(*LhsMemberPath);
+          if (Lhs->VD)
+            State.NarrowedVars.erase(Lhs->VD);
+          else
+            State.markNullable(*Lhs);
           const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
 
           if (isNonnullSmartPtrInit(RHS)) {
             // sp = make_unique<T>(...): non-null
-            markNarrowed();
+            State.markNarrowed(*Lhs);
           } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
             if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
               // sp = std::move(other): LHS inherits source's state.
               // Source tracking only implemented for local-var sources.
-              if (const auto *SrcVD = getSmartPtrVarDecl(RhsCE->getArg(0))) {
-                if (isNarrowed(SrcVD))
-                  markNarrowed();
-                State.markNullable(SrcVD);
+              auto Src = smartPtrRef(RhsCE->getArg(0));
+              if (Src && Src->VD) {
+                if (isNarrowed(Src->VD))
+                  State.markNarrowed(*Lhs);
+                State.markNullable(Src->VD);
               }
             } else if (isNonnullType(RhsCE->getType())) {
               // sp = someFunction(): only narrow if return type is _Nonnull
-              markNarrowed();
+              State.markNarrowed(*Lhs);
             }
           }
           // sp = nullptr or non-call: remains nullable (erased above)
-        }
-
-        // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
-        // invalidate any narrowed paths nested under the LHS.
-        if (!LhsVD && !LhsMemberPath) {
-          if (auto StructPath = decomposeMemberAccess(LhsArg))
-            invalidateMembersWithPrefix(*StructPath);
+        } else if (auto StructPath = decomposeMemberAccess(LhsArg)) {
+          // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
+          // invalidate any narrowed paths nested under the LHS.
+          invalidateMembersWithPrefix(*StructPath);
         }
       }
     }
@@ -1973,11 +1930,14 @@ public:
     if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
         (!ParentMapPtr ||
          !isStdMoveInsideSmartPtrTransferCtx(CE, *ParentMapPtr))) {
-      if (const auto *VD = getSmartPtrVarDecl(CE->getArg(0))) {
-        State.NarrowedVars.erase(VD);
+      // A local only loses its narrowing while a member path is marked
+      // nullable; the asymmetry is preserved as-is.
+      if (auto R = smartPtrRef(CE->getArg(0))) {
+        if (R->VD)
+          State.NarrowedVars.erase(R->VD);
+        else
+          State.markNullable(*R);
       }
-      if (auto Path = getSmartPtrMemberPath(CE->getArg(0)))
-        State.markNullable(*Path);
     }
   }
 
@@ -2067,25 +2027,13 @@ private:
   /// Whether a smart pointer expression (the implicit object of operator->
   /// or operator*) is narrowed in the current state.
   bool isSmartPointerNarrowed(const Expr *E) const {
-    E = E->IgnoreParenImpCasts();
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        return isNarrowed(VD);
-    }
-    if (auto Path = decomposeMemberAccess(E))
-      return isMemberNarrowed(*Path);
-    return false;
+    auto R = PtrRef::fromExpr(E);
+    return R && State.isNarrowed(*R);
   }
 
   bool isSmartPointerNullable(const Expr *E) const {
-    E = E->IgnoreParenImpCasts();
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        return State.NullableVars.contains(VD);
-    }
-    if (auto Path = decomposeMemberAccess(E))
-      return State.NullableMembers.contains(*Path);
-    return false;
+    auto R = PtrRef::fromExpr(E);
+    return R && State.isNullable(*R);
   }
 
   /// Warn on a smart pointer dereference unless the pointer is narrowed or
@@ -2249,21 +2197,21 @@ private:
   /// in the current function (reset, move, or null check) to avoid false
   /// positives on members set in constructors.
   void warnSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
-    Obj = Obj->IgnoreParenImpCasts();
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
-      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "  deref: smart ptr '" << VD->getNameAsString() << "'\n");
-        reportDeref(DerefExpr, VD->getType());
-        return;
-      }
+    auto R = PtrRef::fromExpr(Obj);
+    if (!R)
+      return;
+    if (R->VD) {
+      LLVM_DEBUG(llvm::dbgs() << "  deref: smart ptr '"
+                              << R->VD->getNameAsString() << "'\n");
+      reportDeref(DerefExpr, R->VD->getType());
+      return;
     }
-    if (auto Path = getSmartPtrMemberPath(Obj)) {
-      if (Path->Root)
-        reportDeref(DerefExpr, Path->leafField()->getType());
-      else if (State.NullableMembers.contains(*Path))
-        reportDeref(DerefExpr, Path->leafField()->getType());
-    }
+    // Only a smart-pointer-typed leaf field is reported; a variable is
+    // reported whatever its declared type.
+    if (!isSmartPointerType(R->getType()))
+      return;
+    if (R->Path->Root || State.NullableMembers.contains(*R->Path))
+      reportDeref(DerefExpr, R->getType());
   }
 
   /// Remove any BoolGuards with a fact about the given pointer variable,
@@ -2294,15 +2242,13 @@ private:
   /// pointer-to-pointer casts (never dynamic_cast).
   bool isExprNarrowedNonnull(const Expr *E) const {
     E = lookThroughPtrToPtrCasts(E->IgnoreParenImpCasts());
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        return isNarrowed(VD) || (isNonnullType(VD->getType()) &&
-                                  !State.NullableVars.contains(VD));
+    auto R = PtrRef::fromExpr(E);
+    if (!R)
       return false;
-    }
-    if (auto Path = decomposeMemberAccess(E))
-      return isMemberNarrowed(*Path);
-    return false;
+    if (const VarDecl *VD = R->VD)
+      return isNarrowed(VD) ||
+             (isNonnullType(VD->getType()) && !State.NullableVars.contains(VD));
+    return isMemberNarrowed(*R->Path);
   }
 
   /// Record VD = <member path> so later narrowing of either side reaches
@@ -2489,9 +2435,11 @@ private:
       // sp.get() on a narrowed smart pointer returns nonnull. Falls through
       // when the receiver is neither a smart pointer variable nor a member
       // path.
-      if (const Expr *Obj = smartPtrGetReceiver(CE))
-        if (getSmartPtrVarDecl(Obj) || decomposeMemberAccess(Obj))
+      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
+        auto R = PtrRef::fromExpr(Obj);
+        if (R && (R->Path || isSmartPointerType(R->getType())))
           return isSmartPointerNarrowed(Obj);
+      }
     }
     // Anything else whose own type is _Nonnull (a call to T *_Nonnull f(),
     // a _Nonnull field). Checked last so the flow-sensitive cases above,
@@ -2529,14 +2477,10 @@ private:
     }
     if (isNullableType(Init->getType(), DefaultNullability))
       return true;
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
-      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        return State.NullableVars.contains(VD);
-    }
-    // A member path the flow analysis marked nullable (assigned null or
-    // reset) is nullable regardless of its declared type.
-    if (auto Path = decomposeMemberAccess(Init))
-      return State.NullableMembers.contains(*Path);
+    // A variable or member path the flow analysis marked nullable (assigned
+    // null or reset) is nullable regardless of its declared type.
+    if (auto R = PtrRef::fromExpr(Init))
+      return State.isNullable(*R);
     // nothrow new can return null.
     if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
       return NE->shouldNullCheckAllocation();
@@ -2547,9 +2491,11 @@ private:
       // sp.get() on a non-narrowed smart pointer returns nullable. Falls
       // through when the receiver is neither a smart pointer variable nor a
       // member path.
-      if (const Expr *Obj = smartPtrGetReceiver(CE))
-        if (getSmartPtrVarDecl(Obj) || decomposeMemberAccess(Obj))
+      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
+        auto R = PtrRef::fromExpr(Obj);
+        if (R && (R->Path || isSmartPointerType(R->getType())))
           return !isSmartPointerNarrowed(Obj);
+      }
     }
     return false;
   }
