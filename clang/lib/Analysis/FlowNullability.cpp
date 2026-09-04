@@ -110,6 +110,7 @@ struct MemberAccessPath {
   bool operator==(const MemberAccessPath &O) const {
     return Root == O.Root && Fields == O.Fields;
   }
+  // DenseMap::operator== on MemberAliases compares values with !=.
   bool operator!=(const MemberAccessPath &O) const { return !(*this == O); }
 };
 
@@ -245,6 +246,23 @@ struct NullState {
   /// reassigned.
   using AddrOfTargetMap = llvm::DenseMap<const VarDecl *, const VarDecl *>;
   AddrOfTargetMap AddrOfTargets;
+
+  void markNarrowed(const VarDecl *VD) {
+    NarrowedVars.insert(VD);
+    NullableVars.erase(VD);
+  }
+  void markNullable(const VarDecl *VD) {
+    NarrowedVars.erase(VD);
+    NullableVars.insert(VD);
+  }
+  void markNarrowed(const MemberAccessPath &P) {
+    NarrowedMembers.insert(P);
+    NullableMembers.erase(P);
+  }
+  void markNullable(const MemberAccessPath &P) {
+    NarrowedMembers.erase(P);
+    NullableMembers.insert(P);
+  }
 
   bool operator==(const NullState &Other) const {
     return NarrowedVars == Other.NarrowedVars &&
@@ -439,6 +457,23 @@ static bool isNullableType(QualType Ty, NullabilityKind Default) {
   return false;
 }
 
+/// Template argument \p Idx of the sugared specialization type underlying
+/// \p Ty (references and one level of pointer stripped), or a null QualType.
+/// Reads the sugar rather than the ClassTemplateSpecializationDecl because
+/// the latter strips nullability from its TemplateArguments.
+static QualType getSugaredTemplateArgType(QualType Ty, unsigned Idx) {
+  Ty = Ty.getNonReferenceType();
+  if (Ty->isPointerType())
+    Ty = Ty->getPointeeType();
+  const auto *TST = Ty->getAs<TemplateSpecializationType>();
+  if (!TST)
+    return QualType();
+  auto Args = TST->template_arguments();
+  if (Idx >= Args.size() || Args[Idx].getKind() != TemplateArgument::Type)
+    return QualType();
+  return Args[Idx].getAsType();
+}
+
 /// Recover nullability for a field whose type came from a template argument:
 /// Box<int*_Nullable>::val has type int* in the AST. The sugar survives only
 /// on the base expression's type, since ClassTemplateSpecializationDecl strips
@@ -460,21 +495,8 @@ static QualType getTemplateArgTypeForField(const MemberExpr *ME) {
     const auto *TTPT = PatternField->getType()->getAs<TemplateTypeParmType>();
     if (!TTPT || TTPT->getDepth() != 0)
       return QualType();
-    unsigned ArgIdx = TTPT->getIndex();
-    // Get template args from the SUGARED type on the base expression,
-    // not the CTSD (which strips nullability sugar).
-    QualType BaseType = ME->getBase()->IgnoreParenImpCasts()->getType();
-    // Strip references and pointers to get to the record type
-    BaseType = BaseType.getNonReferenceType();
-    if (BaseType->isPointerType())
-      BaseType = BaseType->getPointeeType();
-    if (const auto *TST = BaseType->getAs<TemplateSpecializationType>()) {
-      auto TArgs = TST->template_arguments();
-      if (ArgIdx < TArgs.size() &&
-          TArgs[ArgIdx].getKind() == TemplateArgument::Type)
-        return TArgs[ArgIdx].getAsType();
-    }
-    return QualType();
+    return getSugaredTemplateArgType(
+        ME->getBase()->IgnoreParenImpCasts()->getType(), TTPT->getIndex());
   }
   return QualType();
 }
@@ -532,24 +554,13 @@ getTemplateArgTypeForMethodReturn(const CXXMemberCallExpr *MCE) {
         PatternMethod->getReturnType()->getAs<TemplateTypeParmType>();
     if (!TTPT || TTPT->getDepth() != 0)
       return QualType();
-    unsigned ArgIdx = TTPT->getIndex();
-    // Get template args from the sugared type on the implicit object arg.
     // IgnoreParenImpCasts to see through the const-qualification cast that
     // strips template argument sugar.
     const Expr *Obj = MCE->getImplicitObjectArgument();
     if (!Obj)
       return QualType();
-    QualType BaseType =
-        Obj->IgnoreParenImpCasts()->getType().getNonReferenceType();
-    if (BaseType->isPointerType())
-      BaseType = BaseType->getPointeeType();
-    if (const auto *TST = BaseType->getAs<TemplateSpecializationType>()) {
-      auto TArgs = TST->template_arguments();
-      if (ArgIdx < TArgs.size() &&
-          TArgs[ArgIdx].getKind() == TemplateArgument::Type)
-        return TArgs[ArgIdx].getAsType();
-    }
-    return QualType();
+    return getSugaredTemplateArgType(Obj->IgnoreParenImpCasts()->getType(),
+                                     TTPT->getIndex());
   }
   return QualType();
 }
@@ -685,17 +696,15 @@ static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
     if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
       ContainerType = FD->getType().getNonReferenceType();
   }
-  if (ContainerType.isNull())
+  // A pointer to a container (auto it = v->begin()) has never matched here,
+  // and getSugaredTemplateArgType would look through the pointer, so reject
+  // it up front.
+  if (ContainerType.isNull() || ContainerType->isPointerType())
     return false;
 
-  const auto *TST = ContainerType->getAs<TemplateSpecializationType>();
-  if (!TST || TST->template_arguments().empty())
+  QualType ElemType = getSugaredTemplateArgType(ContainerType, 0);
+  if (ElemType.isNull())
     return false;
-  const auto &Arg = TST->template_arguments()[0];
-  if (Arg.getKind() != TemplateArgument::Type)
-    return false;
-
-  QualType ElemType = Arg.getAsType();
   return isSmartPointerType(ElemType) && isNonnullType(ElemType);
 }
 
@@ -1220,13 +1229,10 @@ static void computeGuardFacts(const Expr *Init, ASTContext &Ctx,
 /// Narrow a member path, plus every local copied from it
 /// (T *q = s->next; if (s->next) *q;).
 static void narrowMemberPath(NullState &NS, const MemberAccessPath &Path) {
-  NS.NarrowedMembers.insert(Path);
-  NS.NullableMembers.erase(Path);
+  NS.markNarrowed(Path);
   for (const auto &[AliasVD, AliasPath] : NS.MemberAliases)
-    if (AliasPath == Path) {
-      NS.NarrowedVars.insert(AliasVD);
-      NS.NullableVars.erase(AliasVD);
-    }
+    if (AliasPath == Path)
+      NS.markNarrowed(AliasVD);
 }
 
 /// Narrow a variable and everything known to hold the same pointer: its
@@ -1234,20 +1240,16 @@ static void narrowMemberPath(NullState &NS, const MemberAccessPath &Path) {
 /// if (z) narrows z, x, and y), and the member path it was copied from
 /// (T *q = s->next; if (q) *s->next;).
 static void narrowVarWithAliases(NullState &NS, const VarDecl *VD) {
-  NS.NarrowedVars.insert(VD);
-  NS.NullableVars.erase(VD);
+  NS.markNarrowed(VD);
   const VarDecl *Target = VD;
   auto AliasIt = NS.Aliases.find(VD);
   if (AliasIt != NS.Aliases.end()) {
     Target = AliasIt->second;
-    NS.NarrowedVars.insert(Target);
-    NS.NullableVars.erase(Target);
+    NS.markNarrowed(Target);
   }
   for (const auto &[AliasVD, AliasTarget] : NS.Aliases)
-    if (AliasTarget == VD || AliasTarget == Target) {
-      NS.NarrowedVars.insert(AliasVD);
-      NS.NullableVars.erase(AliasVD);
-    }
+    if (AliasTarget == VD || AliasTarget == Target)
+      NS.markNarrowed(AliasVD);
   auto MemberIt = NS.MemberAliases.find(VD);
   if (MemberIt != NS.MemberAliases.end())
     narrowMemberPath(NS, MemberIt->second);
@@ -1387,12 +1389,16 @@ class TransferFunctions {
     return StdlibAnnotations && isStdlibNullableReturnCall(CE);
   }
 
+  void reportDeref(const Expr *DerefExpr, QualType PtrType) {
+    ++NumDereferenceWarnings;
+    Handler.handleNullableDereference(DerefExpr, PtrType);
+  }
+
   void checkDeref(const Expr *DerefExpr, QualType PtrType) {
     if (isNullableType(PtrType, DefaultNullability)) {
       LLVM_DEBUG(llvm::dbgs()
                  << "  deref: nullable " << PtrType.getAsString() << "\n");
-      ++NumDereferenceWarnings;
-      Handler.handleNullableDereference(DerefExpr, PtrType);
+      reportDeref(DerefExpr, PtrType);
     }
   }
 
@@ -1407,8 +1413,7 @@ class TransferFunctions {
     if (const auto *DCE =
             dyn_cast<CXXDynamicCastExpr>(PtrExpr->IgnoreParenImpCasts())) {
       if (DCE->getType()->isPointerType()) {
-        ++NumDereferenceWarnings;
-        Handler.handleNullableDereference(DerefExpr, DCE->getType());
+        reportDeref(DerefExpr, DCE->getType());
         return;
       }
     }
@@ -1419,10 +1424,8 @@ class TransferFunctions {
     // *(p ? p : fallback): the merged type of a ternary inherits _Nullable
     // from an arm the condition guards, so judge the arms flow-sensitively.
     if (isa<AbstractConditionalOperator>(Origin)) {
-      if (isExprNullable(Origin)) {
-        ++NumDereferenceWarnings;
-        Handler.handleNullableDereference(DerefExpr, PtrExpr->getType());
-      }
+      if (isExprNullable(Origin))
+        reportDeref(DerefExpr, PtrExpr->getType());
       return;
     }
     // *p++, *(p + 1): the dereferenced value is p's, so use p's flow
@@ -1496,8 +1499,7 @@ class TransferFunctions {
         State.NullableVars.contains(VD)) {
       LLVM_DEBUG(llvm::dbgs()
                  << "  deref: var '" << VD->getNameAsString() << "'\n");
-      ++NumDereferenceWarnings;
-      Handler.handleNullableDereference(DerefExpr, Ty);
+      reportDeref(DerefExpr, Ty);
     }
   }
 
@@ -1522,21 +1524,15 @@ class TransferFunctions {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
         LLVM_DEBUG(llvm::dbgs()
                    << "  deref: smart ptr '" << VD->getNameAsString() << "'\n");
-        ++NumDereferenceWarnings;
-        Handler.handleNullableDereference(DerefExpr, VD->getType());
+        reportDeref(DerefExpr, VD->getType());
         return;
       }
     }
     if (auto Path = getSmartPtrMemberPath(Obj)) {
-      if (Path->Root) {
-        ++NumDereferenceWarnings;
-        Handler.handleNullableDereference(DerefExpr,
-                                          Path->leafField()->getType());
-      } else if (State.NullableMembers.contains(*Path)) {
-        ++NumDereferenceWarnings;
-        Handler.handleNullableDereference(DerefExpr,
-                                          Path->leafField()->getType());
-      }
+      if (Path->Root)
+        reportDeref(DerefExpr, Path->leafField()->getType());
+      else if (State.NullableMembers.contains(*Path))
+        reportDeref(DerefExpr, Path->leafField()->getType());
     }
   }
 
@@ -1824,14 +1820,12 @@ private:
                 if (const auto *SrcVD = getSmartPtrVarDecl(CE->getArg(0))) {
                   if (State.NarrowedVars.contains(SrcVD))
                     State.NarrowedVars.insert(VD);
-                  State.NarrowedVars.erase(SrcVD);
-                  State.NullableVars.insert(SrcVD);
+                  State.markNullable(SrcVD);
                 } else if (auto SrcPath =
                                getSmartPtrMemberPath(CE->getArg(0))) {
                   if (State.NarrowedMembers.contains(*SrcPath))
                     State.NarrowedVars.insert(VD);
-                  State.NarrowedMembers.erase(*SrcPath);
-                  State.NullableMembers.insert(*SrcPath);
+                  State.markNullable(*SrcPath);
                 }
               }
             }
@@ -1949,13 +1943,12 @@ private:
         if (Handler.isKnownAllReturnsNonnull(Callee))
           return true;
       }
-      // sp.get() on a narrowed smart pointer returns nonnull
-      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
-        if (const auto *VD = getSmartPtrVarDecl(Obj))
-          return isNarrowed(VD);
-        if (auto Path = decomposeMemberAccess(Obj))
-          return isMemberNarrowed(*Path);
-      }
+      // sp.get() on a narrowed smart pointer returns nonnull. Falls through
+      // when the receiver is neither a smart pointer variable nor a member
+      // path.
+      if (const Expr *Obj = smartPtrGetReceiver(CE))
+        if (getSmartPtrVarDecl(Obj) || decomposeMemberAccess(Obj))
+          return isSmartPointerNarrowed(Obj);
     }
     // Anything else whose own type is _Nonnull (a call to T *_Nonnull f(),
     // a _Nonnull field). Checked last so the flow-sensitive cases above,
@@ -2008,13 +2001,12 @@ private:
       // Stdlib functions known to return null (malloc, fopen, getenv, etc.).
       if (isStdlibNullableReturn(CE))
         return true;
-      // sp.get() on a non-narrowed smart pointer returns nullable
-      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
-        if (const auto *VD = getSmartPtrVarDecl(Obj))
-          return !isNarrowed(VD);
-        if (auto Path = decomposeMemberAccess(Obj))
-          return !isMemberNarrowed(*Path);
-      }
+      // sp.get() on a non-narrowed smart pointer returns nullable. Falls
+      // through when the receiver is neither a smart pointer variable nor a
+      // member path.
+      if (const Expr *Obj = smartPtrGetReceiver(CE))
+        if (getSmartPtrVarDecl(Obj) || decomposeMemberAccess(Obj))
+          return !isSmartPointerNarrowed(Obj);
     }
     return false;
   }
@@ -2320,6 +2312,21 @@ private:
     }
   }
 
+  /// Warn when a nullable pointer reaches a nonnull parameter, then narrow
+  /// the argument variable: surviving the call proves it non-null.
+  void checkNonnullParamArg(const Expr *ArgExpr, const ParmVarDecl *Param) {
+    const Expr *Arg = ArgExpr->IgnoreParenImpCasts();
+    if (isExprNullable(Arg)) {
+      ++NumArgumentWarnings;
+      Handler.handleNullableArgument(ArgExpr, Param);
+    }
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+        if (VD->getType()->isPointerType())
+          State.markNarrowed(VD);
+    }
+  }
+
   /// Calls never invalidate narrowing; see the file overview for why.
   void handleCallExpr(const CallExpr *CE) {
     if (const auto *Callee = CE->getDirectCallee()) {
@@ -2343,6 +2350,14 @@ private:
         ArgOffset = 1;
       const auto *NNAttr = Callee->getAttr<NonNullAttr>();
       unsigned EffArgs = CE->getNumArgs() - ArgOffset;
+      // Parameter evidence for cross-TU inference is skipped for builtins,
+      // empty-named functions, and lambda operator() calls (lambda params
+      // have no cross-TU identity).
+      bool IsLambdaCall = false;
+      if (const auto *MD = dyn_cast<CXXMethodDecl>(Callee))
+        IsLambdaCall = MD->getParent()->isLambda();
+      bool EmitEvidence = !Callee->getBuiltinID() &&
+                          !Callee->getDeclName().isEmpty() && !IsLambdaCall;
       for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
            ++I) {
         const ParmVarDecl *Param = Callee->getParamDecl(I);
@@ -2353,37 +2368,16 @@ private:
         // Lambda pointer params default to nonnull (auto-narrowed in body).
         // Verify at call sites: warn when passing nullable to a lambda param
         // that isn't explicitly _Nullable.
-        if (!ParamIsNonnull && !isExplicitlyNullableType(Param->getType())) {
-          if (const auto *MD = dyn_cast<CXXMethodDecl>(Callee))
-            if (MD->getParent()->isLambda())
-              ParamIsNonnull = true;
-        }
-        if (ParamIsNonnull) {
-          const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
-          // Flow-sensitive argument check: warn when passing a nullable
-          // pointer to a _Nonnull parameter.
-          if (isExprNullable(Arg)) {
-            ++NumArgumentWarnings;
-            Handler.handleNullableArgument(CE->getArg(I + ArgOffset), Param);
-          }
-          if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
-            if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-              if (VD->getType()->isPointerType()) {
-                State.NarrowedVars.insert(VD);
-                State.NullableVars.erase(VD);
-              }
-          }
-        }
+        if (!ParamIsNonnull && IsLambdaCall &&
+            !isExplicitlyNullableType(Param->getType()))
+          ParamIsNonnull = true;
+        if (ParamIsNonnull)
+          checkNonnullParamArg(CE->getArg(I + ArgOffset), Param);
       }
 
-      // Emit parameter evidence for cross-TU inference.
-      // Skip builtins, empty-named functions, and lambda operator() calls
-      // (lambda params have no cross-TU identity).
-      bool IsLambdaCall = false;
-      if (const auto *MD = dyn_cast<CXXMethodDecl>(Callee))
-        IsLambdaCall = MD->getParent()->isLambda();
-      if (!Callee->getBuiltinID() && !Callee->getDeclName().isEmpty() &&
-          !IsLambdaCall) {
+      // Evidence runs as a second pass so every argument is judged after all
+      // nonnull-parameter narrowing from this call has been applied.
+      if (EmitEvidence) {
         for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams());
              I < N; ++I) {
           const ParmVarDecl *Param = Callee->getParamDecl(I);
@@ -2485,26 +2479,19 @@ private:
         }
 
         if (LhsVD || LhsMemberPath) {
-          auto clearNarrowing = [&]() {
-            if (LhsVD)
-              State.NarrowedVars.erase(LhsVD);
-            if (LhsMemberPath) {
-              State.NarrowedMembers.erase(*LhsMemberPath);
-              State.NullableMembers.insert(*LhsMemberPath);
-            }
-          };
           auto markNarrowed = [&]() {
-            if (LhsVD) {
-              State.NarrowedVars.insert(LhsVD);
-              State.NullableVars.erase(LhsVD);
-            }
-            if (LhsMemberPath) {
-              State.NarrowedMembers.insert(*LhsMemberPath);
-              State.NullableMembers.erase(*LhsMemberPath);
-            }
+            if (LhsVD)
+              State.markNarrowed(LhsVD);
+            if (LhsMemberPath)
+              State.markNarrowed(*LhsMemberPath);
           };
 
-          clearNarrowing();
+          // Clear the LHS's proof. A local only loses its narrowing; a member
+          // path is additionally marked nullable.
+          if (LhsVD)
+            State.NarrowedVars.erase(LhsVD);
+          if (LhsMemberPath)
+            State.markNullable(*LhsMemberPath);
           const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
 
           if (isNonnullSmartPtrInit(RHS)) {
@@ -2517,8 +2504,7 @@ private:
               if (const auto *SrcVD = getSmartPtrVarDecl(RhsCE->getArg(0))) {
                 if (State.NarrowedVars.contains(SrcVD))
                   markNarrowed();
-                State.NarrowedVars.erase(SrcVD);
-                State.NullableVars.insert(SrcVD);
+                State.markNullable(SrcVD);
               }
             } else if (isNonnullType(RhsCE->getType())) {
               // sp = someFunction(): only narrow if return type is _Nonnull
@@ -2556,10 +2542,8 @@ private:
       if (const auto *VD = getSmartPtrVarDecl(CE->getArg(0))) {
         State.NarrowedVars.erase(VD);
       }
-      if (auto Path = getSmartPtrMemberPath(CE->getArg(0))) {
-        State.NarrowedMembers.erase(*Path);
-        State.NullableMembers.insert(*Path);
-      }
+      if (auto Path = getSmartPtrMemberPath(CE->getArg(0)))
+        State.markNullable(*Path);
     }
   }
 
@@ -2577,21 +2561,8 @@ private:
         continue;
       bool ParamIsNonnull =
           isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I));
-      if (ParamIsNonnull) {
-        const Expr *Arg = CE->getArg(I)->IgnoreParenImpCasts();
-        if (isExprNullable(Arg)) {
-          ++NumArgumentWarnings;
-          Handler.handleNullableArgument(CE->getArg(I), Param);
-        }
-        // Narrow the argument: surviving the call proves it was non-null
-        if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-            if (VD->getType()->isPointerType()) {
-              State.NarrowedVars.insert(VD);
-              State.NullableVars.erase(VD);
-            }
-        }
-      }
+      if (ParamIsNonnull)
+        checkNonnullParamArg(CE->getArg(I), Param);
     }
   }
 
@@ -2764,8 +2735,7 @@ private:
       // If flow analysis marked this member nullable (e.g. assigned nullptr
       // or reset()), that overrides the declared _Nonnull type.
       if (State.NullableMembers.contains(*Path)) {
-        ++NumDereferenceWarnings;
-        Handler.handleNullableDereference(DerefExpr, ME->getType());
+        reportDeref(DerefExpr, ME->getType());
       } else if (!isMemberNarrowed(*Path)) {
         QualType CheckTy = ME->getType();
         // If the member type has no nullability, check if it came from a
