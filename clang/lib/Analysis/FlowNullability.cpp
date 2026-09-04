@@ -150,7 +150,6 @@ static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
   if (Fields.empty())
     return std::nullopt;
 
-  // Fields are in reverse order (leaf first); flip to root-first.
   std::reverse(Fields.begin(), Fields.end());
 
   MemberAccessPath Path;
@@ -181,56 +180,53 @@ struct ConditionResult {
   bool operator==(const ConditionResult &O) const {
     return VD == O.VD && MemberPath == O.MemberPath && Negated == O.Negated;
   }
-  bool operator!=(const ConditionResult &O) const { return !(*this == O); }
 };
 
 /// Per-block dataflow lattice tracking which pointers are narrowed (known
-/// non-null) or nullable. Uses DenseSet for simplicity; a BitVector keyed
-/// by variable index would reduce fixpoint comparison cost for functions
-/// with many tracked pointers, but profiling hasn't shown this to be a
-/// bottleneck in practice (the perf stress test passes comfortably).
+/// non-null) or nullable.
 struct NullState {
-  // Pointers proven non-null by control flow (null checks, nonnull init, etc.).
-  // A variable should not be in both NarrowedVars and NullableVars: narrowing
-  // is always erased before re-evaluating nullability on reassignment.
+  /// Pointers proven non-null by control flow (null checks, nonnull init,
+  /// etc.). A variable should not be in both NarrowedVars and NullableVars:
+  /// narrowing is always erased before re-evaluating nullability on
+  /// reassignment.
   llvm::DenseSet<const VarDecl *> NarrowedVars;
-  // Unified member narrowing: covers both this->field and var.field paths,
-  // including nested access like var.inner.field (arbitrary depth).
+  /// Unified member narrowing: covers both this->field and var.field paths,
+  /// including nested access like var.inner.field (arbitrary depth).
   llvm::DenseSet<MemberAccessPath> NarrowedMembers;
   llvm::DenseSet<const VarDecl *> NullableVars;
-  // Member access paths known to be nullable at runtime (e.g., smart pointer
-  // members after reset() or std::move()). Parallels NarrowedMembers.
+  /// Member access paths known to be nullable at runtime (e.g., smart pointer
+  /// members after reset() or std::move()). Parallels NarrowedMembers.
   llvm::DenseSet<MemberAccessPath> NullableMembers;
 
-  // Maps integer-typed guard variables (bool or int flags) to the null-check
-  // facts they capture, e.g. bool valid = (p != nullptr) stores
-  // {valid -> [(p, Negated=false)]}. Each fact reads exactly like a branch
-  // condition result: when the guard is true the Negated=false facts hold,
-  // when it is false the Negated=true facts hold. A guard built from p && q
-  // carries one fact per conjunct.
+  /// Maps integer-typed guard variables (bool or int flags) to the null-check
+  /// facts they capture, e.g. bool valid = (p != nullptr) stores
+  /// {valid -> [(p, Negated=false)]}. Each fact reads exactly like a branch
+  /// condition result: when the guard is true the Negated=false facts hold,
+  /// when it is false the Negated=true facts hold. A guard built from p && q
+  /// carries one fact per conjunct.
   using BoolGuardMap =
       llvm::DenseMap<const VarDecl *, llvm::SmallVector<ConditionResult, 2>>;
   BoolGuardMap BoolGuards;
 
-  // Simple pointer alias tracking: y = x stores {y -> x}, meaning y holds
-  // the same pointer value as x. When either is narrowed by a branch
-  // condition, the other is narrowed too (at the edge-state level).
-  // Depth-1 only: if z = y and y -> x, we store z -> x (canonical target).
+  /// Simple pointer alias tracking: y = x stores {y -> x}, meaning y holds
+  /// the same pointer value as x. When either is narrowed by a branch
+  /// condition, the other is narrowed too (at the edge-state level).
+  /// Depth-1 only: if z = y and y -> x, we store z -> x (canonical target).
   using AliasMap = llvm::DenseMap<const VarDecl *, const VarDecl *>;
   AliasMap Aliases;
 
-  // Local pointer copied from a member path: T *q = s->next stores
-  // {q -> s.next}. Narrowing either side narrows the other, so
-  // if (s->next) { T *q = s->next; *q; } and T *q = s->next; if (q)
-  // *s->next both work. Dropped when q is reassigned or the path is
-  // invalidated.
+  /// Local pointer copied from a member path: T *q = s->next stores
+  /// {q -> s.next}. Narrowing either side narrows the other, so
+  /// if (s->next) { T *q = s->next; *q; } and T *q = s->next; if (q)
+  /// *s->next both work. Dropped when q is reassigned or the path is
+  /// invalidated.
   using MemberAliasMap = llvm::DenseMap<const VarDecl *, MemberAccessPath>;
   MemberAliasMap MemberAliases;
 
-  // Tracks "pp holds &local": T** pp = &p records pp -> p. Used to
-  // invalidate p's narrowing on *pp = anything, since a store through the
-  // pointer-to-pointer can change p. Entries are dropped when pp is
-  // reassigned.
+  /// Tracks "pp holds &local": T** pp = &p records pp -> p. Used to
+  /// invalidate p's narrowing on *pp = anything, since a store through the
+  /// pointer-to-pointer can change p. Entries are dropped when pp is
+  /// reassigned.
   using AddrOfTargetMap = llvm::DenseMap<const VarDecl *, const VarDecl *>;
   AddrOfTargetMap AddrOfTargets;
 
@@ -355,20 +351,12 @@ static const Expr *ignoreExplicitBoolCast(const Expr *E) {
   return E;
 }
 
-/// See through explicit pointer-to-pointer casts on a dereference operand to
-/// recover the underlying tracked expression (a DeclRefExpr/MemberExpr whose
-/// flow-narrowing state we track). IgnoreParenImpCasts() strips implicit casts
-/// but leaves explicit C-style/static/reinterpret casts in place, so
-/// *(int*)o loses the link to the VarDecl o and its narrowing/nullable
-/// state. We only look through casts whose source AND result are pointer types
-/// (a relabeling of a pointer value), never integer->pointer or other casts,
-/// which genuinely produce a new value with no tracked origin.
-///
-/// dynamic_cast<T*> is explicitly NOT seen through: unlike a static/C-style/
-/// reinterpret cast it is not a relabeling; it returns null when the runtime
-/// type check fails, so a non-null source can yield a null result. Seeing
-/// through it would suppress a real null-deref warning on
-/// dynamic_cast<T*>(p)->f.
+/// Strip explicit casts whose source and result are both pointer types, so
+/// *(int*)o still reaches the tracked VarDecl o (IgnoreParenImpCasts leaves
+/// explicit casts in place). Integer->pointer and other casts produce a new
+/// value with no tracked origin and are not stripped. Neither is dynamic_cast:
+/// it returns null when the runtime type check fails, so a non-null source can
+/// yield a null result and dynamic_cast<T*>(p)->f must still warn.
 static const Expr *lookThroughPtrToPtrCasts(const Expr *E) {
   while (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
     if (isa<CXXDynamicCastExpr>(CE))
@@ -439,7 +427,6 @@ static QualType getTemplateArgTypeForField(const MemberExpr *ME) {
   const auto *CTSD = dyn_cast<ClassTemplateSpecializationDecl>(RD);
   if (!CTSD)
     return QualType();
-  // Get the original (pattern) field to find the TemplateTypeParmType
   CXXRecordDecl *Pattern = CTSD->getSpecializedTemplate()->getTemplatedDecl();
   for (const auto *PatternField : Pattern->fields()) {
     if (PatternField->getDeclName() != FD->getDeclName())
@@ -483,7 +470,6 @@ getTemplateArgTypeForMethodReturn(const CXXMemberCallExpr *MCE) {
     const auto *TTPT = Pattern->getReturnType()->getAs<TemplateTypeParmType>();
     if (TTPT && TTPT->getDepth() == 0) {
       unsigned ArgIdx = TTPT->getIndex();
-      // Get sugared template args from the MemberExpr
       const auto *ME = dyn_cast<MemberExpr>(MCE->getCallee());
       if (ME && ME->hasExplicitTemplateArgs()) {
         auto Args = ME->template_arguments();
@@ -646,7 +632,6 @@ static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
   if (!OpCall || OpCall->getOperator() != OO_Star || OpCall->getNumArgs() < 1)
     return false;
 
-  // Get the iterator variable
   const Expr *IterExpr = OpCall->getArg(0)->IgnoreParenImpCasts();
   const auto *IterDRE = dyn_cast<DeclRefExpr>(IterExpr);
   if (!IterDRE)
@@ -655,14 +640,13 @@ static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
   if (!IterVD || !IterVD->hasInit())
     return false;
 
-  // The iterator should be initialized from container.begin()
   const Expr *IterInit = unwrapImplicitWrappers(IterVD->getInit());
   const auto *BeginCall = dyn_cast<CXXMemberCallExpr>(IterInit);
   if (!BeginCall)
     return false;
 
-  // Get the container; use the VarDecl's declared type to preserve sugar
-  // (the implicit const cast on .begin()'s object arg strips it)
+  // Use the declared type: the implicit const cast on .begin()'s object arg
+  // strips the sugar.
   const Expr *ObjArg = BeginCall->getImplicitObjectArgument();
   if (!ObjArg)
     return false;
@@ -678,7 +662,6 @@ static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
   if (ContainerType.isNull())
     return false;
 
-  // Extract the first template argument from the sugar type
   const auto *TST = ContainerType->getAs<TemplateSpecializationType>();
   if (!TST || TST->template_arguments().empty())
     return false;
@@ -701,7 +684,6 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
   const auto *MD = MCE->getMethodDecl();
   if (!MD)
     return false;
-  // The method must return a pointer type.
   if (!MD->getReturnType()->isPointerType())
     return false;
   const auto *RD = MD->getParent();
@@ -712,8 +694,6 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
     return false;
   StringRef ClassName = RD->getName();
 
-  // Get method name. For regular identifiers use getName(); for operators
-  // like operator-> check the overloaded operator kind directly.
   const auto &DeclName = MD->getDeclName();
   StringRef MethodName;
   bool IsArrowOp = false;
@@ -768,16 +748,13 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
 /// regardless of annotations, so unchecked dereferences always warn. Only
 /// free functions at global or std scope match; the body is the exact set.
 static bool isStdlibNullableReturnCall(const CallExpr *CE) {
-  // Reject member calls; we only want free functions.
   if (isa<CXXMemberCallExpr>(CE))
     return false;
   const FunctionDecl *FD = CE->getDirectCallee();
   if (!FD)
     return false;
-  // Must return a pointer type.
   if (!FD->getReturnType()->isPointerType())
     return false;
-  // Must be a free function at file/namespace scope (not a static method).
   if (isa<CXXMethodDecl>(FD))
     return false;
   const auto &DeclName = FD->getDeclName();
@@ -792,7 +769,7 @@ static bool isStdlibNullableReturnCall(const CallExpr *CE) {
   if (!DC->isTranslationUnit() && !DC->isStdNamespace())
     return false;
   StringRef Name = FD->getName();
-  // Keep sorted for easy scanning; use StringSwitch for clean matching.
+  // Grouped by header (stdlib.h, stdio.h, string.h, ...).
   return llvm::StringSwitch<bool>(Name)
       .Cases({"malloc", "calloc", "realloc", "aligned_alloc"}, true)
       .Cases({"fopen", "freopen", "tmpfile"}, true)
@@ -822,14 +799,11 @@ static std::optional<MemberAccessPath> getSmartPtrMemberPath(const Expr *E) {
   return std::nullopt;
 }
 
-/// Return true if this std::move(sp) call is the init/RHS of a smart-pointer
-/// transfer (auto x = std::move(y); or x = std::move(y) on a smart-ptr LHS).
-/// The standalone std::move handler must then leave the source alone: the
-/// transfer handler needs its pre-move narrowed state, and CFG order visits
-/// the inner call before the enclosing DeclStmt/operator=, so the context
-/// cannot be threaded down. Parents come from the function-scoped ParentMap
-/// (AnalysisDeclContext) rather than ASTContext::getParents, which lazily
-/// builds a TU-wide parent map, far too costly for a per-function analysis.
+/// True if this std::move(sp) is the init/RHS of a smart-pointer transfer
+/// (auto x = std::move(y); or x = std::move(y)). The transfer handler needs
+/// the source's pre-move state, and CFG order visits the inner call before the
+/// enclosing DeclStmt/operator=, so the context cannot be threaded down. Uses
+/// the function-scoped ParentMap, not the TU-wide ASTContext::getParents.
 static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
                                                const ParentMap &PM) {
   // A VarDecl initializer's ParentMap parent is the DeclStmt itself. Match the
@@ -1508,7 +1482,6 @@ class TransferFunctions {
   /// positives on members set in constructors.
   void warnSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
     Obj = Obj->IgnoreParenImpCasts();
-    // Local variable or parameter: always warn when not narrowed
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
         LLVM_DEBUG(llvm::dbgs()
@@ -1520,12 +1493,10 @@ class TransferFunctions {
     }
     if (auto Path = getSmartPtrMemberPath(Obj)) {
       if (Path->Root != nullptr) {
-        // var.member path: always warn (same as local vars)
         ++NumDereferenceWarnings;
         Handler.handleNullableDereference(DerefExpr,
                                           Path->leafField()->getType());
       } else if (State.NullableMembers.contains(*Path)) {
-        // this->member path: only warn with evidence
         ++NumDereferenceWarnings;
         Handler.handleNullableDereference(DerefExpr,
                                           Path->leafField()->getType());
@@ -1641,13 +1612,14 @@ class TransferFunctions {
       State.Aliases.erase(AliasVD);
   }
 
-  /// Resolve a VarDecl through the alias chain to its canonical target.
-  /// Returns VD itself if it's not an alias of anything.
+  /// The recorded canonical alias target of VD (the map is depth-1), or VD
+  /// itself if it is not an alias of anything.
   const VarDecl *resolveAlias(const VarDecl *VD) const {
     auto It = State.Aliases.find(VD);
     return It != State.Aliases.end() ? It->second : VD;
   }
 
+  /// Drop every narrowed/nullable member path and member alias rooted at VD.
   void invalidateMembersFor(const VarDecl *VD) {
     SmallVector<MemberAccessPath, 4> ToRemove;
     for (const auto &Path : State.NarrowedMembers)
@@ -1681,8 +1653,8 @@ class TransferFunctions {
     State.AddrOfTargets.erase(VD);
   }
 
-  // Invalidate all narrowed/nullable member paths that start with Prefix.
-  // e.g. assigning to var.inner invalidates var.inner.x, var.inner.y, etc.
+  /// Invalidate all narrowed/nullable member paths that start with Prefix.
+  /// e.g. assigning to var.inner invalidates var.inner.x, var.inner.y, etc.
   void invalidateMembersWithPrefix(const MemberAccessPath &Prefix) {
     auto removeWithPrefix = [&](llvm::DenseSet<MemberAccessPath> &Set) {
       SmallVector<MemberAccessPath, 4> ToRemove;
@@ -1735,7 +1707,6 @@ private:
   void handleDeclStmt(const DeclStmt *DS) {
     for (const auto *D : DS->decls()) {
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
-        // Track raw pointer initialization
         if (VD->getType()->isPointerType()) {
           if (VD->hasInit())
             recordPointerSource(VD, VD->getInit());
@@ -2042,11 +2013,9 @@ private:
               IsZeroOffset = true;
         }
         if (!IsZeroOffset) {
-          // Check the primary pointer operand
           if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr))
             if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
               checkVarArithmetic(BO, VD);
-          // For pointer difference (p - q), also check the other operand
           if (OtherExpr && OtherExpr->getType()->isPointerType())
             if (const auto *DRE = dyn_cast<DeclRefExpr>(OtherExpr))
               if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
@@ -2323,12 +2292,7 @@ private:
     }
   }
 
-  /// Handle function calls. By design, calls do NOT invalidate pointer
-  /// narrowing, even when a pointer's address is taken (&p) and passed as
-  /// a T** argument. This is a pragmatic trade-off: invalidating on
-  /// address-escape would produce excessive false positives on common
-  /// patterns (output parameters, init functions). The same approach is
-  /// used by Clang's ThreadSafety analysis.
+  /// Calls never invalidate narrowing; see the file overview for why.
   void handleCallExpr(const CallExpr *CE) {
     if (const auto *Callee = CE->getDirectCallee()) {
       // __builtin_assume(cond) narrows pointers mentioned in cond.
@@ -2456,7 +2420,6 @@ private:
                   Result = ResetNullability::Unknown;
               }
             }
-            // Local variable
             if (const auto *VD = getSmartPtrVarDecl(Obj)) {
               State.NarrowedVars.erase(VD);
               State.NullableVars.erase(VD);
@@ -2465,7 +2428,6 @@ private:
               else if (Result == ResetNullability::Null)
                 State.NullableVars.insert(VD);
             }
-            // member smart pointer (this->sp, var.sp, var.inner.sp, etc.)
             if (auto Path = getSmartPtrMemberPath(Obj)) {
               State.NarrowedMembers.erase(*Path);
               State.NullableMembers.erase(*Path);
@@ -2573,8 +2535,8 @@ private:
     }
   }
 
-  // Check constructor arguments against parameter nullability, same as
-  // handleCallExpr does for regular function calls.
+  /// Check constructor arguments against parameter nullability, same as
+  /// handleCallExpr does for regular function calls.
   void handleConstructExpr(const CXXConstructExpr *CE) {
     const CXXConstructorDecl *Ctor = CE->getConstructor();
     if (!Ctor)
@@ -2605,7 +2567,7 @@ private:
     }
   }
 
-  // Check aggregate init lists: S{nullptr, &x} where a field is _Nonnull.
+  /// Check aggregate init lists: S{nullptr, &x} where a field is _Nonnull.
   void handleInitListExpr(const InitListExpr *ILE) {
     const auto *RT = ILE->getType()->getAs<RecordType>();
     if (!RT)
@@ -3010,21 +2972,14 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   BlockEntryStates[Entry.getBlockID()] = InitState;
   Worklist.enqueueBlock(&Entry);
 
-  // Fixpoint iteration. Blocks are only re-processed when their entry state
-  // changes, which bounds iteration in practice, but the lattice is not
-  // provably monotone (NullableVars can be erased by transfer functions;
-  // BoolGuards/Aliases are both inserted and erased), so cap total block
-  // visits as a termination safety net. The bound is generous: well-behaved
-  // functions converge in a few visits per block.
+  // Termination safety net for the non-monotone lattice (see file overview).
+  // Generous: well-behaved functions converge in a few visits per block.
   const unsigned MaxBlockVisits = Cfg->size() * 64;
   unsigned BlockVisits = 0;
   bool HitVisitCap = false;
   while (const CFGBlock *Block = Worklist.dequeue()) {
     if (++BlockVisits > MaxBlockVisits) {
-      // Bail out of a (likely) non-converging analysis. Diagnostics buffered
-      // so far still get emitted by the caller (they reflect states that
-      // were actually observed), but all-returns-nonnull inference is
-      // suppressed below since a summary from a partial run could be wrong.
+      // Diagnostics buffered so far reflect observed states, so keep them.
       ++NumFixpointBailouts;
       HitVisitCap = true;
       break;
@@ -3106,7 +3061,5 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     }
   }
 
-  // After the fixpoint: emit the all-returns-nonnull summary (skipped if the
-  // visit cap fired, since a summary from a partial run could be wrong).
   emitAllReturnsNonnullSummary(AC.getDecl(), HitVisitCap, Returns, Handler);
 }
