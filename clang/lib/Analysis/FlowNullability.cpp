@@ -100,7 +100,7 @@ namespace {
 /// Represents expressions like: var.field, var->inner->field, this->a.b.
 /// Root is nullptr for this-> access paths.
 struct MemberAccessPath {
-  const VarDecl *Root;
+  const VarDecl *Root = nullptr;
   llvm::SmallVector<const FieldDecl *, 2> Fields;
 
   const FieldDecl *leafField() const {
@@ -891,42 +891,27 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
 // Condition analysis
 //===----------------------------------------------------------------------===//
 
-// Forward declaration: decomposeAnd calls analyzeCondition on leaves.
+// Forward declaration: decomposeChain calls analyzeCondition on leaves.
 static void
 analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                  SmallVectorImpl<ConditionResult> &Results,
                  const NullState::BoolGuardMap *BoolGuards = nullptr);
 
-/// Recursively flatten a chain of && operators and analyze each leaf.
-/// Used by analyzeCondition to handle !(A && B && C).
-static void decomposeAnd(const Expr *E, ASTContext &Ctx,
-                         SmallVectorImpl<ConditionResult> &Results,
-                         const NullState::BoolGuardMap *BoolGuards) {
+/// Recursively flatten a chain of Op (BO_LAnd or BO_LOr) operators and
+/// analyze each leaf. The && form serves analyzeCondition's !(A && B && C)
+/// and guard initializers like ok = a && b; the || form lets the IfStmt
+/// level narrow every operand on the false edge of if (A || B).
+static void decomposeChain(const Expr *E, BinaryOperatorKind Op,
+                           ASTContext &Ctx,
+                           SmallVectorImpl<ConditionResult> &Results,
+                           const NullState::BoolGuardMap *BoolGuards) {
   E = E->IgnoreParenImpCasts();
   if (const auto *EWC = dyn_cast<ExprWithCleanups>(E))
     E = EWC->getSubExpr()->IgnoreParenImpCasts();
   if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
-    if (BO->getOpcode() == BO_LAnd) {
-      decomposeAnd(BO->getLHS(), Ctx, Results, BoolGuards);
-      decomposeAnd(BO->getRHS(), Ctx, Results, BoolGuards);
-      return;
-    }
-  }
-  analyzeCondition(E, Ctx, Results, BoolGuards);
-}
-
-/// Recursively flatten a chain of || operators and analyze each leaf.
-/// Used at the IfStmt level to narrow on the false edge of if (A || B).
-static void decomposeOr(const Expr *E, ASTContext &Ctx,
-                        SmallVectorImpl<ConditionResult> &Results,
-                        const NullState::BoolGuardMap *BoolGuards) {
-  E = E->IgnoreParenImpCasts();
-  if (const auto *EWC = dyn_cast<ExprWithCleanups>(E))
-    E = EWC->getSubExpr()->IgnoreParenImpCasts();
-  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
-    if (BO->getOpcode() == BO_LOr) {
-      decomposeOr(BO->getLHS(), Ctx, Results, BoolGuards);
-      decomposeOr(BO->getRHS(), Ctx, Results, BoolGuards);
+    if (BO->getOpcode() == Op) {
+      decomposeChain(BO->getLHS(), Op, Ctx, Results, BoolGuards);
+      decomposeChain(BO->getRHS(), Op, Ctx, Results, BoolGuards);
       return;
     }
   }
@@ -937,7 +922,7 @@ static void decomposeOr(const Expr *E, ASTContext &Ctx,
 /// overview). The CFG splits && and || operands into their own blocks, but a
 /// || operand creating a temporary with a destructor (f() == nullptr on a
 /// unique_ptr) gets cleanup blocks that merge the paths before the IfStmt, so
-/// decomposeOr re-narrows every operand on the IfStmt's false edge.
+/// decomposeChain re-narrows every operand on the IfStmt's false edge.
 static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                              SmallVectorImpl<ConditionResult> &Results,
                              const NullState::BoolGuardMap *BoolGuards) {
@@ -978,11 +963,11 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
     if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
       if (BO->getOpcode() == BO_LAnd) {
         // Flatten nested && into a LOCAL vector: Results may already hold
-        // leaves appended by an outer decomposeAnd/decomposeOr (e.g.
+        // leaves appended by an outer decomposeChain (e.g.
         // if (x && !(a && b))), and the erase/flip below must not clobber
         // them.
         SmallVector<ConditionResult, 4> AndResults;
-        decomposeAnd(BO, Ctx, AndResults, BoolGuards);
+        decomposeChain(BO, BO_LAnd, Ctx, AndResults, BoolGuards);
         // Keep only sub-conditions where the pointer is non-null when the
         // sub-condition is true (Negated=false). Flip to Negated=true so
         // narrowing lands on the false edge of the outer !.
@@ -1218,7 +1203,7 @@ static void computeGuardFacts(const Expr *Init, ASTContext &Ctx,
   }
   if (const auto *BO = dyn_cast<BinaryOperator>(Init)) {
     if (BO->getOpcode() == BO_LAnd) {
-      decomposeAnd(BO, Ctx, Facts, &Guards);
+      decomposeChain(BO, BO_LAnd, Ctx, Facts, &Guards);
       llvm::erase_if(Facts,
                      [](const ConditionResult &CR) { return CR.Negated; });
       return;
@@ -1324,6 +1309,9 @@ struct ReturnSummary {
   bool HasPointerReturn = false;
   bool AllNonnull = true;
 };
+
+/// What a smart pointer holds after sp.reset(arg), judged from arg.
+enum class ResetNullability { Null, Nonnull, Unknown };
 
 /// Transfer functions for the flow-sensitive nullability dataflow analysis.
 /// Processes each CFG statement to update the NullState lattice: tracking
@@ -1443,12 +1431,12 @@ public:
             if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
               if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
                 if (const auto *SrcVD = getSmartPtrVarDecl(CE->getArg(0))) {
-                  if (State.NarrowedVars.contains(SrcVD))
+                  if (isNarrowed(SrcVD))
                     State.NarrowedVars.insert(VD);
                   State.markNullable(SrcVD);
                 } else if (auto SrcPath =
                                getSmartPtrMemberPath(CE->getArg(0))) {
-                  if (State.NarrowedMembers.contains(*SrcPath))
+                  if (isMemberNarrowed(*SrcPath))
                     State.NarrowedVars.insert(VD);
                   State.markNullable(*SrcPath);
                 }
@@ -1554,14 +1542,7 @@ public:
         // Re-narrow if RHS is provably non-null (plain assignment only).
         if (BO->getOpcode() == BO_Assign && FD->getType()->isPointerType()) {
           const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-          bool Narrowed = false;
-
-          if (const auto *RHSUO = dyn_cast<UnaryOperator>(RHS)) {
-            if (RHSUO->getOpcode() == UO_AddrOf)
-              Narrowed = true;
-          }
-          if (!Narrowed && isExprNarrowedNonnull(RHS))
-            Narrowed = true;
+          bool Narrowed = isExprNarrowedNonnull(RHS);
           bool IsTernary = isa<AbstractConditionalOperator>(RHS);
           // Null constant assigned to _Nonnull member: warn immediately.
           if (!Narrowed && isNonnullType(FD->getType()) &&
@@ -1570,11 +1551,8 @@ public:
             ++NumAssignmentWarnings;
             Handler.handleNullableMemberAssignment(BO, FD);
           } else {
-            if (!Narrowed && isNonnullInit(RHS))
-              Narrowed = true;
-            if (!Narrowed && isNonnullType(BO->getRHS()->getType()))
-              Narrowed = true;
-
+            Narrowed = Narrowed || isNonnullInit(RHS) ||
+                       isNonnullType(BO->getRHS()->getType());
             if (Narrowed) {
               State.NarrowedMembers.insert(*LhsPath);
             } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
@@ -1633,30 +1611,24 @@ public:
             const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
             recordPointerSource(VD, RHS);
 
-            if (const auto *RHSUO = dyn_cast<UnaryOperator>(RHS)) {
-              if (RHSUO->getOpcode() == UO_AddrOf) {
-                narrowAsAddrOf(VD, RHSUO);
-                return;
-              }
-            }
-            if (isExprNarrowedNonnull(RHS)) {
-              State.NarrowedVars.insert(VD);
-              return;
-            }
             // Ternary merged types are judged arm-by-arm by
             // isNullableInit/isNonnullInit (see VisitDeclStmt).
             bool IsTernary = isa<AbstractConditionalOperator>(RHS);
-            // Null constant assigned to _Nonnull: warn immediately.
-            // Check before isNonnullInit/isNonnullType because implicit
-            // casts can propagate _Nonnull from the LHS onto the RHS type.
-            if (isNonnullType(VD->getType()) && isNullableInit(RHS) &&
-                !isNonnullInit(RHS)) {
+            const auto *RHSUO = dyn_cast<UnaryOperator>(RHS);
+            if (RHSUO && RHSUO->getOpcode() == UO_AddrOf) {
+              narrowAsAddrOf(VD, RHSUO);
+            } else if (isExprNarrowedNonnull(RHS)) {
+              State.NarrowedVars.insert(VD);
+            } else if (isNonnullType(VD->getType()) && isNullableInit(RHS) &&
+                       !isNonnullInit(RHS)) {
+              // Null constant assigned to _Nonnull: warn immediately.
+              // Check before isNonnullInit/isNonnullType because implicit
+              // casts can propagate _Nonnull from the LHS onto the RHS type.
               State.NullableVars.insert(VD);
               ++NumAssignmentWarnings;
               Handler.handleNullableAssignment(BO, VD);
             } else if (isNonnullInit(RHS)) {
               State.NarrowedVars.insert(VD);
-              return;
             } else if (isNonnullType(BO->getRHS()->getType())) {
               State.NarrowedVars.insert(VD);
             } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
@@ -1722,19 +1694,8 @@ public:
     if (isa<CXXThisExpr>(Base))
       return;
 
-    // Handle overloaded operator-> (smart pointers, iterators, etc.)
-    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(Base)) {
-      if (OCE->getOperator() == OO_Arrow) {
-        // Only smart pointers are checked; other overloaded operator->
-        // (iterators etc.) is not tracked.
-        if (OCE->getNumArgs() >= 1) {
-          const Expr *Obj = OCE->getArg(0);
-          if (isSmartPointerType(Obj->getType()))
-            checkSmartPtrDeref(ME, Obj);
-        }
-        return;
-      }
-    }
+    if (checkSmartPtrArrow(ME, Base))
+      return;
 
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Base)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
@@ -1871,7 +1832,6 @@ public:
             // reset(pointer p = pointer()), so a no-arg call arrives with a
             // CXXDefaultArgExpr arg, which means reset to null however the
             // default is spelled.
-            enum class ResetNullability { Null, Nonnull, Unknown };
             ResetNullability Result = ResetNullability::Null;
             if (MCE->getNumArgs() > 0) {
               const Expr *Arg = MCE->getArg(0);
@@ -1946,7 +1906,7 @@ public:
               // sp = std::move(other): LHS inherits source's state.
               // Source tracking only implemented for local-var sources.
               if (const auto *SrcVD = getSmartPtrVarDecl(RhsCE->getArg(0))) {
-                if (State.NarrowedVars.contains(SrcVD))
+                if (isNarrowed(SrcVD))
                   markNarrowed();
                 State.markNullable(SrcVD);
               }
@@ -2080,10 +2040,10 @@ private:
     E = E->IgnoreParenImpCasts();
     if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        return State.NarrowedVars.contains(VD);
+        return isNarrowed(VD);
     }
     if (auto Path = decomposeMemberAccess(E))
-      return State.NarrowedMembers.contains(*Path);
+      return isMemberNarrowed(*Path);
     return false;
   }
 
@@ -2105,6 +2065,22 @@ private:
     if (isSmartPointerNullable(Obj) ||
         (!isSmartPointerDeclaredNonnull(Obj) && !isSmartPointerNarrowed(Obj)))
       warnSmartPtrDeref(DerefExpr, Obj);
+  }
+
+  /// Returns true when Base (of a -> access) is an overloaded operator->
+  /// call, having checked it if the receiver is a smart pointer. Only smart
+  /// pointers are checked; other overloaded operator-> (iterators etc.) is
+  /// not tracked.
+  bool checkSmartPtrArrow(const Expr *DerefExpr, const Expr *Base) {
+    const auto *OCE = dyn_cast<CXXOperatorCallExpr>(Base);
+    if (!OCE || OCE->getOperator() != OO_Arrow)
+      return false;
+    if (OCE->getNumArgs() >= 1) {
+      const Expr *Obj = OCE->getArg(0);
+      if (isSmartPointerType(Obj->getType()))
+        checkSmartPtrDeref(DerefExpr, Obj);
+    }
+    return true;
   }
 
   /// Gate the built-in stdlib nullable-return list on the langopt so
@@ -2664,17 +2640,8 @@ private:
 
   void checkMemberExprDeref(const Expr *DerefExpr, const MemberExpr *ME) {
     const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-
-    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(Base)) {
-      if (OCE->getOperator() == OO_Arrow) {
-        if (OCE->getNumArgs() >= 1) {
-          const Expr *Obj = OCE->getArg(0);
-          if (isSmartPointerType(Obj->getType()))
-            checkSmartPtrDeref(DerefExpr, Obj);
-        }
-        return;
-      }
-    }
+    if (checkSmartPtrArrow(DerefExpr, Base))
+      return;
 
     // Use decomposeMemberAccess to handle arbitrary nesting depth.
     if (auto Path = decomposeMemberAccess(ME)) {
@@ -2829,14 +2796,14 @@ static void narrowOnTerminator(const CFGBlock *Block, const NullState &State,
       if (const auto *BO = dyn_cast<BinaryOperator>(IfCondInner)) {
         if (BO->getOpcode() == BO_LAnd) {
           SmallVector<ConditionResult, 2> AndResults;
-          decomposeAnd(BO, Ctx, AndResults, &State.BoolGuards);
+          decomposeChain(BO, BO_LAnd, Ctx, AndResults, &State.BoolGuards);
           for (const auto &CR : AndResults)
             if (!CR.Negated)
               applyNarrowing(TrueState, CR);
         } else if (BO->getOpcode() == BO_LOr) {
           // if (A || B): on the false edge ALL operands were false.
           SmallVector<ConditionResult, 2> OrResults;
-          decomposeOr(BO, Ctx, OrResults, &State.BoolGuards);
+          decomposeChain(BO, BO_LOr, Ctx, OrResults, &State.BoolGuards);
           for (const auto &CR : OrResults)
             if (CR.Negated)
               applyNarrowing(FalseState, CR);
