@@ -1866,22 +1866,18 @@ private:
     }
   }
 
-  /// A bare std::move(sp) is only a cast: it drops the source's proof without
-  /// establishing that it is null. Inside a smart-pointer transfer (see
-  /// isStdMoveInsideSmartPtrTransferCtx) the transfer handler owns the source
-  /// erase instead; no parent map means "not a transfer".
+  /// A bare std::move(sp) (an argument, a cast operand, anything but a
+  /// smart-pointer transfer) leaves the source moved-from, so it is nullable
+  /// until reassigned or null-checked, even when declared _Nonnull. Inside a
+  /// smart-pointer transfer (see isStdMoveInsideSmartPtrTransferCtx) the
+  /// transfer handler owns the source taint instead; no parent map means "not
+  /// a transfer".
   void handleBareStdMove(const CallExpr *CE) {
     if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
         (!ParentMapPtr ||
          !isStdMoveInsideSmartPtrTransferCtx(CE, *ParentMapPtr))) {
-      // A local only loses its narrowing while a member path is marked
-      // nullable; the asymmetry is preserved as-is.
-      if (auto R = smartPtrRef(CE->getArg(0))) {
-        if (R->VD)
-          State.NarrowedVars.erase(R->VD);
-        else
-          State.markNullable(*R);
-      }
+      if (auto R = smartPtrRef(CE->getArg(0)))
+        State.markNullable(*R);
     }
   }
 

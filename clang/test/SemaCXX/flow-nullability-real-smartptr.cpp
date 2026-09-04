@@ -51,7 +51,14 @@ void declared_nonnull_move_sources_warn() {
 
     std::unique_ptr<Node> _Nonnull bare = std::make_unique<Node>();
     static_cast<void>(std::move(bare));
-    bare->value = 1; // OK — std::move alone is only a cast
+    bare->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void consume_node(std::unique_ptr<Node> p);
+
+void declared_nonnull_bare_move_arg_warns(std::unique_ptr<Node> _Nonnull sp) {
+    consume_node(std::move(sp));
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 // `p.reset()` on a real libc++ unique_ptr calls reset(pointer = pointer()),

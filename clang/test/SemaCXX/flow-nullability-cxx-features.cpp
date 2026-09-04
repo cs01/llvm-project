@@ -916,6 +916,28 @@ void smartptr_test_move_bare_arg_nullifies_source() {
     sp->value = 1;          // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
+// --- Bare std::move on a _Nonnull local makes it nullable until reassigned ---
+// The declared _Nonnull is a contract about the value the caller passed; the
+// moved-from object no longer holds it, so the flow fact overrides the type
+// until a reassignment or null check re-establishes it.
+
+void smartptr_test_move_nonnull_param_warns(std::unique_ptr<Node> _Nonnull sp) {
+    consume_sp(std::move(sp));
+    sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void smartptr_test_move_nonnull_param_reassigned_ok(std::unique_ptr<Node> _Nonnull sp) {
+    consume_sp(std::move(sp));
+    sp = std::make_unique<Node>();
+    sp->value = 1; // OK -- reassigned from make_unique
+}
+
+void smartptr_test_move_nonnull_param_checked_ok(std::unique_ptr<Node> _Nonnull sp) {
+    consume_sp(std::move(sp));
+    if (sp)
+        sp->value = 1; // OK -- narrowed by the check
+}
+
 // --- Non-std smart pointers should NOT warn ---
 
 void smartptr_test_custom_ptr_no_warn(CustomPtr<Node> cp) {
