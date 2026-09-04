@@ -26,19 +26,31 @@ class FunctionDecl;
 class ParmVarDecl;
 class VarDecl;
 
+/// Receives the diagnostics and evidence produced by
+/// runFlowNullabilityAnalysis. Only handleNullableDereference is required;
+/// the rest default to no-ops.
 class FlowNullabilityHandler {
 public:
   virtual ~FlowNullabilityHandler();
+  /// A pointer that may be null is dereferenced (*p, p->f, p[i], or a smart
+  /// pointer's operator* / operator->).
   virtual void handleNullableDereference(const Expr *DerefExpr,
                                          QualType PtrType) = 0;
+  /// A pointer that may be null is used in arithmetic (p + i, p++, p += i).
   virtual void handleNullableArithmetic(const Expr *ArithExpr,
                                         QualType PtrType) {}
+  /// A function with a _Nonnull return type returns a value that may be null.
   virtual void handleNullableReturn(const Expr *ReturnExpr, QualType ExprType,
                                     QualType ReturnType) {}
+  /// A _Nonnull variable is initialized or assigned a value that may be null.
   virtual void handleNullableAssignment(const Expr *AssignExpr,
                                         const VarDecl *LHSVar) {}
+  /// A _Nonnull field is assigned or aggregate-initialized with a value that
+  /// may be null.
   virtual void handleNullableMemberAssignment(const Expr *AssignExpr,
                                               const FieldDecl *Member) {}
+  /// A value that may be null is passed to a _Nonnull (or
+  /// __attribute__((nonnull))) parameter.
   virtual void handleNullableArgument(const Expr *ArgExpr,
                                       const ParmVarDecl *Param) {}
 
@@ -75,6 +87,11 @@ public:
   }
 };
 
+/// Run the flow-sensitive nullability analysis over the CFG of the function
+/// in \p AC, reporting through \p Handler. \p DefaultNullability is how an
+/// unannotated (_Null_unspecified) pointer is treated; \p StdlibAnnotations
+/// enables the built-in list of C library functions that return null on
+/// failure (malloc, fopen, ...).
 void runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
                                 FlowNullabilityHandler &Handler,
                                 NullabilityKind DefaultNullability,
