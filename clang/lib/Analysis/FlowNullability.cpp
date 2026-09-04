@@ -1472,191 +1472,20 @@ public:
   }
 
   void VisitBinaryOperator(const BinaryOperator *BO) {
-    // Pointer arithmetic: p + i, i + p, p - i, p - p
-    // Warn if a nullable pointer is used in arithmetic (implies it must be
-    // valid). p + 0 and p - 0 are excluded as safe identity operations.
-    if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
-      const Expr *PtrExpr = nullptr;
-      const Expr *OtherExpr = nullptr;
-      if (BO->getLHS()->getType()->isPointerType()) {
-        PtrExpr = BO->getLHS()->IgnoreParenImpCasts();
-        OtherExpr = BO->getRHS()->IgnoreParenImpCasts();
-      } else if (BO->getRHS()->getType()->isPointerType()) {
-        PtrExpr = BO->getRHS()->IgnoreParenImpCasts();
-        OtherExpr = BO->getLHS()->IgnoreParenImpCasts();
-      }
-      if (PtrExpr) {
-        bool IsZeroOffset = false;
-        if (OtherExpr && !OtherExpr->getType()->isPointerType()) {
-          if (auto Val = OtherExpr->getIntegerConstantExpr(Ctx))
-            if (*Val == 0)
-              IsZeroOffset = true;
-        }
-        if (!IsZeroOffset) {
-          if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr))
-            if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-              checkVarArithmetic(BO, VD);
-          if (OtherExpr && OtherExpr->getType()->isPointerType())
-            if (const auto *DRE = dyn_cast<DeclRefExpr>(OtherExpr))
-              if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-                checkVarArithmetic(BO, VD);
-        }
-      }
-    }
+    checkPointerArithmetic(BO);
 
-    // Compound pointer arithmetic: p += i, p -= i
-    if (BO->getOpcode() == BO_AddAssign || BO->getOpcode() == BO_SubAssign) {
-      const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
-      if (LHS->getType()->isPointerType())
-        if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS))
-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-            checkVarArithmetic(BO, VD);
-    }
+    if (!BO->isAssignmentOp())
+      return;
+    const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
 
-    if (BO->isAssignmentOp()) {
-      const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+    handleStoreThroughPointer(LHS);
 
-      // Store through a pointer-to-pointer: *pp = X. If we recorded
-      // that pp holds &local, the store can modify local, so drop its
-      // narrowing. Only do this when the target is precisely known, to
-      // avoid invalidating unrelated pointers (which would cause false
-      // positives on downstream derefs).
-      if (const auto *UO = dyn_cast<UnaryOperator>(LHS)) {
-        if (UO->getOpcode() == UO_Deref) {
-          const Expr *Sub = UO->getSubExpr()->IgnoreParenImpCasts();
-          if (const auto *SubDRE = dyn_cast<DeclRefExpr>(Sub)) {
-            if (const auto *PPVD = dyn_cast<VarDecl>(SubDRE->getDecl())) {
-              auto It = State.AddrOfTargets.find(PPVD);
-              if (It != State.AddrOfTargets.end()) {
-                const VarDecl *TgtVD = It->second;
-                // Drop narrowing on target; if the RHS is provably
-                // non-null, we could re-narrow, but that requires proof
-                // the store happens; keep it simple and stay silent.
-                State.NarrowedVars.erase(TgtVD);
-                State.NullableVars.erase(TgtVD);
-                invalidateMembersFor(TgtVD);
-                invalidateBoolGuardsFor(TgtVD);
-              }
-            }
-          }
-        }
-      }
+    if (auto LhsPath = decomposeMemberAccess(LHS))
+      handleMemberAssign(BO, *LhsPath);
 
-      // Assignment to a member (this->field, var->field, s.field, or nested
-      // like s.inner.field) invalidates any narrowing on that member, then
-      // re-narrows if the RHS is provably non-null.
-      if (auto LhsPath = decomposeMemberAccess(LHS)) {
-        const FieldDecl *FD = LhsPath->leafField();
-
-        // Invalidate existing narrowing on this path and any nested paths
-        // (e.g. assigning to o.inner invalidates o.inner.x).
-        invalidateMembersWithPrefix(*LhsPath);
-
-        // Re-narrow if RHS is provably non-null (plain assignment only).
-        if (BO->getOpcode() == BO_Assign && FD->getType()->isPointerType()) {
-          const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-          bool Narrowed = isExprNarrowedNonnull(RHS);
-          bool IsTernary = isa<AbstractConditionalOperator>(RHS);
-          // Null constant assigned to _Nonnull member: warn immediately.
-          if (!Narrowed && isNonnullType(FD->getType()) &&
-              isNullableInit(RHS) && !isNonnullInit(RHS)) {
-            State.markNullable(*LhsPath);
-            ++NumAssignmentWarnings;
-            Handler.handleNullableMemberAssignment(BO, FD);
-          } else {
-            Narrowed = Narrowed || isNonnullInit(RHS) ||
-                       isNonnullType(BO->getRHS()->getType());
-            if (Narrowed) {
-              State.markNarrowed(*LhsPath);
-            } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
-                                                     DefaultNullability)) ||
-                       isNullableInit(RHS)) {
-              State.markNullable(*LhsPath);
-            }
-          }
-
-          // Emit evidence for cross-TU inference.
-          // Only emit nullable evidence for explicitly nullable sources,
-          // not for unannotated pointers defaulted to nullable.
-          if (Narrowed || isExprNullable(RHS, /*ExplicitOnly=*/true))
-            Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
-        }
-      }
-
-      if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS)) {
-        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-          // Guard reassignment replaces any stored facts with whatever the
-          // new value encodes (ok = p != NULL), or nothing.
-          if (VD->getType()->isIntegerType()) {
-            State.BoolGuards.erase(VD);
-            if (BO->getOpcode() == BO_Assign) {
-              SmallVector<ConditionResult, 2> Facts;
-              computeGuardFacts(BO->getRHS(), Ctx, State.BoolGuards, Facts);
-              if (!Facts.empty())
-                State.BoolGuards[VD] = std::move(Facts);
-            }
-            return;
-          }
-          if (!VD->getType()->isPointerType())
-            return;
-          // p += n / p -= n: arithmetic on a non-null pointer stays
-          // non-null (and on a nullable one was already diagnosed above), so
-          // keep the narrowed/nullable flags and only drop facts that named
-          // the old value.
-          if (BO->getOpcode() == BO_AddAssign ||
-              BO->getOpcode() == BO_SubAssign) {
-            forgetFactsAbout(VD);
-            return;
-          }
-          // Self-assignment (p = p, p = (T *)p) changes nothing.
-          if (BO->getOpcode() == BO_Assign) {
-            const Expr *SelfRHS =
-                lookThroughPtrToPtrCasts(BO->getRHS()->IgnoreParenImpCasts());
-            if (const auto *RHSDRE = dyn_cast<DeclRefExpr>(SelfRHS))
-              if (RHSDRE->getDecl() == VD)
-                return;
-          }
-          State.NarrowedVars.erase(VD);
-          State.NullableVars.erase(VD);
-          forgetFactsAbout(VD);
-
-          if (BO->getOpcode() == BO_Assign) {
-            const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-            recordPointerSource(VD, RHS);
-
-            // Ternary merged types are judged arm-by-arm by
-            // isNullableInit/isNonnullInit (see VisitDeclStmt).
-            bool IsTernary = isa<AbstractConditionalOperator>(RHS);
-            const auto *RHSUO = dyn_cast<UnaryOperator>(RHS);
-            if (RHSUO && RHSUO->getOpcode() == UO_AddrOf) {
-              narrowAsAddrOf(VD, RHSUO);
-            } else if (isExprNarrowedNonnull(RHS)) {
-              State.markNarrowed(VD);
-            } else if (isNonnullType(VD->getType()) && isNullableInit(RHS) &&
-                       !isNonnullInit(RHS)) {
-              // Null constant assigned to _Nonnull: warn immediately.
-              // Check before isNonnullInit/isNonnullType because implicit
-              // casts can propagate _Nonnull from the LHS onto the RHS type.
-              State.markNullable(VD);
-              ++NumAssignmentWarnings;
-              Handler.handleNullableAssignment(BO, VD);
-            } else if (isNonnullInit(RHS)) {
-              State.markNarrowed(VD);
-            } else if (isNonnullType(BO->getRHS()->getType())) {
-              State.markNarrowed(VD);
-            } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
-                                                     DefaultNullability)) ||
-                       isNullableInit(RHS)) {
-              State.markNullable(VD);
-              if (isNonnullType(VD->getType())) {
-                ++NumAssignmentWarnings;
-                Handler.handleNullableAssignment(BO, VD);
-              }
-            }
-          }
-        }
-      }
-    }
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS))
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+        handleVarAssign(BO, VD);
   }
 
   void VisitUnaryOperator(const UnaryOperator *UO) {
@@ -2031,6 +1860,196 @@ private:
           State.NarrowedVars.erase(R->VD);
         else
           State.markNullable(*R);
+      }
+    }
+  }
+
+  /// Warn on arithmetic (p + i, p - i, p += i, p -= i) whose pointer operand
+  /// may be null.
+  void checkPointerArithmetic(const BinaryOperator *BO) {
+    // Pointer arithmetic: p + i, i + p, p - i, p - p
+    // Warn if a nullable pointer is used in arithmetic (implies it must be
+    // valid). p + 0 and p - 0 are excluded as safe identity operations.
+    if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
+      const Expr *PtrExpr = nullptr;
+      const Expr *OtherExpr = nullptr;
+      if (BO->getLHS()->getType()->isPointerType()) {
+        PtrExpr = BO->getLHS()->IgnoreParenImpCasts();
+        OtherExpr = BO->getRHS()->IgnoreParenImpCasts();
+      } else if (BO->getRHS()->getType()->isPointerType()) {
+        PtrExpr = BO->getRHS()->IgnoreParenImpCasts();
+        OtherExpr = BO->getLHS()->IgnoreParenImpCasts();
+      }
+      if (PtrExpr) {
+        bool IsZeroOffset = false;
+        if (OtherExpr && !OtherExpr->getType()->isPointerType()) {
+          if (auto Val = OtherExpr->getIntegerConstantExpr(Ctx))
+            if (*Val == 0)
+              IsZeroOffset = true;
+        }
+        if (!IsZeroOffset) {
+          if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr))
+            if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+              checkVarArithmetic(BO, VD);
+          if (OtherExpr && OtherExpr->getType()->isPointerType())
+            if (const auto *DRE = dyn_cast<DeclRefExpr>(OtherExpr))
+              if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+                checkVarArithmetic(BO, VD);
+        }
+      }
+    }
+
+    // Compound pointer arithmetic: p += i, p -= i
+    if (BO->getOpcode() == BO_AddAssign || BO->getOpcode() == BO_SubAssign) {
+      const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
+      if (LHS->getType()->isPointerType())
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS))
+          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+            checkVarArithmetic(BO, VD);
+    }
+  }
+
+  /// *pp = X where pp is known to hold &local: drop local's narrowing.
+  void handleStoreThroughPointer(const Expr *LHS) {
+    // Store through a pointer-to-pointer: *pp = X. If we recorded
+    // that pp holds &local, the store can modify local, so drop its
+    // narrowing. Only do this when the target is precisely known, to
+    // avoid invalidating unrelated pointers (which would cause false
+    // positives on downstream derefs).
+    if (const auto *UO = dyn_cast<UnaryOperator>(LHS)) {
+      if (UO->getOpcode() == UO_Deref) {
+        const Expr *Sub = UO->getSubExpr()->IgnoreParenImpCasts();
+        if (const auto *SubDRE = dyn_cast<DeclRefExpr>(Sub)) {
+          if (const auto *PPVD = dyn_cast<VarDecl>(SubDRE->getDecl())) {
+            auto It = State.AddrOfTargets.find(PPVD);
+            if (It != State.AddrOfTargets.end()) {
+              const VarDecl *TgtVD = It->second;
+              // Drop narrowing on target; if the RHS is provably
+              // non-null, we could re-narrow, but that requires proof
+              // the store happens; keep it simple and stay silent.
+              State.NarrowedVars.erase(TgtVD);
+              State.NullableVars.erase(TgtVD);
+              invalidateMembersFor(TgtVD);
+              invalidateBoolGuardsFor(TgtVD);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Assignment to a member (this->field, var->field, s.field, or nested
+  /// like s.inner.field) invalidates any narrowing on that member, then
+  /// re-narrows if the RHS is provably non-null.
+  void handleMemberAssign(const BinaryOperator *BO,
+                          const MemberAccessPath &LhsPath) {
+    const FieldDecl *FD = LhsPath.leafField();
+
+    // Invalidate existing narrowing on this path and any nested paths
+    // (e.g. assigning to o.inner invalidates o.inner.x).
+    invalidateMembersWithPrefix(LhsPath);
+
+    // Re-narrow if RHS is provably non-null (plain assignment only).
+    if (BO->getOpcode() == BO_Assign && FD->getType()->isPointerType()) {
+      const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+      bool Narrowed = isExprNarrowedNonnull(RHS);
+      bool IsTernary = isa<AbstractConditionalOperator>(RHS);
+      // Null constant assigned to _Nonnull member: warn immediately.
+      if (!Narrowed && isNonnullType(FD->getType()) && isNullableInit(RHS) &&
+          !isNonnullInit(RHS)) {
+        State.markNullable(LhsPath);
+        ++NumAssignmentWarnings;
+        Handler.handleNullableMemberAssignment(BO, FD);
+      } else {
+        Narrowed = Narrowed || isNonnullInit(RHS) ||
+                   isNonnullType(BO->getRHS()->getType());
+        if (Narrowed) {
+          State.markNarrowed(LhsPath);
+        } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
+                                                 DefaultNullability)) ||
+                   isNullableInit(RHS)) {
+          State.markNullable(LhsPath);
+        }
+      }
+
+      // Emit evidence for cross-TU inference.
+      // Only emit nullable evidence for explicitly nullable sources,
+      // not for unannotated pointers defaulted to nullable.
+      if (Narrowed || isExprNullable(RHS, /*ExplicitOnly=*/true))
+        Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
+    }
+  }
+
+  /// Assignment to a local or parameter: guard flags re-capture their
+  /// facts, pointers lose their old facts and are re-classified from the
+  /// RHS.
+  void handleVarAssign(const BinaryOperator *BO, const VarDecl *VD) {
+    // Guard reassignment replaces any stored facts with whatever the
+    // new value encodes (ok = p != NULL), or nothing.
+    if (VD->getType()->isIntegerType()) {
+      State.BoolGuards.erase(VD);
+      if (BO->getOpcode() == BO_Assign) {
+        SmallVector<ConditionResult, 2> Facts;
+        computeGuardFacts(BO->getRHS(), Ctx, State.BoolGuards, Facts);
+        if (!Facts.empty())
+          State.BoolGuards[VD] = std::move(Facts);
+      }
+      return;
+    }
+    if (!VD->getType()->isPointerType())
+      return;
+    // p += n / p -= n: arithmetic on a non-null pointer stays
+    // non-null (and on a nullable one was already diagnosed above), so
+    // keep the narrowed/nullable flags and only drop facts that named
+    // the old value.
+    if (BO->getOpcode() == BO_AddAssign || BO->getOpcode() == BO_SubAssign) {
+      forgetFactsAbout(VD);
+      return;
+    }
+    // Self-assignment (p = p, p = (T *)p) changes nothing.
+    if (BO->getOpcode() == BO_Assign) {
+      const Expr *SelfRHS =
+          lookThroughPtrToPtrCasts(BO->getRHS()->IgnoreParenImpCasts());
+      if (const auto *RHSDRE = dyn_cast<DeclRefExpr>(SelfRHS))
+        if (RHSDRE->getDecl() == VD)
+          return;
+    }
+    State.NarrowedVars.erase(VD);
+    State.NullableVars.erase(VD);
+    forgetFactsAbout(VD);
+
+    if (BO->getOpcode() == BO_Assign) {
+      const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
+      recordPointerSource(VD, RHS);
+
+      // Ternary merged types are judged arm-by-arm by
+      // isNullableInit/isNonnullInit (see VisitDeclStmt).
+      bool IsTernary = isa<AbstractConditionalOperator>(RHS);
+      const auto *RHSUO = dyn_cast<UnaryOperator>(RHS);
+      if (RHSUO && RHSUO->getOpcode() == UO_AddrOf) {
+        narrowAsAddrOf(VD, RHSUO);
+      } else if (isExprNarrowedNonnull(RHS)) {
+        State.markNarrowed(VD);
+      } else if (isNonnullType(VD->getType()) && isNullableInit(RHS) &&
+                 !isNonnullInit(RHS)) {
+        // Null constant assigned to _Nonnull: warn immediately.
+        // Check before isNonnullInit/isNonnullType because implicit
+        // casts can propagate _Nonnull from the LHS onto the RHS type.
+        State.markNullable(VD);
+        ++NumAssignmentWarnings;
+        Handler.handleNullableAssignment(BO, VD);
+      } else if (isNonnullInit(RHS)) {
+        State.markNarrowed(VD);
+      } else if (isNonnullType(BO->getRHS()->getType())) {
+        State.markNarrowed(VD);
+      } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
+                                               DefaultNullability)) ||
+                 isNullableInit(RHS)) {
+        State.markNullable(VD);
+        if (isNonnullType(VD->getType())) {
+          ++NumAssignmentWarnings;
+          Handler.handleNullableAssignment(BO, VD);
+        }
       }
     }
   }
