@@ -191,6 +191,78 @@ void t09(int *_Nullable p) {
 }
 
 //===----------------------------------------------------------------------===//
+// FP: pointer correlated with a condition variable by a ternary init.
+// p = c ? &gx : nullptr makes p non-null exactly when c holds, so a later
+// if (c) narrows p. The inverse of the bool-guard cases above.
+//===----------------------------------------------------------------------===//
+
+// FP
+int *_Nullable ct01(bool c) {
+  int *_Nullable p = c ? &gx : nullptr;
+  if (c) *p = 1;
+  return p;
+}
+
+// FP: arms swapped, so the false edge is the non-null one
+int *_Nullable ct02(bool c) {
+  int *_Nullable p = c ? nullptr : &gx;
+  if (!c) *p = 1;
+  return p;
+}
+
+// FP: negation inside the ternary condition
+int *_Nullable ct03(bool c) {
+  int *_Nullable p = !c ? &gx : nullptr;
+  if (!c) *p = 1;
+  return p;
+}
+
+// FP: the guard is copied before the check
+int *_Nullable ct04(bool c) {
+  int *_Nullable p = c ? &gx : nullptr;
+  bool d = c;
+  if (d) *p = 1;
+  return p;
+}
+
+// FP: guard is one conjunct of a larger condition
+int *_Nullable ct05(bool c, int *_Nullable q) {
+  int *_Nullable p = c ? &gx : nullptr;
+  if (c && q) *p = 1;
+  return p;
+}
+
+// FP: int flag rather than bool, the C idiom
+int *_Nullable ct06(int flag) {
+  int *_Nullable p = flag ? &gx : nullptr;
+  if (flag) *p = 1;
+  return p;
+}
+
+// FP: the non-null arm is a _Nonnull parameter rather than an address-of
+int *_Nullable ct07(bool c, int *_Nonnull q) {
+  int *_Nullable p = c ? q : nullptr;
+  if (c) *p = 1;
+  return p;
+}
+
+// FP: one condition variable correlating two pointers
+int *_Nullable ct08(bool c) {
+  int *_Nullable p = c ? &gx : nullptr;
+  int *_Nullable q = c ? &gy : nullptr;
+  if (c) *p = *q;
+  return p;
+}
+
+// FP: assignment rather than initialization
+int *_Nullable ct09(bool c) {
+  int *_Nullable p = nullptr;
+  p = c ? &gx : nullptr;
+  if (c) *p = 1;
+  return p;
+}
+
+//===----------------------------------------------------------------------===//
 // FP: alias of a checked member path
 //===----------------------------------------------------------------------===//
 
@@ -411,4 +483,66 @@ void tp16(struct S *_Nonnull s) {
 void tp17(int *_Nullable p) {
   bool b = p != nullptr;
   if (b == false) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// TP: correlated ternary, but the deref is not guarded at all
+int *_Nullable tp18(bool c) {
+  int *_Nullable p = c ? &gx : nullptr;
+  *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
+}
+
+// TP: correlated ternary, pointer reassigned before the check
+int *_Nullable tp19(bool c) {
+  int *_Nullable p = c ? &gx : nullptr;
+  p = nullptr;
+  if (c) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
+}
+
+// TP: correlated ternary, condition variable reassigned before the check
+int *_Nullable tp20(bool c, bool b) {
+  int *_Nullable p = c ? &gx : nullptr;
+  c = b;
+  if (c) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
+}
+
+// TP: correlated ternary checked in the wrong direction
+int *_Nullable tp21(bool c) {
+  int *_Nullable p = c ? &gx : nullptr;
+  if (!c) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
+}
+
+// TP: correlated ternary, deref on the else edge
+int *_Nullable tp22(bool c) {
+  int *_Nullable p = c ? &gx : nullptr;
+  if (c) {} else *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
+}
+
+// TP: the selected arm is itself nullable, so c proves nothing
+int *_Nullable tp23(bool c, int *_Nullable q) {
+  int *_Nullable p = c ? q : nullptr;
+  if (c) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
+}
+
+// TP: only one predecessor carries the correlation, so the join drops it
+int *_Nullable tp24(bool a, bool c) {
+  int *_Nullable p = nullptr;
+  if (a)
+    p = c ? &gx : nullptr;
+  else
+    p = nullptr;
+  if (c) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
+}
+
+// TP: a different condition variable is checked
+int *_Nullable tp25(bool c, bool d) {
+  int *_Nullable p = c ? &gx : nullptr;
+  if (d) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
 }
