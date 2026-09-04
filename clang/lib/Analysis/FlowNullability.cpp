@@ -10,6 +10,38 @@
 // dereferences of nullable pointers, tracking nullability narrowing through
 // control flow (null checks, early returns, assertions, etc.).
 //
+// Design overview
+//
+// The lattice is NullState. Its proof sets, NarrowedVars and NarrowedMembers,
+// hold pointers shown non-null and intersect at joins: a pointer stays
+// narrowed only if every incoming path agrees. Its taint sets, NullableVars
+// and NullableMembers, hold pointers the flow has shown may be null (assigned
+// nullptr, reset, moved-from) and union at joins. The guard and alias maps
+// (BoolGuards, Aliases, MemberAliases, AddrOfTargets) intersect with value
+// equality, so a fact survives a join only when both sides recorded exactly
+// the same one.
+//
+// States are kept per CFG edge, keyed by (predecessor, successor) block ids,
+// and a block's entry state is the join of its incoming edge states. This is
+// what lets the two branches of a condition receive different states: the
+// edge that proves p non-null carries p narrowed, the other does not.
+//
+// analyzeCondition turns a branch condition into ConditionResult facts of the
+// form "pointer X is non-null when the condition is true (or false, when
+// Negated)". narrowOnTerminator runs it on a block's terminator and applies
+// each fact to the true-edge or false-edge state as its Negated flag says.
+// The same machinery serves guard flags (bool ok = p != nullptr; if (ok)),
+// __builtin_assume, and ternary arms.
+//
+// Calls deliberately do not invalidate narrowing, even when a pointer's
+// address escapes: doing so floods common output-parameter idioms with false
+// positives. Clang's ThreadSafety analysis makes the same trade-off.
+//
+// The worklist re-processes a block only when its entry state changes. The
+// lattice is not provably monotone (facts are both inserted and erased), so
+// runFlowNullabilityAnalysis caps total block visits as a termination safety
+// net and suppresses summary inference if the cap fires.
+//
 //===----------------------------------------------------------------------===//
 
 #include "clang/Analysis/Analyses/FlowNullability.h"
@@ -157,7 +189,7 @@ struct ConditionResult {
 /// bottleneck in practice (the perf stress test passes comfortably).
 struct NullState {
   // Pointers proven non-null by control flow (null checks, nonnull init, etc.).
-  // A variable should not be in both NarrowedVars and NullableVars — narrowing
+  // A variable should not be in both NarrowedVars and NullableVars: narrowing
   // is always erased before re-evaluating nullability on reassignment.
   llvm::DenseSet<const VarDecl *> NarrowedVars;
   // Unified member narrowing: covers both this->field and var.field paths,
@@ -169,34 +201,34 @@ struct NullState {
   llvm::DenseSet<MemberAccessPath> NullableMembers;
 
   // Maps integer-typed guard variables (bool or int flags) to the null-check
-  // facts they capture, e.g. `bool valid = (p != nullptr)` stores
+  // facts they capture, e.g. bool valid = (p != nullptr) stores
   // {valid -> [(p, Negated=false)]}. Each fact reads exactly like a branch
   // condition result: when the guard is true the Negated=false facts hold,
-  // when it is false the Negated=true facts hold. A guard built from `p && q`
+  // when it is false the Negated=true facts hold. A guard built from p && q
   // carries one fact per conjunct.
   using BoolGuardMap =
       llvm::DenseMap<const VarDecl *, llvm::SmallVector<ConditionResult, 2>>;
   BoolGuardMap BoolGuards;
 
-  // Simple pointer alias tracking: y = x stores {y → x}, meaning y holds
+  // Simple pointer alias tracking: y = x stores {y -> x}, meaning y holds
   // the same pointer value as x. When either is narrowed by a branch
   // condition, the other is narrowed too (at the edge-state level).
-  // Depth-1 only: if z = y and y → x, we store z → x (canonical target).
+  // Depth-1 only: if z = y and y -> x, we store z -> x (canonical target).
   using AliasMap = llvm::DenseMap<const VarDecl *, const VarDecl *>;
   AliasMap Aliases;
 
-  // Local pointer copied from a member path: `T *q = s->next` stores
+  // Local pointer copied from a member path: T *q = s->next stores
   // {q -> s.next}. Narrowing either side narrows the other, so
-  // `if (s->next) { T *q = s->next; *q; }` and `T *q = s->next; if (q)
-  // *s->next` both work. Dropped when q is reassigned or the path is
+  // if (s->next) { T *q = s->next; *q; } and T *q = s->next; if (q)
+  // *s->next both work. Dropped when q is reassigned or the path is
   // invalidated.
   using MemberAliasMap = llvm::DenseMap<const VarDecl *, MemberAccessPath>;
   MemberAliasMap MemberAliases;
 
-  // Tracks "pp holds &local": when we see `T** pp = &p;`, records pp → p.
-  // Used to invalidate p's narrowing when we see `*pp = anything` — a
-  // store through the pointer-to-pointer can change p. Entries are
-  // dropped when pp is reassigned.
+  // Tracks "pp holds &local": T** pp = &p records pp -> p. Used to
+  // invalidate p's narrowing on *pp = anything, since a store through the
+  // pointer-to-pointer can change p. Entries are dropped when pp is
+  // reassigned.
   using AddrOfTargetMap = llvm::DenseMap<const VarDecl *, const VarDecl *>;
   AddrOfTargetMap AddrOfTargets;
 
@@ -278,7 +310,7 @@ static const Expr *unwrapBuiltinExpect(const Expr *E) {
       if ((BuiltinID == Builtin::BI__builtin_expect ||
            BuiltinID == Builtin::BI__builtin_expect_with_probability) &&
           CE->getNumArgs() >= 1) {
-        // IgnoreParenCasts, not ImpCasts: `__builtin_expect((long)(p == 0), 0)`
+        // IgnoreParenCasts, not ImpCasts: __builtin_expect((long)(p == 0), 0)
         // wraps the condition in an explicit integer cast.
         return CE->getArg(0)->IgnoreParenCasts();
       }
@@ -287,7 +319,7 @@ static const Expr *unwrapBuiltinExpect(const Expr *E) {
   return E;
 }
 
-/// Look through an OpaqueValueExpr (the shared operand of a GNU `a ?: b`)
+/// Look through an OpaqueValueExpr (the shared operand of a GNU a ?: b)
 /// to the expression it stands for.
 static const Expr *stripOpaqueValue(const Expr *E) {
   if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E))
@@ -307,13 +339,11 @@ static std::optional<bool> constantTruth(const Expr *E, ASTContext &Ctx) {
   return std::nullopt;
 }
 
-/// Strip an explicit cast-to-bool so the underlying condition is visible.
+/// Strip explicit casts to bool so the underlying condition is visible.
 /// glibc/libstdc++ define assert(expr) as
 ///   (static_cast<bool>(expr) ? void(0) : __assert_fail(...))
-/// IgnoreParenImpCasts() only removes implicit casts, leaving the explicit
-/// CXXStaticCastExpr<bool> in place; without stripping it the condition handler
-/// never sees the pointer being tested and fails to narrow it. Loop to handle
-/// nested explicit bool casts.
+/// and IgnoreParenImpCasts() leaves that CXXStaticCastExpr in place, hiding
+/// the tested pointer from narrowing.
 static const Expr *ignoreExplicitBoolCast(const Expr *E) {
   while (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
     if (!CE->getType()->isBooleanType())
@@ -327,16 +357,16 @@ static const Expr *ignoreExplicitBoolCast(const Expr *E) {
 /// recover the underlying tracked expression (a DeclRefExpr/MemberExpr whose
 /// flow-narrowing state we track). IgnoreParenImpCasts() strips implicit casts
 /// but leaves explicit C-style/static/reinterpret casts in place, so
-/// `*(int*)o` loses the link to the VarDecl `o` and its narrowing/nullable
+/// *(int*)o loses the link to the VarDecl o and its narrowing/nullable
 /// state. We only look through casts whose source AND result are pointer types
-/// (a relabeling of a pointer value) — never integer->pointer or other casts,
+/// (a relabeling of a pointer value), never integer->pointer or other casts,
 /// which genuinely produce a new value with no tracked origin.
 ///
-/// `dynamic_cast<T*>` is explicitly NOT seen through: unlike a static/C-style/
-/// reinterpret cast it is not a relabeling — it returns null when the runtime
+/// dynamic_cast<T*> is explicitly NOT seen through: unlike a static/C-style/
+/// reinterpret cast it is not a relabeling; it returns null when the runtime
 /// type check fails, so a non-null source can yield a null result. Seeing
 /// through it would suppress a real null-deref warning on
-/// `dynamic_cast<T*>(p)->f`.
+/// dynamic_cast<T*>(p)->f.
 static const Expr *lookThroughPtrToPtrCasts(const Expr *E) {
   while (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
     if (isa<CXXDynamicCastExpr>(CE))
@@ -365,12 +395,9 @@ static const Expr *stripNonDynamicCasts(const Expr *E,
   return E;
 }
 
-/// Extract the rightmost leaf of a && / || chain.
-/// The CFG decomposes `a && b && c` into separate blocks — each operand
-/// becomes its own block's terminator condition. So for `if (a && b && c)`,
-/// the block evaluating 'c' has the full `a && b && c` as its terminator,
-/// but 'a' and 'b' are handled by their own blocks. We recurse into the
-/// RHS to find the leaf that's actually being evaluated in this block.
+/// Extract the rightmost leaf of a && / || chain. The CFG gives each operand
+/// its own block but every such block carries the full a && b && c as its
+/// terminator; the leaf actually evaluated in the last block is the RHS.
 static const Expr *getTerminalCondition(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
@@ -396,12 +423,10 @@ static bool isNullableType(QualType Ty, NullabilityKind Default) {
   return false;
 }
 
-/// When a MemberExpr's type is a bare pointer (no nullability), check if the
-/// field's type came from a template parameter whose argument carries
-/// nullability. E.g. Box<int*_Nullable>::val has type 'int*' in the AST, but
-/// the template argument is 'int*_Nullable'.
-/// We recover nullability from the sugared type on the base expression, since
-/// ClassTemplateSpecializationDecl strips the sugar from its TemplateArguments.
+/// Recover nullability for a field whose type came from a template argument:
+/// Box<int*_Nullable>::val has type int* in the AST. The sugar survives only
+/// on the base expression's type, since ClassTemplateSpecializationDecl strips
+/// it from its TemplateArguments.
 static QualType getTemplateArgTypeForField(const MemberExpr *ME) {
   const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl());
   if (!FD)
@@ -439,9 +464,9 @@ static QualType getTemplateArgTypeForField(const MemberExpr *ME) {
   return QualType();
 }
 
-/// Same as above but for method return types. When Container<int*_Nullable>
-/// has method `T get()`, the return type in the instantiation is `int*` but
-/// the template argument carries `_Nullable`.
+/// Like getTemplateArgTypeForField, for method return types: when
+/// Container<int*_Nullable> has method T get(), the instantiated return type
+/// is int* but the template argument carries _Nullable.
 static QualType
 getTemplateArgTypeForMethodReturn(const CXXMemberCallExpr *MCE) {
   const auto *MD = MCE->getMethodDecl();
@@ -529,9 +554,9 @@ static bool isNonnullType(QualType Ty) {
 }
 
 /// Walk from a smart pointer expression back to its declaration (if any)
-/// and check whether the declared type carries a `_Nonnull` qualifier.
-/// Needed because overload resolution on `operator->`/`operator*` strips
-/// the nullability attribute from `Obj->getType()`.
+/// and check whether the declared type carries a _Nonnull qualifier.
+/// Needed because overload resolution on operator->/operator* strips
+/// the nullability attribute from Obj->getType().
 static bool isSmartPointerDeclaredNonnull(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
@@ -589,7 +614,7 @@ static bool isNonnullSmartPtrInit(const Expr *E) {
   // unique_ptr<T>(new T()) wraps the constructor in a functional cast node
   if (const auto *FCE = dyn_cast<CXXFunctionalCastExpr>(E))
     return isNonnullSmartPtrInit(FCE->getSubExpr());
-  // new T() — throwing operator new never returns null
+  // new T(): throwing operator new never returns null
   if (const auto *NE = dyn_cast<CXXNewExpr>(E))
     return !NE->shouldNullCheckAllocation();
   if (const auto *CE = dyn_cast<CallExpr>(E)) {
@@ -604,12 +629,11 @@ static bool isNonnullSmartPtrInit(const Expr *E) {
   return false;
 }
 
-/// Check if a smart pointer VarDecl is initialized by dereferencing an iterator
-/// from a container whose element type carries _Nonnull. Covers range-for
-/// desugaring (entry = *__begin, __begin = container.begin()) and manual
-/// iterator loops. Clang's template instantiation strips _Nonnull from
-/// non-pointer types like unique_ptr, so we trace back to the container's
-/// sugar type where the annotation is preserved.
+/// Whether a smart pointer VarDecl is initialized as *it with it =
+/// container.begin() (range-for desugaring or a manual loop) on a container
+/// whose element type carries _Nonnull. Instantiation strips _Nonnull from
+/// non-pointer types like unique_ptr, so the container's sugar type is the
+/// only place the annotation survives.
 static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
   if (!VD->hasInit())
     return false;
@@ -635,7 +659,7 @@ static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
   if (!BeginCall)
     return false;
 
-  // Get the container — use the VarDecl's declared type to preserve sugar
+  // Get the container; use the VarDecl's declared type to preserve sugar
   // (the implicit const cast on .begin()'s object arg strips it)
   const Expr *ObjArg = BeginCall->getImplicitObjectArgument();
   if (!ObjArg)
@@ -664,19 +688,10 @@ static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
   return isSmartPointerType(ElemType) && isNonnullType(ElemType);
 }
 
-/// Check if a call expression is to a known STL method that always returns
-/// a non-null pointer. This is the compiler-side allowlist for C++ standard
-/// library methods whose return types are unannotated but are contractually
-/// nonnull. Template overlay headers can't redeclare these methods, so
-/// the flow analysis recognizes them directly.
-///
-/// Recognized methods:
-///   std::vector::data(), begin(), end()
-///   std::basic_string::c_str(), data(), begin(), end()
-///   std::basic_string_view::begin(), end()
-///   std::optional::operator->()
-///   std::array<T, N>::data(), begin(), end() when N is nonzero
-///   std::span::data(), begin(), end()
+/// Allowlist of STL methods whose unannotated pointer returns are
+/// contractually non-null (vector/string/array/span data() and iterators,
+/// optional::operator->). Overlay headers cannot redeclare these, so the
+/// analysis recognizes them directly; the body is the exact set.
 static bool isStlNonnullReturnCall(const CallExpr *CE) {
   const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE);
   if (!MCE)
@@ -717,11 +732,11 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
            MethodName == "begin" || MethodName == "end";
 
   // std::basic_string_view<T>::begin(), end()
-  // Note: data() is intentionally NOT here — string_view can hold nullptr.
+  // Note: data() is intentionally NOT here: string_view can hold nullptr.
   if (ClassName == "basic_string_view")
     return MethodName == "begin" || MethodName == "end";
 
-  // std::optional<T>::operator->() — UB if empty, so caller asserts value
+  // std::optional<T>::operator->(): UB if empty, so caller asserts value
   if (ClassName == "optional")
     return IsArrowOp;
 
@@ -746,26 +761,12 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
   return false;
 }
 
-/// Check if a call expression is to a C/C++ standard library free function
-/// known to return null on failure or when the item is not found. These
-/// functions' return values are treated as provably _Nullable regardless of
-/// annotations, ensuring that unchecked dereferences always warn.
-///
-/// Only matches free functions (not class methods with the same name) to
-/// avoid false positives on user-defined methods like MyAllocator::malloc().
-///
-/// Recognized functions:
-///   malloc, calloc, realloc, aligned_alloc — memory allocation
-///   fopen, freopen, tmpfile — file I/O
-///   getenv — environment lookup
-///   strtok — string tokenization
-///   strstr, strchr, strrchr, strpbrk — string search
-///   memchr — memory search
-///   bsearch — binary search
-///   tmpnam — temp filename generation
-///   setlocale — locale configuration
+/// C library free functions that return null on failure or not-found
+/// (malloc, fopen, getenv, strchr, ...). Their results are provably _Nullable
+/// regardless of annotations, so unchecked dereferences always warn. Only
+/// free functions at global or std scope match; the body is the exact set.
 static bool isStdlibNullableReturnCall(const CallExpr *CE) {
-  // Reject member calls — we only want free functions.
+  // Reject member calls; we only want free functions.
   if (isa<CXXMemberCallExpr>(CE))
     return false;
   const FunctionDecl *FD = CE->getDirectCallee();
@@ -782,7 +783,7 @@ static bool isStdlibNullableReturnCall(const CallExpr *CE) {
     return false;
   // Match only the real C library functions, which live at global scope (or in
   // std, e.g. std::malloc from <cstdlib>). A user function that merely shares
-  // the spelling — namespace my { int *malloc(); } — must NOT be treated as
+  // the spelling (namespace my { int *malloc(); }) must NOT be treated as
   // nullable; name-only matching would otherwise produce false positives on
   // unrelated code under -fnullability-default=nonnull.
   const DeclContext *DC = FD->getDeclContext()->getRedeclContext();
@@ -819,31 +820,19 @@ static std::optional<MemberAccessPath> getSmartPtrMemberPath(const Expr *E) {
   return std::nullopt;
 }
 
-/// Return true if this `std::move(sp)` call appears as the init/RHS of a
-/// smart-pointer construct that handles move-transfer itself (VarDecl
-/// init `auto x = std::move(y);` or `x = std::move(y)` on a smart-ptr LHS).
-/// In that case the source must NOT be marked nullable by the standalone
-/// std::move handler — the parent context needs to read the source's
-/// pre-move narrowed state to inherit it onto the target.
-///
-/// We walk parents with the function-scoped \ref ParentMap (from
-/// AnalysisDeclContext) rather than ASTContext::getParents: the latter
-/// lazily materializes a translation-unit-wide parent map on first use,
-/// an expensive, memory-heavy structure to pay for in a per-function
-/// analysis. ParentMap is built once from this function's body and cached.
-///
-/// Note CFG evaluation order makes "thread the context down from the
-/// parent" infeasible here: the inner std::move CallExpr is visited
-/// before its enclosing DeclStmt / operator=, so the parent that performs
-/// the transfer has not run yet when this call is processed.
+/// Return true if this std::move(sp) call is the init/RHS of a smart-pointer
+/// transfer (auto x = std::move(y); or x = std::move(y) on a smart-ptr LHS).
+/// The standalone std::move handler must then leave the source alone: the
+/// transfer handler needs its pre-move narrowed state, and CFG order visits
+/// the inner call before the enclosing DeclStmt/operator=, so the context
+/// cannot be threaded down. Parents come from the function-scoped ParentMap
+/// (AnalysisDeclContext) rather than ASTContext::getParents, which lazily
+/// builds a TU-wide parent map, far too costly for a per-function analysis.
 static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
                                                const ParentMap &PM) {
-  // In a ParentMap, a VarDecl initializer's parent is the DeclStmt itself
-  // (DeclStmt::children() yields the init exprs), so reaching a DeclStmt
-  // means we're in a VarDecl-init context. Match the declarator whose init
-  // is the node we walked up from; for a single-declarator DeclStmt (the
-  // common `auto x = std::move(y);`) the init-pointer match may differ from
-  // VD->getInit() across wrapper nodes, so fall back to the sole declarator.
+  // A VarDecl initializer's ParentMap parent is the DeclStmt itself. Match the
+  // declarator whose init we walked up from; wrapper nodes can make that
+  // pointer differ from VD->getInit(), so fall back to the sole declarator.
   auto isSmartPtrInitDecl = [](const DeclStmt *DS, const Stmt *Init) -> bool {
     const VarDecl *Sole = nullptr;
     unsigned NumInited = 0;
@@ -886,7 +875,7 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
   return false;
 }
 
-// Forward declaration — decomposeAnd calls analyzeCondition on leaves.
+// Forward declaration: decomposeAnd calls analyzeCondition on leaves.
 static void
 analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                  SmallVectorImpl<ConditionResult> &Results,
@@ -909,7 +898,7 @@ static void decomposeAnd(const Expr *E, ASTContext &Ctx,
 }
 
 /// Recursively flatten a chain of || operators and analyze each leaf.
-/// Used at the IfStmt level to narrow on the false edge of `if (A || B)`.
+/// Used at the IfStmt level to narrow on the false edge of if (A || B).
 static void decomposeOr(const Expr *E, ASTContext &Ctx,
                         SmallVectorImpl<ConditionResult> &Results,
                         const NullState::BoolGuardMap *BoolGuards) {
@@ -926,16 +915,11 @@ static void decomposeOr(const Expr *E, ASTContext &Ctx,
   analyzeCondition(E, Ctx, Results, BoolGuards);
 }
 
-/// Analyze a branch condition to extract pointer null-check information.
-///
-/// We decompose both && (via decomposeAnd) and || (via decomposeOr).
-/// For ||, the CFG splits each operand into its own block, so narrowing
-/// on the true-edge of individual operands is handled naturally. However,
-/// when a || operand creates a C++ temporary with a destructor (e.g.
-/// `func_returning_unique_ptr() == nullptr`), the CFG inserts cleanup
-/// blocks that merge the || operand paths before the IfStmt decision,
-/// defeating per-edge narrowing. decomposeOr recovers this by narrowing
-/// all operands on the false edge at the IfStmt level.
+/// Analyze a branch condition into ConditionResult facts (see the file
+/// overview). The CFG splits && and || operands into their own blocks, but a
+/// || operand creating a temporary with a destructor (f() == nullptr on a
+/// unique_ptr) gets cleanup blocks that merge the paths before the IfStmt, so
+/// decomposeOr re-narrows every operand on the IfStmt's false edge.
 static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
                              SmallVectorImpl<ConditionResult> &Results,
                              const NullState::BoolGuardMap *BoolGuards) {
@@ -947,7 +931,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   E = unwrapBuiltinExpect(E);
   E = ignoreExplicitBoolCast(E);
 
-  // C++20 rewrites `sp != nullptr` into `!(sp == nullptr)` wrapped in a
+  // C++20 rewrites sp != nullptr into !(sp == nullptr) wrapped in a
   // CXXRewrittenBinaryOperator. Unwrap to the semantic form so the ! loop
   // and CXXOperatorCallExpr handler below can process it.
   if (const auto *RBO = dyn_cast<CXXRewrittenBinaryOperator>(E))
@@ -961,23 +945,23 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
     E = ignoreExplicitBoolCast(UO->getSubExpr()->IgnoreParenImpCasts());
   }
 
-  // An explicit pointer-to-pointer cast in the condition (e.g. `if ((T*)p)`)
+  // An explicit pointer-to-pointer cast in the condition (e.g. if ((T*)p))
   // otherwise hides the underlying VarDecl from narrowing. The deref/read side
   // already sees through such casts (lookThroughPtrToPtrCasts at the deref
   // sites), so without this the check side is stricter than the read side and a
-  // guarded `if ((T*)p) { *p; }` produces a false positive.
+  // guarded if ((T*)p) { *p; } produces a false positive.
   E = lookThroughPtrToPtrCasts(E);
 
   // !(A && B): the CFG merges the && operand paths before the if-decision,
   // so individual narrowing from the && blocks is lost at the merge.
   // Recursively decompose the && to narrow ALL operands on the false edge
-  // (where && was true → all operands are true → all pointers non-null).
+  // (where && was true -> all operands are true -> all pointers non-null).
   if (Negated) {
     if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
       if (BO->getOpcode() == BO_LAnd) {
-        // Flatten nested && into a LOCAL vector — Results may already hold
+        // Flatten nested && into a LOCAL vector: Results may already hold
         // leaves appended by an outer decomposeAnd/decomposeOr (e.g.
-        // `if (x && !(a && b))`), and the erase/flip below must not clobber
+        // if (x && !(a && b))), and the erase/flip below must not clobber
         // them.
         SmallVector<ConditionResult, 4> AndResults;
         decomposeAnd(BO, Ctx, AndResults, BoolGuards);
@@ -1003,8 +987,8 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       if (BO->getOpcode() == BO_EQ)
         EqNegated = !EqNegated;
 
-      // Guard variable compared against a constant: `flag == true`,
-      // `flag != 0`, `flag == false`. The comparison is true exactly when
+      // Guard variable compared against a constant: flag == true,
+      // flag != 0, flag == false. The comparison is true exactly when
       // the guard equals the constant (for ==) or its opposite (for !=), so
       // the stored facts flip when that target truth value is false.
       if (BoolGuards) {
@@ -1022,7 +1006,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
           std::optional<bool> CV = constantTruth(ConstSide, Ctx);
           if (!CV)
             continue;
-          // EqNegated means the comparison is effectively `==` (a bare ==,
+          // EqNegated means the comparison is effectively == (a bare ==,
           // or != under an odd number of !), so it holds when the guard
           // equals CV; otherwise it holds when the guard equals !CV.
           bool GuardTruthWhenTrue = EqNegated ? *CV : !*CV;
@@ -1036,7 +1020,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       }
 
       // IgnoreParenCasts, not ImpCasts: C spells null constants as
-      // `(T *)0` and that explicit cast is not a null pointer constant in
+      // (T *)0 and that explicit cast is not a null pointer constant in
       // Clang's C mode.
       bool LHSIsNull = LHS->IgnoreParenCasts()->isNullPointerConstant(
           Ctx, Expr::NPC_ValueDependentIsNotNull);
@@ -1046,13 +1030,13 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       if (LHSIsNull || RHSIsNull) {
         const Expr *PtrExpr = LHSIsNull ? RHS : LHS;
 
-        // Unwrap assignment-in-condition: (p = f()) != nullptr → narrow p
+        // Unwrap assignment-in-condition: (p = f()) != nullptr -> narrow p
         if (const auto *AssignBO = dyn_cast<BinaryOperator>(PtrExpr)) {
           if (AssignBO->getOpcode() == BO_Assign)
             PtrExpr = AssignBO->getLHS()->IgnoreParenImpCasts();
         }
 
-        // Mirror the read-side cast see-through: `(T*)p != nullptr` narrows p.
+        // Mirror the read-side cast see-through: (T*)p != nullptr narrows p.
         PtrExpr = lookThroughPtrToPtrCasts(PtrExpr);
 
         if (const auto *DRE = dyn_cast<DeclRefExpr>(PtrExpr)) {
@@ -1074,7 +1058,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   }
 
   // Handle overloaded operator!= / operator== on smart pointers:
-  // `sp != nullptr` is a CXXOperatorCallExpr, not a BinaryOperator.
+  // sp != nullptr is a CXXOperatorCallExpr, not a BinaryOperator.
   if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(E)) {
     auto OpKind = OCE->getOperator();
     if ((OpKind == OO_ExclaimEqual || OpKind == OO_EqualEqual) &&
@@ -1127,7 +1111,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
     }
   }
 
-  // Unwrap assignment-in-condition for truthiness: while ((p = f())) → p
+  // Unwrap assignment-in-condition for truthiness: while ((p = f())) -> p
   if (const auto *AssignBO = dyn_cast<BinaryOperator>(E)) {
     if (AssignBO->getOpcode() == BO_Assign)
       E = AssignBO->getLHS()->IgnoreParenImpCasts();
@@ -1140,7 +1124,7 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
         return;
       }
       // Guard intermediary: if (valid) where valid = (p != nullptr). Integer
-      // flags count too (`int ok = p != NULL` is the C idiom).
+      // flags count too (int ok = p != NULL is the C idiom).
       if (BoolGuards && VD->getType()->isIntegerType()) {
         auto It = BoolGuards->find(VD);
         if (It != BoolGuards->end()) {
@@ -1190,11 +1174,10 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
 }
 
 /// Extract the null-check facts a guard variable's initializer or assigned
-/// value encodes, so a later `if (flag)` narrows the pointers it tested.
-/// Handles the direct form `p != nullptr`, the ternary spellings
-/// `p ? true : false` / `p ? 0 : 1`, conjunctions `p && q` (guard true means
-/// every conjunct held, so only the true-direction facts survive), and
-/// copies of other guards (`bool c = !b`).
+/// value encodes, so a later if (flag) narrows the pointers it tested. Handles
+/// p != nullptr, the ternary spellings p ? true : false / p ? 0 : 1, p && q
+/// (guard true means every conjunct held, so only true-direction facts
+/// survive), and copies of other guards (bool c = !b).
 static void computeGuardFacts(const Expr *Init, ASTContext &Ctx,
                               const NullState::BoolGuardMap &Guards,
                               SmallVectorImpl<ConditionResult> &Facts) {
@@ -1227,7 +1210,7 @@ static void computeGuardFacts(const Expr *Init, ASTContext &Ctx,
 }
 
 /// Narrow a member path, plus every local copied from it
-/// (`T *q = s->next; if (s->next) *q;`).
+/// (T *q = s->next; if (s->next) *q;).
 static void narrowMemberPath(NullState &NS, const MemberAccessPath &Path) {
   NS.NarrowedMembers.insert(Path);
   NS.NullableMembers.erase(Path);
@@ -1239,9 +1222,9 @@ static void narrowMemberPath(NullState &NS, const MemberAccessPath &Path) {
 }
 
 /// Narrow a variable and everything known to hold the same pointer: its
-/// alias target and all vars sharing that canonical target (`y = x; z = x;
-/// if (z)` narrows z, x, and y), and the member path it was copied from
-/// (`T *q = s->next; if (q) *s->next;`).
+/// alias target and all vars sharing that canonical target (y = x; z = x;
+/// if (z) narrows z, x, and y), and the member path it was copied from
+/// (T *q = s->next; if (q) *s->next;).
 static void narrowVarWithAliases(NullState &NS, const VarDecl *VD) {
   NS.NarrowedVars.insert(VD);
   NS.NullableVars.erase(VD);
@@ -1354,12 +1337,10 @@ class TransferFunctions {
     return StdlibAnnotations && isStdlibNullableReturnCall(CE);
   }
 
-  /// Unwrap explicit casts and pointer arithmetic to find the original
-  /// pointer expression and whether a cast was traversed.  Template
-  /// instantiations can bake _Nullable into cast result types even when
-  /// the source is unannotated (e.g. reinterpret_cast<T*>(p) where T
-  /// is itself a pointer type).  When a cast is found, callers should
-  /// check nullability on the SOURCE type, not the cast result.
+  /// Unwrap explicit casts and pointer arithmetic to the original pointer
+  /// expression. Template instantiations can bake _Nullable into a cast's
+  /// result type even when the source is unannotated, so when FoundCast is
+  /// set callers must judge nullability on the source type, not the cast.
   static const Expr *unwrapCastsAndArithmetic(const Expr *E, bool &FoundCast) {
     FoundCast = false;
     for (;;) {
@@ -1375,7 +1356,7 @@ class TransferFunctions {
           break;
         }
       } else if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
-        // `*p++` / `*++p`: the value dereferenced is p (or p+1), so its
+        // *p++ / *++p: the value dereferenced is p (or p+1), so its
         // null-ness is p's.
         if (UO->isIncrementDecrementOp())
           E = UO->getSubExpr()->IgnoreParenImpCasts();
@@ -1401,12 +1382,10 @@ class TransferFunctions {
   /// Unwraps casts/arithmetic to avoid template-instantiation false
   /// positives where _Nullable is baked into cast result types.
   void checkExprDeref(const Expr *DerefExpr, const Expr *PtrExpr) {
-    // dynamic_cast<T*> yields null when the runtime type check fails, so
-    // dereferencing its result directly is a real null-deref risk regardless
-    // of the source's nullability. unwrapCastsAndArithmetic below would strip
-    // the cast and inspect the (possibly _Nonnull) source, hiding this, so
-    // catch it up front. The narrowed if (auto *d = dynamic_cast<T*>(p)) ...
-    // idiom is unaffected: there the deref is on the VarDecl d, not the cast.
+    // dynamic_cast<T*> yields null on a failed runtime check regardless of the
+    // source's nullability, and unwrapCastsAndArithmetic below would hide that
+    // by inspecting the source, so catch it up front. The narrowed idiom
+    // if (auto *d = dynamic_cast<T*>(p)) derefs the VarDecl d, not the cast.
     if (const auto *DCE =
             dyn_cast<CXXDynamicCastExpr>(PtrExpr->IgnoreParenImpCasts())) {
       if (DCE->getType()->isPointerType()) {
@@ -1521,7 +1500,7 @@ class TransferFunctions {
   /// positives on members set in constructors.
   void warnSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
     Obj = Obj->IgnoreParenImpCasts();
-    // Local variable or parameter — always warn when not narrowed
+    // Local variable or parameter: always warn when not narrowed
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Obj)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
         LLVM_DEBUG(llvm::dbgs()
@@ -1533,12 +1512,12 @@ class TransferFunctions {
     }
     if (auto Path = getSmartPtrMemberPath(Obj)) {
       if (Path->Root != nullptr) {
-        // var.member path — always warn (same as local vars)
+        // var.member path: always warn (same as local vars)
         ++NumDereferenceWarnings;
         Handler.handleNullableDereference(DerefExpr,
                                           Path->leafField()->getType());
       } else if (State.NullableMembers.contains(*Path)) {
-        // this->member path — only warn with evidence
+        // this->member path: only warn with evidence
         ++NumDereferenceWarnings;
         Handler.handleNullableDereference(DerefExpr,
                                           Path->leafField()->getType());
@@ -1604,7 +1583,7 @@ class TransferFunctions {
     return false;
   }
 
-  /// Record `VD = <member path>` so later narrowing of either side reaches
+  /// Record VD = <member path> so later narrowing of either side reaches
   /// the other. The path's current narrowed/nullable state is copied onto VD
   /// by the caller's isExprNarrowedNonnull/isNullableInit checks.
   void trackMemberCopy(const VarDecl *VD, const Expr *Init) {
@@ -1612,9 +1591,9 @@ class TransferFunctions {
     auto Path = decomposeMemberAccess(Init);
     if (!Path || !Path->leafField()->getType()->isPointerType())
       return;
-    // `p = p->next`: the path is rooted at the variable being overwritten,
+    // p = p->next: the path is rooted at the variable being overwritten,
     // so after the store it names a different object. Recording it would
-    // let `if (p)` falsely narrow the new p's `next`.
+    // let if (p) falsely narrow the new p's next.
     if (Path->Root == VD)
       return;
     State.MemberAliases[VD] = *Path;
@@ -1723,10 +1702,7 @@ public:
 
   void setEnclosingFunc(const FunctionDecl *FD) { EnclosingFunc = FD; }
 
-  // Function-scoped parent map (from AnalysisDeclContext), used to detect
-  // smart-pointer move-transfer context cheaply — see
-  // isStdMoveInsideSmartPtrTransferCtx. Avoids the TU-wide cost of
-  // ASTContext::getParents.
+  // Function-scoped parent map; see isStdMoveInsideSmartPtrTransferCtx.
   const ParentMap *ParentMapPtr = nullptr;
 
   void setParentMap(const ParentMap *PM) { ParentMapPtr = PM; }
@@ -1763,6 +1739,7 @@ private:
         if (VD->getType()->isPointerType()) {
           if (VD->hasInit())
             recordPointerSource(VD, VD->getInit());
+
           if (isNonnullType(VD->getType())) {
             // Flow-sensitive assignment check: warn when initializing a
             // _Nonnull variable with a nullable value.
@@ -1961,9 +1938,9 @@ private:
       if (UO->getOpcode() == UO_AddrOf)
         return true;
     }
-    // Call to a function previously proven to always return non-null,
-    // or a known STL method that contractually returns nonnull.
-    // Stdlib nullable functions (malloc, fopen, etc.) are explicitly excluded.
+    // Call to a function whose every return is proven non-null, or a known
+    // STL method that contractually returns nonnull. Stdlib nullable functions
+    // (malloc, fopen, etc.) are explicitly excluded.
     if (const auto *CE = dyn_cast<CallExpr>(Init)) {
       if (isStdlibNullableReturn(CE))
         return false;
@@ -2299,8 +2276,8 @@ private:
     // Handle overloaded operator-> (smart pointers, iterators, etc.)
     if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(Base)) {
       if (OCE->getOperator() == OO_Arrow) {
-        // For smart pointers, warn if not narrowed.
-        // For non-smart-pointer types (iterators etc), skip as before.
+        // Only smart pointers are checked; other overloaded operator->
+        // (iterators etc.) is not tracked.
         if (OCE->getNumArgs() >= 1) {
           const Expr *Obj = OCE->getArg(0);
           if (isSmartPointerType(Obj->getType()))
@@ -2364,12 +2341,10 @@ private:
             applyNarrowing(State, CR);
       }
 
-      // Narrow pointers passed to _Nonnull parameters: surviving the call
-      // proves the pointer was non-null. Recognizes both Clang _Nonnull
-      // and GCC-style __attribute__((nonnull)).
-      //
-      // For CXXOperatorCallExpr on member operators (e.g. lambda operator()),
-      // getArg(0) is the implicit object; real args start at offset 1.
+      // Narrow pointers passed to _Nonnull or __attribute__((nonnull))
+      // parameters: surviving the call proves them non-null. For member
+      // operator calls (e.g. lambda operator()) getArg(0) is the implicit
+      // object, so real args start at offset 1.
       unsigned ArgOffset = 0;
       if (isa<CXXOperatorCallExpr>(CE) && isa<CXXMethodDecl>(Callee))
         ArgOffset = 1;
@@ -2461,12 +2436,10 @@ private:
         if (const auto *MD = MCE->getMethodDecl()) {
           if (MD->getDeclName().isIdentifier() && MD->getName() == "reset") {
             // reset(nullptr) makes it null; reset(proven_nonnull) narrows it;
-            // unknown pointer arguments clear both facts, falling back to any
-            // declared smart-pointer contract. Real libc++ declares
-            // reset(pointer p = pointer()), so a no-arg call shows up
-            // here with arg 0 being a CXXDefaultArgExpr; that's "no
-            // user-provided arg" and is equivalent to reset to null,
-            // regardless of how the default is spelled.
+            // an unknown argument clears both facts. libc++ declares
+            // reset(pointer p = pointer()), so a no-arg call arrives with a
+            // CXXDefaultArgExpr arg, which means reset to null however the
+            // default is spelled.
             enum class ResetNullability { Null, Nonnull, Unknown };
             ResetNullability Result = ResetNullability::Null;
             if (MCE->getNumArgs() > 0) {
@@ -2582,14 +2555,10 @@ private:
       }
     }
 
-    // Handle bare std::move(sp) by invalidating narrowing. Skip when the
-    // call is wrapped in a smart-pointer transfer context (VarDecl init or
-    // operator= LHS): those handlers below need the source's pre-move
-    // state to inherit it onto the target, and they handle the source
-    // erase themselves.
-    // A missing parent map defaults to "not a transfer context", i.e. a
-    // bare std::move. It is only a cast, not an ownership transfer, so it
-    // invalidates proof without establishing that the source is null.
+    // Bare std::move(sp) is only a cast, so it drops the source's proof
+    // without establishing that it is null. Inside a smart-pointer transfer
+    // (see isStdMoveInsideSmartPtrTransferCtx) the transfer handler owns the
+    // source erase instead. No parent map means "not a transfer".
     if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
         (!ParentMapPtr ||
          !isStdMoveInsideSmartPtrTransferCtx(CE, *ParentMapPtr))) {
@@ -2623,7 +2592,7 @@ private:
           ++NumArgumentWarnings;
           Handler.handleNullableArgument(CE->getArg(I), Param);
         }
-        // Narrow the argument — surviving the call proves it was non-null
+        // Narrow the argument: surviving the call proves it was non-null
         if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
           if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
             if (VD->getType()->isPointerType()) {
@@ -2778,7 +2747,7 @@ private:
         Handler.handleReturnEvidence(RetVal, EnclosingFunc, RetIsNonnull);
     }
 
-    // Existing warning: returning nullable from a nonnull function.
+    // Returning a nullable value from a _Nonnull function.
     if (isNonnullType(RetType) && !RetIsNonnull) {
       ++NumReturnWarnings;
       Handler.handleNullableReturn(RetVal, RetVal->getType(), RetType);
@@ -2830,7 +2799,7 @@ static NullState seedEntryState(const Decl *D) {
   if (!FD)
     return InitState;
 
-  // Collect parameters declared nonnull via __attribute__((nonnull)) —
+  // Collect parameters declared nonnull via __attribute__((nonnull)),
   // either the whole-function form (applies to every pointer param) or
   // the indexed form (nonnull(N...), 1-based).
   llvm::SmallPtrSet<const ParmVarDecl *, 4> AttrNonnull;
@@ -2849,7 +2818,7 @@ static NullState seedEntryState(const Decl *D) {
     }
   }
   // Lambda pointer params default to nonnull (auto-narrowed). Lambdas are
-  // short-lived closures whose callers control what's passed — if a caller
+  // short-lived closures whose callers control what's passed: if a caller
   // passes null, the bug is at the call site (caught by handleCallExpr's
   // lambda-aware argument check). Explicit _Nullable overrides this default.
   bool IsLambda = false;
@@ -2921,7 +2890,7 @@ static void emitCtorInitEvidence(const Decl *D, ASTContext &Ctx,
 }
 
 /// Apply branch-condition narrowing to a block's outgoing edges. Given the
-/// block's terminator (an `if`, loop, `&&`/`||`, or `?:`) and the state at the
+/// block's terminator (an if, loop, &&/||, or ?:) and the state at the
 /// end of the block, fill in the per-edge states: the edge that proves a
 /// pointer non-null gets it inserted into NarrowedVars. TrueState/FalseState
 /// start as copies of the block-exit state and are narrowed in place.
@@ -2938,7 +2907,7 @@ static void narrowOnTerminator(const CFGBlock *Block, const NullState &State,
     if (IfCond)
       IfCond = IfCond->IgnoreParenImpCasts();
     if (IfCond) {
-      // Unwrap ExprWithCleanups — temp destructors from || RHS
+      // Unwrap ExprWithCleanups: temp destructors from || RHS
       // expressions wrap the whole condition but don't affect the
       // logical structure.
       const Expr *IfCondInner = IfCond;
@@ -2973,7 +2942,7 @@ static void narrowOnTerminator(const CFGBlock *Block, const NullState &State,
     if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
       Cond = getTerminalCondition(BO->getLHS());
   } else if (const auto *CO = dyn_cast<AbstractConditionalOperator>(Term)) {
-    // Covers GNU `p ?: q` (BinaryConditionalOperator) as well.
+    // Covers GNU p ?: q (BinaryConditionalOperator) as well.
     Cond = getTerminalCondition(CO->getCond());
   }
 
@@ -2985,12 +2954,10 @@ static void narrowOnTerminator(const CFGBlock *Block, const NullState &State,
   }
 }
 
-/// After the fixpoint, emit the all-returns-nonnull summary for a function
-/// whose return type is a pointer and whose every return is provably
-/// non-null. Skipped if the visit cap fired, since inference from a partial
-/// run is not trustworthy. An explicit _Nullable return type also wins over
-/// body inference: the body may see _Nonnull members that are null at
-/// runtime (e.g. default-constructed smart pointer internals).
+/// After the fixpoint, emit the all-returns-nonnull summary. Skipped if the
+/// visit cap fired (a partial run cannot be trusted) and when the return type
+/// is explicitly _Nullable: the annotation wins over body inference, since the
+/// body may see _Nonnull members that are null at runtime.
 static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
                                          const ReturnSummary &Returns,
                                          FlowNullabilityHandler &Handler) {
@@ -3020,10 +2987,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
 
   ++NumFunctionsAnalyzed;
   ASTContext &Ctx = AC.getASTContext();
-  // Function-scoped parent map, built once from this function's body and
-  // cached by AnalysisDeclContext. Used by the std::move handler to detect
-  // smart-pointer transfer context without ASTContext::getParents (which
-  // would lazily build a TU-wide parent map, too costly per function).
+  // Cached per function; see isStdMoveInsideSmartPtrTransferCtx.
   const ParentMap &PM = AC.getParentMap();
   LLVM_DEBUG({
     if (const auto *ND = dyn_cast_or_null<NamedDecl>(AC.getDecl()))
@@ -3098,7 +3062,7 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
 
     // Standard fixpoint check: skip re-processing if entry state is unchanged.
     // This prevents duplicate warnings when the worklist re-visits a block.
-    // Skip this check for the entry block — its state is pre-seeded, so it
+    // Skip this check for the entry block: its state is pre-seeded, so it
     // would always match and prevent the first visit from propagating.
     if (BlockID != Entry.getBlockID()) {
       auto OldIt = BlockEntryStates.find(BlockID);
