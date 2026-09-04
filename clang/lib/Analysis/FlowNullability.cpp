@@ -1748,174 +1748,16 @@ public:
   /// Calls never invalidate narrowing; see the file overview for why.
   void VisitCallExpr(const CallExpr *CE) {
     if (const auto *Callee = CE->getDirectCallee()) {
-      // __builtin_assume(cond) narrows pointers mentioned in cond.
-      if (Callee->getBuiltinID() == Builtin::BI__builtin_assume &&
-          CE->getNumArgs() >= 1) {
-        const Expr *Arg = CE->getArg(0)->IgnoreParenImpCasts();
-        SmallVector<ConditionResult, 2> Results;
-        analyzeCondition(Arg, Ctx, Results, &State.BoolGuards);
-        for (const auto &CR : Results)
-          if (!CR.Negated)
-            applyNarrowing(State, CR);
-      }
-
-      // Narrow pointers passed to _Nonnull or __attribute__((nonnull))
-      // parameters: surviving the call proves them non-null. For member
-      // operator calls (e.g. lambda operator()) getArg(0) is the implicit
-      // object, so real args start at offset 1.
-      unsigned ArgOffset = 0;
-      if (isa<CXXOperatorCallExpr>(CE) && isa<CXXMethodDecl>(Callee))
-        ArgOffset = 1;
-      const auto *NNAttr = Callee->getAttr<NonNullAttr>();
-      unsigned EffArgs = CE->getNumArgs() - ArgOffset;
-      // Parameter evidence for cross-TU inference is skipped for builtins,
-      // empty-named functions, and lambda operator() calls (lambda params
-      // have no cross-TU identity).
-      bool IsLambdaCall = false;
-      if (const auto *MD = dyn_cast<CXXMethodDecl>(Callee))
-        IsLambdaCall = MD->getParent()->isLambda();
-      bool EmitEvidence = !Callee->getBuiltinID() &&
-                          !Callee->getDeclName().isEmpty() && !IsLambdaCall;
-      for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
-           ++I) {
-        const ParmVarDecl *Param = Callee->getParamDecl(I);
-        if (!Param->getType()->isPointerType())
-          continue;
-        bool ParamIsNonnull =
-            isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I));
-        // Lambda pointer params default to nonnull (auto-narrowed in body).
-        // Verify at call sites: warn when passing nullable to a lambda param
-        // that isn't explicitly _Nullable.
-        if (!ParamIsNonnull && IsLambdaCall &&
-            !isExplicitlyNullableType(Param->getType()))
-          ParamIsNonnull = true;
-        if (ParamIsNonnull)
-          checkNonnullParamArg(CE->getArg(I + ArgOffset), Param);
-      }
-
-      // Evidence runs as a second pass so every argument is judged after all
-      // nonnull-parameter narrowing from this call has been applied.
-      if (EmitEvidence) {
-        for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams());
-             I < N; ++I) {
-          const ParmVarDecl *Param = Callee->getParamDecl(I);
-          if (!Param->getType()->isPointerType())
-            continue;
-          // Skip unnamed parameters: no useful evidence without a name.
-          if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
-            continue;
-          const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
-          bool ArgIsNonnull = !isExprNullable(Arg);
-          // Only emit nullable evidence for explicitly nullable sources
-          // (annotated _Nullable or nullptr), not for unannotated pointers
-          // that are merely defaulted to nullable.
-          if (!ArgIsNonnull && !isExprNullable(Arg, /*ExplicitOnly=*/true))
-            continue;
-          Handler.handleParameterEvidence(CE->getArg(I + ArgOffset), Param,
-                                          Callee, ArgIsNonnull);
-        }
-        // Parameters with nullptr default arguments are nullable evidence
-        // even when callers always pass nonnull explicitly: the function
-        // can be called without that argument, receiving nullptr.
-        for (unsigned I = 0, N = Callee->getNumParams(); I < N; ++I) {
-          const ParmVarDecl *Param = Callee->getParamDecl(I);
-          if (!Param->getType()->isPointerType() || !Param->hasDefaultArg())
-            continue;
-          if (Param->hasUninstantiatedDefaultArg())
-            continue;
-          if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
-            continue;
-          const Expr *DefArg = Param->getDefaultArg();
-          if (DefArg && DefArg->isNullPointerConstant(
-                            Ctx, Expr::NPC_ValueDependentIsNotNull))
-            Handler.handleParameterEvidence(DefArg, Param, Callee,
-                                            /*IsNonnull=*/false);
-        }
-      }
+      narrowFromBuiltinAssume(CE, Callee);
+      checkCallArguments(CE, Callee);
     }
 
-    // Handle sp.reset() / sp.reset(ptr), a CXXMemberCallExpr
-    if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
-      const Expr *Obj = MCE->getImplicitObjectArgument();
-      if (Obj && isSmartPointerType(Obj->getType())) {
-        if (const auto *MD = MCE->getMethodDecl()) {
-          if (MD->getDeclName().isIdentifier() && MD->getName() == "reset") {
-            // reset(nullptr) makes it null; reset(proven_nonnull) narrows it;
-            // an unknown argument clears both facts. libc++ declares
-            // reset(pointer p = pointer()), so a no-arg call arrives with a
-            // CXXDefaultArgExpr arg, which means reset to null however the
-            // default is spelled.
-            ResetNullability Result = ResetNullability::Null;
-            if (MCE->getNumArgs() > 0) {
-              const Expr *Arg = MCE->getArg(0);
-              if (!isa<CXXDefaultArgExpr>(Arg)) {
-                Arg = Arg->IgnoreParenImpCasts();
-                if (Arg->isNullPointerConstant(
-                        Ctx, Expr::NPC_ValueDependentIsNotNull))
-                  Result = ResetNullability::Null;
-                else if (isNonnullInit(Arg))
-                  Result = ResetNullability::Nonnull;
-                else
-                  Result = ResetNullability::Unknown;
-              }
-            }
-            if (auto R = smartPtrRef(Obj)) {
-              State.clear(*R);
-              if (Result == ResetNullability::Nonnull)
-                State.markNarrowed(*R);
-              else if (Result == ResetNullability::Null)
-                State.markNullable(*R);
-            }
-          }
-        }
-      }
-    }
+    if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE))
+      handleSmartPtrReset(MCE);
 
-    // Handle sp = nullptr / sp = make_unique(...) / sp = std::move(other)
-    // LHS may be a local (VarDecl), a this-member, or a member access chain.
     if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
-      if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
-        const Expr *LhsArg = OCE->getArg(0);
-        std::optional<PtrRef> Lhs = smartPtrRef(LhsArg);
-
-        if (Lhs) {
-          // Clear the LHS's proof. A local only loses its narrowing; a member
-          // path is additionally marked nullable.
-          if (Lhs->VD)
-            State.NarrowedVars.erase(Lhs->VD);
-          else
-            State.markNullable(*Lhs);
-          const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
-
-          if (isNonnullSmartPtrInit(RHS)) {
-            // sp = make_unique<T>(...): non-null
-            State.markNarrowed(*Lhs);
-          } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
-            if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
-              // sp = std::move(other): LHS inherits source's state.
-              // Source tracking only implemented for local-var sources.
-              auto Src = smartPtrRef(RhsCE->getArg(0));
-              if (Src && Src->VD) {
-                if (isNarrowed(Src->VD))
-                  State.markNarrowed(*Lhs);
-                State.markNullable(Src->VD);
-              }
-            } else if (isNonnullType(RhsCE->getType())) {
-              // sp = someFunction(): only narrow if return type is _Nonnull
-              State.markNarrowed(*Lhs);
-            }
-          }
-          // sp = nullptr or non-call: remains nullable (erased above)
-        } else if (auto StructPath = decomposeMemberAccess(LhsArg)) {
-          // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
-          // invalidate any narrowed paths nested under the LHS.
-          invalidateMembersWithPrefix(*StructPath);
-        }
-      }
-    }
-
-    // Handle *sp (operator*) on smart pointers, same as operator->
-    if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
+      handleSmartPtrAssign(OCE);
+      // Handle *sp (operator*) on smart pointers, same as operator->
       if (OCE->getOperator() == OO_Star && OCE->getNumArgs() >= 1) {
         const Expr *Obj = OCE->getArg(0);
         if (isSmartPointerType(Obj->getType()))
@@ -1923,22 +1765,7 @@ public:
       }
     }
 
-    // Bare std::move(sp) is only a cast, so it drops the source's proof
-    // without establishing that it is null. Inside a smart-pointer transfer
-    // (see isStdMoveInsideSmartPtrTransferCtx) the transfer handler owns the
-    // source erase instead. No parent map means "not a transfer".
-    if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
-        (!ParentMapPtr ||
-         !isStdMoveInsideSmartPtrTransferCtx(CE, *ParentMapPtr))) {
-      // A local only loses its narrowing while a member path is marked
-      // nullable; the asymmetry is preserved as-is.
-      if (auto R = smartPtrRef(CE->getArg(0))) {
-        if (R->VD)
-          State.NarrowedVars.erase(R->VD);
-        else
-          State.markNullable(*R);
-      }
-    }
+    handleBareStdMove(CE);
   }
 
   /// Check constructor arguments against parameter nullability, same as
@@ -2016,6 +1843,198 @@ public:
   }
 
 private:
+  /// __builtin_assume(cond) narrows pointers mentioned in cond.
+  void narrowFromBuiltinAssume(const CallExpr *CE, const FunctionDecl *Callee) {
+    if (Callee->getBuiltinID() == Builtin::BI__builtin_assume &&
+        CE->getNumArgs() >= 1) {
+      const Expr *Arg = CE->getArg(0)->IgnoreParenImpCasts();
+      SmallVector<ConditionResult, 2> Results;
+      analyzeCondition(Arg, Ctx, Results, &State.BoolGuards);
+      for (const auto &CR : Results)
+        if (!CR.Negated)
+          applyNarrowing(State, CR);
+    }
+  }
+
+  /// Check each argument against its parameter's nullability, then emit
+  /// parameter evidence (including nullptr default arguments).
+  void checkCallArguments(const CallExpr *CE, const FunctionDecl *Callee) {
+    // Narrow pointers passed to _Nonnull or __attribute__((nonnull))
+    // parameters: surviving the call proves them non-null. For member
+    // operator calls (e.g. lambda operator()) getArg(0) is the implicit
+    // object, so real args start at offset 1.
+    unsigned ArgOffset = 0;
+    if (isa<CXXOperatorCallExpr>(CE) && isa<CXXMethodDecl>(Callee))
+      ArgOffset = 1;
+    const auto *NNAttr = Callee->getAttr<NonNullAttr>();
+    unsigned EffArgs = CE->getNumArgs() - ArgOffset;
+    // Parameter evidence for cross-TU inference is skipped for builtins,
+    // empty-named functions, and lambda operator() calls (lambda params
+    // have no cross-TU identity).
+    bool IsLambdaCall = false;
+    if (const auto *MD = dyn_cast<CXXMethodDecl>(Callee))
+      IsLambdaCall = MD->getParent()->isLambda();
+    bool EmitEvidence = !Callee->getBuiltinID() &&
+                        !Callee->getDeclName().isEmpty() && !IsLambdaCall;
+    for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
+         ++I) {
+      const ParmVarDecl *Param = Callee->getParamDecl(I);
+      if (!Param->getType()->isPointerType())
+        continue;
+      bool ParamIsNonnull =
+          isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I));
+      // Lambda pointer params default to nonnull (auto-narrowed in body).
+      // Verify at call sites: warn when passing nullable to a lambda param
+      // that isn't explicitly _Nullable.
+      if (!ParamIsNonnull && IsLambdaCall &&
+          !isExplicitlyNullableType(Param->getType()))
+        ParamIsNonnull = true;
+      if (ParamIsNonnull)
+        checkNonnullParamArg(CE->getArg(I + ArgOffset), Param);
+    }
+
+    // Evidence runs as a second pass so every argument is judged after all
+    // nonnull-parameter narrowing from this call has been applied.
+    if (EmitEvidence) {
+      for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
+           ++I) {
+        const ParmVarDecl *Param = Callee->getParamDecl(I);
+        if (!Param->getType()->isPointerType())
+          continue;
+        // Skip unnamed parameters: no useful evidence without a name.
+        if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
+          continue;
+        const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
+        bool ArgIsNonnull = !isExprNullable(Arg);
+        // Only emit nullable evidence for explicitly nullable sources
+        // (annotated _Nullable or nullptr), not for unannotated pointers
+        // that are merely defaulted to nullable.
+        if (!ArgIsNonnull && !isExprNullable(Arg, /*ExplicitOnly=*/true))
+          continue;
+        Handler.handleParameterEvidence(CE->getArg(I + ArgOffset), Param,
+                                        Callee, ArgIsNonnull);
+      }
+      // Parameters with nullptr default arguments are nullable evidence
+      // even when callers always pass nonnull explicitly: the function
+      // can be called without that argument, receiving nullptr.
+      for (unsigned I = 0, N = Callee->getNumParams(); I < N; ++I) {
+        const ParmVarDecl *Param = Callee->getParamDecl(I);
+        if (!Param->getType()->isPointerType() || !Param->hasDefaultArg())
+          continue;
+        if (Param->hasUninstantiatedDefaultArg())
+          continue;
+        if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
+          continue;
+        const Expr *DefArg = Param->getDefaultArg();
+        if (DefArg && DefArg->isNullPointerConstant(
+                          Ctx, Expr::NPC_ValueDependentIsNotNull))
+          Handler.handleParameterEvidence(DefArg, Param, Callee,
+                                          /*IsNonnull=*/false);
+      }
+    }
+  }
+
+  /// Handle sp.reset() / sp.reset(ptr), a CXXMemberCallExpr.
+  void handleSmartPtrReset(const CXXMemberCallExpr *MCE) {
+    const Expr *Obj = MCE->getImplicitObjectArgument();
+    if (Obj && isSmartPointerType(Obj->getType())) {
+      if (const auto *MD = MCE->getMethodDecl()) {
+        if (MD->getDeclName().isIdentifier() && MD->getName() == "reset") {
+          // reset(nullptr) makes it null; reset(proven_nonnull) narrows it;
+          // an unknown argument clears both facts. libc++ declares
+          // reset(pointer p = pointer()), so a no-arg call arrives with a
+          // CXXDefaultArgExpr arg, which means reset to null however the
+          // default is spelled.
+          ResetNullability Result = ResetNullability::Null;
+          if (MCE->getNumArgs() > 0) {
+            const Expr *Arg = MCE->getArg(0);
+            if (!isa<CXXDefaultArgExpr>(Arg)) {
+              Arg = Arg->IgnoreParenImpCasts();
+              if (Arg->isNullPointerConstant(Ctx,
+                                             Expr::NPC_ValueDependentIsNotNull))
+                Result = ResetNullability::Null;
+              else if (isNonnullInit(Arg))
+                Result = ResetNullability::Nonnull;
+              else
+                Result = ResetNullability::Unknown;
+            }
+          }
+          if (auto R = smartPtrRef(Obj)) {
+            State.clear(*R);
+            if (Result == ResetNullability::Nonnull)
+              State.markNarrowed(*R);
+            else if (Result == ResetNullability::Null)
+              State.markNullable(*R);
+          }
+        }
+      }
+    }
+  }
+
+  /// Handle sp = nullptr / sp = make_unique(...) / sp = std::move(other).
+  /// LHS may be a local (VarDecl), a this-member, or a member access chain.
+  void handleSmartPtrAssign(const CXXOperatorCallExpr *OCE) {
+    if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
+      const Expr *LhsArg = OCE->getArg(0);
+      std::optional<PtrRef> Lhs = smartPtrRef(LhsArg);
+
+      if (Lhs) {
+        // Clear the LHS's proof. A local only loses its narrowing; a member
+        // path is additionally marked nullable.
+        if (Lhs->VD)
+          State.NarrowedVars.erase(Lhs->VD);
+        else
+          State.markNullable(*Lhs);
+        const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
+
+        if (isNonnullSmartPtrInit(RHS)) {
+          // sp = make_unique<T>(...): non-null
+          State.markNarrowed(*Lhs);
+        } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
+          if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
+            // sp = std::move(other): LHS inherits source's state.
+            // Source tracking only implemented for local-var sources.
+            auto Src = smartPtrRef(RhsCE->getArg(0));
+            if (Src && Src->VD) {
+              if (isNarrowed(Src->VD))
+                State.markNarrowed(*Lhs);
+              State.markNullable(Src->VD);
+            }
+          } else if (isNonnullType(RhsCE->getType())) {
+            // sp = someFunction(): only narrow if return type is _Nonnull
+            State.markNarrowed(*Lhs);
+          }
+        }
+        // sp = nullptr or non-call: remains nullable (erased above)
+      } else if (auto StructPath = decomposeMemberAccess(LhsArg)) {
+        // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
+        // invalidate any narrowed paths nested under the LHS.
+        invalidateMembersWithPrefix(*StructPath);
+      }
+    }
+  }
+
+  /// Drop the source's proof on a bare std::move(sp) that is not part of a
+  /// smart-pointer transfer.
+  void handleBareStdMove(const CallExpr *CE) {
+    // Bare std::move(sp) is only a cast, so it drops the source's proof
+    // without establishing that it is null. Inside a smart-pointer transfer
+    // (see isStdMoveInsideSmartPtrTransferCtx) the transfer handler owns the
+    // source erase instead. No parent map means "not a transfer".
+    if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
+        (!ParentMapPtr ||
+         !isStdMoveInsideSmartPtrTransferCtx(CE, *ParentMapPtr))) {
+      // A local only loses its narrowing while a member path is marked
+      // nullable; the asymmetry is preserved as-is.
+      if (auto R = smartPtrRef(CE->getArg(0))) {
+        if (R->VD)
+          State.NarrowedVars.erase(R->VD);
+        else
+          State.markNullable(*R);
+      }
+    }
+  }
+
   bool isNarrowed(const VarDecl *VD) const {
     return State.NarrowedVars.contains(VD);
   }
