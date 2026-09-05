@@ -1,6 +1,9 @@
 # Readable contracts for C in clang
 
-Status: design draft, nothing implemented.
+Status: phase 1 started. `-fc-contracts` parses and type-checks `pre` clauses
+(commit `7122f3da6450`); everything else below is still design.
+Priority: **compile-time checking first.** Section 6 is ordered accordingly, and
+this reverses the original phase order; see "Ordering" there for what that costs.
 Revised: 2026-09-04, after an adversarial review. Findings that survived
 checking are marked where they changed the design, so the reasoning is not
 silently rewritten. The review also argued the readable syntax was unachievable
@@ -297,6 +300,32 @@ portability.
 
 ## 6. Implementation plan
 
+### Ordering
+
+Phases are numbered by dependency, not by the order they get built. The build
+order is **1, 3, 2**: the front end, then static call-site checking, then
+runtime checking. This is a deliberate reversal of the original plan and the
+reason is that only the static tier is worth the annotation burden on its own.
+A `pre` that merely traps at runtime competes with `assert`, which is already
+written, already free, and already understood. A `pre` that a compiler checks at
+every call site is something no C project has.
+
+What the reversal costs, stated plainly:
+
+- Phase 2 was the cheap confidence-builder that proved the annotations were
+  writable before anything expensive got built. Doing phase 3 first means the
+  first real feedback on whether the syntax survives contact with `zstd.h`
+  arrives later and costs more.
+- Phase 3 is unsound and incomplete (section 2). It ships warnings, not
+  guarantees. Leading with it means the first thing users see is a false
+  positive rate, which is a harder first impression than a trap that fires
+  exactly when the program was already wrong.
+
+Both are accepted. The mitigation for the first is that phase 1's lit tests plus
+the 20-function zstd annotation experiment (phase 3, below) exercise the syntax
+on real headers without needing codegen. The mitigation for the second is that
+the host analysis already has a measured false-positive profile; see phase 3.
+
 ### Phase 0: recon
 Done, section 3.
 
@@ -312,6 +341,38 @@ diagnostics, and a diagnostic for a macro colliding with a clause keyword.
 Serialization, `ASTDumper`, AST matchers, and clang-format support.
 
 Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
+
+**Done so far** (commit `7122f3da6450`, 523 lines, full clang suite clean at
+54699 tests):
+
+- `-fc-contracts` / `-fno-c-contracts` and `__has_feature(c_contracts)`.
+- `pre (expr)` parsed in the declarator suffix at the point section 5 predicted.
+  The prediction held: `ParseFunctionDeclarator` asserts
+  `isFunctionPrototypeScope()` for its entire body (`ParseDecl.cpp:7283`) and the
+  scope is exited by the caller at `:6992`, so parameters are in scope for the
+  predicate with no new scope machinery.
+- `ContractClause` / `ContractSpecifier` in `AST/ContractSpecifier.h`, hanging
+  off `FunctionDecl` and deliberately not off its type.
+- Sema: predicate goes through `CheckBooleanCondition`, so `pre (p)` means
+  `pre (p != 0)` and a non-scalar predicate gets the usual diagnostic. Clauses on
+  a declarator that does not declare a function are diagnosed.
+- `-ast-dump`, `RecursiveASTVisitor` traversal, and PCH serialization. The PCH
+  work is not optional: contracts live on the decl, so without it a `pre` in a
+  header would be present in a normal build and silently gone in a PCH build.
+
+**Not done, and why:**
+
+- `post`, `writes`: parsed and hard-errored as unsupported, so the grammar is
+  pinned now and cannot be silently reinterpreted later. `post` needs result
+  binding and `old()`, which is its own commit.
+- Loop clauses: blocked on question 6, which is still open.
+- Attribute spelling: question 7, still open. Everything downstream is written
+  against the AST, so it stays cheap to add.
+- Prototype-to-definition inheritance and rebinding: clauses are per-declaration
+  today. Needed before call-site checking can consult a header.
+- Macro-collision diagnostic: needs a `PPCallbacks::MacroDefined` hook. A real
+  hazard from section 5 that is currently unguarded.
+- Purity checking: predicates can call anything today.
 
 
 ### Phase 2: runtime checking
@@ -335,8 +396,25 @@ An `observe` mode (diagnose, do not trap) should be added instead, because a
 library built with `check` traps its consumers' pre-existing benign misuse
 without their opt-in. See section 10.
 
+**Recast: phase 2's job is now to be the oracle for phase 3.** Under a
+compile-time-first plan the runtime tier stops being the headline feature and
+becomes the only unfakeable measurement of the static checker's false-negative
+rate. Build an annotated project with `-fcontract-semantic=check`, run its test
+suite, and every trap that fires at a call site the static pass did not flag is
+a measured false negative, with a reproducer attached. Nothing else produces
+that number: a static checker's misses are invisible by construction, so
+"phase 3 found no bugs here" and "phase 3 is blind here" look identical without
+this.
+
+That reframing also settles how much of phase 2 to build and when. The subset
+needed to serve as an oracle is `pre` checking at callee entry on scalar and
+pointer predicates, which is the cheap part. `post`, `old()` snapshots, and
+`observe` are product features and can wait until phase 3 has a precision number
+worth defending.
+
 Gate: zstd, openzl, and sqlite build clean with annotated public headers; test
-suites green under `check`.
+suites green under `check`; and the false-negative count above is reported, not
+merely collected.
 
 ### Phase 3: call-site checking
 A checker that, at a call site, checks the callee's `pre` against the current
@@ -354,8 +432,38 @@ zstd functions before any of phase 3 is built.** If the measurement says the gai
 is small, phase 3 shrinks to call-site `pre` checking, which is still worth
 having and does not depend on frame conditions at all.
 
-Host: Sema CFG dataflow (like `LifetimeSafety`, ships as a warning, reaches
-everyone) or a CSA checker (path-sensitive, opt-in). Question 5.
+**Host: Sema CFG dataflow. Question 5 is answered.** The choice is between a
+Sema dataflow pass that ships as an ordinary warning (the `LifetimeSafety`
+route) and a CSA checker that is path-sensitive and opt-in. The effort table
+puts CSA at roughly half the cost, but that estimate assumed building the host
+from scratch. It does not hold here, because a calibrated Sema dataflow host
+already exists in this fork: `clang/lib/Analysis/FlowNullability.cpp`, roughly
+3100 lines, shipping as a warning, with a differential regression gate (sqlite,
+131 warnings, byte-identical across changes) and a written-down false-positive
+profile.
+
+`pre (p != 0)` is a strict generalization of the `_Nonnull` parameter check that
+pass already performs at call sites: same CFG, same narrowing lattice, same
+report site. Choosing CSA would mean starting a second analysis rather than
+extending a working one, and re-deriving a false-positive profile that is
+already measured.
+
+Two known false-positive classes carry over unchanged and should be expected in
+the first `pre` results rather than discovered as surprises:
+
+- Out-parameter writes: `T *p = 0; f(&p); p->x;`. The analysis cannot see `f`
+  write through `&p`. This is the single largest source. It is also the class
+  `writes` would fix if the phase 3 measurement says frame conditions pay.
+- Correlated multi-variable invariants: a guard on one variable that implies
+  something about another, where the two are tracked independently.
+
+**Branch coupling, which is now on the critical path.** `contracts-c-dev` is
+forked from upstream `2fd31faf6ec5` and does not contain `FlowNullability.cpp`;
+that lives only on the nullsafe branches. Hosting the checker there therefore
+requires promoting `nullsafe-rebase-trial` (already gated: lit 39/39, sqlite
+131 byte-identical) and rebasing `contracts-c-dev` onto the result. This was a
+loose end under the old ordering. Under compile-time-first it blocks the main
+line.
 
 ### Phase 3.5: inference
 Section 7.
@@ -562,8 +670,9 @@ Engineer-months for one clang-experienced engineer. Estimates, not measurements.
 |---|---|---|
 | 1, native syntax plus attribute spelling | 5-8 | Attribute-only would be 2-3; the difference is the price of the readable form. Bloomberg's P2900 front end took a team 18+ months and is unmerged, but that was full C++ with templates, constexpr, and virtual overrides |
 | 2, check/observe/ignore | 2-3, plus 2-3 annotating three public APIs | |
-| 3, CSA host | 4-6 to a usable false-positive rate on sqlite | The first draft's "bugs for nearly free" was its most underestimated line |
-| 3, Sema dataflow host | 8-12 | Calibrate against the nullsafe fork's own timeline |
+| 3, Sema dataflow host, extending `FlowNullability.cpp` | 4-6 to a usable false-positive rate on sqlite | **Chosen.** The 8-12 below was for building a dataflow host from scratch; this fork already has a calibrated one, which is what closes the gap to the CSA number |
+| 3, CSA host | 4-6 to a usable false-positive rate on sqlite | Not chosen. Would mean a second analysis and a second false-positive profile. The first draft's "bugs for nearly free" was its most underestimated line |
+| 3, Sema dataflow host from scratch | 8-12 | Superseded, kept so the comparison above is auditable |
 | 3.5, leaf `writes` plus Houdini `pre` | 2-3 | Worth it |
 | 4, export to CBMC | 0.5-1 | Replaces a 12-24 month verifier |
 
@@ -571,6 +680,10 @@ Roughly 15-23 engineer-months for the surviving plan, against 35-60 for the
 first draft. The readable syntax accounts for about 3-5 of the difference from
 an attribute-only version, which is the single clearest cost-versus-goal
 tradeoff in the document, and it is being paid deliberately.
+
+Build order is 1, 3, 2 (section 6), so the spend is front-loaded into the front
+end and the static checker. The runtime tier's 2-3 comes last, and the oracle
+subset that phase 3 actually depends on is a fraction of it.
 
 ## 12. Unresolved questions
 
@@ -588,16 +701,22 @@ tradeoff in the document, and it is being paid deliberately.
    8). A permanent fork means contracts exist only where this compiler runs, so
    nobody annotates, so phase 3 has nothing to consume. This remains the
    project-killing risk and it is not technical.
-5. **Phase 3 host: Sema dataflow or CSA?** `LifetimeSafety` proves the
-   dataflow-as-warning route ships. CSA is more precise and path-sensitive.
-   Starting with the wrong one costs a rewrite. The effort table says CSA is
-   half the cost.
-6. **Loop clause placement.** `for (...) invariant(x);` is a valid call
+5. **Loop clause placement.** `for (...) invariant(x);` is a valid call
    statement today. Lookahead, a stricter follow-set rule, or a different
-   placement: pick one before phase 1 starts, because it is the only parse
-   hazard without an obvious answer.
-7. **Does the attribute spelling stay in v1?** It costs little once Sema is
+   placement: it is the only parse hazard without an obvious answer. Phase 1
+   shipped function clauses without it and hard-errors the loop keywords, so
+   this no longer blocks the front end, but it does block loop invariants and
+   therefore anything in section 7 that consumes them.
+6. **Does the attribute spelling stay in v1?** It costs little once Sema is
    written against the AST, and it is the only way to annotate a header you do
    not own. But two front doors is two sets of tests and two sets of
    diagnostics, and shipping it early risks it becoming the default by
    accident.
+
+### Resolved
+
+- **Phase 3 host: Sema dataflow or CSA?** Answered in phase 3: Sema dataflow,
+  extending this fork's `FlowNullability.cpp`. The effort table's CSA advantage
+  assumed building a dataflow host from scratch, which is not the situation
+  here. Recorded rather than deleted so the reversal is auditable.
+
