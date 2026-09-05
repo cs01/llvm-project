@@ -225,7 +225,102 @@ Phases 1 and 2 are independently useful and testable against real code. Phase 3
 is where bugs get found for nearly free. Phase 4 is research-shaped and must
 not block the rest.
 
-## 7. Evaluation targets
+## 7. Inference: the answer to annotation burden
+
+Syntax is not why deductive verification has stayed niche. Frama-C is good,
+free, and thirty years old, and adoption is still narrow. The blocker is that
+someone has to sit down and write the annotations, and keep writing them
+through every refactor. No amount of grammar fixes that.
+
+The lever that might: **derive contracts from the body and deliver them as
+fix-its**, so the human reviews and edits a proposal instead of authoring from
+a blank line. This changes the adoption question from "will anyone write ten
+thousand annotations for zstd" to "will anyone review a ten-thousand-line
+generated patch". The second question has a much better answer.
+
+### What is actually inferrable, in descending order of payoff
+
+1. **`writes` (frame conditions).** The best target by a wide margin. A
+   function's write set is a plain dataflow fact: walk the CFG, collect every
+   store, resolve each to a root (parameter, global, local), drop the locals.
+   What remains is the frame. This is computed, not guessed. It is also the
+   annotation with the highest value (sections 4 and 6 depend on it) and the
+   highest burden, so inference lands exactly where it is needed. When a store
+   goes through a pointer of unknown provenance the answer degrades to
+   `writes(anything)`, which is honest and still useful: it names the functions
+   that need a human.
+
+2. **`pre` from unconditional use.** A parameter dereferenced on every path
+   before any assignment to it implies `pre(p != NULL)`, or the function has UB
+   on some input. Same shape for indexing: `a[i]` with `i` bounded by parameter
+   `n` implies `pre(valid(a, n))`. The nullability fork already computes this
+   class of fact and already ships it as `-Rnullsafe-evidence` remarks for
+   migration tooling, so this is reuse rather than new work.
+
+3. **`post` from return-value dataflow.** Weaker, but real for the
+   size-returning functions that make up most of a compression API: if the
+   returned variable is only ever assigned values bounded by a parameter,
+   propose `post(r: r <= cap)`.
+
+4. **Loop invariants.** The hard one. Abstract interpretation over an interval
+   or octagon domain, with widening, gets the range-shaped invariants
+   (`i <= n`) for free. Those are the boring ones, and they are also most of
+   what a human would otherwise type. It will not get the relational ones
+   (`forall k in [0, i): out[k] == lit[k]`). Realistic split: the machine
+   proposes the ranges, the human writes the one invariant that carries the
+   actual meaning.
+
+### Prior art worth copying
+
+- **Bi-abduction (Infer).** Infers preconditions for heap-manipulating C at
+  millions of lines. The scaling story is proven and it is Meta's own.
+- **Houdini.** Propose a large candidate annotation set, run the checker,
+  delete whatever fails, repeat to the maximal consistent subset. Needs a fast
+  checker in a loop, which phase 3 provides.
+- **Daikon.** Infers likely invariants dynamically from execution traces.
+  Underrated here: zstd, openzl and sqlite all ship industrial fuzz corpora
+  and test suites. Running the corpus and observing that `dstCapacity` always
+  exceeds the returned size is cheap evidence for a proposed contract, and it
+  proposes facts that no static domain would find. Corpus-driven inference is
+  a good fit for exactly these libraries and is not what anyone else is doing.
+
+### Delivery
+
+Fix-its, not a report. Clang already has `FixItHint`, `-Xclang -fixit`, and
+`clang-apply-replacements`. Workflow: build with `-fcontract-infer`, get a
+patch that annotates the headers, review the diff, commit the parts that are
+right. The fork's `-Rnullsafe-evidence` to migration-tooling pipeline is the
+same shape and can be the template.
+
+### The trap: inferred contracts are tautologies
+
+A contract derived from a body and then checked against that same body proves
+nothing. It passes by construction. Any tool that infers and then reports "0
+violations, verified" is lying, and someone will read it that way.
+
+The value of an inferred contract is entirely elsewhere, in two places:
+
+- **At call sites.** Phase 3 checks callers against the callee's contract, and
+  the callee's contract was free. This is where inferred `writes` pays off
+  immediately, with no human in the loop at all.
+- **At the next edit.** The inferred contract is a snapshot of what the
+  function did on the day it was inferred. It starts earning the moment the
+  body changes and the contract does not.
+
+So inference output is a *proposal a human ratifies*, and the tooling must
+present it that way. Once ratified it is a specification; until then it is a
+description.
+
+### Where this sits in the plan
+
+Inference needs the checker to exist first: you can only infer what you can
+express and verify. So it is phase 3.5, after the checker and before anyone is
+asked to annotate a real library by hand. That ordering also gives the
+bootstrap sequence for tier 3: infer `writes` mechanically across the whole
+library, which is what makes modular reasoning possible at all, then have
+humans write only `post`, which is the part that carries actual intent.
+
+## 8. Evaluation targets
 
 A number that moves per commit, or it is churn.
 
@@ -262,7 +357,7 @@ Proposed metrics:
 
 Metric 3 mirrors the existing sqlite differential gate methodology.
 
-## 8. Unresolved questions
+## 9. Unresolved questions
 
 1. **Syntax placement.** Declarator suffix (as drafted) versus a prefix block
    versus attributes with real predicate parsing. Suffix reads best, collides
@@ -286,3 +381,12 @@ Metric 3 mirrors the existing sqlite differential gate methodology.
    proves the dataflow-as-warning route works and gets shipped. CSA is more
    precise and already has Z3. Doing both eventually is fine; starting with the
    wrong one costs a rewrite.
+9. **How much inference before the first human annotation?** Inferring `writes`
+   across a whole library is mechanical and unlocks phase 3. Inferring `pre` is
+   nearly as cheap. Doing both before asking anyone to type a contract may be
+   the difference between a tool people use and a tool people admire. It also
+   delays the first end-to-end demo considerably.
+10. **Static or corpus-driven inference first?** Static is sound-ish and needs
+    no test suite. Corpus-driven (Daikon-style, over the existing fuzz corpora)
+    proposes facts static analysis cannot reach, but every proposal is a guess
+    that needs ratifying. They are complementary; the question is ordering.
