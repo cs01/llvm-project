@@ -6,7 +6,7 @@ unsigned long nondet_ulong(void);
 void harness(void)
 {
     size_t length = nondet_ulong();
-    __CPROVER_assume(length > 0 && length < 0x100000);
+    __CPROVER_assume(length > 0 && length < 0x40000000);
     BYTE *dst = __CPROVER_allocate(length + WILDCOPY_OVERLENGTH, 0);
     BYTE *src = __CPROVER_allocate(length + WILDCOPY_OVERLENGTH, 0);
     ZSTD_wildcopy(dst, src, length, ZSTD_no_overlap);

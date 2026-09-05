@@ -129,13 +129,54 @@ applying loop contracts to real C: **a codebase's macro idioms decide whether
 contracts can be attached at all**, and the failure mode is silent
 misattachment, not an error.
 
-**Status: contract attaches, invariant too weak.** The 30 remaining failures are
-about `ip` and `op` leaving their objects: the invariant bounds `op` against
-`oend` and ties the two cursors together, but says nothing that keeps `ip` inside
-the source object. Strengthening it is the next step and is ordinary work now
-that the mechanism engages.
+## Result: ZSTD_wildcopy is memory-safe, unbounded
 
-**Superseded status note:**
+```
+** 0 of 141 failed (1 iterations)
+VERIFICATION SUCCESSFUL
+```
+
+`length` ranges to 0x40000000 (1 GiB), both buffers are symbolically allocated,
+and there is **no `--unwind` at all**. One iteration. This is not "exhaustive up
+to N"; it is a proof by induction over the loop, for every length.
+
+The same run also validates the fix in
+`FINDING-wildcopy-pointer-subtract.md`. With `diff` computed unconditionally the
+result is `1 of 141 failed`, and the one failure is that defect. Moving the
+computation inside the overlap branch, where the two pointers are in the same
+object and the subtraction is defined, takes it to zero.
+
+### The invariant that worked
+
+```c
+__CPROVER_assigns(op, ip, __CPROVER_object_upto(dstStart, length + WILDCOPY_OVERLENGTH))
+__CPROVER_loop_invariant(__CPROVER_same_object(op, dstStart))
+__CPROVER_loop_invariant(__CPROVER_same_object(ip, (const BYTE*)src))
+__CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(op) >= 16)
+__CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(op) < (__CPROVER_ssize_t)length)
+__CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(ip) == __CPROVER_POINTER_OFFSET(op))
+__CPROVER_decreases((__CPROVER_ssize_t)length - __CPROVER_POINTER_OFFSET(op))
+```
+
+Two things about it are worth carrying forward:
+
+- **Offsets, not pointer comparisons.** The `assigns` clause havocs `op` and `ip`
+  before the invariant is assumed, so a plain `op < oend + 32` asks CBMC to
+  compare pointers it does not yet know are valid, and it flags the comparison
+  itself. `__CPROVER_same_object` and `__CPROVER_POINTER_OFFSET` are defined on
+  any pointer. This took the failure count from 22 to 6.
+- **The upper bound is `length`, not `length + 32`.** The exit test runs at the
+  bottom of the loop, so at the head `op` has not yet passed `oend`. Getting this
+  wrong let `op` sit near the end of the buffer and made the following 32-byte
+  copy look out of bounds. This took 6 to 1.
+
+The bound is the interesting one: `WILDCOPY_OVERLENGTH` slack is what makes the
+over-copy safe, and the invariant has to say *where* in the buffer the cursor can
+be for that to hold, not merely that the slack exists.
+
+## Remaining
+
+
 
 ## What is still hand-written, and what that costs
 

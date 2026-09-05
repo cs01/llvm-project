@@ -1,14 +1,32 @@
 --- a/lib/common/zstd_internal.h
 +++ b/lib/common/zstd_internal.h
-@@ -220,6 +220,7 @@
-     ptrdiff_t diff = (BYTE*)dst - (const BYTE*)src;
+@@ -217,18 +217,22 @@
+ MEM_STATIC FORCE_INLINE_ATTR
+ void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e const ovtype)
+ {
+-    ptrdiff_t diff = (BYTE*)dst - (const BYTE*)src;
      const BYTE* ip = (const BYTE*)src;
      BYTE* op = (BYTE*)dst;
 +    BYTE* const dstStart = (BYTE*)dst;
      BYTE* const oend = op + length;
  
-     if (ovtype == ZSTD_overlap_src_before_dst && diff < WILDCOPY_VECLEN) {
-@@ -239,11 +240,22 @@
+-    if (ovtype == ZSTD_overlap_src_before_dst && diff < WILDCOPY_VECLEN) {
++    /* diff is only meaningful, and only defined, when the two pointers are in
++     * the same object, which is exactly the overlap case. Computing it
++     * unconditionally is undefined behaviour in the no-overlap case; see
++     * FINDING-wildcopy-pointer-subtract.md. */
++    if (ovtype == ZSTD_overlap_src_before_dst &&
++        (BYTE*)dst - (const BYTE*)src < WILDCOPY_VECLEN) {
+         /* Handle short offset copies. */
+         do {
+             COPY8(op, ip);
+         } while (op < oend);
+     } else {
+-        assert(diff >= WILDCOPY_VECLEN || diff <= -WILDCOPY_VECLEN);
+         /* Separate out the first COPY16() call because the copy length is
+          * almost certain to be short, so the branches have different
+          * probabilities. Since it is almost certain to be short, only do
+@@ -239,11 +243,30 @@
          if (16 >= length) return;
          op += 16;
          ip += 16;
@@ -20,9 +38,17 @@
 +         * identical, the body still runs at least once. */
 +        while (1)
 +        __CPROVER_assigns(op, ip, __CPROVER_object_upto(dstStart, length + WILDCOPY_OVERLENGTH))
-+        __CPROVER_loop_invariant(op < oend + 32)
-+        __CPROVER_loop_invariant((BYTE*)op - dstStart == (const BYTE*)ip - (const BYTE*)src)
-+        __CPROVER_decreases((size_t)(oend > op ? oend - op : 0))
++        /* Stated with __CPROVER_same_object and __CPROVER_POINTER_OFFSET
++         * rather than pointer comparisons. The assigns clause havocs op and ip
++         * before the invariant is assumed, so a raw `op < oend + 32` would be
++         * comparing pointers that are not yet known to be valid, and CBMC
++         * flags the comparison itself. Offsets are defined on any pointer. */
++        __CPROVER_loop_invariant(__CPROVER_same_object(op, dstStart))
++        __CPROVER_loop_invariant(__CPROVER_same_object(ip, (const BYTE*)src))
++        __CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(op) >= 16)
++        __CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(op) < (__CPROVER_ssize_t)length)
++        __CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(ip) == __CPROVER_POINTER_OFFSET(op))
++        __CPROVER_decreases((__CPROVER_ssize_t)length - __CPROVER_POINTER_OFFSET(op))
 +        {
 +            /* COPY16 is `do { ... } while (0)`, and CBMC counts that idiom as a
 +             * loop, which makes loop-contract attachment ambiguous. Inlined
