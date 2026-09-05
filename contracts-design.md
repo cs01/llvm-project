@@ -362,9 +362,18 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
 
 **Not done, and why:**
 
-- `post`, `writes`: parsed and hard-errored as unsupported, so the grammar is
-  pinned now and cannot be silently reinterpreted later. `post` needs result
-  binding and `old()`, which is its own commit.
+- `post`: **done**, with result binding. The predicate tokens are saved and
+  replayed once the `FunctionDecl` exists, because the result binding needs the
+  return type and the declarator is incomplete where the clause appears: for
+  `int *f(void)` the pointer chunk is added after the function chunk. Same shape
+  as a delayed exception specification. Naming a parameter in a `post` is
+  rejected per section 4, which is the rule `old()` will lift.
+- `old()`: not started, and now the thing blocking useful `post` predicates. It
+  needs a new `Expr` node, which is the boilerplate spread across `StmtNodes.td`,
+  `Expr.h`, `ComputeDependence`, `StmtProfile`, `StmtPrinter`, `TextNodeDumper`,
+  and the two serialization visitors.
+- `writes`: parsed and hard-errored as unsupported, so the grammar is pinned now
+  and cannot be silently reinterpreted later.
 - Loop clauses: blocked on question 6, which is still open.
 - Attribute spelling: question 7, still open. Everything downstream is written
   against the AST, so it stays cheap to add.
