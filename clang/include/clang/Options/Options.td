@@ -2113,6 +2113,14 @@ defm bounds_safety : BoolFOption<
   BothFlags<[], [CC1Option],
           " experimental bounds safety extension for C">>;
 
+defm contract_emit_cprover : BoolFOption<
+  "contract-emit-cprover",
+  LangOpts<"CContractsEmitCProver">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option], "Disable">,
+  BothFlags<[], [],
+          " printing each function's contracts as CBMC clauses">>;
+
 defm c_contracts : BoolFOption<
   "c-contracts",
   LangOpts<"CContracts">, DefaultFalse,

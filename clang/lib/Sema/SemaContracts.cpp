@@ -18,6 +18,7 @@
 #include "clang/AST/Expr.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Sema.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 
@@ -72,6 +73,71 @@ ExprResult Sema::ActOnContractClausePredicate(ContractClause::ClauseKind Kind,
   return Cond;
 }
 
+/// Replaces whole-token occurrences of \p From with \p To in \p S.
+///
+/// Substring replacement would corrupt an identifier that merely contains the
+/// result name, so both neighbours have to be checked for identifier-ness.
+static std::string replaceToken(StringRef S, StringRef From, StringRef To) {
+  auto IsIdentChar = [](char C) { return isAlphanumeric(C) || C == '_'; };
+  std::string Out;
+  size_t Pos = 0;
+  while (Pos < S.size()) {
+    size_t Found = S.find(From, Pos);
+    if (Found == StringRef::npos) {
+      Out += S.substr(Pos).str();
+      break;
+    }
+    bool LeftOK = Found == 0 || !IsIdentChar(S[Found - 1]);
+    size_t End = Found + From.size();
+    bool RightOK = End >= S.size() || !IsIdentChar(S[End]);
+    Out += S.substr(Pos, Found - Pos).str();
+    Out += (LeftOK && RightOK) ? To.str() : From.str();
+    Pos = End;
+  }
+  return Out;
+}
+
+/// Prints \p FD's contracts as CBMC function-contract clauses.
+///
+/// The mapping is close to one to one, which is the argument for targeting CBMC
+/// rather than building a verifier: `pre` is `__CPROVER_requires`, `post` is
+/// `__CPROVER_ensures` with the result binding renamed to
+/// `__CPROVER_return_value`, and `old` is `__CPROVER_old`.
+static void printCProverContracts(const FunctionDecl *FD,
+                                  const ASTContext &Ctx) {
+  const ContractSpecifier *CS = FD->getContracts();
+  if (!CS)
+    return;
+
+  llvm::outs() << "/* " << FD->getNameAsString() << " */\n";
+  for (const ContractClause &Clause : *CS) {
+    if (!Clause.getPredicate())
+      continue;
+
+    std::string Text;
+    llvm::raw_string_ostream OS(Text);
+    Clause.getPredicate()->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
+
+    // Our StmtPrinter spells the node `old(...)`; CBMC spells it
+    // `__CPROVER_old(...)`.
+    Text = replaceToken(Text, "old", "__CPROVER_old");
+
+    switch (Clause.getKind()) {
+    case ContractClause::CK_Pre:
+      llvm::outs() << "__CPROVER_requires(" << Text << ")\n";
+      break;
+    case ContractClause::CK_Post:
+      if (const VarDecl *R = Clause.getResultVar())
+        Text = replaceToken(Text, R->getName(), "__CPROVER_return_value");
+      llvm::outs() << "__CPROVER_ensures(" << Text << ")\n";
+      break;
+    case ContractClause::CK_Writes:
+      // Not parsed yet; when it is, this becomes __CPROVER_assigns.
+      break;
+    }
+  }
+}
+
 void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
   if (!D.hasContractClauses() || !FD)
     return;
@@ -93,6 +159,13 @@ void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
   }
 
   FD->setContracts(ContractSpecifier::Create(Context, D.getContractClauses()));
+}
+
+void Sema::EmitCProverContracts(const FunctionDecl *FD) {
+  // Called after the delayed 'post' predicates have been replayed, since until
+  // then those clauses have no predicate to print.
+  if (getLangOpts().CContractsEmitCProver && FD)
+    printCProverContracts(FD, Context);
 }
 
 ExprResult Sema::BuildContractOldExpr(SourceLocation OldLoc,

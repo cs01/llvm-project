@@ -7877,6 +7877,9 @@ public:
   /// clauses written on a declarator that does not declare a function.
   void ActOnFunctionContracts(Declarator &D, FunctionDecl *FD);
 
+  /// Prints \p FD's contracts as CBMC clauses under -fcontract-emit-cprover.
+  void EmitCProverContracts(const FunctionDecl *FD);
+
   /// Diagnoses contract clauses on a declarator that did not produce a
   /// FunctionDecl.
   void DiagnoseContractsOnNonFunction(Declarator &D);

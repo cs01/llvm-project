@@ -84,6 +84,29 @@ BitContainerType BIT_lookBits(const BIT_DStream_t *bitD, U32 nbBits)
   pre (bitD->bitsConsumed + nbBits <= 64);
 ```
 
+## Result 2: ZSTD_execSequence stays in bounds
+
+Harness `harness_execsequence_small.c`, dst 64 / literals 32 + WILDCOPY_OVERLENGTH
+slack, matchLength <= 32, `--unwind 34 --unwinding-assertions --object-bits 12`.
+
+```
+** 4 of 3496 failed (3 iterations)
+```
+
+All 3492 memory-safety obligations discharge, including every `array_bounds`
+check (38 of 38) and the unwinding assertion. The unwind bound of 34 is not a
+guess: `ZSTD_safecopy`'s leftovers loop runs at most `oend - oend_w` times,
+which is `WILDCOPY_OVERLENGTH` = 32.
+
+The four failures are the pointer-subtraction defect in
+`FINDING-wildcopy-pointer-subtract.md`, which is a provenance question and not a
+bounds violation.
+
+So: **for this input domain, the wildcopy over-write in `ZSTD_execSequence`
+provably stays inside the output buffer.** That is the property the whole fast
+path rests on and it was previously supported by asserts that `-DNDEBUG`
+deletes.
+
 ## Scope of the guarantee
 
 The harness has no loops, so `--unwinding-assertions` passes at depth 1 and the

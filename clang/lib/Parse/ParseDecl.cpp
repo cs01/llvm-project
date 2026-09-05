@@ -7725,6 +7725,8 @@ void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
     if (Tok.getEofData() == FD)
       ConsumeAnyToken();
   }
+
+  Actions.EmitCProverContracts(FD);
 }
 
 bool Parser::ParseRefQualifier(bool &RefQualifierIsLValueRef,
