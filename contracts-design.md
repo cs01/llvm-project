@@ -370,8 +370,10 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
   against the AST, so it stays cheap to add.
 - Prototype-to-definition inheritance and rebinding: clauses are per-declaration
   today. Needed before call-site checking can consult a header.
-- Macro-collision diagnostic: needs a `PPCallbacks::MacroDefined` hook. A real
-  hazard from section 5 that is currently unguarded.
+- Macro-collision diagnostic: **done** (`PPCallbacks::MacroDefined` registered
+  from `Parser::Initialize`, so `-D` and the predefines buffer are covered).
+  Warning in `-Wc-contracts`, not an error: a project may have an unrelated
+  `pre` macro and never write a contract.
 - Purity checking: predicates can call anything today.
 
 
