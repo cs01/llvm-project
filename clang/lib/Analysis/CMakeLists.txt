@@ -17,6 +17,7 @@ add_clang_library(clangAnalysis
   CocoaConventions.cpp
   ConstructionContext.cpp
   Consumed.cpp
+  ContractChecking.cpp
   CodeInjector.cpp
   Dominators.cpp
   ExprMutationAnalyzer.cpp

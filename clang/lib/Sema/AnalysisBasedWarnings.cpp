@@ -32,6 +32,7 @@
 #include "clang/Analysis/Analyses/CFGReachabilityAnalysis.h"
 #include "clang/Analysis/Analyses/CalledOnceCheck.h"
 #include "clang/Analysis/Analyses/Consumed.h"
+#include "clang/Analysis/Analyses/ContractChecking.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeSafety.h"
 #include "clang/Analysis/Analyses/ReachableCode.h"
 #include "clang/Analysis/Analyses/ThreadSafety.h"
@@ -2973,6 +2974,33 @@ public:
 };
 
 // CFG build options for running the lifetime safety analysis on a function.
+namespace {
+/// Turns contract violations into diagnostics. The predicate is printed as the
+/// user wrote it: a pretty-printed AST would not match the source they have to
+/// go fix.
+class ContractReporter : public contracts::ContractViolationReporter {
+  Sema &S;
+
+public:
+  explicit ContractReporter(Sema &S) : S(S) {}
+
+  void reportPreconditionViolated(const CallExpr *Call,
+                                  const FunctionDecl *Callee,
+                                  const ContractClause &Clause) override {
+    const SourceManager &SM = S.getSourceManager();
+    CharSourceRange R =
+        CharSourceRange::getTokenRange(Clause.getPredicate()->getSourceRange());
+    StringRef Text = Lexer::getSourceText(R, SM, S.getLangOpts());
+
+    S.Diag(Call->getBeginLoc(), diag::warn_contract_precondition_violated)
+        << (Text.empty() ? StringRef("<predicate>") : Text) << Callee
+        << Call->getSourceRange();
+    S.Diag(Clause.getKeywordLoc(), diag::note_contract_precondition_declared)
+        << Clause.getSourceRange();
+  }
+};
+} // namespace
+
 static void setLifetimeSafetyCFGBuildOptions(AnalysisDeclContext &AC) {
   AC.getCFGBuildOptions().PruneTriviallyFalseEdges = true;
   AC.getCFGBuildOptions().AddLifetime = true;
@@ -3226,6 +3254,14 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
       isTemplateInstantiation = Function->isTemplateInstantiation();
     if (!isTemplateInstantiation)
       CheckUnreachable(S, AC);
+  }
+
+  // Check callee preconditions at call sites.
+  if (S.getLangOpts().CContracts &&
+      !Diags.isIgnored(diag::warn_contract_precondition_violated,
+                       D->getBeginLoc())) {
+    ContractReporter Reporter(S);
+    contracts::runContractChecking(AC, Reporter);
   }
 
   // Check for thread safety violations

@@ -2471,11 +2471,16 @@ public:
   /// restates nothing. A call site must therefore search the redeclaration
   /// chain rather than look only at the declaration it resolved to. At most one
   /// declaration in a chain carries contracts, which Sema enforces.
-  const ContractSpecifier *getContractsForCall() const {
+  const FunctionDecl *getContractDecl() const {
     for (const FunctionDecl *FD : redecls())
       if (FD->Contracts)
-        return FD->Contracts;
+        return FD;
     return nullptr;
+  }
+
+  const ContractSpecifier *getContractsForCall() const {
+    const FunctionDecl *FD = getContractDecl();
+    return FD ? FD->Contracts : nullptr;
   }
 
   /// Determine the kind of defaulting that would be done for a given function.

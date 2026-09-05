@@ -14358,6 +14358,12 @@ def err_cuda_device_kernel_launch_require_rdc
             "relocatable device code (i.e. requires -fgpu-rdc)">;
 
 // C contracts (-fc-contracts)
+def warn_contract_precondition_violated : Warning<
+  "precondition %0 of %1 is violated by this call">,
+  InGroup<ContractViolation>;
+def note_contract_precondition_declared : Note<
+  "precondition declared here">;
+
 def err_contracts_on_non_function : Error<
   "contract clause is only allowed on a function declaration">;
 def err_contracts_on_redeclaration : Error<
