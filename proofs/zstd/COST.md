@@ -43,3 +43,32 @@ anyone commits to a whole-codec timeline.** `BIT_lookBits` took an afternoon
 including learning the toolchain. `ZSTD_execSequence` is the first function
 where the solver, not the human, is the bottleneck. That is the number the
 scoping decision should be built on.
+
+
+## Check sets matter more than solve time
+
+Every run before 2026-09-05 11:00 used `--bounds-check --pointer-check
+--conversion-check` and nothing else. Adding `--signed-overflow-check
+--unsigned-overflow-check --pointer-overflow-check` to the *same* harness on the
+*same* code surfaced `FINDING-overlapcopy8-oob-pointer.md`, a real defect, in
+code that had already been reported here as proved.
+
+The lesson is not "run more checks", it is that a proof is only ever a proof of
+the properties you asked about. Recording which flags produced a result is part
+of the result.
+
+Re-run under the full set, for the record:
+
+| Target | Obligations | Result |
+|---|---|---|
+| `BIT_lookBits` (tight contract) | 18 | clean |
+| `ZSTD_execSequence` | 4917 | 2 real failures + 4 known, now 4 after the fix |
+
+## goto-synthesizer
+
+CBMC ships a loop-invariant synthesizer, which is the intended route to
+unbounded proofs over loops. On a toy harness it reports `result : PASS` and
+emits a 178-byte stub, because its internal check does not use unwinding
+assertions and so it sees nothing to strengthen. Parked rather than pursued: it
+needs a case where the bounded proof genuinely fails first, and finding a real
+one is worth more than making the tool work on a synthetic one.

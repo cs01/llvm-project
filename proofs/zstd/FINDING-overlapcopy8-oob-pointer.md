@@ -83,3 +83,30 @@ sed -e 's/__builtin_memcpy/memcpy/g' -e 's/__builtin_memmove/memmove/g' h.i > h2
 cbmc h2.i --function harness --bounds-check --pointer-overflow-check \
      --unwind 34 --unwinding-assertions --object-bits 12
 ```
+
+## Is this shape anywhere else?
+
+Searched the whole tree for pointer decrements:
+
+```sh
+grep -n '\*ip -=\|\*op -=\|ip -= \|op -= \|match -= \|dst -= \|src -= ' \
+     lib/decompress/*.c lib/common/*.h lib/compress/*.c
+```
+
+Two hits in all of zstd:
+
+1. `zstd_decompress_block.c:820` — this bug.
+2. `zstd_compress.c:6146`, `if (ip) ip -= zcs->stableIn_notConsumed;`
+
+The second is **not** being reported as a bug. It is guarded by
+`assert(input->pos >= zcs->stableIn_notConsumed)` one line above, and that
+assertion is an invariant of the `ZSTD_bm_stable` input mode maintained by the
+validation at `:6486`-`:6520`. It is worth recording only because the guard is
+an `assert`, so under `-DNDEBUG` a caller that violates the stable-buffer
+contract gets a `size_t` underflow on `input->pos` and a wild `ip`. That is API
+misuse rather than an internal defect, but it is the kind of place a `pre`
+clause would earn its keep, since the contract is currently enforced only in
+debug builds.
+
+The negative result is worth as much as the positive one: this bug class is rare
+in zstd, so the finding is a genuine outlier rather than the first of many.
