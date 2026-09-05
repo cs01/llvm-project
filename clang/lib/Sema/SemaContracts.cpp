@@ -95,28 +95,56 @@ void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
   FD->setContracts(ContractSpecifier::Create(Context, D.getContractClauses()));
 }
 
-/// Returns the first parameter named anywhere in \p E, or null.
-static const ParmVarDecl *findReferencedParameter(const Stmt *E) {
+ExprResult Sema::BuildContractOldExpr(SourceLocation OldLoc,
+                                      SourceLocation LParenLoc,
+                                      SourceLocation RParenLoc, Expr *SubExpr) {
+  if (!SubExpr)
+    return ExprError();
+
+  ExprResult Converted = DefaultFunctionArrayLvalueConversion(SubExpr);
+  if (Converted.isInvalid())
+    return ExprError();
+  SubExpr = Converted.get();
+
+  if (!SubExpr->getType()->isScalarType()) {
+    Diag(OldLoc, diag::err_contract_old_not_scalar)
+        << SubExpr->getType() << SubExpr->getSourceRange();
+    return ExprError();
+  }
+
+  return new (Context) ContractOldExpr(OldLoc, LParenLoc, RParenLoc, SubExpr);
+}
+
+/// Returns the first parameter named anywhere in \p E outside an `old`, or
+/// null.
+///
+/// Descent stops at a ContractOldExpr: naming a parameter there is exactly the
+/// supported way to do it, so those references are not the ambiguous ones.
+static const DeclRefExpr *findBareParameterRef(const Stmt *E) {
+  if (isa<ContractOldExpr>(E))
+    return nullptr;
+
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
-    if (const auto *PVD = dyn_cast<ParmVarDecl>(DRE->getDecl()))
-      return PVD;
+    if (isa<ParmVarDecl>(DRE->getDecl()))
+      return DRE;
 
   for (const Stmt *Child : E->children())
     if (Child)
-      if (const ParmVarDecl *PVD = findReferencedParameter(Child))
-        return PVD;
+      if (const DeclRefExpr *DRE = findBareParameterRef(Child))
+        return DRE;
 
   return nullptr;
 }
 
 ExprResult Sema::CheckContractPostPredicate(Expr *Predicate) {
-  const ParmVarDecl *PVD = findReferencedParameter(Predicate);
-  if (!PVD)
+  const DeclRefExpr *DRE = findBareParameterRef(Predicate);
+  if (!DRE)
     return Predicate;
 
-  Diag(Predicate->getExprLoc(), diag::err_contract_post_names_parameter)
-      << PVD << Predicate->getSourceRange();
-  Diag(PVD->getLocation(), diag::note_contract_old_unimplemented);
+  const auto *PVD = cast<ParmVarDecl>(DRE->getDecl());
+  Diag(DRE->getLocation(), diag::err_contract_post_names_parameter)
+      << PVD << DRE->getSourceRange();
+  Diag(DRE->getLocation(), diag::note_contract_post_use_old) << PVD->getName();
   return ExprError();
 }
 

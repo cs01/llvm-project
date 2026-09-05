@@ -4,6 +4,7 @@
 
 int caller(int *q) { return from_pch(q, 1); }
 int *caller2(void) { return post_from_pch(1); }
+unsigned long caller3(void) { return old_from_pch(1); }
 
 // CHECK:      FunctionDecl {{.*}} from_pch 'int (int *, int)'
 // CHECK-NEXT:   ParmVarDecl {{.*}} p 'int *'
@@ -20,3 +21,8 @@ int *caller2(void) { return post_from_pch(1); }
 // CHECK:        post
 // CHECK-NEXT:     VarDecl {{.*}} r 'int *'
 // CHECK-NEXT:     BinaryOperator {{.*}} 'int' '!='
+
+// ContractOldExpr round-trips as its own node.
+// CHECK:      FunctionDecl {{.*}} old_from_pch 'unsigned long (unsigned long)'
+// CHECK:        post
+// CHECK:          ContractOldExpr

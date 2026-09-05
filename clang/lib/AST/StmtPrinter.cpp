@@ -1639,6 +1639,12 @@ void StmtPrinter::VisitParenExpr(ParenExpr *Node) {
   OS << ")";
 }
 
+void StmtPrinter::VisitContractOldExpr(ContractOldExpr *Node) {
+  OS << "old(";
+  PrintExpr(Node->getSubExpr());
+  OS << ")";
+}
+
 void StmtPrinter::VisitUnaryOperator(UnaryOperator *Node) {
   if (!Node->isPostfix()) {
     OS << UnaryOperator::getOpcodeStr(Node->getOpcode());

@@ -2096,6 +2096,10 @@ enum StmtCode {
   EXPR_HLSL_OUT_ARG,
 
   STMT_DEFER,
+
+  /// A ContractOldExpr record. Appended rather than grouped with the other
+  /// expressions so that no existing record code shifts.
+  EXPR_CONTRACT_OLD,
 };
 
 /// The kinds of designators that can occur in a

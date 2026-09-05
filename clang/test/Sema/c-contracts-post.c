@@ -18,7 +18,7 @@ int def_with_post(void) post (r: r > 0) { return 1; }
 // Naming a parameter in 'post' is ambiguous between its entry and exit value:
 // in C every parameter is by value and a body may mutate its own copy.
 int names_param(int n) post (r: r <= n); // expected-error {{'post' predicate cannot name parameter 'n' directly; a by-value parameter may be named in 'post' only through 'old()'}}
-// expected-note@-1 {{'old()' is not implemented yet}}
+// expected-note@-1 {{name the value at function entry with 'old(n)'}}
 
 // Without a result name there is simply nothing bound.
 int no_result_name(void) post (1 == 1);

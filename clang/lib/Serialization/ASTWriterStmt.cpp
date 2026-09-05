@@ -840,6 +840,15 @@ void ASTStmtWriter::VisitParenExpr(ParenExpr *E) {
   Code = serialization::EXPR_PAREN;
 }
 
+void ASTStmtWriter::VisitContractOldExpr(ContractOldExpr *E) {
+  VisitExpr(E);
+  Record.AddSourceLocation(E->getOldLoc());
+  Record.AddSourceLocation(E->getLParenLoc());
+  Record.AddSourceLocation(E->getRParenLoc());
+  Record.AddStmt(E->getSubExpr());
+  Code = serialization::EXPR_CONTRACT_OLD;
+}
+
 void ASTStmtWriter::VisitParenListExpr(ParenListExpr *E) {
   VisitExpr(E);
   Record.push_back(E->getNumExprs());

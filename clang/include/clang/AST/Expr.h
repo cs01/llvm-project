@@ -2223,6 +2223,53 @@ public:
 
 /// ParenExpr - This represents a parenthesized expression, e.g. "(1)".  This
 /// AST node is only formed if full location information is requested.
+/// The value an expression had at function entry, written `old (e)` inside a
+/// 'post' contract clause.
+///
+/// A 'post' predicate that names a by-value parameter is ambiguous: the body is
+/// free to mutate its own copy, so `dstCap` at the return is not the `dstCap`
+/// the caller passed. `old` names the entry value, which is the one a caller
+/// can reason about. Restricted to scalars, because snapshotting anything
+/// larger has no cheap lowering.
+class ContractOldExpr : public Expr {
+  SourceLocation OldLoc, LParenLoc, RParenLoc;
+  Stmt *Val;
+
+public:
+  ContractOldExpr(SourceLocation OldLoc, SourceLocation LParenLoc,
+                  SourceLocation RParenLoc, Expr *Val)
+      : Expr(ContractOldExprClass, Val->getType(), VK_PRValue, OK_Ordinary),
+        OldLoc(OldLoc), LParenLoc(LParenLoc), RParenLoc(RParenLoc), Val(Val) {
+    setDependence(computeDependence(this));
+  }
+
+  explicit ContractOldExpr(EmptyShell Empty)
+      : Expr(ContractOldExprClass, Empty) {}
+
+  const Expr *getSubExpr() const { return cast<Expr>(Val); }
+  Expr *getSubExpr() { return cast<Expr>(Val); }
+  void setSubExpr(Expr *E) { Val = E; }
+
+  SourceLocation getOldLoc() const { return OldLoc; }
+  void setOldLoc(SourceLocation L) { OldLoc = L; }
+  SourceLocation getLParenLoc() const { return LParenLoc; }
+  void setLParenLoc(SourceLocation L) { LParenLoc = L; }
+  SourceLocation getRParenLoc() const { return RParenLoc; }
+  void setRParenLoc(SourceLocation L) { RParenLoc = L; }
+
+  SourceLocation getBeginLoc() const LLVM_READONLY { return OldLoc; }
+  SourceLocation getEndLoc() const LLVM_READONLY { return RParenLoc; }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == ContractOldExprClass;
+  }
+
+  child_range children() { return child_range(&Val, &Val + 1); }
+  const_child_range children() const {
+    return const_child_range(&Val, &Val + 1);
+  }
+};
+
 class ParenExpr : public Expr {
   SourceLocation L, R;
   Stmt *Val;

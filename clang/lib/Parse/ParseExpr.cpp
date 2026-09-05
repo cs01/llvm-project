@@ -890,53 +890,60 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
   ParseIdentifier: {    // primary-expression: identifier
                         // unqualified-id: identifier
                         // constant: enumeration-constant
-    // Turn a potentially qualified name into a annot_typename or
-    // annot_cxxscope if it would be valid.  This handles things like x::y, etc.
-    if (getLangOpts().CPlusPlus) {
-      // Avoid the unnecessary parse-time lookup in the common case
-      // where the syntax forbids a type.
-      Token Next = NextToken();
+      // 'old' is a contextual keyword, active only while a contract predicate
+      // is being parsed, so it stays an ordinary identifier everywhere else.
+      if (ContractPredicateKind && Tok.is(tok::identifier) &&
+          Tok.getIdentifierInfo()->isStr("old") && NextToken().is(tok::l_paren))
+        return ParseContractOldExpr();
 
-      if (Next.is(tok::ellipsis) && Tok.is(tok::identifier) &&
-          GetLookAheadToken(2).is(tok::l_square)) {
-        // Annotate the token and tail recurse.
-        // If the token is not annotated, then it might be an expression pack
-        // indexing
-        if (TryAnnotateTypeOrScopeToken())
-          return ExprError();
-        if (Tok.isOneOf(tok::annot_cxxscope, tok::annot_pack_indexing_type,
-                        tok::annot_template_id))
-          return ParseCastExpression(ParseKind, isAddressOfOperand,
-                                     CorrectionBehavior, isVectorLiteral,
-                                     NotPrimaryExpression);
-      }
+      // Turn a potentially qualified name into a annot_typename or
+      // annot_cxxscope if it would be valid.  This handles things like x::y,
+      // etc.
+      if (getLangOpts().CPlusPlus) {
+        // Avoid the unnecessary parse-time lookup in the common case
+        // where the syntax forbids a type.
+        Token Next = NextToken();
 
-      // If this identifier was reverted from a token ID, and the next token
-      // is a parenthesis, this is likely to be a use of a type trait. Check
-      // those tokens.
-      else if (Next.is(tok::l_paren) && Tok.is(tok::identifier) &&
-               Tok.getIdentifierInfo()->hasRevertedTokenIDToIdentifier()) {
-        IdentifierInfo *II = Tok.getIdentifierInfo();
-        tok::TokenKind Kind;
-        if (isRevertibleTypeTrait(II, &Kind)) {
-          Tok.setKind(Kind);
-          return ParseCastExpression(ParseKind, isAddressOfOperand, NotCastExpr,
-                                     CorrectionBehavior, isVectorLiteral,
-                                     NotPrimaryExpression);
+        if (Next.is(tok::ellipsis) && Tok.is(tok::identifier) &&
+            GetLookAheadToken(2).is(tok::l_square)) {
+          // Annotate the token and tail recurse.
+          // If the token is not annotated, then it might be an expression pack
+          // indexing
+          if (TryAnnotateTypeOrScopeToken())
+            return ExprError();
+          if (Tok.isOneOf(tok::annot_cxxscope, tok::annot_pack_indexing_type,
+                          tok::annot_template_id))
+            return ParseCastExpression(ParseKind, isAddressOfOperand,
+                                       CorrectionBehavior, isVectorLiteral,
+                                       NotPrimaryExpression);
         }
-      }
 
-      else if ((!ColonIsSacred && Next.is(tok::colon)) ||
-               Next.isOneOf(tok::coloncolon, tok::less, tok::l_paren,
-                            tok::l_brace)) {
-        // If TryAnnotateTypeOrScopeToken annotates the token, tail recurse.
-        if (TryAnnotateTypeOrScopeToken(isAddressOfOperand))
-          return ExprError();
-        if (!Tok.is(tok::identifier))
-          return ParseCastExpression(ParseKind, isAddressOfOperand, NotCastExpr,
-                                     CorrectionBehavior, isVectorLiteral,
-                                     NotPrimaryExpression);
-      }
+        // If this identifier was reverted from a token ID, and the next token
+        // is a parenthesis, this is likely to be a use of a type trait. Check
+        // those tokens.
+        else if (Next.is(tok::l_paren) && Tok.is(tok::identifier) &&
+                 Tok.getIdentifierInfo()->hasRevertedTokenIDToIdentifier()) {
+          IdentifierInfo *II = Tok.getIdentifierInfo();
+          tok::TokenKind Kind;
+          if (isRevertibleTypeTrait(II, &Kind)) {
+            Tok.setKind(Kind);
+            return ParseCastExpression(ParseKind, isAddressOfOperand,
+                                       NotCastExpr, CorrectionBehavior,
+                                       isVectorLiteral, NotPrimaryExpression);
+          }
+        }
+
+        else if ((!ColonIsSacred && Next.is(tok::colon)) ||
+                 Next.isOneOf(tok::coloncolon, tok::less, tok::l_paren,
+                              tok::l_brace)) {
+          // If TryAnnotateTypeOrScopeToken annotates the token, tail recurse.
+          if (TryAnnotateTypeOrScopeToken(isAddressOfOperand))
+            return ExprError();
+          if (!Tok.is(tok::identifier))
+            return ParseCastExpression(ParseKind, isAddressOfOperand,
+                                       NotCastExpr, CorrectionBehavior,
+                                       isVectorLiteral, NotPrimaryExpression);
+        }
     }
 
     // Consume the identifier so that we can see if it is followed by a '(' or

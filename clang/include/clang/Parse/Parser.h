@@ -2797,6 +2797,14 @@ private:
   /// \p TheDecl exists, with the parameters and the result binding in scope.
   void ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D);
 
+  /// Which contract clause's predicate is being parsed, if any. 'old' is a
+  /// contextual keyword only inside one, so that a program using 'old' as an
+  /// ordinary identifier keeps working everywhere else.
+  std::optional<ContractClause::ClauseKind> ContractPredicateKind;
+
+  /// Parses `old '(' expression ')'` inside a contract predicate.
+  ExprResult ParseContractOldExpr();
+
   /// ParseRefQualifier - Parses a member function ref-qualifier. Returns
   /// true if a ref-qualifier is found.
   bool ParseRefQualifier(bool &RefQualifierIsLValueRef,

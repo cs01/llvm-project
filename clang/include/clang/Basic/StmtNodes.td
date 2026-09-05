@@ -77,6 +77,7 @@ def ImaginaryLiteral : StmtNode<Expr>;
 def StringLiteral : StmtNode<Expr>;
 def CharacterLiteral : StmtNode<Expr>;
 def ParenExpr : StmtNode<Expr>;
+def ContractOldExpr : StmtNode<Expr>;
 def UnaryOperator : StmtNode<Expr>;
 def OffsetOfExpr : StmtNode<Expr>;
 def UnaryExprOrTypeTraitExpr : StmtNode<Expr>;

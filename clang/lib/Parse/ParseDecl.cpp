@@ -7603,7 +7603,12 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
       continue;
     }
 
-    ExprResult Predicate = ParseExpression();
+    ExprResult Predicate;
+    {
+      llvm::SaveAndRestore<std::optional<ContractClause::ClauseKind>>
+          PredicateKind(ContractPredicateKind, Kind);
+      Predicate = ParseExpression();
+    }
     if (Predicate.isInvalid()) {
       T.skipToEnd();
       continue;
@@ -7622,6 +7627,33 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
 
   if (!Clauses.empty())
     D.setContractClauses(Clauses);
+}
+
+ExprResult Parser::ParseContractOldExpr() {
+  assert(ContractPredicateKind && "not in a contract predicate");
+  SourceLocation OldLoc = ConsumeToken();
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.consumeOpen())
+    return ExprError();
+
+  ExprResult SubExpr = ParseExpression();
+  if (SubExpr.isInvalid()) {
+    T.skipToEnd();
+    return ExprError();
+  }
+  if (T.consumeClose())
+    return ExprError();
+
+  // 'old' names a value at function entry, which only a 'post' has a notion of.
+  if (*ContractPredicateKind != ContractClause::CK_Post) {
+    Diag(OldLoc, diag::err_contract_old_outside_post)
+        << SourceRange(OldLoc, T.getCloseLocation());
+    return ExprError();
+  }
+
+  return Actions.BuildContractOldExpr(OldLoc, T.getOpenLocation(),
+                                      T.getCloseLocation(), SubExpr.get());
 }
 
 void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
@@ -7674,7 +7706,12 @@ void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
                         /*IsReinject=*/true);
     ConsumeAnyToken(/*ConsumeCodeCompletionTok=*/true);
 
-    ExprResult Predicate = ParseExpression();
+    ExprResult Predicate;
+    {
+      llvm::SaveAndRestore<std::optional<ContractClause::ClauseKind>>
+          PredicateKind(ContractPredicateKind, Clause.getKind());
+      Predicate = ParseExpression();
+    }
     if (Predicate.isUsable())
       Predicate = Actions.ActOnContractClausePredicate(
           Clause.getKind(), Clause.getKeywordLoc(), Predicate.get());

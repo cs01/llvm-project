@@ -14369,7 +14369,11 @@ def note_contract_predicate_pure_call : Note<
 def err_contract_post_names_parameter : Error<
   "'post' predicate cannot name parameter %0 directly; a by-value parameter "
   "may be named in 'post' only through 'old()'">;
-def note_contract_old_unimplemented : Note<
-  "'old()' is not implemented yet">;
+def note_contract_post_use_old : Note<
+  "name the value at function entry with 'old(%0)'">;
+def err_contract_old_not_scalar : Error<
+  "'old' requires a scalar operand; %0 is not scalar">;
+def err_contract_old_outside_post : Error<
+  "'old' may only appear in a 'post' contract clause">;
 
 } // end of sema component.

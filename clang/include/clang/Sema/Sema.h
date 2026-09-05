@@ -7890,6 +7890,13 @@ public:
   /// the same thing for the same reason.
   ExprResult CheckContractPostPredicate(Expr *Predicate);
 
+  /// Builds an `old (e)` expression, which names the value \p SubExpr had at
+  /// function entry. Restricted to scalars: snapshotting anything larger has
+  /// no cheap lowering, and section 2 of the design limits it accordingly.
+  ExprResult BuildContractOldExpr(SourceLocation OldLoc,
+                                  SourceLocation LParenLoc,
+                                  SourceLocation RParenLoc, Expr *SubExpr);
+
   enum class ConditionKind {
     Boolean,     ///< A boolean condition, from 'if', 'while', 'for', or 'do'.
     ConstexprIf, ///< A constant boolean condition from 'if constexpr'.
