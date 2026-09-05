@@ -56,10 +56,48 @@ to absorb.
 arrays, so `length` is not capped by a buffer size. A discharged proof here is
 unbounded, not exhaustive-up-to-N.
 
-**Status: solving, not yet discharged.** Two formulations have exceeded a nine
-minute budget. This is the same scaling wall `COST.md` measures; it is a
-scheduling problem, not a correctness one, and the run is left going rather than
-killed.
+### The blocker: CBMC rejects loop contracts on `do`/`while`
+
+The first attempt appeared to instrument cleanly and then unwound forever:
+
+```
+Unwinding loop ZSTD_wildcopy.2 iteration 2223
+```
+
+`goto-instrument` had in fact refused the contract and said so; the message was
+filtered out by a `| tail -1` in the invocation. Reproduced in isolation:
+
+```
+Loop contracts are unsupported on do/while loops: file dowhile.c line 10
+```
+
+`ZSTD_wildcopy`'s hot loop is a `do`/`while`, so it cannot carry a contract as
+written. This is a real toolchain-versus-codebase fit problem and not a
+limitation of the method: the standard rewrite works.
+
+```c
+do { B } while (C);        ==>      while (1) { B; if (!(C)) break; }
+```
+
+`loop-contract-dowhile-rewrite.c` proves the rewrite carries contracts fine:
+
+```
+** 0 of 25 failed (1 iterations)
+VERIFICATION SUCCESSFUL
+```
+
+again with no unwind bound, `len` to 100000. Note the invariant had to change
+with the shape: `i <= len` is too weak for the rewritten loop (the write happens
+before the exit test), and `i < len` is the right one. Rewriting a loop for
+verification changes its invariant, which is a cost worth knowing about in
+advance.
+
+`annotate-wildcopy-loop-contract.patch` now carries the rewrite. It is
+**proof-only**: behaviour is identical, the body still runs at least once.
+`goto-instrument` accepts it and CBMC emits no unwinding at all for that loop,
+which is how the patch is confirmed to have taken effect.
+
+**Status: solving, not yet discharged.**
 
 ## What is still hand-written, and what that costs
 
