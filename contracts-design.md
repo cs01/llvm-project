@@ -368,10 +368,10 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
   `int *f(void)` the pointer chunk is added after the function chunk. Same shape
   as a delayed exception specification. Naming a parameter in a `post` is
   rejected per section 4, which is the rule `old()` will lift.
-- `old()`: not started, and now the thing blocking useful `post` predicates. It
-  needs a new `Expr` node, which is the boilerplate spread across `StmtNodes.td`,
-  `Expr.h`, `ComputeDependence`, `StmtProfile`, `StmtPrinter`, `TextNodeDumper`,
-  and the two serialization visitors.
+- `old()`: **done**. `ContractOldExpr`, contextual so an ordinary identifier
+  named `old` is unaffected, rejected in a `pre`, and scalars only per section 2.
+  With it the section 5 example type-checks as written, including the
+  `post (r: r <= old(dstCap) || ...)` form the first draft got wrong.
 - `writes`: parsed and hard-errored as unsupported, so the grammar is pinned now
   and cannot be silently reinterpreted later.
 - Loop clauses: blocked on question 6, which is still open.
