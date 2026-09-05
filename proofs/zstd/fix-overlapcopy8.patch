@@ -1,0 +1,20 @@
+--- a/lib/decompress/zstd_decompress_block.c
++++ b/lib/decompress/zstd_decompress_block.c
+@@ -817,11 +817,15 @@
+         (*op)[3] = (*ip)[3];
+         *ip += dec32table[offset];
+         ZSTD_copy4(*op+4, *ip);
+-        *ip -= sub2;
++        /* Combine the subtraction with the trailing += 8. Applying them
++         * separately forms an intermediate pointer up to 8 bytes before the
++         * start of the object when the match is near the window start, which
++         * is undefined behaviour even though it is never dereferenced. */
++        *ip += 8 - sub2;
+     } else {
+         ZSTD_copy8(*op, *ip);
++        *ip += 8;
+     }
+-    *ip += 8;
+     *op += 8;
+     assert(*op - *ip >= 8);
+ }
