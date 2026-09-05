@@ -118,13 +118,9 @@ struct MemberAccessPath {
 
 } // end anonymous namespace
 
+// DenseMap no longer uses sentinel keys, so DenseMapInfo needs only a hash and
+// an equality predicate (llvm/llvm-project#201281).
 template <> struct llvm::DenseMapInfo<MemberAccessPath> {
-  static MemberAccessPath getEmptyKey() {
-    return {DenseMapInfo<const VarDecl *>::getEmptyKey(), {}};
-  }
-  static MemberAccessPath getTombstoneKey() {
-    return {DenseMapInfo<const VarDecl *>::getTombstoneKey(), {}};
-  }
   static unsigned getHashValue(const MemberAccessPath &P) {
     unsigned H = DenseMapInfo<const VarDecl *>::getHashValue(P.Root);
     for (const auto *FD : P.Fields)
@@ -2290,7 +2286,7 @@ private:
     if (!isNarrowed(VD) && (isNullableType(VD->getType(), DefaultNullability) ||
                             State.NullableVars.contains(VD))) {
       ++NumArithmeticWarnings;
-      Handler.handleNullableArithmetic(ArithExpr, VD->getType());
+      Handler.handleNullableArithmetic(ArithExpr, VD->getType(), VD);
     }
   }
 
