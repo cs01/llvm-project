@@ -2028,6 +2028,23 @@ private:
   /// is built; a non-function declarator carrying clauses is diagnosed.
   SmallVector<ContractClause, 2> ContractClauses;
 
+  /// A 'post' predicate whose tokens were saved rather than parsed.
+  ///
+  /// A 'post' may name the return value, and the return type is not known
+  /// while the function declarator is still being built: for `int *f(void)`
+  /// the pointer chunk is added after the function chunk, so the declarator is
+  /// incomplete at the point the clause is parsed. The tokens are therefore
+  /// replayed once the FunctionDecl exists.
+  struct DelayedContractPredicate {
+    /// Index of the clause in ContractClauses that this fills in.
+    unsigned ClauseIndex;
+    /// The result binding's name, or null if the clause named no result.
+    IdentifierInfo *ResultName;
+    SourceLocation ResultNameLoc;
+    CachedTokens Tokens;
+  };
+  SmallVector<DelayedContractPredicate, 2> DelayedContracts;
+
   /// If this declarator declares a template, its template parameter lists.
   ArrayRef<TemplateParameterList *> TemplateParameterLists;
 
@@ -2184,6 +2201,7 @@ public:
     EllipsisLoc = SourceLocation();
     PackIndexingExpr = nullptr;
     ContractClauses.clear();
+    DelayedContracts.clear();
   }
 
   /// mayOmitIdentifier - Return true if the identifier is either optional or
@@ -2703,6 +2721,17 @@ public:
     ContractClauses.assign(Clauses.begin(), Clauses.end());
   }
   bool hasContractClauses() const { return !ContractClauses.empty(); }
+
+  /// The 'post' clauses whose predicates still need to be replayed once the
+  /// FunctionDecl exists. See DelayedContractPredicate.
+  MutableArrayRef<DelayedContractPredicate> getDelayedContracts() {
+    return DelayedContracts;
+  }
+  void addDelayedContract(unsigned ClauseIndex, IdentifierInfo *ResultName,
+                          SourceLocation ResultNameLoc, CachedTokens &&Tokens) {
+    DelayedContracts.push_back(
+        {ClauseIndex, ResultName, ResultNameLoc, std::move(Tokens)});
+  }
 
   bool hasTrailingRequiresClause() const {
     return TrailingRequiresClause != nullptr;

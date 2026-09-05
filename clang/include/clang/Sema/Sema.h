@@ -7881,6 +7881,15 @@ public:
   /// FunctionDecl.
   void DiagnoseContractsOnNonFunction(Declarator &D);
 
+  /// Checks a 'post' predicate for references to parameters.
+  ///
+  /// In C every parameter is passed by value, and a body is free to mutate its
+  /// own copy (`src += 4`, `dstCap -= n` are ordinary in codec code), so a
+  /// 'post' naming a parameter is ambiguous between its entry and exit value.
+  /// Section 4 of the design resolves this by requiring 'old()'. P2900 forbids
+  /// the same thing for the same reason.
+  ExprResult CheckContractPostPredicate(Expr *Predicate);
+
   enum class ConditionKind {
     Boolean,     ///< A boolean condition, from 'if', 'while', 'for', or 'do'.
     ConstexprIf, ///< A constant boolean condition from 'if constexpr'.

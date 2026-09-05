@@ -564,6 +564,8 @@ public:
     if (const ContractSpecifier *CS = D->getContracts())
       for (const ContractClause &Clause : *CS)
         getNodeDelegate().AddChild(Clause.getKindSpelling(), [=] {
+          if (Clause.getResultVar())
+            Visit(Clause.getResultVar());
           if (Clause.getPredicate())
             Visit(Clause.getPredicate());
         });

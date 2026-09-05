@@ -941,6 +941,7 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
       Record.AddSourceLocation(C.getKeywordLoc());
       Record.AddSourceLocation(C.getLParenLoc());
       Record.AddSourceLocation(C.getRParenLoc());
+      Record.AddDeclRef(C.getResultVar());
       Record.AddStmt(C.getPredicate());
     }
   } else {

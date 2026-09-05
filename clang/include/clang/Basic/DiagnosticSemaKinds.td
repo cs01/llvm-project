@@ -14366,5 +14366,10 @@ def err_contract_predicate_not_pure : Error<
   "contract predicate must be free of side effects">;
 def note_contract_predicate_pure_call : Note<
   "mark %0 'const' or 'pure' to allow calling it from a contract predicate">;
+def err_contract_post_names_parameter : Error<
+  "'post' predicate cannot name parameter %0 directly; a by-value parameter "
+  "may be named in 'post' only through 'old()'">;
+def note_contract_old_unimplemented : Note<
+  "'old()' is not implemented yet">;
 
 } // end of sema component.

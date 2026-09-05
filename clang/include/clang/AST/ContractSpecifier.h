@@ -27,6 +27,7 @@ namespace clang {
 
 class ASTContext;
 class Expr;
+class VarDecl;
 
 /// A single contract clause, e.g. `pre (dst != 0)`.
 class ContractClause {
@@ -50,6 +51,10 @@ private:
   /// type-check, so that one bad clause does not discard the others.
   Expr *Predicate;
 
+  /// For `post (r: ...)`, the binding for the return value. Null when the
+  /// clause named no result, and always null for a 'pre'.
+  VarDecl *ResultVar = nullptr;
+
 public:
   ContractClause() = default;
   ContractClause(ClauseKind Kind, SourceLocation KeywordLoc,
@@ -66,6 +71,9 @@ public:
 
   Expr *getPredicate() const { return Predicate; }
   void setPredicate(Expr *E) { Predicate = E; }
+
+  VarDecl *getResultVar() const { return ResultVar; }
+  void setResultVar(VarDecl *VD) { ResultVar = VD; }
   bool isInvalid() const { return Predicate == nullptr; }
 
   /// The spelling of \p Kind, for diagnostics and AST dumps.

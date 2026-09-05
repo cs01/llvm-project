@@ -2793,6 +2793,10 @@ private:
   /// starts.
   void RegisterContractKeywordMacroWarning();
 
+  /// Replays the saved predicates of any 'post' clauses on \p D once
+  /// \p TheDecl exists, with the parameters and the result binding in scope.
+  void ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D);
+
   /// ParseRefQualifier - Parses a member function ref-qualifier. Returns
   /// true if a ref-qualifier is found.
   bool ParseRefQualifier(bool &RefQualifierIsLValueRef,

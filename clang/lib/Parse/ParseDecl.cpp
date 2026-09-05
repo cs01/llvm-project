@@ -2608,6 +2608,10 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     }
   }
 
+  // See ParseFunctionDefinition for why this cannot happen in the declarator.
+  if (getLangOpts().CContracts)
+    ParseDelayedContractPredicates(ThisDecl, D);
+
   SemaCUDA::CUDATargetContextRAII X(Actions.CUDA(),
                                     SemaCUDA::CTCK_InitGlobalVar, ThisDecl);
   switch (TheInitKind) {
@@ -7554,13 +7558,50 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
     BalancedDelimiterTracker T(*this, tok::l_paren);
     T.consumeOpen();
 
-    // Only 'pre' is implemented. The others are recognized so that they are
-    // diagnosed rather than silently parsed as something else, and so that the
-    // grammar is fixed now.
-    bool Supported = Kind == ContractClause::CK_Pre;
-    if (!Supported)
+    // 'writes' is recognized so that it is diagnosed rather than silently
+    // parsed as something else, and so that the grammar is fixed now.
+    if (Kind == ContractClause::CK_Writes) {
       Diag(KeywordLoc, diag::err_contract_clause_unsupported)
           << ContractClause::getKindSpelling(Kind);
+      T.skipToEnd();
+      continue;
+    }
+
+    if (Kind == ContractClause::CK_Post) {
+      // 'post' may bind the return value, whose type is not known here: this
+      // declarator is still being built, and for `int *f(void)` the pointer
+      // chunk is not added until after the function chunk. Save the tokens and
+      // replay them once the FunctionDecl exists. The optional result name is
+      // parsed eagerly, being just an identifier followed by ':'.
+      IdentifierInfo *ResultName = nullptr;
+      SourceLocation ResultNameLoc;
+      if (Tok.is(tok::identifier) && NextToken().is(tok::colon)) {
+        ResultName = Tok.getIdentifierInfo();
+        ResultNameLoc = ConsumeToken();
+        ConsumeToken(); // ':'
+      }
+
+      CachedTokens Toks;
+      if (!ConsumeAndStoreUntil(tok::r_paren, Toks, /*StopAtSemi=*/true,
+                                /*ConsumeFinalToken=*/false)) {
+        Diag(Tok, diag::err_expected) << tok::r_paren;
+        break;
+      }
+      if (Toks.empty()) {
+        Diag(Tok, diag::err_expected_expression);
+        T.consumeClose();
+        continue;
+      }
+      if (T.consumeClose())
+        break;
+
+      D.addDelayedContract(Clauses.size(), ResultName, ResultNameLoc,
+                           std::move(Toks));
+      Clauses.emplace_back(Kind, KeywordLoc, T.getOpenLocation(),
+                           T.getCloseLocation(), /*Predicate=*/nullptr);
+      EndLoc = T.getCloseLocation();
+      continue;
+    }
 
     ExprResult Predicate = ParseExpression();
     if (Predicate.isInvalid()) {
@@ -7570,18 +7611,83 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
     if (T.consumeClose())
       break;
 
-    if (Supported)
-      Predicate = Actions.ActOnContractClausePredicate(Kind, KeywordLoc,
-                                                       Predicate.get());
+    Predicate =
+        Actions.ActOnContractClausePredicate(Kind, KeywordLoc, Predicate.get());
 
-    Clauses.emplace_back(
-        Kind, KeywordLoc, T.getOpenLocation(), T.getCloseLocation(),
-        Supported && Predicate.isUsable() ? Predicate.get() : nullptr);
+    Clauses.emplace_back(Kind, KeywordLoc, T.getOpenLocation(),
+                         T.getCloseLocation(),
+                         Predicate.isUsable() ? Predicate.get() : nullptr);
     EndLoc = T.getCloseLocation();
   }
 
   if (!Clauses.empty())
     D.setContractClauses(Clauses);
+}
+
+void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
+  auto *FD = dyn_cast_or_null<FunctionDecl>(TheDecl);
+  if (!FD)
+    return;
+  ContractSpecifier *CS = FD->getContracts();
+  if (!CS)
+    return; // The clauses were rejected, e.g. restated on a redeclaration.
+
+  ParenBraceBracketBalancer BalancerRAIIObj(*this);
+
+  // Reopen a scope holding the parameters so a predicate can name them. The
+  // prototype scope this declarator was parsed in is long closed, and the
+  // ParmVarDecls now belong to FD.
+  ParseScope PredicateScope(this,
+                            Scope::DeclScope | Scope::FunctionPrototypeScope);
+  for (ParmVarDecl *Param : FD->parameters())
+    if (Param->getIdentifier())
+      Actions.PushOnScopeChains(Param, getCurScope(), /*AddToContext=*/false);
+
+  for (auto &Delayed : D.getDelayedContracts()) {
+    ContractClause &Clause = CS->clauses()[Delayed.ClauseIndex];
+
+    if (Delayed.ResultName) {
+      VarDecl *ResultVar = VarDecl::Create(
+          Actions.Context, FD, Delayed.ResultNameLoc, Delayed.ResultNameLoc,
+          Delayed.ResultName, FD->getReturnType(),
+          Actions.Context.getTrivialTypeSourceInfo(FD->getReturnType()),
+          SC_None);
+      ResultVar->setImplicit();
+      Actions.PushOnScopeChains(ResultVar, getCurScope(),
+                                /*AddToContext=*/false);
+      Clause.setResultVar(ResultVar);
+    }
+
+    // Replay the saved predicate, using the same idiom as a delayed exception
+    // specification: terminate the stream with an eof keyed to FD, and append
+    // the current token so that it is not lost.
+    CachedTokens &Toks = Delayed.Tokens;
+    Token PredicateEnd;
+    PredicateEnd.startToken();
+    PredicateEnd.setKind(tok::eof);
+    PredicateEnd.setLocation(Toks.back().getEndLoc());
+    PredicateEnd.setEofData(FD);
+    Toks.push_back(PredicateEnd);
+    Toks.push_back(Tok);
+
+    PP.EnterTokenStream(Toks, /*DisableMacroExpansion=*/true,
+                        /*IsReinject=*/true);
+    ConsumeAnyToken(/*ConsumeCodeCompletionTok=*/true);
+
+    ExprResult Predicate = ParseExpression();
+    if (Predicate.isUsable())
+      Predicate = Actions.ActOnContractClausePredicate(
+          Clause.getKind(), Clause.getKeywordLoc(), Predicate.get());
+    if (Predicate.isUsable())
+      Predicate = Actions.CheckContractPostPredicate(Predicate.get());
+    Clause.setPredicate(Predicate.isUsable() ? Predicate.get() : nullptr);
+
+    // Drain anything the predicate did not consume, then the eof marker.
+    while (Tok.isNot(tok::eof))
+      ConsumeAnyToken();
+    if (Tok.getEofData() == FD)
+      ConsumeAnyToken();
+  }
 }
 
 bool Parser::ParseRefQualifier(bool &RefQualifierIsLValueRef,

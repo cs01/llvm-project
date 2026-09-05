@@ -27,9 +27,9 @@ int pre = 3;
 int uses_pre_as_name(void) { return pre; }
 int pre_typedef_ok(int pre) pre (pre > 0);
 
-// Only 'pre' is implemented so far. The other keywords are recognized so that
-// they are diagnosed rather than silently reinterpreted.
-int has_post(int n) post (n > 0);   // expected-error {{'post' contract clauses are not supported yet}}
+// 'post' is implemented; see c-contracts-post.c. 'writes' is not, and is
+// recognized so that it is diagnosed rather than silently reinterpreted.
+int has_post(int n) post (r: r > 0);
 int has_writes(int *p) writes (p);  // expected-error {{'writes' contract clauses are not supported yet}}
 
 // A clause is only allowed on a declarator that declares a function. Here the

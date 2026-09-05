@@ -3,6 +3,7 @@
 // RUN: %clang_cc1 -fc-contracts -include-pch %t -ast-dump-all %s | FileCheck %s
 
 int caller(int *q) { return from_pch(q, 1); }
+int *caller2(void) { return post_from_pch(1); }
 
 // CHECK:      FunctionDecl {{.*}} from_pch 'int (int *, int)'
 // CHECK-NEXT:   ParmVarDecl {{.*}} p 'int *'
@@ -11,3 +12,11 @@ int caller(int *q) { return from_pch(q, 1); }
 // CHECK-NEXT:     BinaryOperator {{.*}} 'int' '!='
 // CHECK:        pre
 // CHECK-NEXT:     BinaryOperator {{.*}} 'int' '>'
+
+// The result binding survives too, or a 'post' would come back from a PCH with
+// a predicate referring to a decl that no longer exists.
+// CHECK:      FunctionDecl {{.*}} post_from_pch 'int *(int)'
+// CHECK:        pre
+// CHECK:        post
+// CHECK-NEXT:     VarDecl {{.*}} r 'int *'
+// CHECK-NEXT:     BinaryOperator {{.*}} 'int' '!='

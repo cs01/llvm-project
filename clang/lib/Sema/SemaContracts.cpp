@@ -95,6 +95,31 @@ void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
   FD->setContracts(ContractSpecifier::Create(Context, D.getContractClauses()));
 }
 
+/// Returns the first parameter named anywhere in \p E, or null.
+static const ParmVarDecl *findReferencedParameter(const Stmt *E) {
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    if (const auto *PVD = dyn_cast<ParmVarDecl>(DRE->getDecl()))
+      return PVD;
+
+  for (const Stmt *Child : E->children())
+    if (Child)
+      if (const ParmVarDecl *PVD = findReferencedParameter(Child))
+        return PVD;
+
+  return nullptr;
+}
+
+ExprResult Sema::CheckContractPostPredicate(Expr *Predicate) {
+  const ParmVarDecl *PVD = findReferencedParameter(Predicate);
+  if (!PVD)
+    return Predicate;
+
+  Diag(Predicate->getExprLoc(), diag::err_contract_post_names_parameter)
+      << PVD << Predicate->getSourceRange();
+  Diag(PVD->getLocation(), diag::note_contract_old_unimplemented);
+  return ExprError();
+}
+
 void Sema::DiagnoseContractsOnNonFunction(Declarator &D) {
   if (!D.hasContractClauses())
     return;

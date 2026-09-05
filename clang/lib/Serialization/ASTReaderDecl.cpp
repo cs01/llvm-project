@@ -1157,8 +1157,10 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
       SourceLocation KeywordLoc = readSourceLocation();
       SourceLocation LParenLoc = readSourceLocation();
       SourceLocation RParenLoc = readSourceLocation();
+      auto *ResultVar = readDeclAs<VarDecl>();
       Expr *Predicate = Record.readExpr();
       Clauses.emplace_back(Kind, KeywordLoc, LParenLoc, RParenLoc, Predicate);
+      Clauses.back().setResultVar(ResultVar);
     }
     FD->setContracts(ContractSpecifier::Create(Reader.getContext(), Clauses));
   }

@@ -1341,6 +1341,11 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
                                                   : MultiTemplateParamsArg(),
                                               &SkipBody, BodyKind);
 
+  // A 'post' predicate is replayed here rather than in the declarator, because
+  // it may bind the return value and the return type is only known now.
+  if (getLangOpts().CContracts)
+    ParseDelayedContractPredicates(Res, D);
+
   if (SkipBody.ShouldSkip) {
     // Do NOT enter SkipFunctionBody if we already consumed the tokens.
     if (BodyKind == Sema::FnBodyKind::Other)
