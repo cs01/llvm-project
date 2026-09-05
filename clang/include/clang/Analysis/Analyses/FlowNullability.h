@@ -37,8 +37,10 @@ public:
   virtual void handleNullableDereference(const Expr *DerefExpr,
                                          QualType PtrType) = 0;
   /// A pointer that may be null is used in arithmetic (p + i, p++, p += i).
-  virtual void handleNullableArithmetic(const Expr *ArithExpr,
-                                        QualType PtrType) {}
+  /// \p VD identifies which pointer is at fault; `a - b` reports both operands
+  /// at the same location, so the type alone cannot tell them apart.
+  virtual void handleNullableArithmetic(const Expr *ArithExpr, QualType PtrType,
+                                        const VarDecl *VD) {}
   /// A function with a _Nonnull return type returns a value that may be null.
   virtual void handleNullableReturn(const Expr *ReturnExpr, QualType ExprType,
                                     QualType ReturnType) {}

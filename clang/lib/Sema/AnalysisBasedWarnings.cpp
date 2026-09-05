@@ -3115,11 +3115,12 @@ public:
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
-  void handleNullableArithmetic(const Expr *ArithExpr,
-                                QualType PtrType) override {
+  void handleNullableArithmetic(const Expr *ArithExpr, QualType PtrType,
+                                const VarDecl *VD) override {
     SourceLocation Loc = ArithExpr->getExprLoc();
-    if (!isFirst(diag::warn_flow_nullable_arithmetic, Loc,
-                 PtrType.getAsOpaquePtr()))
+    // Keyed on the variable, not the type: `a - b` faults both operands at one
+    // location, and they usually share a type.
+    if (!isFirst(diag::warn_flow_nullable_arithmetic, Loc, VD))
       return;
     PartialDiagnosticAt Warning(
         Loc, S.PDiag(diag::warn_flow_nullable_arithmetic) << PtrType);
