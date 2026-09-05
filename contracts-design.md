@@ -4,6 +4,12 @@ Status: phase 1 started. `-fc-contracts` parses and type-checks `pre` clauses
 (commit `7122f3da6450`); everything else below is still design.
 Priority: **compile-time checking first.** Section 6 is ordered accordingly, and
 this reverses the original phase order; see "Ordering" there for what that costs.
+Scope: **the language comes first and compatibility with compilers that will not
+implement it comes last.** That is not a slogan; it decided three things below
+(the attribute spelling is cut, `writes` gets a `when` guard rather than a
+portable-looking encoding, and the shim is in appendix A).
+Independence: contracts do not depend on, and must not be entangled with, the
+flow-nullability work on `nullsafe-clang-dev`. Phase 3 is a standalone pass.
 Revised: 2026-09-04, after an adversarial review. Findings that survived
 checking are marked where they changed the design, so the reasoning is not
 silently rewritten. The review also argued the readable syntax was unachievable
@@ -152,12 +158,42 @@ Ordered by how much each is missed when absent.
 4. **Frame conditions (`writes`).** What makes modular reasoning possible at
    all. Also the heaviest annotation burden, which is why section 7 tries to
    infer them.
-5. **Behaviors, or some way to say "on success X, on error Y".** A single `post`
-   conjunction cannot describe a function that fills `dst[0..r)` on success and
-   leaves it garbage on error, which is every function in the target libraries.
-   ACSL uses named behaviors. Without something equivalent, `writes` and `post`
-   both lie on error paths. The first draft missed this entirely and it is a
-   v1-blocking gap, not a nicety.
+5. **Error paths: `when` on a frame condition.** Every function in the target
+   libraries fills `dst[0..r)` on success and leaves it untouched on error, and
+   a specification that cannot say so lies on half its executions.
+
+   The problem is narrower than it first looks, and the first draft of this
+   section got it wrong by calling for ACSL-style named behaviors. A `post` is a
+   predicate, and a predicate already expresses case analysis with the operators
+   C has:
+
+   ```c
+   post (r: is_error(r) || r <= old(dstCap))
+   ```
+
+   That parses and type-checks today. No new syntax buys anything there.
+
+   A `writes` is not a predicate. It is a set of locations, and a set cannot be
+   disjoined, so `writes (dst, r)` on success and `writes ()` on error genuinely
+   cannot be written as one clause. That, and only that, is the gap. It calls for
+   the smallest thing that closes it: a guard on the clause.
+
+   ```c
+   unsigned long decompress(void *dst, unsigned long dstCap,
+                            const void *src, unsigned long srcSize)
+     pre    (dst != 0)
+     pre    (dstCap > 0)
+     post   (r: is_error(r) || r <= old(dstCap))
+     writes (dst, r) when (r: !is_error(r));
+   ```
+
+   An unguarded `writes` is unconditional, which is the common case and stays
+   the short spelling. `when` takes the same result binding a `post` does, so
+   there is one rule to learn rather than a new block construct with its own
+   scoping. Named behaviors are rejected: they introduce a second place where
+   pre- and postconditions live, and every example in the target libraries
+   discriminates on the *result*, which ACSL's `assumes` (a pre-state condition)
+   cannot see anyway.
 6. **Memory predicates**: `valid(p, n)`, `disjoint(a, n, b, m)`. Static-only per
    section 2.
 7. **Purity**, so predicates cannot have side effects, and a way to mark a
@@ -236,52 +272,13 @@ Range syntax is a call, `writes(dst, dstCap)` and `valid(p, n)`, not
 `error: invalid suffix '.2' on floating constant`. Verified. This is a spelling
 choice inside the design, not a constraint on it.
 
-### Portability: one line, at one boundary
+### Other compilers
 
-`zstd.h` and `sqlite3.h` are compiled by every compiler in existence, and any
-new syntax is a syntax error in all of them. The shim:
-
-```c
-#if defined(__clang__) && __has_feature(c_contracts)
-#  define ZSTD_PRE(...) pre(__VA_ARGS__)
-#else
-#  define ZSTD_PRE(...)
-#endif
-```
-
-This is the same thing every codebase already writes for `_Nullable`,
-`[[nodiscard]]`, and `warn_unused_result`. It is a portability shim at one
-boundary, not the definition of the feature.
-
-This is worth distinguishing from SAL (section 8), where the macro *is* the
-feature: `_Out_writes_(n)` expands to another annotation that only one
-proprietary analyzer reads, and no compiler ever parses a predicate. Here the
-compiler parses a real grammar, builds a real AST, and emits real diagnostics
-and fix-its; the shim exists solely so that other compilers see nothing.
-Collapsing these two into "macro-shaped" is a category error.
-
-### Second spelling, same AST
-
-A C23 attribute form is also accepted:
-
-```c
-[[clang::pre(dst != NULL)]]
-[[clang::writes(dst, dstCap)]]
-[[clang::post(r, r <= old(dstCap) || ZSTD_isError(r))]]
-size_t ZSTD_decompress(void *dst, size_t dstCap,
-                       const void *src, size_t srcSize);
-```
-
-Verified: an unknown attribute in a vendor namespace parses its balanced token
-sequence and is ignored with `-Wunknown-attributes`, under both `-std=c23` and
-`-std=c11`. So this form needs no shim at all.
-
-It is **secondary**, and it desugars to the identical AST. Its purpose is
-annotating headers you do not own or cannot modify, and giving a no-shim option
-to projects that want one. Everything downstream (Sema, checking, inference,
-fix-its) is written against the AST, not against either spelling, so the second
-front door costs little and the readable form is never what gets cut for
-portability.
+Deliberately not designed for here. Making the syntax palatable to compilers
+that will never implement it is the fastest way to end up with SAL, where the
+macro *is* the feature. The design question is what a contract should say; the
+answer to "what does GCC do with this" is a one-line macro and it is written
+down in appendix A, at the back, where it belongs.
 
 ### Rules
 
@@ -446,38 +443,35 @@ zstd functions before any of phase 3 is built.** If the measurement says the gai
 is small, phase 3 shrinks to call-site `pre` checking, which is still worth
 having and does not depend on frame conditions at all.
 
-**Host: Sema CFG dataflow. Question 5 is answered.** The choice is between a
-Sema dataflow pass that ships as an ordinary warning (the `LifetimeSafety`
-route) and a CSA checker that is path-sensitive and opt-in. The effort table
-puts CSA at roughly half the cost, but that estimate assumed building the host
-from scratch. It does not hold here, because a calibrated Sema dataflow host
-already exists in this fork: `clang/lib/Analysis/FlowNullability.cpp`, roughly
-3100 lines, shipping as a warning, with a differential regression gate (sqlite,
-131 warnings, byte-identical across changes) and a written-down false-positive
-profile.
+**Host: a standalone Sema CFG dataflow pass on this branch.**
+`clang/lib/Analysis/ContractChecking.cpp`, wired through
+`AnalysisBasedWarnings.cpp` the way `LifetimeSafety` is, shipping as an ordinary
+warning rather than an opt-in analyzer checker.
 
-`pre (p != 0)` is a strict generalization of the `_Nonnull` parameter check that
-pass already performs at call sites: same CFG, same narrowing lattice, same
-report site. Choosing CSA would mean starting a second analysis rather than
-extending a working one, and re-deriving a false-positive profile that is
-already measured.
+An earlier revision proposed hosting this inside the flow-nullability fork's
+`FlowNullability.cpp` to reuse its calibrated narrowing lattice. **Rejected.**
+Contracts and nullability are separate features on separate branches, and
+coupling them would mean neither can ship, rebase, or be reviewed without the
+other. The reuse was worth less than the independence: what carries over is the
+*lesson*, not the code.
 
-Two known false-positive classes carry over unchanged and should be expected in
-the first `pre` results rather than discovered as surprises:
+That lesson is the design rule for this pass: **report only preconditions that
+can be shown violated, never ones that merely cannot be proven.** Running the
+nullability fork in its permissive mode produced 22,772 warnings on the sqlite
+amalgamation, almost all false positives, against 131 in its trusting mode. A
+checker that warns on everything unproven is not a checker anyone will run, so
+"cannot tell" is silence here.
 
-- Out-parameter writes: `T *p = 0; f(&p); p->x;`. The analysis cannot see `f`
-  write through `&p`. This is the single largest source. It is also the class
-  `writes` would fix if the phase 3 measurement says frame conditions pay.
-- Correlated multi-variable invariants: a guard on one variable that implies
-  something about another, where the two are tracked independently.
+Two false-positive classes are known in advance from that calibration and should
+be expected rather than discovered:
 
-**Branch coupling, which is now on the critical path.** `contracts-c-dev` is
-forked from upstream `2fd31faf6ec5` and does not contain `FlowNullability.cpp`;
-that lives only on the nullsafe branches. Hosting the checker there therefore
-requires promoting `nullsafe-rebase-trial` (already gated: lit 39/39, sqlite
-131 byte-identical) and rebasing `contracts-c-dev` onto the result. This was a
-loose end under the old ordering. Under compile-time-first it blocks the main
-line.
+- Out-parameter writes, `T *p = 0; f(&p); p->x;`, where the analysis cannot see
+  `f` write through `&p`. Handled here by refusing to track any variable whose
+  address is taken.
+- Correlated multi-variable invariants, where a guard on one variable implies
+  something about another and the two are tracked independently. Not handled;
+  it costs false negatives, not false positives, which is the right side to err
+  on.
 
 ### Phase 3.5: inference
 Section 7.
@@ -701,36 +695,72 @@ subset that phase 3 actually depends on is a fraction of it.
 
 ## 12. Unresolved questions
 
-1. **Behaviors, or no `post` on error paths?** Section 4 item 5 says every target
-   function needs "on success X, on error Y". Adding ACSL-style behaviors is
-   scope; omitting them makes `post` and `writes` wrong on error paths. No third
-   option identified.
-2. **Does phase 3 survive its own measurement?** If the 20-function experiment
+1. **Does phase 3 survive its own measurement?** If the 20-function experiment
    says frame conditions do not improve call-site precision on codec code, phase
    3 shrinks to `pre` checking and phase 3.5's `writes` inference loses most of
    its purpose.
-3. **`observe` semantics.** Diagnose how, given a violation is detected at
+2. **`observe` semantics.** Diagnose how, given a violation is detected at
    runtime? A handler call that logs and continues, matching P2900's observe.
-4. **Upstreamable, or permanently a fork?** Near zero until WG14 moves (section
+3. **Upstreamable, or permanently a fork?** Near zero until WG14 moves (section
    8). A permanent fork means contracts exist only where this compiler runs, so
    nobody annotates, so phase 3 has nothing to consume. This remains the
    project-killing risk and it is not technical.
-5. **Loop clause placement.** `for (...) invariant(x);` is a valid call
-   statement today. Lookahead, a stricter follow-set rule, or a different
-   placement: it is the only parse hazard without an obvious answer. Phase 1
-   shipped function clauses without it and hard-errors the loop keywords, so
-   this no longer blocks the front end, but it does block loop invariants and
-   therefore anything in section 7 that consumes them.
-6. **Does the attribute spelling stay in v1?** It costs little once Sema is
-   written against the AST, and it is the only way to annotate a header you do
-   not own. But two front doors is two sets of tests and two sets of
-   diagnostics, and shipping it early risks it becoming the default by
-   accident.
+4. **`valid` and `disjoint` without bounds-safety machinery.** Section 2 says
+   neither is runtime-checkable and that the static story needs allocation
+   sizes the compiler does not have. They are the clauses the target libraries
+   most want and the ones with no implementation path yet. Still open.
 
 ### Resolved
 
+- **Error paths.** Section 4 item 5. A `post` expresses case analysis with `||`
+  and needs nothing new; only `writes` cannot be disjoined, so it gets a `when`
+  guard. Named behaviors rejected.
+- **Loop clause placement.** A loop clause sequence must be followed by a
+  compound statement. `for (...) invariant(x);` therefore stays exactly what it
+  is today, a call statement, and `for (...) invariant(x) { ... }` is a
+  contract. The cost is that a loop carrying an invariant must brace its body,
+  which is a style most of the target code already follows and a rule that can
+  be stated in one line. Chosen over lookahead because the follow-set rule needs
+  no backtracking and produces a comprehensible diagnostic when it fails.
+- **Attribute spelling.** Cut from v1; see appendix A. It exists only for
+  compilers that will not implement the feature, and that concern does not get
+  to shape the language.
 - **Phase 3 host: Sema dataflow or CSA?** Answered in phase 3: Sema dataflow,
   extending this fork's `FlowNullability.cpp`. The effort table's CSA advantage
   assumed building a dataflow host from scratch, which is not the situation
   here. Recorded rather than deleted so the reversal is auditable.
 
+## Appendix A: other compilers
+
+Recorded for completeness, and deliberately not allowed to shape anything above.
+
+`zstd.h` and `sqlite3.h` are compiled by every compiler in existence, and any
+new syntax is a syntax error in all of them. The shim:
+
+```c
+#if defined(__clang__) && __has_feature(c_contracts)
+#  define ZSTD_PRE(...) pre(__VA_ARGS__)
+#else
+#  define ZSTD_PRE(...)
+#endif
+```
+
+This is the same thing every codebase already writes for `_Nullable`,
+`[[nodiscard]]`, and `warn_unused_result`. It is a portability shim at one
+boundary, not the definition of the feature.
+
+This is worth distinguishing from SAL (section 8), where the macro *is* the
+feature: `_Out_writes_(n)` expands to another annotation that only one
+proprietary analyzer reads, and no compiler ever parses a predicate. Here the
+compiler parses a real grammar, builds a real AST, and emits real diagnostics
+and fix-its; the shim exists solely so that other compilers see nothing.
+Collapsing these two into "macro-shaped" is a category error.
+
+The attribute spelling `[[clang::pre(...)]]` was considered as a second front
+door for headers you do not own. **Cut.** It exists only to serve compilers that
+do not implement the feature, which is the concern this appendix exists to
+contain. Two front doors means two sets of tests, two sets of diagnostics, and a
+real chance the uglier one becomes the default by accident. Everything
+downstream is written against the AST rather than either spelling, so if a
+concrete need for it ever appears it is a small addition then, not a v1
+obligation now.
