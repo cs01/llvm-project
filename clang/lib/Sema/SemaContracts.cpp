@@ -12,12 +12,33 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/AST/Attr.h"
 #include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/Decl.h"
+#include "clang/AST/Expr.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Sema.h"
 
 using namespace clang;
+
+/// Returns the callee of the first call in \p E that is not marked 'const' or
+/// 'pure', or null if the impurity does not come from a call.
+///
+/// The call is usually nested (`impure(n) > 0`), so the whole expression has to
+/// be searched rather than just its top node.
+static const FunctionDecl *findImpureCallee(const Stmt *E) {
+  if (const auto *CE = dyn_cast<CallExpr>(E))
+    if (const FunctionDecl *Callee = CE->getDirectCallee())
+      if (!Callee->hasAttr<ConstAttr>() && !Callee->hasAttr<PureAttr>())
+        return Callee;
+
+  for (const Stmt *Child : E->children())
+    if (Child)
+      if (const FunctionDecl *Callee = findImpureCallee(Child))
+        return Callee;
+
+  return nullptr;
+}
 
 ExprResult Sema::ActOnContractClausePredicate(ContractClause::ClauseKind Kind,
                                               SourceLocation KeywordLoc,
@@ -28,7 +49,27 @@ ExprResult Sema::ActOnContractClausePredicate(ContractClause::ClauseKind Kind,
   // A predicate is a condition, not a value: the same contextual conversion
   // that 'if' applies, so `pre (p)` on a pointer means `pre (p != 0)` and a
   // struct-valued predicate is rejected with the usual diagnostic.
-  return CheckBooleanCondition(KeywordLoc, Predicate);
+  ExprResult Cond = CheckBooleanCondition(KeywordLoc, Predicate);
+  if (Cond.isInvalid())
+    return Cond;
+
+  // Predicates must be pure. A contract that mutates state cannot be evaluated
+  // twice, and every tier wants to evaluate it more than once: the runtime
+  // check at entry, the static checker at each call site, and the CBMC export.
+  //
+  // HasSideEffects already treats a call to anything not marked 'const' or
+  // 'pure' as a possible effect, so those existing attributes serve as the
+  // "usable in specs" marker rather than a new one being invented here.
+  if (Cond.get()->HasSideEffects(Context)) {
+    Diag(Cond.get()->getExprLoc(), diag::err_contract_predicate_not_pure)
+        << Cond.get()->getSourceRange();
+    if (const FunctionDecl *Callee = findImpureCallee(Cond.get()))
+      Diag(Callee->getLocation(), diag::note_contract_predicate_pure_call)
+          << Callee;
+    return ExprError();
+  }
+
+  return Cond;
 }
 
 void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {

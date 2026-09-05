@@ -14362,5 +14362,9 @@ def err_contracts_on_non_function : Error<
   "contract clause is only allowed on a function declaration">;
 def err_contracts_on_redeclaration : Error<
   "contract clauses cannot be restated on a redeclaration">;
+def err_contract_predicate_not_pure : Error<
+  "contract predicate must be free of side effects">;
+def note_contract_predicate_pure_call : Note<
+  "mark %0 'const' or 'pure' to allow calling it from a contract predicate">;
 
 } // end of sema component.
