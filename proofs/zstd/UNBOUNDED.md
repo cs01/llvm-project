@@ -97,7 +97,45 @@ advance.
 `goto-instrument` accepts it and CBMC emits no unwinding at all for that loop,
 which is how the patch is confirmed to have taken effect.
 
-**Status: solving, not yet discharged.**
+### The second blocker: `do { } while (0)` macros are loops
+
+After the rewrite the contract still did not attach, and CBMC unwound
+`ZSTD_wildcopy.2` past 1900 iterations. `goto-instrument --show-loops` explains
+why: `ZSTD_wildcopy` reported **four** loops, two of them at lines inside the
+body of the loop being annotated.
+
+```c
+#define COPY16(d,s) do { ZSTD_copy16(d,s); d+=16; s+=16; } while (0)
+```
+
+CBMC counts the `do { } while (0)` idiom as a loop. Two `COPY16` uses in the body
+produce two phantom loops, and the contract attaches to one of those rather than
+to the intended one. There is no diagnostic; it simply instruments the wrong
+thing.
+
+Inlining the macro in the annotated copy (proof-only, identical semantics) drops
+the count to three and the contract attaches:
+
+```
+Loop ZSTD_wildcopy.0:  line 229   (the overlap do/while, unannotated)
+Loop ZSTD_wildcopy.1:  line 230
+Loop ZSTD_wildcopy.2:  line 246   (the annotated while(1))
+
+** 30 of 356 failed (22 iterations)
+```
+
+Analysing rather than unwinding forever. This is the practical lesson for
+applying loop contracts to real C: **a codebase's macro idioms decide whether
+contracts can be attached at all**, and the failure mode is silent
+misattachment, not an error.
+
+**Status: contract attaches, invariant too weak.** The 30 remaining failures are
+about `ip` and `op` leaving their objects: the invariant bounds `op` against
+`oend` and ties the two cursors together, but says nothing that keeps `ip` inside
+the source object. Strengthening it is the next step and is ordinary work now
+that the mechanism engages.
+
+**Superseded status note:**
 
 ## What is still hand-written, and what that costs
 
