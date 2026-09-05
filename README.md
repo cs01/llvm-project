@@ -1,3 +1,30 @@
+# C contracts for clang (`contracts-c-dev`)
+
+> This is a branch of [cs01/llvm-project](https://github.com/cs01/llvm-project),
+> a fork of LLVM. It adds `-fc-contracts`: `pre` / `post` / `old()` clauses for C
+> as real grammar, not macros and not comments. Upstream LLVM's README follows
+> below.
+>
+> - **[contracts-design.md](contracts-design.md)** — the full design, the plan,
+>   and what was cut and why.
+> - **[contracts-example/](contracts-example/)** — `run.sh` demonstrates the
+>   whole surface against a build of this branch.
+> - The fork's other line of work, flow-sensitive nullability, lives on
+>   [`nullsafe-clang-dev`](https://github.com/cs01/llvm-project/tree/nullsafe-clang-dev).
+
+```c
+unsigned long codec_decompress(void *dst, unsigned long dstCap,
+                               const void *src, unsigned long srcSize)
+  pre  (dst != 0)
+  pre  (dstCap > 0)
+  post (r: r <= old(dstCap) || codec_is_error((int)r));
+```
+
+Status: front end only. The clauses parse, type-check, land in the AST, and
+survive a PCH. Nothing is checked yet, at runtime or at call sites.
+
+---
+
 # The LLVM Compiler Infrastructure
 
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/llvm/llvm-project/badge)](https://securityscorecards.dev/viewer/?uri=github.com/llvm/llvm-project)
