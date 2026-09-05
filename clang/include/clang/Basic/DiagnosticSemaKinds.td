@@ -14360,5 +14360,7 @@ def err_cuda_device_kernel_launch_require_rdc
 // C contracts (-fc-contracts)
 def err_contracts_on_non_function : Error<
   "contract clause is only allowed on a function declaration">;
+def err_contracts_on_redeclaration : Error<
+  "contract clauses cannot be restated on a redeclaration">;
 
 } // end of sema component.

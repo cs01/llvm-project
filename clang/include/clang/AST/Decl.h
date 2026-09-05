@@ -2464,6 +2464,20 @@ public:
   void setContracts(ContractSpecifier *CS) { Contracts = CS; }
   bool hasContracts() const { return Contracts != nullptr; }
 
+  /// The contracts in force for a call to this function.
+  ///
+  /// Contracts belong to the entity, not to the declaration that spells them:
+  /// they are normally written on the prototype in a header and the definition
+  /// restates nothing. A call site must therefore search the redeclaration
+  /// chain rather than look only at the declaration it resolved to. At most one
+  /// declaration in a chain carries contracts, which Sema enforces.
+  const ContractSpecifier *getContractsForCall() const {
+    for (const FunctionDecl *FD : redecls())
+      if (FD->Contracts)
+        return FD->Contracts;
+    return nullptr;
+  }
+
   /// Determine the kind of defaulting that would be done for a given function.
   ///
   /// If the function is both a default constructor and a copy / move

@@ -34,6 +34,23 @@ ExprResult Sema::ActOnContractClausePredicate(ContractClause::ClauseKind Kind,
 void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
   if (!D.hasContractClauses() || !FD)
     return;
+
+  // Restating contracts on a redeclaration would mean comparing two predicates
+  // written against different ParmVarDecls for equivalence. That is not
+  // implemented, and silently keeping one of the two would make which
+  // declaration a caller happened to see change what gets checked. Reject it
+  // instead, which also lets getContractsForCall assume at most one carrier.
+  for (const FunctionDecl *Prev : FD->redecls()) {
+    if (Prev == FD || !Prev->hasContracts())
+      continue;
+    Diag(D.getContractClauses().front().getKeywordLoc(),
+         diag::err_contracts_on_redeclaration)
+        << D.getContractClauses().front().getSourceRange();
+    Diag(Prev->getContracts()->clauses().front().getKeywordLoc(),
+         diag::note_previous_declaration);
+    return;
+  }
+
   FD->setContracts(ContractSpecifier::Create(Context, D.getContractClauses()));
 }
 
