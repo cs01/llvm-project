@@ -1,4 +1,4 @@
-#include "codec.h"
+#include "contracts.h"
 
 int impure(int);
 struct Big { int a[16]; };

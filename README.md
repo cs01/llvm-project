@@ -13,12 +13,16 @@
 >   [`nullsafe-clang-dev`](https://github.com/cs01/llvm-project/tree/nullsafe-clang-dev).
 
 ```c
-unsigned long codec_decompress(void *dst, unsigned long dstCap,
-                               const void *src, unsigned long srcSize)
+unsigned long decompress(void *dst, unsigned long dstCap,
+                         const void *src, unsigned long srcSize)
   pre  (dst != 0)
   pre  (dstCap > 0)
-  post (r: r <= old(dstCap) || codec_is_error((int)r));
+  post (r: r <= old(dstCap) || is_error((int)r));
 ```
+
+`old(dstCap)` names the value at function entry, and it is required rather than
+optional: a body may mutate its own parameter copy, so a `post` naming a bare
+parameter would be ambiguous between entry and exit.
 
 Status: front end only. The clauses parse, type-check, land in the AST, and
 survive a PCH. Nothing is checked yet, at runtime or at call sites.
