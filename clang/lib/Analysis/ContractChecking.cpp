@@ -271,6 +271,22 @@ private:
 
   void transfer(State &S, const Stmt *St);
   void checkCall(const State &S, const CallExpr *Call);
+
+  /// What a call's postcondition guarantees about its result.
+  ///
+  /// This is what makes the pass compositional: without it the checker only
+  /// ever catches literal arguments, and `p = allocate(n); use(p);` stays
+  /// unknown even though the callee promised a non-null result.
+  AbstractValue valueFromPost(const Expr *E) const;
+
+  /// Evaluates \p E, falling back to what a called function's postcondition
+  /// promises when the expression itself is opaque.
+  AbstractValue evalWithPost(const State &S, const Expr *E) const {
+    AbstractValue V = Evaluator(Ctx, S, nullptr).eval(E);
+    if (V.K != AbstractValue::Unknown)
+      return V;
+    return valueFromPost(E);
+  }
 };
 
 void ContractChecker::refine(State &S, const Expr *Cond, bool TrueBranch) {
@@ -330,7 +346,7 @@ void ContractChecker::transfer(State &S, const Stmt *St) {
     for (const Decl *D : DS->decls())
       if (const auto *VD = dyn_cast<VarDecl>(D))
         if (tracked(VD))
-          S[VD] = VD->getInit() ? Evaluator(Ctx, S, nullptr).eval(VD->getInit())
+          S[VD] = VD->getInit() ? evalWithPost(S, VD->getInit())
                                 : AbstractValue::unknown();
     return;
   }
@@ -341,9 +357,8 @@ void ContractChecker::transfer(State &S, const Stmt *St) {
               dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParenImpCasts()))
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
           if (tracked(VD))
-            S[VD] = BO->getOpcode() == BO_Assign
-                        ? Evaluator(Ctx, S, nullptr).eval(BO->getRHS())
-                        : AbstractValue::unknown();
+            S[VD] = BO->getOpcode() == BO_Assign ? evalWithPost(S, BO->getRHS())
+                                                 : AbstractValue::unknown();
     return;
   }
 
@@ -359,6 +374,59 @@ void ContractChecker::transfer(State &S, const Stmt *St) {
 
   if (const auto *Call = dyn_cast<CallExpr>(St))
     checkCall(S, Call);
+}
+
+/// Returns true if \p Pred, read as a postcondition over \p Result, guarantees
+/// that the result is non-null.
+static bool postImpliesNonNull(const Expr *Pred, const VarDecl *Result) {
+  if (!Pred || !Result)
+    return false;
+  const Expr *X = Pred->IgnoreParenImpCasts();
+
+  if (const auto *BO = dyn_cast<BinaryOperator>(X)) {
+    // A conjunction guarantees each of its operands.
+    if (BO->getOpcode() == BO_LAnd)
+      return postImpliesNonNull(BO->getLHS(), Result) ||
+             postImpliesNonNull(BO->getRHS(), Result);
+
+    if (BO->getOpcode() == BO_NE) {
+      const Expr *L = BO->getLHS()->IgnoreParenImpCasts();
+      const Expr *R = BO->getRHS()->IgnoreParenImpCasts();
+      const auto *DRE = dyn_cast<DeclRefExpr>(L);
+      const Expr *Other = R;
+      if (!DRE) {
+        DRE = dyn_cast<DeclRefExpr>(R);
+        Other = L;
+      }
+      if (DRE && DRE->getDecl() == Result &&
+          Other->isNullPointerConstant(Result->getASTContext(),
+                                       Expr::NPC_ValueDependentIsNotNull))
+        return true;
+    }
+    return false;
+  }
+
+  // `post (r: r)` on a pointer says the same thing.
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(X))
+    return DRE->getDecl() == Result && DRE->getType()->isPointerType();
+
+  return false;
+}
+
+AbstractValue ContractChecker::valueFromPost(const Expr *E) const {
+  const auto *Call = dyn_cast<CallExpr>(E->IgnoreParenImpCasts());
+  if (!Call || !Call->getDirectCallee())
+    return AbstractValue::unknown();
+  const FunctionDecl *ContractDecl = Call->getDirectCallee()->getContractDecl();
+  if (!ContractDecl)
+    return AbstractValue::unknown();
+
+  for (const ContractClause &Clause : *ContractDecl->getContracts())
+    if (Clause.getKind() == ContractClause::CK_Post &&
+        postImpliesNonNull(Clause.getPredicate(), Clause.getResultVar()))
+      return AbstractValue::nonNull();
+
+  return AbstractValue::unknown();
 }
 
 void ContractChecker::checkCall(const State &S, const CallExpr *Call) {

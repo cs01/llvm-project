@@ -76,3 +76,30 @@ int *allocate(unsigned long n) { return 0; }
 void calls_definition(void) {
   allocate(0); // expected-warning {{precondition n > 0 of 'allocate' is violated by this call}}
 }
+
+// A callee's postcondition is assumed after the call. Without this the pass
+// only ever catches literal arguments.
+int *allocating(unsigned long n) pre (n > 0) post (r: r != 0);
+int *unpromising(unsigned long n) pre (n > 0);
+
+void discharged_by_post(void) {
+  int *p = allocating(4);
+  use(p); // no warning: the callee promised a non-null result
+}
+
+void through_an_assignment(void) {
+  int *p;
+  p = allocating(4);
+  use(p); // no warning
+}
+
+void no_post_is_not_a_promise(void) {
+  int *p = unpromising(4);
+  use(p); // no warning either: unknown, not disproved
+}
+
+void post_then_overwritten(void) {
+  int *p = allocating(4);
+  p = 0;
+  use(p); // expected-warning {{precondition p != 0 of 'use' is violated by this call}}
+}
