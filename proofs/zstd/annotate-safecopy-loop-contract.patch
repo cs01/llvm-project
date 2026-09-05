@@ -1,0 +1,43 @@
+--- a/lib/decompress/zstd_decompress_block.c
++++ b/lib/decompress/zstd_decompress_block.c
+@@ -848,7 +848,18 @@
+ 
+     if (length < 8) {
+         /* Handle short lengths. */
+-        while (op < oend) *op++ = *ip++;
++        {   BYTE* const opStart = op;
++            const BYTE* const ipStart = ip;
++            while (op < oend)
++            __CPROVER_assigns(op, ip, __CPROVER_object_upto(opStart, length))
++            __CPROVER_loop_invariant(__CPROVER_same_object(op, opStart))
++            __CPROVER_loop_invariant(__CPROVER_same_object(ip, ipStart))
++            __CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(op) >= __CPROVER_POINTER_OFFSET(opStart))
++            __CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(op) <= __CPROVER_POINTER_OFFSET(opStart) + (__CPROVER_ssize_t)length)
++            __CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(ip) - __CPROVER_POINTER_OFFSET(ipStart) == __CPROVER_POINTER_OFFSET(op) - __CPROVER_POINTER_OFFSET(opStart))
++            __CPROVER_decreases(__CPROVER_POINTER_OFFSET(opStart) + (__CPROVER_ssize_t)length - __CPROVER_POINTER_OFFSET(op))
++            { *op++ = *ip++; }
++        }
+         return;
+     }
+     if (ovtype == ZSTD_overlap_src_before_dst) {
+@@ -874,7 +885,19 @@
+         op += oend_w - op;
+     }
+     /* Handle the leftovers. */
+-    while (op < oend) *op++ = *ip++;
++    {   BYTE* const opTail = op;
++        const BYTE* const ipTail = ip;
++        size_t const tail = (size_t)(oend - op);
++        while (op < oend)
++        __CPROVER_assigns(op, ip, __CPROVER_object_upto(opTail, tail))
++        __CPROVER_loop_invariant(__CPROVER_same_object(op, opTail))
++        __CPROVER_loop_invariant(__CPROVER_same_object(ip, ipTail))
++        __CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(op) >= __CPROVER_POINTER_OFFSET(opTail))
++        __CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(op) <= __CPROVER_POINTER_OFFSET(opTail) + (__CPROVER_ssize_t)tail)
++        __CPROVER_loop_invariant(__CPROVER_POINTER_OFFSET(ip) - __CPROVER_POINTER_OFFSET(ipTail) == __CPROVER_POINTER_OFFSET(op) - __CPROVER_POINTER_OFFSET(opTail))
++        __CPROVER_decreases(__CPROVER_POINTER_OFFSET(opTail) + (__CPROVER_ssize_t)tail - __CPROVER_POINTER_OFFSET(op))
++        { *op++ = *ip++; }
++    }
+ }
+ 
+ /* ZSTD_safecopyDstBeforeSrc():

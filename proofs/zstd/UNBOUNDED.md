@@ -174,6 +174,35 @@ The bound is the interesting one: `WILDCOPY_OVERLENGTH` slack is what makes the
 over-copy safe, and the invariant has to say *where* in the buffer the cursor can
 be for that to hold, not merely that the slack exists.
 
+## ZSTD_safecopy: annotated, solving
+
+`annotate-safecopy-loop-contract.patch` carries the same treatment for the other
+loop-bearing function in the `ZSTD_execSequence` path. Both of its loops are
+plain `while`, so the `do`/`while` blocker does not apply, and there are no
+`do { } while (0)` macros in either body, so the phantom-loop problem does not
+either. Both are confirmed present at the annotated lines:
+
+```
+Loop ZSTD_safecopy.0:  line 853   (the length < 8 path)
+Loop ZSTD_safecopy.1:  line 891   (the leftovers after wildcopy)
+```
+
+The invariants follow the shape that worked for `ZSTD_wildcopy`: capture the
+cursor pair in locals immediately before the loop, then state `same_object` plus
+offset bounds and a lockstep relation between the two offsets, with `decreases`
+measured in offsets rather than pointer difference.
+
+One difference worth noting. The harness includes the whole
+`zstd_decompress_block.c` translation unit, because `ZSTD_safecopy` is `static`.
+That pulls 386 loops into the goto program even though the harness calls one
+function. It is not obviously the bottleneck, but it is a reason a per-function
+harness for a `static` function costs more than the same function would if it
+were exported.
+
+**Status: solving.** The contracts were accepted without a diagnostic, but
+`goto-instrument` reports nothing on success either, so attachment is only
+confirmed by the absence of unwinding output in the solve. Not claiming it yet.
+
 ## Remaining
 
 
