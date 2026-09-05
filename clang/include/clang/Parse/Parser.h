@@ -13,6 +13,7 @@
 #ifndef LLVM_CLANG_PARSE_PARSER_H
 #define LLVM_CLANG_PARSE_PARSER_H
 
+#include "clang/AST/ContractSpecifier.h"
 #include "clang/Basic/OpenACCKinds.h"
 #include "clang/Basic/OperatorPrecedence.h"
 #include "clang/Lex/CodeCompletionHandler.h"
@@ -2762,6 +2763,29 @@ private:
   void InitCXXThisScopeForDeclaratorIfRelevant(
       const Declarator &D, const DeclSpec &DS,
       std::optional<Sema::CXXThisScopeRAII> &ThisScope);
+
+  /// Returns true if \p Tok is a contract clause keyword, and sets \p Kind to
+  /// which one. The keywords are contextual: they are ordinary identifiers
+  /// everywhere except the function declarator suffix, and only when
+  /// -fc-contracts is on.
+  bool isContractClauseKeyword(const Token &Tok,
+                               ContractClause::ClauseKind &Kind) const;
+
+  /// Parses the contract clauses in a function declarator suffix and records
+  /// them on \p D.
+  ///
+  /// \verbatim
+  ///       contract-clause-seq:
+  ///         contract-clause
+  ///         contract-clause-seq contract-clause
+  ///       contract-clause:
+  ///         'pre' '(' expression ')'
+  /// \endverbatim
+  ///
+  /// Called with the function prototype scope still open, so a predicate can
+  /// name the function's parameters, exactly as noexcept(expr) does in the
+  /// same slot. \p EndLoc is advanced past the last clause parsed.
+  void ParseContractClauses(Declarator &D, SourceLocation &EndLoc);
 
   /// ParseRefQualifier - Parses a member function ref-qualifier. Returns
   /// true if a ref-qualifier is found.

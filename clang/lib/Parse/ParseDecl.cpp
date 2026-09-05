@@ -7433,6 +7433,12 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
     }
   }
 
+  // Parse contract-clause-seq[opt]. This sits in the same declarator slot as
+  // the exception-specification and the trailing return type, with the
+  // prototype scope still open, so a predicate can name the parameters.
+  if (getLangOpts().CContracts)
+    ParseContractClauses(D, EndLoc);
+
   // Collect non-parameter declarations from the prototype if this is a function
   // declaration. They will be moved into the scope of the function. Only do
   // this in C and not C++, where the decls will continue to live in the
@@ -7469,6 +7475,78 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                     LocalEndLoc, D, TrailingReturnType, TrailingReturnTypeLoc,
                     &DS),
                 std::move(FnAttrs), EndLoc);
+}
+
+bool Parser::isContractClauseKeyword(const Token &Tok,
+                                     ContractClause::ClauseKind &Kind) const {
+  const IdentifierInfo *II = Tok.getIdentifierInfo();
+  if (!II)
+    return false;
+  // Contextual: these are ordinary identifiers outside this slot, so a
+  // program that already uses 'pre' as a name keeps working everywhere else.
+  if (II->isStr("pre")) {
+    Kind = ContractClause::CK_Pre;
+    return true;
+  }
+  if (II->isStr("post")) {
+    Kind = ContractClause::CK_Post;
+    return true;
+  }
+  if (II->isStr("writes")) {
+    Kind = ContractClause::CK_Writes;
+    return true;
+  }
+  return false;
+}
+
+void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
+  assert(getLangOpts().CContracts && "contracts are off");
+
+  SmallVector<ContractClause, 2> Clauses;
+  ContractClause::ClauseKind Kind;
+  while (isContractClauseKeyword(Tok, Kind)) {
+    // A clause keyword not followed by '(' is not a clause. Backing out here
+    // rather than erroring keeps unrelated constructs that happen to end in an
+    // identifier from being captured by the contract grammar.
+    if (NextToken().isNot(tok::l_paren)) {
+      Diag(Tok, diag::err_contract_clause_expected_lparen)
+          << ContractClause::getKindSpelling(Kind);
+      break;
+    }
+
+    SourceLocation KeywordLoc = ConsumeToken();
+
+    BalancedDelimiterTracker T(*this, tok::l_paren);
+    T.consumeOpen();
+
+    // Only 'pre' is implemented. The others are recognized so that they are
+    // diagnosed rather than silently parsed as something else, and so that the
+    // grammar is fixed now.
+    bool Supported = Kind == ContractClause::CK_Pre;
+    if (!Supported)
+      Diag(KeywordLoc, diag::err_contract_clause_unsupported)
+          << ContractClause::getKindSpelling(Kind);
+
+    ExprResult Predicate = ParseExpression();
+    if (Predicate.isInvalid()) {
+      T.skipToEnd();
+      continue;
+    }
+    if (T.consumeClose())
+      break;
+
+    if (Supported)
+      Predicate = Actions.ActOnContractClausePredicate(Kind, KeywordLoc,
+                                                       Predicate.get());
+
+    Clauses.emplace_back(
+        Kind, KeywordLoc, T.getOpenLocation(), T.getCloseLocation(),
+        Supported && Predicate.isUsable() ? Predicate.get() : nullptr);
+    EndLoc = T.getCloseLocation();
+  }
+
+  if (!Clauses.empty())
+    D.setContractClauses(Clauses);
 }
 
 bool Parser::ParseRefQualifier(bool &RefQualifierIsLValueRef,

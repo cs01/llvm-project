@@ -12,6 +12,7 @@
 
 #include "ASTCommon.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/DeclVisitor.h"
@@ -929,6 +930,23 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   Record.push_back(D->param_size());
   for (auto *P : D->parameters())
     Record.AddDeclRef(P);
+
+  // Contract clauses. Written unconditionally as a count so that a reader
+  // built from the same tree stays in sync whether or not -fc-contracts was
+  // used to produce the module.
+  if (const ContractSpecifier *CS = D->getContracts()) {
+    Record.push_back(CS->size());
+    for (const ContractClause &C : *CS) {
+      Record.push_back(C.getKind());
+      Record.AddSourceLocation(C.getKeywordLoc());
+      Record.AddSourceLocation(C.getLParenLoc());
+      Record.AddSourceLocation(C.getRParenLoc());
+      Record.AddStmt(C.getPredicate());
+    }
+  } else {
+    Record.push_back(0);
+  }
+
   Code = serialization::DECL_FUNCTION;
 }
 

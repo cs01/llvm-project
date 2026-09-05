@@ -15,6 +15,7 @@
 
 #include "clang/AST/ASTConcept.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclCXX.h"
@@ -2383,6 +2384,16 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
           D->getTrailingRequiresClause()) {
     TRY_TO(TraverseStmt(
         const_cast<Expr *>(TrailingRequiresClause.ConstraintExpr)));
+  }
+
+  // Visit the contract clause predicates, if any. Analyses that walk function
+  // bodies must see these too: a predicate names the parameters and is real
+  // code as far as the AST is concerned.
+  if (ContractSpecifier *CS = D->getContracts()) {
+    for (ContractClause &Clause : *CS) {
+      if (Clause.getPredicate())
+        TRY_TO(TraverseStmt(Clause.getPredicate()));
+    }
   }
 
   if (CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(D)) {

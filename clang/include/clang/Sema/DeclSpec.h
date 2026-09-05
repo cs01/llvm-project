@@ -22,6 +22,7 @@
 #ifndef LLVM_CLANG_SEMA_DECLSPEC_H
 #define LLVM_CLANG_SEMA_DECLSPEC_H
 
+#include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjCCommon.h"
 #include "clang/AST/NestedNameSpecifier.h"
@@ -2022,6 +2023,11 @@ private:
   /// requires-clause, or null if no such clause was specified.
   Expr *TrailingRequiresClause;
 
+  /// Contract clauses parsed in the function declarator suffix under
+  /// -fc-contracts, in source order. Consumed by Sema when the FunctionDecl
+  /// is built; a non-function declarator carrying clauses is diagnosed.
+  SmallVector<ContractClause, 2> ContractClauses;
+
   /// If this declarator declares a template, its template parameter lists.
   ArrayRef<TemplateParameterList *> TemplateParameterLists;
 
@@ -2177,6 +2183,7 @@ public:
     CommaLoc = SourceLocation();
     EllipsisLoc = SourceLocation();
     PackIndexingExpr = nullptr;
+    ContractClauses.clear();
   }
 
   /// mayOmitIdentifier - Return true if the identifier is either optional or
@@ -2688,6 +2695,15 @@ public:
 
   /// \brief Determine whether a trailing requires clause was written in this
   /// declarator.
+  /// The contract clauses written in this declarator's function suffix.
+  ArrayRef<ContractClause> getContractClauses() const {
+    return ContractClauses;
+  }
+  void setContractClauses(ArrayRef<ContractClause> Clauses) {
+    ContractClauses.assign(Clauses.begin(), Clauses.end());
+  }
+  bool hasContractClauses() const { return !ContractClauses.empty(); }
+
   bool hasTrailingRequiresClause() const {
     return TrailingRequiresClause != nullptr;
   }

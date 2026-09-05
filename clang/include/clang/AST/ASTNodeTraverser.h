@@ -18,6 +18,7 @@
 #include "clang/AST/ASTTypeTraits.h"
 #include "clang/AST/AttrVisitor.h"
 #include "clang/AST/CommentVisitor.h"
+#include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/DeclVisitor.h"
 #include "clang/AST/LocInfoType.h"
 #include "clang/AST/StmtVisitor.h"
@@ -559,6 +560,13 @@ public:
 
     if (const AssociatedConstraint &TRC = D->getTrailingRequiresClause())
       Visit(TRC.ConstraintExpr);
+
+    if (const ContractSpecifier *CS = D->getContracts())
+      for (const ContractClause &Clause : *CS)
+        getNodeDelegate().AddChild(Clause.getKindSpelling(), [=] {
+          if (Clause.getPredicate())
+            Visit(Clause.getPredicate());
+        });
 
     if (Traversal == TK_IgnoreUnlessSpelledInSource && D->isDefaulted())
       return;

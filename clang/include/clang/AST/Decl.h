@@ -57,6 +57,7 @@
 namespace clang {
 
 class ASTContext;
+class ContractSpecifier;
 struct ASTTemplateArgumentListInfo;
 class CompoundStmt;
 class DependentFunctionTemplateSpecializationInfo;
@@ -2173,6 +2174,11 @@ private:
   /// no formals.
   ParmVarDecl **ParamInfo = nullptr;
 
+  /// The contract clauses written on this declaration, or null if it has
+  /// none. Contracts are per-declaration, not part of the function type: see
+  /// ContractSpecifier.h.
+  ContractSpecifier *Contracts = nullptr;
+
   /// The active member of this union is determined by
   /// FunctionDeclBits.HasDefaultedOrDeletedInfo.
   union {
@@ -2450,6 +2456,13 @@ public:
 
   void setDefaultedOrDeletedInfo(DefaultedOrDeletedFunctionInfo *Info);
   DefaultedOrDeletedFunctionInfo *getDefaultedOrDeletedInfo() const;
+
+  /// The contract clauses written on this declaration, or null. Contracts are
+  /// not inherited from a previous declaration here; a caller that wants the
+  /// contract in force should consult the declaration it is calling through.
+  ContractSpecifier *getContracts() const { return Contracts; }
+  void setContracts(ContractSpecifier *CS) { Contracts = CS; }
+  bool hasContracts() const { return Contracts != nullptr; }
 
   /// Determine the kind of defaulting that would be done for a given function.
   ///

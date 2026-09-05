@@ -2113,6 +2113,14 @@ defm bounds_safety : BoolFOption<
   BothFlags<[], [CC1Option],
           " experimental bounds safety extension for C">>;
 
+defm c_contracts : BoolFOption<
+  "c-contracts",
+  LangOpts<"CContracts">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option], "Disable">,
+  BothFlags<[], [],
+          " the readable contracts extension for C ('pre', 'post', 'writes')">>;
+
 defm debug_run_lifetime_safety : BoolFOption<
   "debug-run-lifetime-safety",
   LangOpts<"DebugRunLifetimeSafety">, DefaultFalse,

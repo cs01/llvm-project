@@ -6737,6 +6737,16 @@ NamedDecl *Sema::HandleDeclarator(Scope *S, Declarator &D,
   if (!New)
     return nullptr;
 
+  // Contract clauses are attached here rather than inside
+  // ActOnFunctionDeclarator so that a declarator that parsed clauses but did
+  // not produce a function is diagnosed instead of silently dropping them.
+  if (D.hasContractClauses()) {
+    if (auto *FD = dyn_cast<FunctionDecl>(New))
+      ActOnFunctionContracts(D, FD);
+    else
+      DiagnoseContractsOnNonFunction(D);
+  }
+
   warnOnCTypeHiddenInCPlusPlus(New);
 
   // If this has an identifier and is not a function template specialization,

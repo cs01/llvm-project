@@ -7863,6 +7863,24 @@ public:
   ExprResult CheckBooleanCondition(SourceLocation Loc, Expr *E,
                                    bool IsConstexpr = false);
 
+  // --- C contracts (-fc-contracts). Implementations in SemaContracts.cpp. ---
+
+  /// Checks the predicate of a contract clause and applies the contextual
+  /// conversion to bool. Returns an invalid result if the predicate cannot be
+  /// used, in which case the clause is recorded without one so that the
+  /// remaining clauses on the declaration are still checked.
+  ExprResult ActOnContractClausePredicate(ContractClause::ClauseKind Kind,
+                                          SourceLocation KeywordLoc,
+                                          Expr *Predicate);
+
+  /// Builds the ContractSpecifier for \p D and attaches it to \p FD. Diagnoses
+  /// clauses written on a declarator that does not declare a function.
+  void ActOnFunctionContracts(Declarator &D, FunctionDecl *FD);
+
+  /// Diagnoses contract clauses on a declarator that did not produce a
+  /// FunctionDecl.
+  void DiagnoseContractsOnNonFunction(Declarator &D);
+
   enum class ConditionKind {
     Boolean,     ///< A boolean condition, from 'if', 'while', 'for', or 'do'.
     ConstexprIf, ///< A constant boolean condition from 'if constexpr'.

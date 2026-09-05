@@ -18,6 +18,7 @@
 #include "clang/AST/ASTStructuralEquivalence.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/AttrIterator.h"
+#include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclCXX.h"
@@ -1146,6 +1147,21 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   for (unsigned I = 0; I != NumParams; ++I)
     Params.push_back(readDeclAs<ParmVarDecl>());
   FD->setParams(Reader.getContext(), Params);
+
+  // Contract clauses, written by ASTDeclWriter::VisitFunctionDecl.
+  if (unsigned NumClauses = Record.readInt()) {
+    SmallVector<ContractClause, 2> Clauses;
+    Clauses.reserve(NumClauses);
+    for (unsigned I = 0; I != NumClauses; ++I) {
+      auto Kind = static_cast<ContractClause::ClauseKind>(Record.readInt());
+      SourceLocation KeywordLoc = readSourceLocation();
+      SourceLocation LParenLoc = readSourceLocation();
+      SourceLocation RParenLoc = readSourceLocation();
+      Expr *Predicate = Record.readExpr();
+      Clauses.emplace_back(Kind, KeywordLoc, LParenLoc, RParenLoc, Predicate);
+    }
+    FD->setContracts(ContractSpecifier::Create(Reader.getContext(), Clauses));
+  }
 
   // If the declaration is a SYCL kernel entry point function as indicated by
   // the presence of a sycl_kernel_entry_point attribute, register it so that
