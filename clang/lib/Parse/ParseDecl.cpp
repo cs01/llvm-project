@@ -7477,9 +7477,12 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                 std::move(FnAttrs), EndLoc);
 }
 
-bool Parser::isContractClauseKeyword(const Token &Tok,
-                                     ContractClause::ClauseKind &Kind) const {
-  const IdentifierInfo *II = Tok.getIdentifierInfo();
+/// Returns true if \p II names a contract clause keyword.
+///
+/// Shared with the macro-collision warning, which must ask the same question
+/// about a macro name that the parser asks about a token.
+static bool isContractClauseKeywordName(const IdentifierInfo *II,
+                                        ContractClause::ClauseKind &Kind) {
   if (!II)
     return false;
   // Contextual: these are ordinary identifiers outside this slot, so a
@@ -7497,6 +7500,38 @@ bool Parser::isContractClauseKeyword(const Token &Tok,
     return true;
   }
   return false;
+}
+
+namespace {
+/// Warns when a macro is defined whose name hides a contract clause keyword.
+///
+/// Section 5 of the design calls this out: a macro named 'pre' in any earlier
+/// header silently rewrites every contract that follows it, and the rewrite is
+/// invisible because the parser only ever sees the expansion.
+class ContractKeywordMacroWarner : public PPCallbacks {
+  Preprocessor &PP;
+
+public:
+  explicit ContractKeywordMacroWarner(Preprocessor &PP) : PP(PP) {}
+
+  void MacroDefined(const Token &MacroNameTok,
+                    const MacroDirective *MD) override {
+    ContractClause::ClauseKind Kind;
+    if (!isContractClauseKeywordName(MacroNameTok.getIdentifierInfo(), Kind))
+      return;
+    PP.Diag(MacroNameTok, diag::warn_contract_keyword_macro)
+        << MacroNameTok.getIdentifierInfo();
+  }
+};
+} // namespace
+
+void Parser::RegisterContractKeywordMacroWarning() {
+  PP.addPPCallbacks(std::make_unique<ContractKeywordMacroWarner>(PP));
+}
+
+bool Parser::isContractClauseKeyword(const Token &Tok,
+                                     ContractClause::ClauseKind &Kind) const {
+  return isContractClauseKeywordName(Tok.getIdentifierInfo(), Kind);
 }
 
 void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {

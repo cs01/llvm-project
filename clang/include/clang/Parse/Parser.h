@@ -2787,6 +2787,12 @@ private:
   /// same slot. \p EndLoc is advanced past the last clause parsed.
   void ParseContractClauses(Declarator &D, SourceLocation &EndLoc);
 
+  /// Installs the PPCallbacks that warns about a macro hiding a contract
+  /// clause keyword. Registered from Initialize so that macros from -D and the
+  /// predefines buffer are seen too, since those are lexed lazily once parsing
+  /// starts.
+  void RegisterContractKeywordMacroWarning();
+
   /// ParseRefQualifier - Parses a member function ref-qualifier. Returns
   /// true if a ref-qualifier is found.
   bool ParseRefQualifier(bool &RefQualifierIsLValueRef,

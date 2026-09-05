@@ -493,6 +493,9 @@ void Parser::Initialize() {
   EnterScope(Scope::DeclScope);
   Actions.ActOnTranslationUnitScope(getCurScope());
 
+  if (getLangOpts().CContracts)
+    RegisterContractKeywordMacroWarning();
+
   // Initialization for Objective-C context sensitive keywords recognition.
   // Referenced in Parser::ParseObjCTypeQualifierList.
   if (getLangOpts().ObjC) {
