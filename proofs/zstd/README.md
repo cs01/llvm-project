@@ -22,6 +22,18 @@ cbmc harness_lookbits.i --function harness \
 `-DNDEBUG` matters: it compiles out the `assert` that would otherwise mask the
 question, which is what a shipped build does.
 
+Three more things this setup needs, learned the hard way:
+
+- **`__builtin_memcpy` has no body in CBMC.** Apple's headers route `memcpy`
+  through the builtin, so the preprocessed source has to be rewritten:
+  `sed -e 's/__builtin_memcpy/memcpy/g' -e 's/__builtin_memmove/memmove/g'`.
+  CBMC models the plain names.
+- **`--object-bits 12`.** The default allows 2^8 addressed objects, which
+  `ZSTD_execSequence` exceeds.
+- **Harnesses for internal functions include the `.c`, not the `.h`.** `seq_t`
+  and the fast path are file-local to `zstd_decompress_block.c`. Including the
+  translation unit proves the real code rather than a transcription of it.
+
 ## Result 1: BIT_lookBits, and a contract that is weaker than the code
 
 `BIT_getMiddleBits` ends in `BIT_mask[nbBits]` on every target that is not
