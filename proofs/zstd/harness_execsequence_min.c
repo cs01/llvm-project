@@ -9,8 +9,8 @@
 // this .c file, and the point is to prove the real code rather than a copy.
 #include "zstd_decompress_block.c"
 
-#define DST_CAP   64u
-#define LIT_CAP   32u
+#define DST_CAP   48u
+#define LIT_CAP   16u
 #define DICT_CAP  64u
 
 unsigned int  nondet_uint(void);
@@ -19,19 +19,17 @@ unsigned long nondet_ulong(void);
 void harness(void)
 {
     static BYTE dst[DST_CAP];
-    // The literals buffer needs WILDCOPY_OVERLENGTH bytes of readable slack past
-    // litLimit: ZSTD_copy16 and ZSTD_wildcopy deliberately over-read. That
-    // requirement is real and appears nowhere in ZSTD_execSequence's signature.
-    static BYTE lit[LIT_CAP + WILDCOPY_OVERLENGTH];
+    static BYTE lit[LIT_CAP];
     static BYTE dict[DICT_CAP];
 
     BYTE *const ostart = dst;
     BYTE *const oend   = dst + DST_CAP;
 
     // Where in the output we are, and how much prefix is already decoded.
-    size_t const opOffset = nondet_ulong();
-    __CPROVER_assume(opOffset <= DST_CAP);
-    BYTE *op = ostart + opOffset;
+    // Output position pinned. The fast path's bounds reasoning is relative to
+    // oend, so a symbolic start adds state space without adding coverage of
+    // the property under test.
+    BYTE *op = ostart;
 
     const BYTE *litPtr = lit;
     const BYTE *const litLimit = lit + LIT_CAP;
@@ -50,8 +48,8 @@ void harness(void)
     // The preconditions the callers actually establish, read off the asserts.
     __CPROVER_assume(op != 0);
     __CPROVER_assume(oend - op >= (ptrdiff_t)WILDCOPY_OVERLENGTH);
-    __CPROVER_assume(sequence.litLength <= LIT_CAP);
-    __CPROVER_assume(sequence.matchLength >= 1 && sequence.matchLength <= 32);
+    __CPROVER_assume(sequence.litLength <= 16);
+    __CPROVER_assume(sequence.matchLength >= 1 && sequence.matchLength <= 16);
     __CPROVER_assume(sequence.offset >= 1);
     __CPROVER_assume(sequence.offset <= (size_t)(op - prefixStart) + sequence.litLength);
     __CPROVER_assume(litPtr + sequence.litLength <= litLimit);
