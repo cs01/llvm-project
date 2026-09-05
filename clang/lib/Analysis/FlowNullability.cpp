@@ -56,6 +56,7 @@
 #include "clang/AST/Stmt.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/AST/Type.h"
+#include "clang/Analysis/Analyses/ExprMutationAnalyzer.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/FlowSensitive/DataflowWorklist.h"
@@ -1722,14 +1723,12 @@ private:
       return;
     const Expr *TrueArm = CO->getTrueExpr()->IgnoreParenImpCasts();
     const Expr *FalseArm = CO->getFalseExpr()->IgnoreParenImpCasts();
-    bool TrueIsNull =
-        TrueArm->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
-    bool FalseIsNull =
-        FalseArm->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
+    bool TrueIsNull = TrueArm->IgnoreParenCasts()->isNullPointerConstant(
+        Ctx, Expr::NPC_ValueDependentIsNotNull);
+    bool FalseIsNull = FalseArm->IgnoreParenCasts()->isNullPointerConstant(
+        Ctx, Expr::NPC_ValueDependentIsNotNull);
     if (TrueIsNull == FalseIsNull)
       return;
-    // c ? maybenull : nullptr proves nothing on the true edge, so the
-    // surviving arm has to be provably non-null.
     const Expr *NonnullArm = TrueIsNull ? FalseArm : TrueArm;
     if (!isNonnullInit(NonnullArm) && !isExprNarrowedNonnull(NonnullArm) &&
         !isNonnullType(NonnullArm->getType()))
@@ -1747,6 +1746,9 @@ private:
       return;
     const auto *GuardVD = dyn_cast<VarDecl>(DRE->getDecl());
     if (!GuardVD || !GuardVD->getType()->isIntegerType())
+      return;
+    ExprMutationAnalyzer MutationAnalyzer(*CO, Ctx);
+    if (MutationAnalyzer.isMutated(GuardVD))
       return;
     ConditionResult CR{PtrRef{PtrVD, std::nullopt}, Negated};
     auto &Facts = State.BoolGuards[GuardVD];
@@ -1996,6 +1998,7 @@ private:
               State.NullableVars.erase(TgtVD);
               invalidateMembersFor(TgtVD);
               invalidateBoolGuardsFor(TgtVD);
+              State.BoolGuards.erase(TgtVD);
             }
           }
         }
