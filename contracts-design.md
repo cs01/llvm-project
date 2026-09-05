@@ -374,7 +374,10 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
   from `Parser::Initialize`, so `-D` and the predefines buffer are covered).
   Warning in `-Wc-contracts`, not an error: a project may have an unrelated
   `pre` macro and never write a contract.
-- Purity checking: predicates can call anything today.
+- Purity checking: **done**. `Expr::HasSideEffects` rejects assignment,
+  increment, and calls to anything not marked `const` or `pure`, so those two
+  existing attributes are the "usable in specs" marker from section 4 item 7
+  and no new attribute is needed.
 
 
 ### Phase 2: runtime checking
