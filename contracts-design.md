@@ -1,392 +1,510 @@
 # Readable contracts for C in clang
 
 Status: design draft, nothing implemented.
-Date: 2026-09-04.
-Base: branch `contracts-c-dev`, forked from upstream `main` 2fd31faf6ec5 (2026-09-04).
+Revised: 2026-09-04, after an adversarial review that killed several claims in
+the first draft. Corrections from that review are marked where they changed the
+design, so the reasoning is not silently rewritten.
+Base: branch `contracts-c-dev`, forked from upstream `main` 2fd31faf6ec5
+(2026-09-04). Every in-tree citation below was checked against that commit.
 
 ## 1. Goal
 
-Add a first-class contract syntax to C in clang: preconditions, postconditions,
-loop invariants, and frame conditions that are part of the grammar rather than
-macros, comments, or attribute soup. Readable enough that a compression library
-maintainer will actually write them, and useful in three separate ways from the
-same source text:
+Give C first-class contracts in clang: preconditions, postconditions, and frame
+conditions that the compiler parses and checks, rather than macros that expand
+to nothing or comments no tool reads. Useful in two ways from one source text:
 
-- caught at runtime (a trap at the earliest wrong state),
-- checked statically at call sites (path-sensitive analysis),
-- proved (SMT, opt-in, per function).
+- **checked at runtime**, turning silent corruption into a deterministic trap at
+  the earliest wrong state,
+- **checked statically at call sites**, so a caller that violates a callee's
+  contract is a compile-time diagnostic.
 
-C only. No C++ interop story in v1. Not required to work outside clang.
+Target: pure C. Evaluation target: production compression code (zstd, openzl)
+and sqlite.
+
+Explicitly **not** goals, each cut for a reason given below: proving whole
+programs correct (section 8), an `assume` mode that feeds the optimizer
+(section 3), and a bespoke SMT verification tier (section 7).
 
 ## 2. What contracts can and cannot guarantee
 
-Three distinct tiers get conflated in most discussions. They are not the same
-tool and they do not have the same cost.
+Three tiers get conflated. They are not the same tool and do not have the same
+cost.
 
 | Tier | Guarantee | Annotation cost | Precedent |
 |---|---|---|---|
-| Runtime-checked | None statically. Converts silent corruption into a deterministic trap at the earliest wrong state. | Low | C++26 P2900, `assert` |
-| Path-sensitive bug finding | Unsound and incomplete. Finds real bugs, proves nothing. | Low | clang static analyzer |
-| Deductive verification | Proves "precondition implies postcondition, no UB" for that function. | High: invariants, variants, frame conditions, memory model | Frama-C/WP, VeriFast, VCC |
+| Runtime-checked | None statically. Converts silent corruption into a deterministic trap. | Low | C++26 P2900, SAL, `assert` |
+| Path-sensitive bug finding | Unsound and incomplete. Finds real bugs, proves nothing. | Low | clang static analyzer, PREfast |
+| Deductive verification | Proves "precondition implies postcondition, no UB" for that function. | High | Frama-C/WP, VeriFast, VCC, CBMC |
 
-Only the third tier "guarantees", and it guarantees the code matches the spec.
-It does not guarantee the spec is right. A wrong `post` is proved happily.
+Only the third tier proves anything, and it proves the code matches the spec,
+not that the spec is right. A wrong `post` is proved happily.
 
-The practical position: tiers 1 and 2 pay for themselves at low annotation cost
-and should ship first. Tier 3 is opt-in on a handful of leaf functions where the
-payoff justifies writing loop invariants by hand.
+**What is actually runtime-checkable is narrower than it looks.** A predicate
+can be compiled into a branch only if the program has the information at hand:
 
-### Rust comparison
+- `p != NULL`, `n > 0`, `r <= cap`, comparisons between scalars and pointers:
+  yes.
+- `valid(p, n)`, meaning "p points to at least n readable bytes": **no.** There
+  is no way to learn the allocation behind a `void *` at function entry. Clang's
+  `-fexperimental-bounds-safety` (`Options.td:2109`) is the machinery that would
+  answer this, and its own documentation says "Not fully implemented upstream"
+  (`clang/docs/BoundsSafetyImplPlans.md:11`); `SemaBoundsSafety.cpp` is 415
+  lines with no runtime checks.
+- `writes(...)`: **no.** Checking a frame condition at runtime means shadow
+  memory. E-ACSL had to build an entire runtime for this.
 
-Porting to Rust buys spatial and temporal memory safety. It does not buy
-functional correctness. A decoder that mis-parses a frame header and returns
-wrong-but-in-bounds bytes is a safe Rust program and a broken decompressor.
-Contracts attack the axis Rust leaves alone. This is the reason to do the work
-on C rather than treat C as a lost cause.
+So under runtime checking, buffer clauses are documentation that the static
+tiers consume, not traps. The first draft implied otherwise; it was wrong.
 
-### CSA is not an SMT solver
+### Rust comparison, stated more carefully
 
-Correct. The clang static analyzer is symbolic execution over an exploded graph
-with a cheap `RangeConstraintManager`. It can already dispatch to Z3 in two
-ways, both present in this tree:
+Porting to Rust buys spatial and temporal memory safety, not functional
+correctness: a decoder that mis-parses a header and emits wrong-but-in-bounds
+bytes is a safe Rust program and a broken decompressor. Two honest caveats the
+first draft skipped. First, most decoder CVEs *are* memory-safety bugs, and
+round-trip fuzzing already catches much of the rest. Second, Rust is not
+ignoring this axis: Kani, Verus, Creusot, Prusti, and `core`'s `#[requires]` /
+`#[ensures]` from the Verify Rust Std work all exist. The C argument is that C
+is not going anywhere, not that Rust has nothing here.
 
-- `-analyzer-constraints=z3`, a full SMT constraint manager
-  (`clang/include/clang/StaticAnalyzer/Core/PathSensitive/SMTConstraintManager.h`,
-  `SMTConv.h`, over `llvm/include/llvm/Support/SMTAPI.h`),
-- Z3 refutation of finished reports (`crosscheck-with-z3` in
-  `AnalyzerOptions.def`).
+### The static analyzer is not an SMT solver, and its Z3 path is not usable
 
-So the solver plumbing is in-tree already. Tier 3 reuses it rather than growing
-a new one.
+CSA is symbolic execution over an exploded graph with a `RangeConstraintManager`.
+The first draft claimed the solver plumbing was in-tree and reusable. Checked,
+and it is not:
 
-## 3. Recon: what already exists in this tree
+- `clang/include/clang/StaticAnalyzer/Core/Analyses.def:21` spells the option
+  `unsupported-z3`, described in-tree as "Known to crash; patches welcome, crash
+  reports are not." There is no `-analyzer-constraints=z3`.
+- `llvm/include/llvm/Support/SMTAPI.h:182-200` offers Bool, BitVector, and
+  Float16/32/64/128 sorts. No array theory, no quantifiers, no uninterpreted
+  functions. A block-based memory model needs arrays; range predicates need
+  quantifiers. There is nothing there to encode into.
 
-Checked 2026-09-04 against the fork base.
+## 3. Recon: what exists in this tree
 
-- **No C or C++ contracts.** `grep -rn "ContractStmt\|contract_assert" clang/include clang/lib` is empty. C++26 P2900 is not implemented here. Nothing to retarget, but also nothing to fight.
-- **`__counted_by` / `__sized_by` exist.** `clang/include/clang/Basic/Attr.td:2660` (`CountedBy`, `CountedByOrNull`), with `clang/lib/Sema/SemaBoundsSafety.cpp`. Apple's `-fbounds-safety` is precedent that adding real C language surface to clang for safety is an accepted path, and gives a working model for "a parameter's bound is another parameter".
-- **`[[assume]]` / `__attribute__((assume))`** at `Attr.td:1949`, lowering to `llvm.assume`. This is the tier-1-to-optimizer bridge and it already works.
-- **`diagnose_if`** at `Attr.td:3754`. Closest existing thing to a compile-time precondition, and a good example of the ergonomics problem this design is trying to fix.
-- **SMT layer** present as listed above.
-- **`clang/lib/Analysis/LifetimeSafety/`** (~4k lines, new since May 2026). A
-  CFG dataflow analysis that verifies function bodies against their lifetime
-  annotations (`[[clang::lifetimebound]]`, `[[clang::noescape]]`), wired into
-  ordinary warnings via `AnalysisBasedWarnings.cpp`, not into the opt-in static
-  analyzer. Its own docs call the annotations "contracts". This is the closest
-  structural precedent in the tree and a candidate host for phase 3: a
-  per-TU dataflow pass that ships as a warning reaches far more users than a
-  CSA checker anyone has to opt into.
-- Note: driver options moved to `clang/include/clang/Options/Options.td`.
+Checked against `2fd31faf6ec5`. The first draft's line numbers were carried over
+from a November-2025 checkout and were wrong; these are re-verified.
 
-## 4. What the language actually needs
+- **No C or C++ contracts.** Every "contract" hit in `clang/lib/Parse` is
+  `fp_contract`. P2900 is not implemented here.
+- **`counted_by` / `counted_by_or_null`** at `Attr.td:2677`, with
+  `clang/lib/Sema/SemaBoundsSafety.cpp` (415 lines). Precedent for adding C
+  safety surface to clang, but far less finished than the first draft implied.
+- **`CXXAssume`** at `Attr.td:1941`, lowering to `llvm.assume`. Note this is the
+  C++ statement attribute, not `OMPAssume` at `Attr.td:4877`; the first draft
+  conflated them.
+- **`diagnose_if`** at `Attr.td:3779`. The closest existing thing to a
+  compile-time precondition.
+- **No GCC `access` attribute.** `grep 'GCC<"access">' Attr.td` returns nothing.
+  GCC has had `access(write_only, 1, 2)` since GCC 10, which is `valid` plus
+  `writes` for C, and it drives `-Wstringop-overflow`. Clang lacking it is a
+  gap, and closing it is independently upstreamable. See section 10.
+- **`clang/lib/Analysis/LifetimeSafety/`**: 5821 lines, introduced 2025-07-10
+  (#142313), reorganized 2025-10-10 (#162474), wired into ordinary warnings via
+  `AnalysisBasedWarnings.cpp`. A CFG dataflow pass that verifies function bodies
+  against their annotations, which its own docs call "contracts". The first
+  draft called this "~4k lines, new since May 2026" and leaned on its newness as
+  evidence of a shift in what clang will accept. It is over a year old. The
+  precedent is still the best structural one in the tree; the timing argument
+  built on it was wrong.
+- **RegionStore invalidation is per-cluster.**
+  `clang/lib/StaticAnalyzer/Core/RegionStore.cpp:1228` does
+  `B = B.removeCluster(baseR)`: all-or-nothing for a base region, with no
+  sub-range granularity. `CallEvent.cpp` already preserves `const T*` pointees
+  via `TK_PreserveContents`. This bounds what frame conditions can buy in phase
+  3; see section 6.
+- Driver options live at `clang/include/clang/Options/Options.td`.
 
-Minimum viable spec language for real C. Ordered by how much each one is
-missed when absent.
+## 4. What the language needs
+
+Ordered by how much each is missed when absent.
 
 1. **`pre` / `post`.** Table stakes.
-2. **Result naming in `post`.** `post(r: r <= cap)`.
-3. **`old(e)` in `post`.** Requires an entry snapshot. Scalars only in v1; snapshotting memory needs the tier-3 memory model.
-4. **Frame conditions (`writes`).** The one people forget and the one that decides whether tiers 2 and 3 work at all. Without "this call modifies only `dst[0..cap)`", every call invalidates every fact and modular reasoning collapses. Today's CSA havocs aggressively at calls for exactly this reason.
-5. **`invariant` and `variant` on loops.** Invariant cuts the loop for verification; variant proves termination.
-6. **Memory predicates.** `valid(p, n)`, `disjoint(a, n, b, m)`. `valid` overlaps `__counted_by` and should reuse its Sema machinery where possible.
-7. **Quantifiers over ranges.** `forall k in [0, n): a[k] == b[k]`. Unavoidable for anything buffer-shaped, which for a compression library is everything.
-8. **Purity, and a `spec` function concept.** Only side-effect-free functions may appear in predicates, so that `post(is_sorted(a, n))` is meaningful. Needs a way to declare a function usable in specs and checked for purity.
-9. **Ghost variables and ghost parameters.** For proofs that need history the program does not keep. Tier 3 only.
+2. **Result naming in `post`.**
+3. **`old(e)` in `post`.** Scalars only. Required more often than it looks:
+   codec code mutates parameters constantly (`src += 4`, `dstCap -= n`), so a
+   `post` naming a by-value parameter is ambiguous between its entry and exit
+   value. P2900 forbids naming non-const by-value parameters in `post` for
+   exactly this reason. **Rule adopted here: a `post` predicate may name a
+   by-value parameter only through `old()`.** The first draft's headline example
+   (`post(r: r <= dstCap)`) violated this and was wrong as written.
+4. **Frame conditions (`writes`).** What makes modular reasoning possible at
+   all. Also the heaviest annotation burden, which is why section 7 tries to
+   infer them.
+5. **Behaviors, or some way to say "on success X, on error Y".** A single `post`
+   conjunction cannot describe a function that fills `dst[0..r)` on success and
+   leaves it garbage on error, which is every function in the target libraries.
+   ACSL uses named behaviors. Without something equivalent, `writes` and `post`
+   both lie on error paths. The first draft missed this entirely and it is a
+   v1-blocking gap, not a nicety.
+6. **Memory predicates**: `valid(p, n)`, `disjoint(a, n, b, m)`. Static-only per
+   section 2.
+7. **Purity**, so predicates cannot have side effects, and a way to mark a
+   function usable in specs.
+8. **Loop invariants and variants.** Deferred with the proof tier; see section 7.
+9. **Quantifiers over ranges.** Deferred with the proof tier.
 
-Deliberately out of scope for v1: type invariants on `struct`, contracts on
-function pointers, separation-logic ownership. Each is a large scope increase
-and none is needed to get value out of tiers 1 and 2.
-
-### Prior art
-
-ACSL (Frama-C's spec language for C) is the mature answer to "what does C
-need": `requires`, `ensures`, `assigns`, `loop invariant`, `loop variant`,
-`\old`, `\result`, `\valid`, `\separated`, ghost code, logic functions,
-axiomatics. Steal the semantics. Reject the syntax: ACSL lives inside
-`/*@ ... */` comments, which is precisely the property this project rejects.
+Out of scope for v1, unchanged: `struct` type invariants, contracts on function
+pointers, separation-logic ownership. Section 10 records what the function
+pointer exclusion costs.
 
 ## 5. Syntax
 
-Contextual keywords behind `-fc-contracts`, in the declarator suffix. Not
-attributes: the whole complaint about `__attribute__((returns_nonnull))` is
-that it reads like an annotation bolted to the side rather than part of the
-declaration.
+**Revised from the first draft.** The original proposed contextual keywords in
+the declarator suffix (`size_t f(...) pre(...) post(...);`). That is dropped.
+
+### Why the suffix syntax dies
+
+The plan's own evaluation gate is to annotate the public headers of zstd,
+openzl, and sqlite. Those headers are compiled by every compiler in existence.
+`size_t ZSTD_decompress(...) pre(...)` is a syntax error in GCC, MSVC, and every
+clang without this fork, so contracts on a public header would have to be
+`ZSTD_PRE(...)` macros expanding to nothing elsewhere, which is exactly the
+macro shape the syntax section rejected. "Part of the grammar" and "on zstd's
+public header" cannot both hold.
+
+The mechanical problems are real too, and were understated as "parser lookahead":
+
+- `dst[0..dstCap]` does not lex. `0..dstCap` is a single pp-number; clang says
+  `error: invalid suffix '.2' on floating constant`. Verified.
+- Parameters are out of scope after the closing paren.
+  `ParseDecl.cpp` exits `PrototypeScope` immediately after
+  `ParseFunctionDeclarator` returns, so a suffix clause cannot name parameters.
+  Contracts would have to be parsed inside `ParseFunctionDeclarator` next to the
+  exception-spec, and stored in `DeclaratorChunk::FunctionTypeInfo`, meaning
+  they get parsed on *every* function declarator (function pointers, abstract
+  declarators, `sizeof` operands) with Sema rejecting all but the one case.
+- If `pre` is a typedef, `int f(a) pre(a) { }` is already a valid K&R
+  declaration.
+- `for (...) invariant(x);` is already a valid call statement when `invariant`
+  is a function, so loop clauses need name lookup in the parser.
+- A macro named `pre`, `post`, or `valid` in any earlier header silently
+  rewrites contracts with no diagnostic. sqlite has `int exists;` locals.
+- clang-format and clangd would both need to learn the grammar.
+
+### What replaces it
+
+C23 attributes in the `clang` vendor namespace, with real predicate parsing:
 
 ```c
-size_t ZL_decompress(void *dst, size_t dstCap,
-                     const void *src, size_t srcSize)
-  pre   (valid(dst, dstCap))
-  pre   (valid(src, srcSize))
-  pre   (disjoint(dst, dstCap, src, srcSize))
-  post  (r: r <= dstCap || ZL_isError(r))
-  writes(dst[0..dstCap]);
+[[clang::pre(dst != NULL)]]
+[[clang::pre(src != NULL)]]
+[[clang::pre(valid(dst, dstCap))]]
+[[clang::pre(valid(src, srcSize))]]
+[[clang::pre(disjoint(dst, dstCap, src, srcSize))]]
+[[clang::writes(dst, dstCap)]]
+[[clang::post(r, r <= old(dstCap) || ZSTD_isError(r))]]
+size_t ZSTD_decompress(void *dst, size_t dstCap,
+                       const void *src, size_t srcSize);
 ```
 
-```c
-for (size_t i = 0; i < n; i++)
-  invariant (i <= n)
-  invariant (forall k in [0, i): out[k] == lit[k])
-  variant   (n - i)
-{
-  out[i] = lit[i];
-}
-```
+Verified: an unknown attribute in a vendor namespace parses its balanced token
+sequence and is ignored with `-Wunknown-attributes`, in both `-std=c23` and
+`-std=c11`. So a header annotated this way compiles everywhere; only this fork
+gives the tokens meaning. Pre-C23 compilers that reject `[[...]]` outright still
+need a one-line macro, which is a far smaller concession than macro-wrapping
+every predicate.
 
-Rules:
+Note the range syntax is now a call, `writes(dst, dstCap)`, not `dst[0..dstCap]`.
+This sidesteps the pp-number problem and needs no new grammar at all.
 
-- Contracts are declared on the prototype and inherited by the definition. A
-  definition may restate them; Sema checks they match. Header-visible means
-  call-site checkable, which is the entire point.
-- Predicates are ordinary C expressions of type `int`/`_Bool`, plus the spec
-  builtins (`old`, `valid`, `disjoint`, `forall`, `exists`).
-- Predicates must be pure. Calls inside a predicate must be to functions marked
-  usable in specs.
-- Multiple `pre`/`post` clauses conjoin, in source order. Order matters for
-  runtime checking (check `p != NULL` before `p->len > 0`).
+This is less pretty than the suffix form. It is also how `counted_by`,
+`diagnose_if`, and `lifetimebound` already ship, it is the only spelling with
+any upstream path, and it is a superset of GCC's `access` attribute. And the
+evidence says the spelling was never the blocker: see section 8.
 
-Open syntax risk: declarator-suffix parsing collides with the C attribute
-grammar and with K&R declarations in corners. Contextual keywords keep existing
-code compiling (`int pre = 3;` stays legal) at the cost of parser lookahead.
+Rules unchanged from the first draft: contracts on the prototype, inherited by
+the definition; clauses conjoin in source order; predicates must be pure. New:
+because a prototype and its definition have distinct `ParmVarDecl`s, and sqlite's
+header has 186 prototype lines with unnamed parameters, the predicate expression
+must be rebound at the definition, and positional parameter references are
+needed for the unnamed case. Both were missing from the first draft's phase 1.
 
 ## 6. Implementation plan
 
 ### Phase 0: recon
-Done, section 3 above. Conclusion: greenfield front end, reuse the SMT and
-bounds-safety layers.
+Done, section 3.
 
-### Phase 1: front end
-- Lexer: contextual keywords `pre`, `post`, `writes`, `invariant`, `variant`,
-  `forall`, `exists`, `old`, `valid`, `disjoint`, active only under
-  `-fc-contracts`.
-- Parser: declarator-suffix clauses in `ParseDecl.cpp`; loop clauses between
-  the loop header and body in `ParseStmt.cpp`.
-- AST: `ContractSpecifier` attached to `FunctionDecl`, `LoopContract` attached
-  to `ForStmt`/`WhileStmt`/`DoStmt`. Serialization, `ASTDumper`, AST matchers.
-- Sema: predicate type checking, purity checking, `old`/result binding,
-  prototype-vs-definition consistency, diagnosis of `old` outside `post`.
+### Phase 1: front end (attributes)
+Attribute definitions in `Attr.td` with delayed argument parsing so predicates
+are parsed as expressions in the right scope; Sema for type checking, purity,
+`old()` and result binding, prototype-to-definition rebinding, positional
+parameter references, consistency diagnostics. Serialization, `ASTDumper`,
+AST matchers.
 
-Gate: lit tests for parse, sema, and `-ast-dump`. No codegen.
+Gate: lit tests for parse, sema, `-ast-dump`. No codegen.
 
-### Phase 2: lowering, three modes
-`-fcontract-semantic={ignore,check,assume}`.
+### Phase 2: runtime checking
+`-fcontract-semantic={ignore,check}`. `check` emits a branch plus a handler call
+per checkable clause, reusing the ubsan handler plumbing. `pre` at callee entry,
+`post` at every return, entry snapshot for `old()` on scalars. Non-checkable
+clauses (`valid`, `writes`) compile to nothing and are consumed only by phase 3.
 
-- `check`: emit a branch plus a handler call per clause. Reuse the ubsan
-  handler plumbing for the runtime interface and source-location encoding.
-  `pre` at callee entry, `post` at every return, with an entry snapshot for
-  `old` on scalars.
-- `assume`: emit `llvm.assume`. This is the performance story: contracts feed
-  the optimizer facts it cannot derive across a call boundary, letting it
-  delete redundant bounds and null checks. Contracts that make the decoder
-  faster, not just safer.
-- `ignore`: parse and Sema-check, emit nothing.
+**`assume` is cut.** The first draft proposed an `assume` mode lowering to
+`llvm.assume` and sold it as a performance story. P2900 has ignore, observe,
+enforce, and quick-enforce, and deliberately has no assume, because an assumed
+predicate that is false is UB and a wrong contract silently miscompiles. That
+risk is unacceptable on its own, and compounds with section 7: an inferred
+contract that a human rubber-stamps would turn a tolerated latent bug into
+optimizer-exploited UB. The expected win was also overstated, since `llvm.assume`
+of a call to a non-`const` function like `ZSTD_isError` is dropped
+(`warn_assume_side_effects`, `DiagnosticSemaKinds.td:982`), and `valid`,
+`disjoint`, and range predicates have no `llvm.assume` lowering at all.
 
-Gate: openzl, zstd, and sqlite build clean with contracts on the public
-headers; full upstream test suites green under `check` with zero violations, or
-with violations that turn out to be real bugs, which is a better outcome.
+An `observe` mode (diagnose, do not trap) should be added instead, because a
+library built with `check` traps its consumers' pre-existing benign misuse
+without their opt-in. See section 10.
 
-### Phase 3: whole-body checking against contracts
-Two possible hosts, see question 8:
+Gate: zstd, openzl, and sqlite build clean with annotated public headers; test
+suites green under `check`.
 
-- **CFG dataflow in Sema**, alongside `LifetimeSafety`, shipping as a warning.
-  Cheap, on by default, reaches everyone; less precise.
-- **CSA checker**, path-sensitive with a real constraint manager. More precise,
-  opt-in only.
+### Phase 3: call-site checking
+A checker that, at a call site, checks the callee's `pre` against the current
+state, assumes its `post` afterward, and uses `writes` to limit invalidation.
 
-Either way the checker consumes contracts the same way:
+**Precision expectations, corrected.** The first draft claimed frame conditions
+make CSA "strictly more precise", implying sub-object precision.
+`RegionStore.cpp:1228` removes an entire cluster keyed by base region, so
+`writes(dst, dstCap)` cannot do better than `writes(dst)` without new machinery,
+and `const T*` pointee preservation already exists. What survives is control over
+*which* clusters a call invalidates rather than precision within one. That is a
+real gain, but for codec code where the whole decoder state hangs off a single
+`ZSTD_DCtx *`, it collapses. **This must be measured on roughly 20 hand-annotated
+zstd functions before any of phase 3 is built.** If the measurement says the gain
+is small, phase 3 shrinks to call-site `pre` checking, which is still worth
+having and does not depend on frame conditions at all.
 
-- at a call site, **check** the callee's `pre` against the current symbolic
-  state and report a violation,
-- after the call, **assume** the callee's `post`,
-- use `writes` to invalidate only the named region instead of the current
-  aggressive havoc.
+Host: Sema CFG dataflow (like `LifetimeSafety`, ships as a warning, reaches
+everyone) or a CSA checker (path-sensitive, opt-in). Question 5.
 
-The `writes` half is the interesting part: it should make CSA strictly more
-precise on annotated code, which is a measurable improvement independent of
-whether anyone writes a single `post`.
+### Phase 3.5: inference
+Section 7.
 
-Gate: run over openzl and sqlite, hand-triage findings, report true-positive
-rate.
+### Phase 4: deductive verification: cut, exported instead
+The first draft proposed WP over the CFG into Z3 with a CBMC-style memory model.
+Cut for two reasons.
 
-### Phase 4: deductive verification, opt-in per function
-`-fcontract-verify` on marked functions.
+First, the plumbing does not exist (section 2) and building array theory and
+quantifier support into `SMTAPI` is not a side quest.
 
-- Build verification conditions from the CFG: weakest precondition computed
-  backward over each block, loops cut by their `invariant`, termination from
-  `variant`.
-- Encode to Z3 through the existing `SMTAPI` layer.
-- Report unproved goals as diagnostics pointing at the specific clause.
-- Memory model: typed and block-based, in the style of CBMC. Scalars and
-  single-dimension buffers. No pointer arithmetic across objects.
+Second and more decisive, the target code is excluded by construction. A typed,
+block-based model with single-dimension buffers and no cross-object arithmetic
+rejects `MEM_read32`-style memcpy punning, `ZSTD_wildcopy` with deliberately
+overlapping source and destination, sliding-window matches spanning
+prefix/extDict/dictionary as three separate objects, 64-bit bit-reader
+containers with unaligned loads, and sqlite's unions. Frama-C's WP Typed model
+rejects the same code, and its byte-level model has been experimental for a
+decade. What would verify is the scalar leaf layer, `openzl/shared/{bits,
+overflow, varint}.h`, which the existing fuzzer already covers exhaustively.
 
-Explicitly not a Frama-C replacement. The target is "prove these thirty leaf
-functions", not "prove the library".
+**Instead: emit `__CPROVER_requires` / `__CPROVER_ensures` / `__CPROVER_assigns`
+from the same AST and run CBMC.** CBMC already has function contracts, the
+memory model, and a contract-checking mode, deployed on aws-c-common, FreeRTOS,
+and s2n. If proofs are wanted, this is a translation layer measured in weeks
+rather than a verifier measured in years.
 
-Phases 1 and 2 are independently useful and testable against real code. Phase 3
-is where bugs get found for nearly free. Phase 4 is research-shaped and must
-not block the rest.
+## 7. Inference
 
-## 7. Inference: the answer to annotation burden
+Annotation burden, not syntax, is the adoption blocker (section 8). The lever is
+deriving contracts from bodies and delivering them as fix-its, so a human edits
+a proposal instead of authoring from a blank line. The first draft was too
+optimistic about this; what survives:
 
-Syntax is not why deductive verification has stayed niche. Frama-C is good,
-free, and thirty years old, and adoption is still narrow. The blocker is that
-someone has to sit down and write the annotations, and keep writing them
-through every refactor. No amount of grammar fixes that.
+**Leaf-function `writes`, plus Houdini-pruned `pre` candidates.** For a leaf
+function, the write set is a dataflow fact: collect stores, resolve each to a
+root, drop locals. For `pre`, propose a large candidate set (each pointer
+parameter non-null, each length parameter positive), run the phase 3 checker,
+delete whatever fails, keep the maximal consistent subset. This is Houdini, it
+needs the fast checker phase 3 provides, and it gives phase 3 something to eat
+on code nobody has annotated.
 
-The lever that might: **derive contracts from the body and deliver them as
-fix-its**, so the human reviews and edits a proposal instead of authoring from
-a blank line. This changes the adoption question from "will anyone write ten
-thousand annotations for zstd" to "will anyone review a ten-thousand-line
-generated patch". The second question has a much better answer.
+**What does not survive contact with real C:**
 
-### What is actually inferrable, in descending order of payoff
+- "`writes` is computed, not guessed" is only true for leaves. Real stores go
+  through loaded pointers (`dctx->litPtr[i] = x`), whose root is "anything
+  reachable from dctx". Function pointers (openzl codec dispatch, sqlite's
+  `sqlite3_io_methods` VFS, `ZSTD_customMem`) resolve to `writes(anything)` and
+  poison callers transitively. Frama-C's Inout plugin and SPARK's synthesized
+  `Global` both report the same finding: the sound answer is often too coarse to
+  be useful.
+- `pre` from unconditional dereference is what the nullsafe fork's
+  `-Rnullsafe-evidence` already emits. The increment is roughly zero.
+- Corpus-driven (Daikon-style) inference: not novel, and the first draft's claim
+  that "nobody is doing this" was wrong. Daikon has had a C front end (Kvasir,
+  Valgrind-based) since about 2005, and Nimmer and Ernst published Daikon plus
+  static pruning in 2002. The failure mode is also specific: fuzz corpora are
+  biased toward minimized crashers, so it will confidently propose
+  `dstCap == 131072`. Kvasir also needs Valgrind, which does not work on arm64
+  macOS.
+- Fix-its are per-diagnostic per-TU. A header prototype included from N
+  translation units yields N proposals for one line, and they conflict when TUs
+  differ in macro configuration (`ZSTD_MULTITHREAD`, `DYNAMIC_BMI2`,
+  `SQLITE_OMIT_*`); `clang-apply-replacements` drops conflicts. **Inferred
+  `writes` is build-configuration dependent.**
+- Nobody meaningfully reviews a ten-thousand-line generated patch. Proposing at
+  that volume is how bad contracts get ratified, not how good ones do.
 
-1. **`writes` (frame conditions).** The best target by a wide margin. A
-   function's write set is a plain dataflow fact: walk the CFG, collect every
-   store, resolve each to a root (parameter, global, local), drop the locals.
-   What remains is the frame. This is computed, not guessed. It is also the
-   annotation with the highest value (sections 4 and 6 depend on it) and the
-   highest burden, so inference lands exactly where it is needed. When a store
-   goes through a pointer of unknown provenance the answer degrades to
-   `writes(anything)`, which is honest and still useful: it names the functions
-   that need a human.
+**The tautology problem is worse than the first draft said.** It correctly noted
+that a contract inferred from a body and checked against that body proves
+nothing. What it missed: inferred contracts are the *strongest observed*
+behavior, not the *weakest needed* one. Ratifying an inferred `pre` on a public
+function narrows the library's contract, and under trap semantics crashes
+existing callers that were previously fine. That is a compatibility break, not a
+description. Inference output must be scoped to internal functions, or gated
+behind `observe` rather than `check`, until a human has deliberately widened it.
 
-2. **`pre` from unconditional use.** A parameter dereferenced on every path
-   before any assignment to it implies `pre(p != NULL)`, or the function has UB
-   on some input. Same shape for indexing: `a[i]` with `i` bounded by parameter
-   `n` implies `pre(valid(a, n))`. The nullability fork already computes this
-   class of fact and already ships it as `-Rnullsafe-evidence` remarks for
-   migration tooling, so this is reuse rather than new work.
+Value remains where it always was: at call sites, where phase 3 consumes a
+contract that cost nothing, and at the next edit, when the body changes and the
+contract does not.
 
-3. **`post` from return-value dataflow.** Weaker, but real for the
-   size-returning functions that make up most of a compression API: if the
-   returned variable is only ever assigned values bounded by a parameter,
-   propose `post(r: r <= cap)`.
+## 8. Prior art
 
-4. **Loop invariants.** The hard one. Abstract interpretation over an interval
-   or octagon domain, with widening, gets the range-shaped invariants
-   (`i <= n`) for free. Those are the boring ones, and they are also most of
-   what a human would otherwise type. It will not get the relational ones
-   (`forall k in [0, i): out[k] == lit[k]`). Realistic split: the machine
-   proposes the ranges, the human writes the one invariant that carries the
-   actual meaning.
+The first draft cited ACSL and hand-waved the rest. The omissions materially
+changed the plan.
 
-### Prior art worth copying
+- **CBMC function contracts** (2021 onward): `__CPROVER_requires`, `ensures`,
+  `assigns`, `frees`, `loop_invariant`, `decreases`, `old`, `return_value`,
+  `forall`, plus a goto-synthesizer that infers loop invariants and assigns
+  clauses using CBMC as the oracle. That is the cut phase 4 and much of phase
+  3.5, already existing for C, deployed on aws-c-common, FreeRTOS, s2n. This is
+  why section 6 exports to CBMC rather than rebuilding it.
+- **Microsoft SAL**: `_In_reads_(n)`, `_Out_writes_(cap)`, `_Post_satisfies_`,
+  checked by PREfast across all of Windows for two decades. The largest C
+  contract deployment ever attempted, in macro-attribute syntax. Inside
+  Microsoft the syntax did not block adoption; CI enforcement drove it. Outside,
+  the free macros went unused. **This is the strongest single piece of evidence
+  that ergonomics is not the lever.**
+- **GCC `access` attribute** since GCC 10: `valid` plus `writes` for C, driving
+  `-Wstringop-overflow`. Absent from clang. See section 10.
+- **Frama-C / ACSL**: dates from 2008, not "thirty years" as the first draft
+  said. Already delivers all three tiers from one source (E-ACSL runtime, EVA
+  static, WP deductive), and its Inout plugin has computed per-function outputs,
+  which is inferred `writes`, for as long as it has existed.
+- **SPARK/Ada**: `Global` and `Depends` are frame conditions, and GNATprove
+  synthesizes them when omitted. AdaCore's experience with access types matches
+  the coarseness finding in section 7.
+- **VCC** (used on Hyper-V) and **VeriFast**: both abandoned around a 2 to 3x
+  annotation-to-code ratio.
+- **Infer bi-abduction**: the first draft cited this as proof that inferring
+  preconditions scales. It inverts Meta's own conclusion. Bi-abduction was
+  deprecated in favor of Pulse because over-approximate inferred preconditions
+  produced unacceptable false-positive rates.
+- **C++26 P2900**: shipped. Copy its semantics (evaluation modes, the violation
+  handler, `post(r: ...)` result naming, the by-value-parameter rule) rather
+  than relitigating them. Bloomberg's clang implementation was under review for
+  over eighteen months and is not merged at this base, which is the right
+  calibration for phase 1's cost.
+- **GCC** has shipped `-fcontracts` since 13.
+- **`-Wthread-safety`** got wide adoption at Google in attribute syntax, which
+  is one more data point against the ergonomics thesis.
+- **WG14**: contracts-for-C papers derived from P2900 have been presented with
+  no follow-through. Upstreamability (question 4) is near zero until WG14 moves.
 
-- **Bi-abduction (Infer).** Infers preconditions for heap-manipulating C at
-  millions of lines. The scaling story is proven and it is Meta's own.
-- **Houdini.** Propose a large candidate annotation set, run the checker,
-  delete whatever fails, repeat to the maximal consistent subset. Needs a fast
-  checker in a loop, which phase 3 provides.
-- **Daikon.** Infers likely invariants dynamically from execution traces.
-  Underrated here: zstd, openzl and sqlite all ship industrial fuzz corpora
-  and test suites. Running the corpus and observing that `dstCapacity` always
-  exceeds the returned size is cheap evidence for a proposed contract, and it
-  proposes facts that no static domain would find. Corpus-driven inference is
-  a good fit for exactly these libraries and is not what anyone else is doing.
+## 9. Evaluation
 
-### Delivery
+The first draft proposed counting violations found by replaying a fuzz corpus
+under `check`. That metric reads zero and proves nothing: zstd has been on
+OSS-Fuzz since 2016 under ASan, UBSan, and MSan, so anything expressible as a
+runtime contract that the corpus reaches is already a sanitizer finding. It is
+also gameable, since weak contracts pass trivially.
 
-Fix-its, not a report. Clang already has `FixItHint`, `-Xclang -fixit`, and
-`clang-apply-replacements`. Workflow: build with `-fcontract-infer`, get a
-patch that annotates the headers, review the diff, commit the parts that are
-right. The fork's `-Rnullsafe-evidence` to migration-tooling pipeline is the
-same shape and can be the template.
+**Replace with mutation-seeded detection.** Inject N known bugs into the target
+(off-by-one bound, swapped arguments at a call site, a dropped null check, a
+missing capacity check), then report detection rate per tier against a baseline
+of ASan plus the existing corpus plus stock CSA. Metrics:
 
-### The trap: inferred contracts are tautologies
+1. Seeded-bug detection rate, contracts versus baseline, per bug class.
+2. Hand-triaged true-positive rate on unmodified code at a fixed report budget,
+   in the style of the existing sqlite differential gate.
+3. Annotation cost: lines of contract per line of code, and wall-clock to
+   annotate one real API.
+4. Call-site precision: the phase 3 measurement on 20 hand-annotated zstd
+   functions, decided before phase 3 is built.
 
-A contract derived from a body and then checked against that same body proves
-nothing. It passes by construction. Any tool that infers and then reports "0
-violations, verified" is lying, and someone will read it that way.
+**Minimum result that justifies continuing**: contracts beat the ASan plus
+corpus plus CSA baseline on at least one bug class. Public-API call-site misuse
+is the likely one, because sanitizers only see the paths a corpus reaches and
+CSA does not know the API's rules.
 
-The value of an inferred contract is entirely elsewhere, in two places:
+**Result that should stop the project**: contracts catch only what sanitizers
+already catch.
 
-- **At call sites.** Phase 3 checks callers against the callee's contract, and
-  the callee's contract was free. This is where inferred `writes` pays off
-  immediately, with no human in the loop at all.
-- **At the next edit.** The inferred contract is a snapshot of what the
-  function did on the day it was inferred. It starts earning the moment the
-  body changes and the contract does not.
+## 10. Open problems, not yet designed
 
-So inference output is a *proposal a human ratifies*, and the tooling must
-present it that way. Once ratified it is a specification; until then it is a
-description.
+The first draft did not consider any of these.
 
-### Where this sits in the plan
+- **Separate compilation and mixed semantics.** `pre` is checked in the callee's
+  TU. All of zstd's internal headers are `static inline` (`MEM_STATIC`), so the
+  same function is instantiated per TU with whatever semantic that TU used, and
+  `check` in one TU with `ignore` in another is live. P2900 spends much of its
+  page count here.
+- **ABI and consumer impact.** A `libzstd.so` built with `check` traps its
+  consumers' pre-existing benign misuse without their opt-in. This is why an
+  `observe` mode is needed (section 6).
+- **UB inside predicates.** `pre(p->len > 0)` with null `p` is UB during
+  checking. Source-order evaluation helps only if authors order clauses
+  correctly.
+- **Variadic functions.** `sqlite3_mprintf`, `sqlite3_log`, `sqlite3_config(int,
+  ...)`. Nothing can be said about `...`.
+- **`restrict` and `const`.** `disjoint` duplicates `restrict`; decide whether
+  it feeds the optimizer. A `const T*` pointee can still change during the call,
+  so any `post` over pointee data is unsound without `writes`.
+- **Function pointers.** Both named evaluation targets dispatch through them
+  (openzl codec dispatch, sqlite's VFS and `xFunc`), which makes them the worst
+  possible targets for a design that defers function-pointer contracts. Section
+  4 defers them anyway; this is the cost.
+- **Error paths.** Covered in section 4 item 5. Without behaviors, `writes` lies
+  about partial writes on error paths.
+- **`setjmp`/`longjmp` and signals.** `post` at return is bypassed by a longjmp,
+  which sqlite's fault-injection harness uses. `writes` is violated by signal
+  handlers.
+- **Drift.** Prototype and definition live in different files. Only the static
+  tiers or a corpus under `check` catch a contract that stopped matching its
+  code. Inference makes drift worse by generating fossils.
+- **Tooling.** clang-format, clangd, PCH and module serialization, ASTImporter
+  for cross-TU. The attribute spelling makes all of these nearly free, which is
+  a further argument for section 5.
+- **Who validates the specs.** A too-strong `pre` under trap semantics is a
+  production crash caused by the safety feature.
 
-Inference needs the checker to exist first: you can only infer what you can
-express and verify. So it is phase 3.5, after the checker and before anyone is
-asked to annotate a real library by hand. That ordering also gives the
-bootstrap sequence for tier 3: infer `writes` mechanically across the whole
-library, which is what makes modular reasoning possible at all, then have
-humans write only `post`, which is the part that carries actual intent.
+## 11. Effort
 
-## 8. Evaluation targets
+Engineer-months for one clang-experienced engineer. Estimates, not measurements.
 
-A number that moves per commit, or it is churn.
+| Phase | Estimate | Note |
+|---|---|---|
+| 1, attributes | 2-3 | Suffix syntax would have been 5-8; Bloomberg's P2900 front end took a team 18+ months and is unmerged |
+| 2, check/observe/ignore | 2-3, plus 2-3 annotating three public APIs | |
+| 3, CSA host | 4-6 to a usable false-positive rate on sqlite | The first draft's "bugs for nearly free" was its most underestimated line |
+| 3, Sema dataflow host | 8-12 | Calibrate against the nullsafe fork's own timeline |
+| 3.5, leaf `writes` plus Houdini `pre` | 2-3 | Worth it |
+| 4, export to CBMC | 0.5-1 | Replaces a 12-24 month verifier |
 
-### openzl (github.com/facebook/openzl)
-Cloned and surveyed. 208k lines of C across 321 files, plus 159k lines of C++.
-The core is C: `src/openzl/{compress,decompress,codecs,shared,common}`, with
-public headers under `include/openzl/*.h` in `extern "C"`. Codec directories
-(`codecs/lz`, `codecs/rolz`, `codecs/tokenize`, `codecs/bitSplit`,
-`codecs/pivco_huffman`) are exactly the buffer-walking, bit-reading code that
-contracts are for. `src/openzl/shared/{bits.h,mem.h,overflow.h,varint.h}` is a
-small, self-contained, heavily-used layer and is the right first target: leaf
-functions, scalar arithmetic, no allocation, provable in tier 3.
+Roughly 12-18 engineer-months for the surviving plan, against 35-60 for the
+first draft.
 
-The library already has an explicit error-report type (`ZL_Report`) and
-macro-based error propagation, so contracts complement rather than duplicate
-the existing discipline.
+## 12. Unresolved questions
 
-Caveat: the C++ half is not covered by a C-only design, so "openzl is fully
-annotated" is not reachable in v1. Public C API plus the C codecs is.
-
-### zstd
-Harder and higher payoff. Mature fuzz corpus to replay under `check` mode.
-
-### sqlite
-Larger surface, and there is prior verification work to compare against.
-
-Proposed metrics:
-
-1. Violations found replaying an existing fuzz corpus under `-fcontract-semantic=check`.
-2. Decode throughput under `assume` vs baseline. Target: neutral to positive.
-3. CSA findings on annotated code before and after phase 3, hand-triaged for
-   false-positive rate.
-4. Functions discharged by phase 4, and solver time per function.
-
-Metric 3 mirrors the existing sqlite differential gate methodology.
-
-## 9. Unresolved questions
-
-1. **Syntax placement.** Declarator suffix (as drafted) versus a prefix block
-   versus attributes with real predicate parsing. Suffix reads best, collides
-   worst with the existing C grammar.
-2. **Frame conditions in v1 or v2?** They are what make phases 3 and 4 work,
-   and they are the heaviest annotation burden. Shipping without them makes
-   phase 2 easy and phase 3 weak.
-3. **`struct` type invariants and contracts on function pointers.** Both
-   deferred above. Confirm that is acceptable, since openzl's codec dispatch is
-   function-pointer heavy and phase 3 will lose precision at those calls.
-4. **First target library**: openzl `shared/` leaf functions, or zstd's decoder?
-5. **Upstreamable, or permanently a fork?** Changes the cost of the syntax
-   bikeshed by an order of magnitude.
-6. **Runtime violation behavior** under `check`: trap, `__builtin_unreachable`,
-   or a user-installable handler. P2900 chose an installable handler; a
-   compression library probably wants a trap.
-7. **Interaction with `__counted_by`.** Is `valid(p, n)` sugar over the existing
-   bounds-safety attribute, or an independent predicate? Sugar is less code and
-   fewer semantics to define, but ties the design to `-fbounds-safety`'s model.
-8. **Phase 3 host: Sema CFG dataflow or the static analyzer?** `LifetimeSafety`
-   proves the dataflow-as-warning route works and gets shipped. CSA is more
-   precise and already has Z3. Doing both eventually is fine; starting with the
-   wrong one costs a rewrite.
-9. **How much inference before the first human annotation?** Inferring `writes`
-   across a whole library is mechanical and unlocks phase 3. Inferring `pre` is
-   nearly as cheap. Doing both before asking anyone to type a contract may be
-   the difference between a tool people use and a tool people admire. It also
-   delays the first end-to-end demo considerably.
-10. **Static or corpus-driven inference first?** Static is sound-ish and needs
-    no test suite. Corpus-driven (Daikon-style, over the existing fuzz corpora)
-    proposes facts static analysis cannot reach, but every proposal is a guess
-    that needs ratifying. They are complementary; the question is ordering.
+1. **Behaviors, or no `post` on error paths?** Section 4 item 5 says every target
+   function needs "on success X, on error Y". Adding ACSL-style behaviors is
+   scope; omitting them makes `post` and `writes` wrong on error paths. No third
+   option identified.
+2. **Does phase 3 survive its own measurement?** If the 20-function experiment
+   says frame conditions do not improve call-site precision on codec code, phase
+   3 shrinks to `pre` checking and phase 3.5's `writes` inference loses most of
+   its purpose.
+3. **`observe` semantics.** Diagnose how, given a violation is detected at
+   runtime? A handler call that logs and continues, matching P2900's observe.
+4. **Upstreamable, or permanently a fork?** Near zero until WG14 moves (section
+   8). A permanent fork means contracts exist only where this compiler runs, so
+   nobody annotates, so phase 3 has nothing to consume. This remains the
+   project-killing risk and it is not technical.
+5. **Phase 3 host: Sema dataflow or CSA?** `LifetimeSafety` proves the
+   dataflow-as-warning route ships. CSA is more precise and path-sensitive.
+   Starting with the wrong one costs a rewrite. The effort table says CSA is
+   half the cost.
+6. **Is `access` the better first project?** Implementing GCC's `access`
+   attribute in clang is a few weeks, immediately useful, upstreamable, and
+   overlaps `valid` plus `writes` substantially. It may be the honest first
+   deliverable regardless of what happens to the rest of this document.
