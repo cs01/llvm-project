@@ -1,9 +1,11 @@
 # Readable contracts for C in clang
 
 Status: design draft, nothing implemented.
-Revised: 2026-09-04, after an adversarial review that killed several claims in
-the first draft. Corrections from that review are marked where they changed the
-design, so the reasoning is not silently rewritten.
+Revised: 2026-09-04, after an adversarial review. Findings that survived
+checking are marked where they changed the design, so the reasoning is not
+silently rewritten. The review also argued the readable syntax was unachievable
+and that this should be an attribute-only feature; that argument did not survive
+checking (section 5) and was rejected.
 Base: branch `contracts-c-dev`, forked from upstream `main` 2fd31faf6ec5
 (2026-09-04). Every in-tree citation below was checked against that commit.
 
@@ -11,7 +13,19 @@ Base: branch `contracts-c-dev`, forked from upstream `main` 2fd31faf6ec5
 
 Give C first-class contracts in clang: preconditions, postconditions, and frame
 conditions that the compiler parses and checks, rather than macros that expand
-to nothing or comments no tool reads. Useful in two ways from one source text:
+to nothing or comments no tool reads.
+
+Three requirements, none of which is traded against the others:
+
+- **Readable.** Contracts are grammar, in the declaration, in a form a
+  maintainer will write voluntarily. Not `__attribute__` soup, not SAL macros,
+  not `/*@ ... */`.
+- **Enforceable.** Every clause is checked by something: a runtime trap, a
+  call-site diagnostic, or a proof. A clause nothing checks is a comment.
+- **Real C.** It works on zstd, openzl, and sqlite as they are actually written,
+  not on a sanitized subset.
+
+Useful in two ways from one source text:
 
 - **checked at runtime**, turning silent corruption into a deterministic trap at
   the earliest wrong state,
@@ -97,9 +111,12 @@ from a November-2025 checkout and were wrong; these are re-verified.
 - **`diagnose_if`** at `Attr.td:3779`. The closest existing thing to a
   compile-time precondition.
 - **No GCC `access` attribute.** `grep 'GCC<"access">' Attr.td` returns nothing.
-  GCC has had `access(write_only, 1, 2)` since GCC 10, which is `valid` plus
-  `writes` for C, and it drives `-Wstringop-overflow`. Clang lacking it is a
-  gap, and closing it is independently upstreamable. See section 10.
+  GCC has had `access(write_only, 1, 2)` since GCC 10: positional, per-parameter,
+  no predicates, a crude `valid` plus `writes` that drives `-Wstringop-overflow`.
+  Relevant as evidence that this semantic content is deployable and useful in a
+  production compiler, and as an interop target for lowering `writes`. Not a
+  substitute for the design here, and not a smaller thing to build instead of
+  it.
 - **`clang/lib/Analysis/LifetimeSafety/`**: 5821 lines, introduced 2025-07-10
   (#142313), reorganized 2025-10-10 (#162474), wired into ordinary warnings via
   `AnalysisBasedWarnings.cpp`. A CFG dataflow pass that verifies function bodies
@@ -151,48 +168,101 @@ pointer exclusion costs.
 
 ## 5. Syntax
 
-**Revised from the first draft.** The original proposed contextual keywords in
-the declarator suffix (`size_t f(...) pre(...) post(...);`). That is dropped.
+Contracts are real grammar. They are lexed, parsed into expressions with the
+function's parameters in scope, type-checked, and diagnosed like any other
+construct. They are not macros that expand to nothing and not comments.
 
-### Why the suffix syntax dies
+```c
+size_t ZSTD_decompress(void *dst, size_t dstCap,
+                       const void *src, size_t srcSize)
+  pre    (valid(dst, dstCap))
+  pre    (valid(src, srcSize))
+  pre    (disjoint(dst, dstCap, src, srcSize))
+  writes (dst, dstCap)
+  post   (r: r <= old(dstCap) || ZSTD_isError(r));
+```
 
-The plan's own evaluation gate is to annotate the public headers of zstd,
-openzl, and sqlite. Those headers are compiled by every compiler in existence.
-`size_t ZSTD_decompress(...) pre(...)` is a syntax error in GCC, MSVC, and every
-clang without this fork, so contracts on a public header would have to be
-`ZSTD_PRE(...)` macros expanding to nothing elsewhere, which is exactly the
-macro shape the syntax section rejected. "Part of the grammar" and "on zstd's
-public header" cannot both hold.
+```c
+for (size_t i = 0; i < n; i++)
+  invariant (i <= n)
+  variant   (n - i)
+{
+  out[i] = lit[i];
+}
+```
 
-The mechanical problems are real too, and were understated as "parser lookahead":
+### Where it parses
 
-- `dst[0..dstCap]` does not lex. `0..dstCap` is a single pp-number; clang says
-  `error: invalid suffix '.2' on floating constant`. Verified.
-- Parameters are out of scope after the closing paren.
-  `ParseDecl.cpp` exits `PrototypeScope` immediately after
-  `ParseFunctionDeclarator` returns, so a suffix clause cannot name parameters.
-  Contracts would have to be parsed inside `ParseFunctionDeclarator` next to the
-  exception-spec, and stored in `DeclaratorChunk::FunctionTypeInfo`, meaning
-  they get parsed on *every* function declarator (function pointers, abstract
-  declarators, `sizeof` operands) with Sema rejecting all but the one case.
-- If `pre` is a typedef, `int f(a) pre(a) { }` is already a valid K&R
-  declaration.
-- `for (...) invariant(x);` is already a valid call statement when `invariant`
-  is a function, so loop clauses need name lookup in the parser.
-- A macro named `pre`, `post`, or `valid` in any earlier header silently
-  rewrites contracts with no diagnostic. sqlite has `int exists;` locals.
-- clang-format and clangd would both need to learn the grammar.
+In the declarator suffix, inside `ParseFunctionDeclarator`, immediately after
+the closing paren. Clang already parses three things in exactly that position
+with the prototype scope still open: `tryParseExceptionSpecification`,
+`MaybeParseCXX11Attributes`, and `ParseTrailingReturnType`. `noexcept(expr)` in
+that slot is an arbitrary expression naming the function's parameters, which is
+the same shape a contract predicate needs. Clang also already has the
+`ExceptionSpecTokens` delayed-parsing path for that slot, for the case where the
+expression cannot be resolved until the enclosing context is complete. A
+contract on a prototype needs the same deferral.
 
-### What replaces it
+A note on an earlier objection: `ParseDecl.cpp:6992` exits `PrototypeScope` and
+does put parameters out of scope, but that is the outer `ParseDirectDeclarator`
+level, not this one. Parsing at the wrong level would have made the syntax
+impossible; parsing at the right level is ordinary.
 
-C23 attributes in the `clang` vendor namespace, with real predicate parsing:
+### Known parse hazards, and what each costs
+
+- **`for (...) invariant(x);` is a valid call statement today** when `invariant`
+  is a function. Loop clauses need lookahead, or a stricter rule that a clause
+  must be followed by another clause or a compound statement.
+- **K&R declarations.** If `pre` is a typedef, `int f(a) pre(a) { }` is already
+  a valid K&R declaration. C23 removed K&R declarations; gate the feature on C23
+  or diagnose the collision.
+- **A macro named `pre`, `post`, or `valid`** in any earlier header silently
+  rewrites contracts. This must be a diagnostic, not a surprise.
+- **Contextual keywords in the declarator suffix** are parsed on every function
+  declarator, including function pointers, abstract declarators, and `sizeof`
+  operands. Sema rejects all but the one case. That is exactly what `noexcept`
+  does.
+- **clang-format and clangd** need to learn the grammar.
+
+None of these is an obstacle to the design. Together they are roughly the
+difference between a 2-3 and a 5-8 engineer-month front end (section 11). That
+is the price of the readable form and it is worth paying.
+
+Range syntax is a call, `writes(dst, dstCap)` and `valid(p, n)`, not
+`dst[0..dstCap]`. `0..dstCap` lexes as a single pp-number and produces
+`error: invalid suffix '.2' on floating constant`. Verified. This is a spelling
+choice inside the design, not a constraint on it.
+
+### Portability: one line, at one boundary
+
+`zstd.h` and `sqlite3.h` are compiled by every compiler in existence, and any
+new syntax is a syntax error in all of them. The shim:
+
+```c
+#if defined(__clang__) && __has_feature(c_contracts)
+#  define ZSTD_PRE(...) pre(__VA_ARGS__)
+#else
+#  define ZSTD_PRE(...)
+#endif
+```
+
+This is the same thing every codebase already writes for `_Nullable`,
+`[[nodiscard]]`, and `warn_unused_result`. It is a portability shim at one
+boundary, not the definition of the feature.
+
+This is worth distinguishing from SAL (section 8), where the macro *is* the
+feature: `_Out_writes_(n)` expands to another annotation that only one
+proprietary analyzer reads, and no compiler ever parses a predicate. Here the
+compiler parses a real grammar, builds a real AST, and emits real diagnostics
+and fix-its; the shim exists solely so that other compilers see nothing.
+Collapsing these two into "macro-shaped" is a category error.
+
+### Second spelling, same AST
+
+A C23 attribute form is also accepted:
 
 ```c
 [[clang::pre(dst != NULL)]]
-[[clang::pre(src != NULL)]]
-[[clang::pre(valid(dst, dstCap))]]
-[[clang::pre(valid(src, srcSize))]]
-[[clang::pre(disjoint(dst, dstCap, src, srcSize))]]
 [[clang::writes(dst, dstCap)]]
 [[clang::post(r, r <= old(dstCap) || ZSTD_isError(r))]]
 size_t ZSTD_decompress(void *dst, size_t dstCap,
@@ -200,40 +270,49 @@ size_t ZSTD_decompress(void *dst, size_t dstCap,
 ```
 
 Verified: an unknown attribute in a vendor namespace parses its balanced token
-sequence and is ignored with `-Wunknown-attributes`, in both `-std=c23` and
-`-std=c11`. So a header annotated this way compiles everywhere; only this fork
-gives the tokens meaning. Pre-C23 compilers that reject `[[...]]` outright still
-need a one-line macro, which is a far smaller concession than macro-wrapping
-every predicate.
+sequence and is ignored with `-Wunknown-attributes`, under both `-std=c23` and
+`-std=c11`. So this form needs no shim at all.
 
-Note the range syntax is now a call, `writes(dst, dstCap)`, not `dst[0..dstCap]`.
-This sidesteps the pp-number problem and needs no new grammar at all.
+It is **secondary**, and it desugars to the identical AST. Its purpose is
+annotating headers you do not own or cannot modify, and giving a no-shim option
+to projects that want one. Everything downstream (Sema, checking, inference,
+fix-its) is written against the AST, not against either spelling, so the second
+front door costs little and the readable form is never what gets cut for
+portability.
 
-This is less pretty than the suffix form. It is also how `counted_by`,
-`diagnose_if`, and `lifetimebound` already ship, it is the only spelling with
-any upstream path, and it is a superset of GCC's `access` attribute. And the
-evidence says the spelling was never the blocker: see section 8.
+### Rules
 
-Rules unchanged from the first draft: contracts on the prototype, inherited by
-the definition; clauses conjoin in source order; predicates must be pure. New:
-because a prototype and its definition have distinct `ParmVarDecl`s, and sqlite's
-header has 186 prototype lines with unnamed parameters, the predicate expression
-must be rebound at the definition, and positional parameter references are
-needed for the unnamed case. Both were missing from the first draft's phase 1.
+- Contracts are declared on the prototype and inherited by the definition. A
+  definition may restate them; Sema checks they match. Header-visible means
+  call-site checkable, which is the point.
+- Clauses conjoin in source order. Order matters under runtime checking, so
+  `p != NULL` must precede `p->len > 0`.
+- Predicates are pure. Calls inside a predicate must be to functions marked
+  usable in specs.
+- A prototype and its definition have distinct `ParmVarDecl`s, so the predicate
+  expression must be rebound at the definition. `sqlite.h.in` has 186 prototype
+  lines with unnamed parameters, so positional parameter references are needed
+  as well.
+
 
 ## 6. Implementation plan
 
 ### Phase 0: recon
 Done, section 3.
 
-### Phase 1: front end (attributes)
-Attribute definitions in `Attr.td` with delayed argument parsing so predicates
-are parsed as expressions in the right scope; Sema for type checking, purity,
-`old()` and result binding, prototype-to-definition rebinding, positional
-parameter references, consistency diagnostics. Serialization, `ASTDumper`,
-AST matchers.
+### Phase 1: front end
+Lexer: contextual keywords active only under `-fc-contracts`. Parser: clauses in
+the declarator suffix inside `ParseFunctionDeclarator`, alongside the
+exception-spec, reusing the delayed-token path for prototypes; loop clauses
+between the loop header and body. AST: `ContractSpecifier` on `FunctionDecl`,
+`LoopContract` on the loop statements. The attribute spelling parses to the same
+nodes. Sema: predicate type checking, purity, `old()` and result binding,
+prototype-to-definition rebinding, positional parameter references, consistency
+diagnostics, and a diagnostic for a macro colliding with a clause keyword.
+Serialization, `ASTDumper`, AST matchers, and clang-format support.
 
-Gate: lit tests for parse, sema, `-ast-dump`. No codegen.
+Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
+
 
 ### Phase 2: runtime checking
 `-fcontract-semantic={ignore,check}`. `check` emits a branch plus a handler call
@@ -373,10 +452,16 @@ changed the plan.
   checked by PREfast across all of Windows for two decades. The largest C
   contract deployment ever attempted, in macro-attribute syntax. Inside
   Microsoft the syntax did not block adoption; CI enforcement drove it. Outside,
-  the free macros went unused. **This is the strongest single piece of evidence
-  that ergonomics is not the lever.**
+  the free macros went unused. Two lessons, and they point in different
+  directions: enforcement matters more than spelling, and a notation no
+  compiler parses (SAL macros expand to annotations only PREfast reads) does
+  not travel. This design takes the first lesson and rejects the second
+  condition. See section 5 on why a portability shim is not the same thing as a
+  macro-defined feature.
 - **GCC `access` attribute** since GCC 10: `valid` plus `writes` for C, driving
-  `-Wstringop-overflow`. Absent from clang. See section 10.
+  `-Wstringop-overflow`. Absent from clang. Proof the semantics ship and pay;
+  also proof that positional, predicate-free annotation is as far as anyone has
+  taken C in a mainstream compiler.
 - **Frama-C / ACSL**: dates from 2008, not "thirty years" as the first draft
   said. Already delivers all three tiers from one source (E-ACSL runtime, EVA
   static, WP deductive), and its Inout plugin has computed per-function outputs,
@@ -463,8 +548,9 @@ The first draft did not consider any of these.
   tiers or a corpus under `check` catch a contract that stopped matching its
   code. Inference makes drift worse by generating fossils.
 - **Tooling.** clang-format, clangd, PCH and module serialization, ASTImporter
-  for cross-TU. The attribute spelling makes all of these nearly free, which is
-  a further argument for section 5.
+  for cross-TU. Real grammar means clang-format and clangd must learn it, which
+  is budgeted in phase 1. Getting this wrong makes every contributor hate the
+  feature on day one, so it is a phase 1 gate and not a follow-up.
 - **Who validates the specs.** A too-strong `pre` under trap semantics is a
   production crash caused by the safety feature.
 
@@ -474,15 +560,17 @@ Engineer-months for one clang-experienced engineer. Estimates, not measurements.
 
 | Phase | Estimate | Note |
 |---|---|---|
-| 1, attributes | 2-3 | Suffix syntax would have been 5-8; Bloomberg's P2900 front end took a team 18+ months and is unmerged |
+| 1, native syntax plus attribute spelling | 5-8 | Attribute-only would be 2-3; the difference is the price of the readable form. Bloomberg's P2900 front end took a team 18+ months and is unmerged, but that was full C++ with templates, constexpr, and virtual overrides |
 | 2, check/observe/ignore | 2-3, plus 2-3 annotating three public APIs | |
 | 3, CSA host | 4-6 to a usable false-positive rate on sqlite | The first draft's "bugs for nearly free" was its most underestimated line |
 | 3, Sema dataflow host | 8-12 | Calibrate against the nullsafe fork's own timeline |
 | 3.5, leaf `writes` plus Houdini `pre` | 2-3 | Worth it |
 | 4, export to CBMC | 0.5-1 | Replaces a 12-24 month verifier |
 
-Roughly 12-18 engineer-months for the surviving plan, against 35-60 for the
-first draft.
+Roughly 15-23 engineer-months for the surviving plan, against 35-60 for the
+first draft. The readable syntax accounts for about 3-5 of the difference from
+an attribute-only version, which is the single clearest cost-versus-goal
+tradeoff in the document, and it is being paid deliberately.
 
 ## 12. Unresolved questions
 
@@ -504,7 +592,12 @@ first draft.
    dataflow-as-warning route ships. CSA is more precise and path-sensitive.
    Starting with the wrong one costs a rewrite. The effort table says CSA is
    half the cost.
-6. **Is `access` the better first project?** Implementing GCC's `access`
-   attribute in clang is a few weeks, immediately useful, upstreamable, and
-   overlaps `valid` plus `writes` substantially. It may be the honest first
-   deliverable regardless of what happens to the rest of this document.
+6. **Loop clause placement.** `for (...) invariant(x);` is a valid call
+   statement today. Lookahead, a stricter follow-set rule, or a different
+   placement: pick one before phase 1 starts, because it is the only parse
+   hazard without an obvious answer.
+7. **Does the attribute spelling stay in v1?** It costs little once Sema is
+   written against the AST, and it is the only way to annotate a header you do
+   not own. But two front doors is two sets of tests and two sets of
+   diagnostics, and shipping it early risks it becoming the default by
+   accident.
