@@ -546,3 +546,17 @@ int *_Nullable tp25(bool c, bool d) {
   if (d) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
   return p;
 }
+
+int *_Nullable tp26(bool c) {
+  int *_Nullable p = c ? &gx : (c = true, nullptr);
+  if (c) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
+}
+
+int *_Nullable tp27(bool c) {
+  int *_Nullable p = c ? &gx : nullptr;
+  bool *pc = &c;
+  *pc = true;
+  if (c) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return p;
+}
