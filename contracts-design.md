@@ -371,11 +371,27 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
   `post (r: r <= old(dstCap) || ...)` form the first draft got wrong.
 - `writes`: parsed and hard-errored as unsupported, so the grammar is pinned now
   and cannot be silently reinterpreted later.
-- Loop clauses: **done for `while`**. `invariant (expr)` is a condition and
-  `variant (expr)` is a scalar measure; both must be pure. Held in an
-  `ASTContext` side table rather than in the loop nodes, since contracts are
-  rare and `WhileStmt` is among the most numerous nodes in any AST. `for` and
-  `do` still need the same hook.
+- Loop clauses: **done** for `while`, `for`, and `do`, and lowered to CBMC.
+  `invariant (expr)` is a condition and `variant (expr)` is a scalar measure;
+  both must be pure. Held in an `ASTContext` side table rather than in the loop
+  nodes, since contracts are rare and `WhileStmt` is among the most numerous
+  nodes in any AST.
+
+  `-fcontract-emit-cprover` prints them as `__CPROVER_loop_invariant` and
+  `__CPROVER_decreases`. They are emitted once the body has been parsed rather
+  than at the declarator, because that is the first point at which they are
+  reachable; the effect is that a function's `requires` and `ensures` still
+  print ahead of its loops. `old` is deliberately *not* rewritten here, unlike
+  in the function clauses: `old()` is rejected outside `post`, so an `old` token
+  in a loop clause is an ordinary identifier and renaming it would corrupt the
+  predicate.
+
+  goto-instrument rejects loop contracts on `do` outright. The emitter prints
+  the clauses with that noted, rather than performing the
+  `do { B } while (C)` => `while (1) { B; if (!C) break; }` rewrite that would
+  make them acceptable: this mode emits clauses, not rewritten source. The
+  grammar deliberately keeps no such restriction, since it is a limitation of
+  one back end.
 
   The follow-set rule from section 12 is implemented as a token-stream
   lookahead rather than as an error: the parser scans balanced parens past the

@@ -7880,6 +7880,12 @@ public:
   /// Prints \p FD's contracts as CBMC clauses under -fcontract-emit-cprover.
   void EmitCProverContracts(const FunctionDecl *FD);
 
+  /// Prints the loop contracts in \p D's body as CBMC clauses under
+  /// -fcontract-emit-cprover. Separate from EmitCProverContracts because the
+  /// function clauses are known at the declarator while these are not reachable
+  /// until the body has been parsed.
+  void EmitCProverLoopContracts(const Decl *D);
+
   /// Diagnoses contract clauses on a declarator that did not produce a
   /// FunctionDecl.
   void DiagnoseContractsOnNonFunction(Declarator &D);

@@ -2611,7 +2611,13 @@ Decl *Parser::ParseFunctionStatementBody(Decl *Decl, ParseScope &BodyScope) {
   }
 
   BodyScope.Exit();
-  return Actions.ActOnFinishFunctionBody(Decl, FnBody.get());
+  Decl *Res = Actions.ActOnFinishFunctionBody(Decl, FnBody.get());
+
+  // The function's own clauses are emitted at the declarator, before the body
+  // exists. Loop clauses live in the body, so they are emitted here instead,
+  // which also puts them after their function's requires/ensures in the output.
+  Actions.EmitCProverLoopContracts(Res);
+  return Res;
 }
 
 Decl *Parser::ParseFunctionTryBlock(Decl *Decl, ParseScope &BodyScope) {

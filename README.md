@@ -86,11 +86,14 @@ whether verifying a codec is a quarter or a research program.
 
 ## What is not done
 
-`writes` is diagnosed as unimplemented. Loop `invariant` / `variant` now parse
-on `while` and land in the AST; `for` and `do` still need the same hook, and
-nothing lowers them to `__CPROVER_loop_invariant` yet, so the zstd proofs still
-carry hand-written CBMC annotations. Closing that last gap is what turns every
-invariant in `proofs/zstd/` from a patch into source.
+Loop `invariant` / `variant` parse on `while`, `for`, and `do`, land in the AST,
+and lower to `__CPROVER_loop_invariant` / `__CPROVER_decreases`. What still
+stands between that and turning the `proofs/zstd/` patches into source is
+`writes`, which is diagnosed as unimplemented: every hand-written annotation
+there also carries an `__CPROVER_assigns` frame that has no source syntax yet.
+The `do` loops need one more step even so, since goto-instrument rejects loop
+contracts on `do`; the emitter says so on each one rather than rewriting the
+loop, because it emits clauses, not source.
 
 Most results are still bounded: exhaustive over a small domain rather than
 universal. `ZSTD_wildcopy` is the exception and shows the route out.

@@ -138,6 +138,67 @@ static void printCProverContracts(const FunctionDecl *FD,
   }
 }
 
+/// Prints the loop contracts reachable from \p S as CBMC loop-contract clauses.
+///
+/// `invariant` is `__CPROVER_loop_invariant` and `variant` is
+/// `__CPROVER_decreases`. Unlike `pre` and `post`, these hang off a statement
+/// inside the body rather than off the declarator, so they have to be walked
+/// for rather than read off the FunctionDecl.
+static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
+                                      const ASTContext &Ctx) {
+  if (!S)
+    return;
+
+  if (const ContractSpecifier *CS = Ctx.getLoopContracts(S)) {
+    const char *Keyword = isa<WhileStmt>(S) ? "while"
+                          : isa<ForStmt>(S) ? "for"
+                                            : "do";
+    PresumedLoc PL = Ctx.getSourceManager().getPresumedLoc(S->getBeginLoc());
+    llvm::outs() << "/* " << FD->getNameAsString() << ": " << Keyword
+                 << " at line " << (PL.isValid() ? PL.getLine() : 0);
+
+    // goto-instrument takes loop contracts on 'while' and 'for' only; on a 'do'
+    // it rejects them outright, which proofs/zstd hit by hand. The fix is the
+    // mechanical do { B } while (C) => while (1) { B; if (!C) break; } rewrite,
+    // but applying it here would mean emitting rewritten source rather than
+    // clauses, which is not what this mode does. Say so instead of printing
+    // clauses that CBMC will refuse without explanation.
+    if (isa<DoStmt>(S))
+      llvm::outs() << "; needs the do => while (1) { B; if (!C) break; }"
+                      " rewrite before goto-instrument accepts these";
+    llvm::outs() << " */\n";
+
+    for (const ContractClause &Clause : *CS) {
+      if (!Clause.getPredicate())
+        continue;
+
+      // No 'old' substitution here, unlike the function clauses: 'old()' is
+      // rejected outside 'post', so an 'old' token in a loop clause is an
+      // ordinary identifier and rewriting it would corrupt the predicate.
+      std::string Text;
+      llvm::raw_string_ostream OS(Text);
+      Clause.getPredicate()->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
+
+      switch (Clause.getKind()) {
+      case ContractClause::CK_Invariant:
+        llvm::outs() << "__CPROVER_loop_invariant(" << Text << ")\n";
+        break;
+      case ContractClause::CK_Variant:
+        llvm::outs() << "__CPROVER_decreases(" << Text << ")\n";
+        break;
+      case ContractClause::CK_Pre:
+      case ContractClause::CK_Post:
+      case ContractClause::CK_Writes:
+        // Not parseable on a loop.
+        break;
+      }
+    }
+  }
+
+  for (const Stmt *Child : S->children())
+    printCProverLoopContracts(Child, FD, Ctx);
+}
+
 void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
   if (!D.hasContractClauses() || !FD)
     return;
@@ -166,6 +227,15 @@ void Sema::EmitCProverContracts(const FunctionDecl *FD) {
   // then those clauses have no predicate to print.
   if (getLangOpts().CContractsEmitCProver && FD)
     printCProverContracts(FD, Context);
+}
+
+void Sema::EmitCProverLoopContracts(const Decl *D) {
+  if (!getLangOpts().CContractsEmitCProver || !D)
+    return;
+  const auto *FD = dyn_cast<FunctionDecl>(D);
+  if (!FD || !FD->hasBody())
+    return;
+  printCProverLoopContracts(FD->getBody(), FD, Context);
 }
 
 ExprResult Sema::BuildContractOldExpr(SourceLocation OldLoc,
