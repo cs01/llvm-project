@@ -76,9 +76,44 @@ unsigned long decompress(void *dst, unsigned long dstCap,
   post (r: r <= old(dstCap) || is_error((int)r));
 ```
 
-Clauses repeat; each is a separate obligation. `post (r: ...)` binds `r` to the
-return value for the length of that one clause — the name is yours to pick, and
-is optional if the predicate does not need it.
+Clauses repeat; each one is a separate obligation.
+
+#### The `r:` part — naming the return value
+
+C has no way to *say* "the value this function returns". `return` is a
+statement, and the result has no name you can write in an expression. So a
+`post` that wants to constrain the result has to introduce a name for it, and
+that is all the `r:` is:
+
+```c
+post (r: r <= old(dstCap))
+//    ^  ^
+//    |  the predicate, which may now use that name
+//    the binding: "call the return value r for this clause"
+```
+
+The name before the colon is **declared** there; every use after the colon
+refers to it. It is not a magic identifier — pick whatever reads best:
+
+```c
+unsigned long decompress(...) post (written: written <= old(dstCap));
+int *allocate(unsigned long n) post (p: p != 0);
+```
+
+Two properties worth knowing:
+
+- **It is optional.** A `post` that does not need to mention the result just
+  omits it: `post (errno_is_clean())`. The `identifier :` prefix is only parsed
+  when an identifier is immediately followed by a colon, so nothing is ambiguous.
+- **It is scoped to its own clause.** The binding lives on the `ContractClause`,
+  not on the function, so each `post` that wants the result names it again, and
+  two clauses may use different names. This is also why the name cannot collide
+  with anything: it does not outlive the parentheses it appears in.
+
+Under `-fcontract-emit-cprover` the bound name is renamed to CBMC's
+`__CPROVER_return_value`, which is the same concept with a fixed spelling. C++26
+contracts (P2900) solve it the same way. The rename is whole-token, so a
+parameter named `rate` is not mangled by a binding named `r`.
 
 `old(dstCap)` names the value `dstCap` held at entry, and it is **required**
 rather than optional. In C every parameter is a by-value copy that the body may
