@@ -226,7 +226,37 @@ harness set `oend_w = op + length`, which makes `oend <= oend_w` true and takes
 the early return, leaving the leftovers loop unreachable: the harness has to put
 `oend_w` strictly below `oend` to exercise the path at all.
 
-**Status: solving.** The contracts were accepted without a diagnostic, but
+### The fifth obstacle, and the one that actually blocked it: inlining
+
+Making both extents concrete did not stop `ZSTD_safecopy.2` unwinding.
+`--show-loops` on the **instrumented** program explains why:
+
+```
+Loop ZSTD_safecopy.0:   <no location>
+Loop ZSTD_safecopy.1:   zstd_internal.h line 244 function ZSTD_wildcopy
+Loop ZSTD_safecopy.2:   <no location>
+Loop ZSTD_safecopy.3:   <no location>
+```
+
+`ZSTD_safecopy` has two loops in the source and four after instrumentation, and
+one of them is `ZSTD_wildcopy`'s. `ZSTD_wildcopy` is `MEM_STATIC
+FORCE_INLINE_ATTR`, so it is inlined into its caller before contracts are
+applied, and **the contract written on the standalone function does not transfer
+to the inlined copy**.
+
+This is the most important of the five obstacles, because it does not go away
+with a rewrite. Loop contracts are per loop *instance*. A `FORCE_INLINE`
+function containing a loop needs its invariant repeated at every call site that
+inlines it, or the caller needs its own contract covering the merged body.
+`zstd_decompress_block.c` has eight `FORCE_INLINE` uses and `huf_decompress.c`
+has seven, so this multiplies the annotation burden across the decoder rather
+than adding a fixed cost.
+
+It also explains why `ZSTD_wildcopy` verified cleanly on its own: the standalone
+harness calls it directly, so there is nothing to inline it into.
+
+**Status: `ZSTD_wildcopy` proved unbounded standalone; `ZSTD_safecopy` blocked on
+the above.** The contracts were accepted without a diagnostic, but
 `goto-instrument` reports nothing on success either, so attachment is only
 confirmed by the absence of unwinding output in the solve. Not claiming it yet.
 

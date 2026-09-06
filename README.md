@@ -103,6 +103,13 @@ obstacles hit on the way, none of which is about mathematics:
   `__CPROVER_same_object` and `__CPROVER_POINTER_OFFSET`.
 - A symbolic extent in `assigns` generates its own unbounded havoc loop. Use a
   concrete bound where the semantics give you one.
+- **`FORCE_INLINE` functions defeat callee contracts.** `ZSTD_wildcopy` is
+  inlined into `ZSTD_safecopy` before contracts are applied, so the invariant
+  written on the standalone function does not transfer. Loop contracts are per
+  loop *instance*, so an inlined loop needs its invariant repeated at every site.
+  The decoder has fifteen `FORCE_INLINE` uses, which multiplies the annotation
+  burden rather than adding a fixed cost. This is the one that does not go away
+  with a rewrite.
 
 That list is the honest scoping input: the hard part of applying this to real C
 is toolchain-versus-codebase fit, not proving things.
