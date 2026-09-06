@@ -4,6 +4,16 @@ Real proofs, discharged by CBMC, over the real zstd sources. Not fuzzing and not
 bounded sampling: each obligation below is proved for **every** value of the
 inputs satisfying the stated assumption.
 
+## Layout
+
+| Directory | What is in it |
+|---|---|
+| [`findings/`](findings/) | What the proofs actually established: two UB findings, two contract defects, one clean audit, one correctness result |
+| [`harnesses/`](harnesses/) | The CBMC harnesses, one per obligation, plus two minimal reproducers |
+| [`patches/`](patches/) | The annotations and the one real fix, as patches against upstream zstd |
+| [`UNBOUNDED.md`](UNBOUNDED.md) | How the wildcopy proof escaped the unwind bound, and the four obstacles on the way |
+| [`COST.md`](COST.md) | Read this before estimating anything: solve time is driven by symbolic state size, not obligation count |
+
 ## Running
 
 CBMC's own C frontend cannot parse Homebrew LLVM's `arm_vector_types.h`, which
@@ -13,7 +23,7 @@ compiler first, with NEON turned off, and hand CBMC the result:
 ```sh
 ZSTD=~/git/zstd
 cc -E -U__ARM_NEON -DNDEBUG -I $ZSTD/lib/common -I $ZSTD/lib \
-   harness_lookbits.c -o harness_lookbits.i
+   harnesses/harness_lookbits.c -o harness_lookbits.i
 cbmc harness_lookbits.i --function harness \
      --bounds-check --pointer-check --conversion-check --undefined-shift-check \
      --unwind 4 --unwinding-assertions
@@ -86,7 +96,7 @@ BitContainerType BIT_lookBits(const BIT_DStream_t *bitD, U32 nbBits)
 
 ## Result 2: ZSTD_execSequence stays in bounds
 
-Harness `harness_execsequence_small.c`, dst 64 / literals 32 + WILDCOPY_OVERLENGTH
+Harness `harnesses/harness_execsequence_small.c`, dst 64 / literals 32 + WILDCOPY_OVERLENGTH
 slack, matchLength <= 32, `--unwind 34 --unwinding-assertions --object-bits 12`.
 
 ```
@@ -99,7 +109,7 @@ guess: `ZSTD_safecopy`'s leftovers loop runs at most `oend - oend_w` times,
 which is `WILDCOPY_OVERLENGTH` = 32.
 
 The four failures are the pointer-subtraction defect in
-`FINDING-wildcopy-pointer-subtract.md`, which is a provenance question and not a
+`findings/FINDING-wildcopy-pointer-subtract.md`, which is a provenance question and not a
 bounds violation.
 
 So: **for this input domain, the wildcopy over-write in `ZSTD_execSequence`
