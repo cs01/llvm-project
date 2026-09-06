@@ -2611,7 +2611,9 @@ Decl *Parser::ParseFunctionStatementBody(Decl *Decl, ParseScope &BodyScope) {
   }
 
   BodyScope.Exit();
-  Decl *Res = Actions.ActOnFinishFunctionBody(Decl, FnBody.get());
+  // Spelled out: this function's own parameter is named 'Decl', which shadows
+  // the type of the same name.
+  clang::Decl *Res = Actions.ActOnFinishFunctionBody(Decl, FnBody.get());
 
   // The function's own clauses are emitted at the declarator, before the body
   // exists. Loop clauses live in the body, so they are emitted here instead,
