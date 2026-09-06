@@ -1,16 +1,8 @@
-# C contracts for clang
+# Contracts for C in clang
 
-**Contracts for C that the compiler actually understands, and a battle-tested
-verifier can prove.**
-
-> A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
-> fork's other line of work, flow-sensitive nullability, is independent and lives
-> on [`nullsafe-clang-dev`](https://github.com/cs01/llvm-project/tree/nullsafe-clang-dev).
-
-## Write C. Have it understood. Have it proved.
-
-Say what a function requires and guarantees, in the declaration, where it is
-already written:
+Say what a function requires and guarantees, in the declaration. `-fc-contracts`
+type-checks it, warns the callers who break it, and lowers it to
+[CBMC](https://github.com/diffblue/cbmc) to be proved.
 
 ```c
 int *allocate(unsigned long n)
@@ -18,85 +10,65 @@ int *allocate(unsigned long n)
   post (r: r != 0);
 ```
 
-**The compiler understands it.** Not a macro that expands to nothing, not a
-comment no tool reads — real grammar, type-checked against the actual parameter
-types, in the AST, surviving a precompiled header.
-
-**Callers are checked on every ordinary build.** No harness, no separate tool,
-no proof. Someone writes `allocate(0)` a thousand files away and the build says
-so, pointing at the promise they broke:
+Someone calls it wrong, a thousand files away. Ordinary build, ordinary warning:
 
 ```
 demo.c:6:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
+    6 |   int *p = allocate(0);
+      |            ^~~~~~~~~~~
+demo.c:2:3: note: precondition declared here
+    2 |   pre  (n > 0)
+      |   ^~~~~~~~~~~~
 ```
 
-**And the same text is proved.** Not re-written for a verifier — the compiler
-translates what you already wrote and hands it to
-[CBMC](https://github.com/diffblue/cbmc), which answers for *every* input rather
-than the handful a test tried. CBMC is not a research toy: AWS runs it in CI on
-s2n-tls and aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and
-Kani — the Rust verifier — is built on it.
+Ask for the proof form and the compiler writes the verifier's syntax for you:
 
-Applied to real zstd this has already reproduced an undefined-behaviour bug in
-the hot decode path that years of OSS-Fuzz cannot see, because nothing
-misbehaves at runtime. [The results are below](#results-on-real-zstd).
+```
+$ clang -fc-contracts -fcontract-emit-cprover -fsyntax-only allocate.c
+__CPROVER_requires(n > 0)
+__CPROVER_ensures(__CPROVER_return_value != 0)
+```
 
-All three parts work today, verified end to end against CBMC 5.95 — contracts
-proved, a deliberately false one correctly rejected, and a loop with a range
-frame proved for every length with no unwind bound. See the
-[roadmap](#roadmap) for what is next.
-
-
-## What it looks like on real code
-
-A header, annotated the way you would actually write it —
-[`contracts-example/contracts.h`](contracts-example/contracts.h):
+Loops take a frame, an invariant, and a termination measure — enough for CBMC to
+prove a loop for *every* length instead of unrolling it to a bound:
 
 ```c
-unsigned long decompress(void *dst, unsigned long dstCap,
-                         const void *src, unsigned long srcSize)
-  pre  (dst != 0)
-  pre  (src != 0)
-  pre  (dstCap > 0)
-  post (r: r <= old(dstCap) || is_error((int)r));
-
-void put(int *buf, unsigned long len, unsigned long i, int v)
-  pre  (buf != 0)
-  pre  (i < len);
+void zero(int *buf, unsigned len) {
+  unsigned i = 0;
+  while (i < len)
+    assigns        (i, buf[0 : len])
+    loop_invariant (i <= len)
+    decreases      (len - i)
+  { buf[i] = 0; i++; }
+}
 ```
 
-`old(dstCap)` is the value at entry — required rather than optional, because a C
-parameter is a copy the body may freely mutate, so a `post` naming a bare
-parameter would be silently ambiguous.
+CBMC is not a research toy: AWS runs it in CI on s2n-tls and aws-c-common,
+FreeRTOS's TCP/IP stack is verified with it, and Kani — the Rust verifier — is
+built on it.
 
-Now compile a file that uses it. Nothing special: an ordinary `-fsyntax-only`.
+> A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
+> fork's other line of work, flow-sensitive nullability, is independent and lives
+> on [`nullsafe-clang-dev`](https://github.com/cs01/llvm-project/tree/nullsafe-clang-dev).
 
-```c
-int *b = allocate(0);        // 0 does not satisfy n > 0
-put(b, 8, 8, 1);             // 8 < 8 is false
-```
-```
-checked.c:8:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
-contracts.h:16:3: note: precondition declared here
-   16 |   pre  (n > 0)
-checked.c:9:3: warning: precondition i < len of 'put' is violated by this call [-Wcontract-violation]
-contracts.h:21:3: note: precondition declared here
-   21 |   pre  (i < len);
-```
+## What it does not warn about
 
-Two things it does **not** warn about, which matter as much:
+As important as what it catches. Both of these are silent:
 
 ```c
 int *b = allocate(8);   // post says non-null ...
-put(b, 8, 0, 1);        // ... so this is discharged. Silent.
+put(b, 8, 0, 1);        // ... so this call is discharged
 
 int *p = maybe;
 if (c) p = 0;
-put(p, 8, 0, 1);        // two edges disagree: it says nothing rather than guess
+put(p, 8, 0, 1);        // the two edges disagree, so it says nothing
 ```
 
-It reports only violations it can *demonstrate*. That is the difference between
-a warning people leave on and one they turn off.
+It reports only violations it can *demonstrate* — the difference between a
+warning people leave on and one they turn off.
+
+A fuller example, including `old()` and the numbered list of every rule the front
+end enforces, is in [`contracts-example/`](contracts-example/).
 
 ## The keywords
 
