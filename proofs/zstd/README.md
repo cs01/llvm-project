@@ -11,7 +11,7 @@ inputs satisfying the stated assumption.
 | [`findings/`](findings/) | What the proofs actually established: two UB findings, two contract defects, one clean audit, one correctness result |
 | [`harnesses/`](harnesses/) | The CBMC harnesses, one per obligation, plus two minimal reproducers |
 | [`patches/`](patches/) | The annotations and the one real fix, as patches against upstream zstd |
-| [`UNBOUNDED.md`](UNBOUNDED.md) | How the wildcopy proof escaped the unwind bound, and the four obstacles on the way |
+| [`UNBOUNDED.md`](UNBOUNDED.md) | How the wildcopy proof escaped the unwind bound, and the five obstacles on the way |
 | [`COST.md`](COST.md) | Read this before estimating anything: solve time is driven by symbolic state size, not obligation count |
 
 ## Running

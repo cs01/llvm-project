@@ -20,6 +20,12 @@ Base: branch `contracts-c-dev`, forked from upstream `main` 2fd31faf6ec5
 
 ## 1. Goal
 
+C is not going anywhere. Billions of lines of it decode your video, compress
+your backups and terminate your TLS, and the interesting bugs in that code are
+not crashes — they are the ones where nothing misbehaves at runtime and the
+answer is simply wrong. Fuzzing cannot find those. Tests cannot enumerate them.
+Rewriting it all is not a plan.
+
 Give C first-class contracts in clang: preconditions, postconditions, and frame
 conditions that the compiler parses and checks, rather than macros that expand
 to nothing or comments no tool reads.
@@ -103,6 +109,36 @@ and it is not:
   Float16/32/64/128 sorts. No array theory, no quantifiers, no uninterpreted
   functions. A block-based memory model needs arrays; range predicates need
   quantifiers. There is nothing there to encode into.
+
+### Why a compiler, and not a header of macros
+
+Fair challenge, and worth answering directly: `assigns`, `loop_invariant` and
+`decreases` are CBMC's own names minus the `__CPROVER_` prefix, so why not
+`#define pre(x) __CPROVER_requires(x)`, a header of five macros, and skip the
+compiler work entirely?
+
+Because two of the three tiers cannot exist in a header:
+
+- **The call-site checker never touches CBMC.**
+  [`ContractChecking.cpp`](clang/lib/Analysis/ContractChecking.cpp) is a CFG
+  dataflow pass *inside clang* emitting ordinary warnings during a normal build.
+  No verifier, no harness, no separate tool, no proof. A macro gets you none of
+  it.
+- **The clauses are type-checked, scoped, real AST.** `pre (dstCap > 0)` is
+  checked against the parameter's actual type; `old()` is scope-aware and
+  scalar-restricted; the `r:` binding is a genuine `VarDecl`; purity is enforced
+  via `Expr::HasSideEffects`. A macro is inert text until CBMC runs — and CBMC
+  only looks at functions you wrote a harness for. The front end catches a
+  malformed contract in *every* build, on *every* function.
+
+Plus the practical one: `__CPROVER_*` in shipped source means vendoring CBMC
+headers or `#ifdef` walls. A contextual keyword behind a flag doesn't perturb
+the production build at all.
+
+The CBMC export on its own really is a translation layer, and this document
+says as much. What makes this a compiler feature rather than a header is the
+other two tiers — and those are the ones every build gets, on every function,
+whether or not anyone ever runs a prover.
 
 ## 3. Recon: what exists in this tree
 
@@ -241,6 +277,14 @@ elsewhere.
 
 The resulting rule is not a compromise so much as a precedence order: **follow
 the standard where one exists, follow the prover where none does.**
+
+### Where each name comes from
+
+The names follow one rule: **the standard where there is one, the older spec
+languages where there is not.** `pre` and `post` are C++26 P2900's spelling, so
+a C programmer meeting contracts elsewhere meets the same words. `old` predates
+all of them — Eiffel, JML's `\old`, ACSL's `\old`. `assigns`, `loop_invariant`
+and `decreases` are ACSL's, which CBMC then adopted.
 
 
 
@@ -756,6 +800,15 @@ The first draft did not consider any of these.
   feature on day one, so it is a phase 1 gate and not a follow-up.
 - **Who validates the specs.** A too-strong `pre` under trap semantics is a
   production crash caused by the safety feature.
+- **Range targets in `assigns`.** Measured against CBMC, not guessed: a loop
+  frame of `assigns (i, buf[i])` is rejected, because the frame is evaluated at
+  loop entry so `buf[i]` denotes one element while the loop writes
+  `buf[0..len)`. CBMC wants `__CPROVER_object_upto(buf, n)`. There is no way to
+  say "this range of memory" in this grammar yet, and every real loop proof
+  needs one — so this, not `when`, is what actually blocks turning
+  `proofs/zstd/harnesses/` into source. The spelling is an open design question;
+  section 4 item 6 already contemplates `valid(p, n)`, and a slice form may be
+  the better fit.
 
 ## 11. Effort
 

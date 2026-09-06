@@ -4,6 +4,29 @@ Every result so far is exhaustive over a bounded domain: `matchLength <= 16`,
 a 48-byte output buffer. Real matchLengths reach 131074. This is the step that
 removes the bound.
 
+## The obstacles, in short
+
+None of them is about mathematics, and each is expanded below.
+
+- CBMC rejects loop contracts on `do`/`while`; the loop must be rewritten.
+- `do { } while (0)` macros count as loops, so a contract silently attaches to
+  the wrong one. No diagnostic.
+- The `assigns` clause havocs the cursors before the invariant is assumed, so
+  raw pointer comparisons in an invariant get flagged themselves. Use
+  `__CPROVER_same_object` and `__CPROVER_POINTER_OFFSET`.
+- A symbolic extent in `assigns` generates its own unbounded havoc loop. Use a
+  concrete bound where the semantics give you one.
+- **`FORCE_INLINE` functions defeat callee contracts.** `ZSTD_wildcopy` is
+  inlined into `ZSTD_safecopy` before contracts are applied, so the invariant
+  written on the standalone function does not transfer. Loop contracts are per
+  loop *instance*, so an inlined loop needs its invariant repeated at every site.
+  The decoder has fifteen `FORCE_INLINE` uses, which multiplies the annotation
+  burden rather than adding a fixed cost. This is the one that does not go away
+  with a rewrite.
+
+The hard part of applying this to real C is toolchain-versus-codebase fit,
+not proving things.
+
 ## The mechanism works
 
 CBMC has loop contracts, which turn a bounded unwinding into a proof by

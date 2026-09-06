@@ -11,6 +11,9 @@ Full syntax, semantics and internals for the `-fc-contracts` extension. The
 - [The rules that will bite you](#the-rules-that-will-bite-you)
 - [Flags](#flags)
 - [How it works inside clang](#how-it-works-inside-clang)
+- [The three levels, in detail](#the-three-levels-in-detail)
+- [How CBMC fits](#how-cbmc-fits)
+- [DO-178C / DO-333](#does-this-apply-to-do-178c--do-333-formal-methods)
 
 ## Grammar
 
@@ -293,8 +296,148 @@ Being precise about this matters more than the feature list:
   allocation behind a `void *` at function entry. Buffer and frame clauses are
   documentation that the static tiers consume, not runtime checks.
 
-See [`contracts-design.md`](contracts-design.md) for the full design, the
+See [`contracts-design.md`](../contracts-design.md) for the full design, the
 rejected alternatives, and why the SMT-solver route inside clang was cut.
+
+## The three levels, in detail
+
+One contract, three levels of rigour. You choose how far up you go per function,
+and each level catches what the one below it let through. Here is the same
+buffer write at every level:
+
+```c
+void put(int *buf, unsigned len, unsigned i, int v)
+  pre  (buf != 0)
+  pre  (i < len)
+  assigns (buf[i]);
+```
+
+### Level 1 — the front end: is the *contract* well formed?
+
+Free, on every build, on every function. It says nothing about your program's
+behaviour — only about the specification itself.
+
+**Catches** a contract that cannot mean what it appears to:
+
+```
+error: 'post' predicate cannot name parameter 'cap' directly; a by-value
+       parameter may be named in 'post' only through 'old()'
+error: contract predicate must be free of side effects
+note: mark 'impure' 'const' or 'pure' to allow calling it from a contract predicate
+```
+
+**Misses** everything about whether the code obeys the contract. `put(b, 8, 8, 1)`
+compiles silently here.
+
+### Level 2 — the call-site checker: does any *caller* obviously break it?
+
+Still free, still an ordinary build, still no verifier. A CFG dataflow pass
+looking at each call.
+
+**Catches** what level 1 let through:
+
+```
+warning: precondition i < len of 'put' is violated by this call [-Wcontract-violation]
+    7 |   put(b, 8, 8, 1);
+note: precondition declared here
+```
+
+Constant arguments are folded by clang's own constant evaluator, so enum
+constants, casts, `sizeof` expressions and arithmetic all reach the predicate,
+not just literals.
+
+**Misses** three things, all deliberately:
+
+```c
+put(b, n, k, 1);        // symbolic: it cannot relate n and k, so it says nothing
+```
+
+- **Anything symbolic.** The abstract domain is four values — known integer,
+  null, non-null, unknown. Two unknowns have no relationship.
+- **Anything a loop disagrees with itself about.** The dataflow runs to a
+  fixpoint and merges by keeping only what every predecessor agrees on, so a
+  variable the loop changes becomes unknown rather than wrong. That costs
+  reports and never invents them.
+- **The callee's own body.** It checks callers against a contract; it never asks
+  whether `put` itself honours it.
+
+That last one is the big gap, and it is not subtle:
+
+```c
+void fill(int *buf, unsigned len) pre (buf != 0) {
+  for (unsigned i = 0; i <= len; i++)   // off by one
+    buf[i] = 0;
+}
+```
+
+Level 2 is silent on this. The bug is in the body, and the bound is symbolic —
+both of its blind spots at once.
+
+### Level 3 — CBMC: is it true for *every* input?
+
+Costs a harness and solver time. In exchange it answers exhaustively rather than
+for the cases you thought of.
+
+**Catches** the `fill` off-by-one, for every `len`, by asking the solver whether
+*any* input drives `buf[i] = 0` out of bounds — and returning the concrete one
+that does. It also proves `put` writes nothing but `buf[i]`, which is what the
+`assigns` clause is for. On real zstd this level found two undefined-behaviour
+bugs that fuzzing cannot reach, because nothing misbehaves at runtime.
+
+**Misses** a specification that is wrong. Write the off-by-one into the *contract*
+instead of the code —
+
+```c
+  pre  (i <= len)     // wrong, but now it is the spec
+```
+
+— and CBMC proves the code matches it, cheerfully, forever. It also only sees
+what your harness exercises, and an over-tight `__CPROVER_assume` narrows the
+claim without telling you.
+
+> Levels 1 and 2 above are real output from this branch. Level 3 is described
+> rather than pasted, since CBMC runs separately; for actual CBMC transcripts see
+> [`proofs/zstd/`](../proofs/zstd/).
+
+## How CBMC fits
+
+CBMC is the [C Bounded Model Checker](https://github.com/diffblue/cbmc) —
+originally Daniel Kroening's, now largely maintained by AWS. It is **not** an
+SMT solver; it is a verification engine that *drives* one:
+
+```
+  C source
+     │  cbmc frontend
+  goto program          loops become gotos; one IR
+     │  symbolic execution, loops unrolled --unwind N
+  SSA equations         r1 = (x0 < 0) ? -x0 : x0
+     │  + the negated property:  ∃x. ¬(r1 >= 0)
+  bit-blasted CNF       every int is 32 boolean variables
+     │  SAT solver (CaDiCaL)
+  SAT   → counterexample: concrete inputs that break it
+  UNSAT → holds for every input, within the unroll bound
+```
+
+Worked example. `int abs32(int x) { return x < 0 ? -x : x; }`, claim
+`abs32(x) >= 0`. Testing it on a thousand random values passes. CBMC asks the
+solver whether *any* 32-bit `x` falsifies it and comes back SAT with
+`x = INT_MIN`: `-INT_MIN` overflows back to itself in two's complement, so the
+result is negative and the negation is UB besides. That is the difference from
+fuzzing — it is exhaustive over the whole input space at once, symbolically.
+
+**"Bounded" is the catch.** By default CBMC unrolls each loop a fixed number of
+times, so you prove things only up to that bound. This is exactly what
+`loop_invariant` and `decreases` are for: an invariant replaces unrolling with
+induction, and a variant supplies termination, which together lift a proof from
+"correct for n < 10" to "correct for every n". See
+[`proofs/zstd/UNBOUNDED.md`](../proofs/zstd/UNBOUNDED.md) for a real one.
+
+People do use it: AWS runs CBMC in CI on `aws-c-common` and s2n-tls, FreeRTOS's
+TCP/IP stack has CBMC proofs, and Kani (the Rust verifier) is built on top of it.
+
+Whether any of this can carry weight in certified avionics — DO-178C, the
+DO-333 formal-methods supplement, DO-330 tool qualification — is answered
+[below](#does-this-apply-to-do-178c--do-333-formal-methods).
 
 ## Does this apply to DO-178C / DO-333 formal methods?
 
@@ -314,7 +457,7 @@ large one, and it is a programme of work rather than a fix.
 is often assumed to be: `--unwinding-assertions` makes CBMC report when a bound
 was too small rather than silently passing, and `loop_invariant` / `decreases`
 replace the bound with induction outright — which is exactly what
-[`UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md) demonstrates on `ZSTD_wildcopy`. What
+[`UNBOUNDED.md`](../proofs/zstd/UNBOUNDED.md) demonstrates on `ZSTD_wildcopy`. What
 is trusted is the *specification* and the *harness*: a wrong `post` is proved
 happily, and an over-strong `__CPROVER_assume` silently narrows what was proved
 without saying so. The call-site checker contributes nothing to credit either —
