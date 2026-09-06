@@ -16,6 +16,12 @@ inputs satisfying the stated assumption.
 
 ## Running
 
+**CBMC 6 or newer.** Ubuntu 24.04's `apt` ships 5.95; every solve time in
+[`COST.md`](COST.md) is 6.11, and loop-contract handling changed enough across
+that major that results are not comparable. Install from
+[the release page](https://github.com/diffblue/cbmc/releases), not from apt.
+
+
 CBMC's own C frontend cannot parse Homebrew LLVM's `arm_vector_types.h`, which
 zstd pulls in through `compiler.h` -> `arm_neon.h`. Preprocess with the system
 compiler first, with NEON turned off, and hand CBMC the result:

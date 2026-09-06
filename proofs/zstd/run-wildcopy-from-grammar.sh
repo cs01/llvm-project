@@ -9,6 +9,14 @@
 # Usage:  ZSTD=~/git/zstd CLANG=../../build/bin/clang ./run-wildcopy-from-grammar.sh
 set -e
 ZSTD=${ZSTD:?set ZSTD to a zstd checkout with the patch applied}
+
+# CBMC 6 or newer. Ubuntu 24.04 ships 5.95, and loop-contract handling changed
+# substantially across that major: COST.md's recorded times are all 6.11. Get a
+# release .deb from github.com/diffblue/cbmc/releases rather than from apt.
+CBMC_MAJOR=$(cbmc --version | cut -d. -f1)
+[ "${CBMC_MAJOR:-0}" -ge 6 ] || {
+  echo "cbmc $(cbmc --version) is too old; this needs 6.x" >&2; exit 1; }
+
 CLANG=${CLANG:-clang}
 HERE=$(cd "$(dirname "$0")" && pwd)
 WORK=$(mktemp -d)
