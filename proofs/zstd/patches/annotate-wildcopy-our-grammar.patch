@@ -1,0 +1,70 @@
+diff --git a/lib/common/zstd_internal.h b/lib/common/zstd_internal.h
+index 86a0fc5..902f74c 100644
+--- a/lib/common/zstd_internal.h
++++ b/lib/common/zstd_internal.h
+@@ -214,21 +214,32 @@ typedef enum {
+  *         - ZSTD_overlap_src_before_dst: The src and dst may overlap, but they MUST be at least 8 bytes apart.
+  *           The src buffer must be before the dst buffer.
+  */
++
++/* --- verification only: CBMC provenance builtins, declared pure so they may be
++ * called from a contract predicate. Nothing here affects a normal build. --- */
++#ifdef ZSTD_CONTRACTS
++typedef long __CPROVER_ssize_t_;
++int  __CPROVER_same_object(const void *, const void *)  __attribute__((const));
++long __CPROVER_POINTER_OFFSET(const void *)             __attribute__((const));
++#endif
++
+ MEM_STATIC FORCE_INLINE_ATTR
+ void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e const ovtype)
+ {
+-    ptrdiff_t diff = (BYTE*)dst - (const BYTE*)src;
+     const BYTE* ip = (const BYTE*)src;
+     BYTE* op = (BYTE*)dst;
++    BYTE* const dstStart = (BYTE*)dst;
+     BYTE* const oend = op + length;
+ 
+-    if (ovtype == ZSTD_overlap_src_before_dst && diff < WILDCOPY_VECLEN) {
++    /* diff is only defined when the two pointers are in the same object, which
++     * is exactly the overlap case; see FINDING-wildcopy-pointer-subtract.md. */
++    if (ovtype == ZSTD_overlap_src_before_dst &&
++        (BYTE*)dst - (const BYTE*)src < WILDCOPY_VECLEN) {
+         /* Handle short offset copies. */
+         do {
+             COPY8(op, ip);
+         } while (op < oend);
+     } else {
+-        assert(diff >= WILDCOPY_VECLEN || diff <= -WILDCOPY_VECLEN);
+         /* Separate out the first COPY16() call because the copy length is
+          * almost certain to be short, so the branches have different
+          * probabilities. Since it is almost certain to be short, only do
+@@ -239,11 +250,25 @@ void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e con
+         if (16 >= length) return;
+         op += 16;
+         ip += 16;
+-        do {
+-            COPY16(op, ip);
+-            COPY16(op, ip);
++        /* Rewritten from do/while for verification only: goto-instrument
++         * rejects loop contracts on a do loop. Behaviour is identical, the
++         * body still runs at least once. COPY16 is itself a do{}while(0), which
++         * CBMC counts as a loop, so it is inlined here for the same reason. */
++        while (1)
++#ifdef ZSTD_CONTRACTS
++        assigns        (op, ip, dstStart[0 : length + WILDCOPY_OVERLENGTH])
++        loop_invariant (__CPROVER_same_object(op, dstStart))
++        loop_invariant (__CPROVER_same_object(ip, (const BYTE*)src))
++        loop_invariant (__CPROVER_POINTER_OFFSET(op) >= 16)
++        loop_invariant (__CPROVER_POINTER_OFFSET(op) < (long)length)
++        loop_invariant (__CPROVER_POINTER_OFFSET(ip) == __CPROVER_POINTER_OFFSET(op))
++        decreases      ((long)length - __CPROVER_POINTER_OFFSET(op))
++#endif
++        {
++            ZSTD_copy16(op, ip); op += 16; ip += 16;
++            ZSTD_copy16(op, ip); op += 16; ip += 16;
++            if (!(op < oend)) break;
+         }
+-        while (op < oend);
+     }
+ }
+ 
