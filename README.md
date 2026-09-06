@@ -90,7 +90,7 @@ the handful a test happened to try.
 
 One source text, three levels of rigour, and you choose how far up you go per
 function. That is the whole idea. Applied to real zstd it has already found two
-undefined-behaviour bugs and proved the LZ reconstruction emits the right bytes
+undefined-behaviour bugs and checked the LZ reconstruction emits the right bytes
 — [see below](#results-on-real-zstd).
 
 All three levels work today, and the CBMC output above has been run through
@@ -342,52 +342,37 @@ induction, and a variant supplies termination, which together lift a proof from
 People do use it: AWS runs CBMC in CI on `aws-c-common` and s2n-tls, FreeRTOS's
 TCP/IP stack has CBMC proofs, and Kani (the Rust verifier) is built on top of it.
 
-### Does this apply to DO-178C / DO-333 formal methods?
-
-The *shape* is right and the *stack* is not, and the gap is qualification rather
-than mathematics.
-
-DO-333, the Formal Methods supplement to DO-178C, explicitly contemplates
-function-level formal specification replacing certain test objectives — which is
-what contracts are. Two things stand between that and this stack, and neither is
-the mathematics.
-
-**Qualification.** Taking credit means the tool is qualified under **DO-330**,
-and neither CBMC nor this clang fork is qualified, nor close to it. That is the
-large one, and it is a programme of work rather than a fix.
-
-**What a proof here still trusts.** The unwind bound is *not* the weak point it
-is often assumed to be: `--unwinding-assertions` makes CBMC report when a bound
-was too small rather than silently passing, and `loop_invariant` / `decreases`
-replace the bound with induction outright — which is exactly what
-[`UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md) demonstrates on `ZSTD_wildcopy`. What
-is trusted is the *specification* and the *harness*: a wrong `post` is proved
-happily, and an over-strong `__CPROVER_assume` silently narrows what was proved
-without saying so. The call-site checker contributes nothing to credit either —
-it reports only violations it can demonstrate and misses others by design, so
-the absence of a warning is not evidence of absence.
-
-Where it could genuinely help today is **development-time**: finding real defects
-early and producing evidence that informs a formal-methods argument, not one that
-discharges an objective. Worth noting that certified avionics C — MISRA-
-constrained, no dynamic allocation, bounded loops — is a far friendlier
-verification target than zstd is.
+Whether any of this can carry weight in certified avionics — DO-178C, the
+DO-333 formal-methods supplement, DO-330 tool qualification — is answered in
+[the reference](docs/contracts-reference.md#does-this-apply-to-do-178c--do-333-formal-methods).
+Short version: the shape fits, the stack is not qualified, and qualification is
+the blocker rather than the mathematics.
 
 ## Results on real zstd
 
 See **[proofs/zstd/](proofs/zstd/)**. Applied to the actual zstd sources, not a
-transcription:
+transcription.
 
-- **Two undefined-behaviour findings.** `ZSTD_overlapCopy8` forms a pointer up to
-  8 bytes before the start of the output buffer, reachable with a legal stream
-  (three-line fix, proved). `ZSTD_wildcopy` and `ZSTD_safecopy` subtract pointers
-  their own doc-comments say are in different objects. Neither is exploitable on
-  conventional hardware; both break CHERI and are freedoms a
-  provenance-exploiting optimiser may take.
-- **Functional correctness of the LZ reconstruction.** Not just "stays in
-  bounds": `ZSTD_execSequence` provably emits the *right bytes*, including for
-  matches that overlap their own output. This is the layer where "your data comes
-  back" lives.
+**These were produced with hand-written CBMC harnesses, before this extension
+could express them** — they are what motivated the grammar, not output from it.
+Turning them into source in this syntax is [the roadmap's](#roadmap) real test.
+
+- **An undefined-behaviour finding, reproduced on upstream HEAD.**
+  `ZSTD_overlapCopy8` forms a pointer up to 8 bytes before the start of the
+  output buffer, reachable with a legal stream. Verified against `d9c0c7e2`:
+  `2 of 1601` properties fail before the three-line fix, `0 of 1601` after, same
+  harness and flags. Not exploitable on conventional hardware — nothing
+  misbehaves at runtime, which is why years of OSS-Fuzz have not surfaced it —
+  but it is a freedom a provenance-exploiting optimiser may take.
+- **A second, less confirmed one.** `ZSTD_wildcopy` and `ZSTD_safecopy` subtract
+  pointers their own doc-comments say are in different objects. The subtraction
+  is unconditional in HEAD, but it did **not** reproduce in the Linux/x86 run
+  above, so treat it as likely rather than established.
+- **An exhaustive correctness result for the LZ reconstruction.**
+  `ZSTD_execSequence` emits the *right bytes*, including for matches that
+  overlap their own output — but over a bounded domain (dst 48 bytes,
+  `matchLength <= 16`), so this is exhaustive checking, not an unbounded proof.
+  `findings/RESULT-lz-correctness.md` states the scope.
 - **Two contract defects** where the real precondition is stronger than the
   documented one, or absent from where it is needed entirely.
 - **An unbounded proof.** `ZSTD_wildcopy` is memory-safe for *every* length, not

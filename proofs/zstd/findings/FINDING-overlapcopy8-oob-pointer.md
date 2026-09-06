@@ -51,10 +51,16 @@ Low, and worth stating precisely rather than inflating:
 - On a flat address space the arithmetic produces the right value and the code
   works, which is why four years of fuzzing has not surfaced it: **nothing
   misbehaves at runtime**.
-- It matters in two places. On CHERI and other capability hardware, forming an
-  out-of-bounds pointer invalidates the capability, so the subsequent `+= 8` does
-  not recover a usable pointer. And it is exactly the freedom a
-  provenance-exploiting optimiser is permitted to use.
+- It is exactly the freedom a provenance-exploiting optimiser is permitted to
+  use. That is the argument that stands on its own.
+
+- **Unverified:** an earlier draft claimed this breaks on CHERI, on the grounds
+  that forming an out-of-bounds pointer invalidates the capability. That is
+  probably wrong. CHERI Concentrate specifies a representable region wider than
+  the object's bounds precisely so that transient out-of-bounds pointers in C
+  keep their tag, and `dst - 4` is well inside it. The claim has not been tested
+  on a CHERI toolchain and should not be repeated until it is; cheribuild plus
+  QEMU would settle it.
 
 ## Fix, and its proof
 
