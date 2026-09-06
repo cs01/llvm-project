@@ -188,11 +188,23 @@ than mathematics.
 
 DO-333, the Formal Methods supplement to DO-178C, explicitly contemplates
 function-level formal specification replacing certain test objectives — which is
-what contracts are. But taking that credit means the tool is qualified under
-**DO-330**, and neither CBMC nor this clang fork is qualified, nor close to it.
-DO-333 also requires the analysis be *sound*: CBMC in bounded mode is not sound
-for unbounded loops (hence the invariant work above), and the call-site checker
-is unsound by construction, so it could never carry certification credit.
+what contracts are. Two things stand between that and this stack, and neither is
+the mathematics.
+
+**Qualification.** Taking credit means the tool is qualified under **DO-330**,
+and neither CBMC nor this clang fork is qualified, nor close to it. That is the
+large one, and it is a programme of work rather than a fix.
+
+**What a proof here still trusts.** The unwind bound is *not* the weak point it
+is often assumed to be: `--unwinding-assertions` makes CBMC report when a bound
+was too small rather than silently passing, and `loop_invariant` / `decreases`
+replace the bound with induction outright — which is exactly what
+[`UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md) demonstrates on `ZSTD_wildcopy`. What
+is trusted is the *specification* and the *harness*: a wrong `ensures` is proved
+happily, and an over-strong `__CPROVER_assume` silently narrows what was proved
+without saying so. The call-site checker contributes nothing to credit either —
+it reports only violations it can demonstrate and misses others by design, so
+the absence of a warning is not evidence of absence.
 
 Where it could genuinely help today is **development-time**: finding real defects
 early and producing evidence that informs a formal-methods argument, not one that
