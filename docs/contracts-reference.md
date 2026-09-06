@@ -6,7 +6,7 @@ Full syntax, semantics and internals for the `-fc-contracts` extension. The
 ## Contents
 
 - [Grammar](#grammar)
-- [`requires`, `ensures`, `old`](#requires-ensures-old)
+- [`pre`, `post`, `old`](#pre-post-old)
 - [`loop_invariant` and `decreases`](#loop_invariant-and-decreases)
 - [The rules that will bite you](#the-rules-that-will-bite-you)
 - [Flags](#flags)
@@ -22,8 +22,8 @@ function-declarator:
         declarator '(' parameter-list ')' contract-clause-seq[opt]
 
 contract-clause:
-        'requires' '(' expression ')'
-        'ensures'  '(' result-binding[opt] expression ')'
+        'pre'      '(' expression ')'
+        'post'     '(' result-binding[opt] expression ')'
         'assigns'  '(' assigns-target-list[opt] ')'
 
 assigns-target-list:
@@ -47,21 +47,21 @@ loop-clause:
         'decreases'      '(' expression ')'
 ```
 
-and `old` is an expression form, legal only inside an `ensures`:
+and `old` is an expression form, legal only inside a `post`:
 
 ```
 old-expression:
         'old' '(' expression ')'
 ```
 
-## `requires`, `ensures`, `old`
+## `pre`, `post`, `old`
 
 ```c
 unsigned long decompress(void *dst, unsigned long dstCap,
                          const void *src, unsigned long srcSize)
-  requires  (dst != 0)
-  requires  (dstCap > 0)
-  ensures (r: r <= old(dstCap) || is_error((int)r));
+  pre  (dst != 0)
+  pre  (dstCap > 0)
+  post (r: r <= old(dstCap) || is_error((int)r));
 ```
 
 Clauses repeat; each one is a separate obligation.
@@ -70,11 +70,11 @@ Clauses repeat; each one is a separate obligation.
 
 C has no way to *say* "the value this function returns". `return` is a
 statement, and the result has no name you can write in an expression. So a
-`ensures` that wants to constrain the result has to introduce a name for it, and
+`post` that wants to constrain the result has to introduce a name for it, and
 that is all the `r:` is:
 
 ```c
-ensures (r: r <= old(dstCap))
+post (r: r <= old(dstCap))
 //    ^  ^
 //    |  the predicate, which may now use that name
 //    the binding: "call the return value r for this clause"
@@ -84,17 +84,17 @@ The name before the colon is **declared** there; every use after the colon
 refers to it. It is not a magic identifier — pick whatever reads best:
 
 ```c
-unsigned long decompress(...) ensures (written: written <= old(dstCap));
-int *allocate(unsigned long n) ensures (p: p != 0);
+unsigned long decompress(...) post (written: written <= old(dstCap));
+int *allocate(unsigned long n) post (p: p != 0);
 ```
 
 Two properties worth knowing:
 
-- **It is optional.** A `ensures` that does not need to mention the result just
-  omits it: `ensures (errno_is_clean())`. The `identifier :` prefix is only parsed
+- **It is optional.** A `post` that does not need to mention the result just
+  omits it: `post (errno_is_clean())`. The `identifier :` prefix is only parsed
   when an identifier is immediately followed by a colon, so nothing is ambiguous.
 - **It is scoped to its own clause.** The binding lives on the `ContractClause`,
-  not on the function, so each `ensures` that wants the result names it again, and
+  not on the function, so each `post` that wants the result names it again, and
   two clauses may use different names. This is also why the name cannot collide
   with anything: it does not outlive the parentheses it appears in.
 
@@ -106,7 +106,7 @@ parameter named `rate` is not mangled by a binding named `r`.
 `old(dstCap)` names the value `dstCap` held at entry, and it is **required**
 rather than optional. In C every parameter is a by-value copy that the body may
 freely mutate (`src += 4`, `dstCap -= n` are ordinary in codec code), so a
-`ensures` naming a bare parameter would be silently ambiguous between its entry and
+`post` naming a bare parameter would be silently ambiguous between its entry and
 exit value. Writing one is an error that tells you to use `old`. It takes
 scalars only: snapshotting a struct is a copy, not an annotation.
 
@@ -159,9 +159,9 @@ give up and assume nothing. With one, `ZSTD_wildcopy` is proved memory-safe for
    written against two different sets of `ParmVarDecl`s for equivalence is not
    implemented, and silently keeping one of them would make *which declaration a
    caller happened to include* change what gets checked.
-4. **A macro named `requires`, `ensures`, `loop_invariant`, `decreases` or `old` shadows the
+4. **A macro named `pre`, `post`, `loop_invariant`, `decreases` or `old` shadows the
    keyword**, and warns (`-Wc-contracts`) rather than erroring, because a
-   project may have an unrelated `requires` macro and never write a contract.
+   project may have an unrelated `pre` macro and never write a contract.
 
 ## Flags
 
@@ -178,9 +178,9 @@ contracts and still compile with a stock clang.
 
 Four stages, each a real part of the compiler rather than a preprocessor trick.
 
-**1. Parsed as contextual keywords.** `requires` and `ensures` are read in
+**1. Parsed as contextual keywords.** `pre` and `post` are read in
 `ParseFunctionDeclarator`, in the declarator suffix, with the parameters already
-in scope — which is what lets a predicate name them. `ensures` is special-cased:
+in scope — which is what lets a predicate name them. `post` is special-cased:
 its predicate may bind the return value, and the return type is not known while
 the declarator is still being built (for `int *f(void)` the pointer chunk is
 added *after* the function chunk), so its tokens are saved and replayed once the
@@ -188,9 +188,9 @@ added *after* the function chunk), so its tokens are saved and replayed once the
 and the body, using a token-stream lookahead — the parser scans balanced parens
 past the clause sequence and only commits if a `{` follows.
 
-**2. Type-checked and stored in the AST.** A `requires`, `ensures` or `loop_invariant`
+**2. Type-checked and stored in the AST.** A `pre`, `post` or `loop_invariant`
 predicate goes through the same contextual boolean conversion `if` uses, so
-`requires (p)` on a pointer means `requires (p != 0)`. A `decreases` is a *measure*, not a
+`pre (p)` on a pointer means `pre (p != 0)`. A `decreases` is a *measure*, not a
 condition, so it keeps its own arithmetic type and is only required to be
 scalar. Purity is enforced with `Expr::HasSideEffects`. Function clauses land in
 a `ContractSpecifier` hanging off the `FunctionDecl` and survive a PCH; loop
@@ -217,9 +217,9 @@ know, and not knowing must never produce a report. Back edges are not iterated
 to a fixpoint, which costs missed reports and never invents one. Variables whose
 address is taken are never tracked at all, which is the cheap defence against
 the out-parameter false positive (`T *p = 0; f(&p); p->x;`) that dominates this
-class of analysis. The function's own `requires` clauses are seeded as true on entry,
+class of analysis. The function's own `pre` clauses are seeded as true on entry,
 so a call inside the body can be discharged by a guarantee the caller already
-made, and a callee's `ensures` is assumed after a call.
+made, and a callee's `post` is assumed after a call.
 
 The pass reports only preconditions it can show are **violated** — never ones it
 merely cannot prove. That is the difference between a warning developers leave
@@ -232,8 +232,8 @@ one:
 
 | Clause | Becomes |
 |---|---|
-| `requires (P)` | `__CPROVER_requires(P)` |
-| `ensures (r: P)` | `__CPROVER_ensures(P)` with `r` renamed to `__CPROVER_return_value` |
+| `pre (P)` | `__CPROVER_requires(P)` |
+| `post (r: P)` | `__CPROVER_ensures(P)` with `r` renamed to `__CPROVER_return_value` |
 | `old (e)` | `__CPROVER_old(e)` |
 | `loop_invariant (P)` | `__CPROVER_loop_invariant(P)` |
 | `decreases (m)` | `__CPROVER_decreases(m)` |
@@ -248,7 +248,7 @@ __CPROVER_ensures(__CPROVER_return_value <= __CPROVER_old(dstCap))
 
 Function clauses are emitted from the declarator; loop clauses only once the
 body has been parsed, since that is the first point they are reachable. The
-effect is that a function's `requires` and `ensures` print ahead of the loops
+effect is that a function's `pre` and `post` print ahead of the loops
 they scope. `goto-instrument --enforce-contract` and `cbmc` then discharge them.
 
 One back-end wart worth knowing: **goto-instrument rejects loop contracts on
@@ -266,7 +266,7 @@ Being precise about this matters more than the feature list:
   default; it is not a guarantee.
 - **CBMC proves the real thing**, but only what you asked: "given the
   preconditions, the postconditions hold and there is no UB, in this function."
-  A wrong `ensures` is proved happily. It proves the code matches the spec, never
+  A wrong `post` is proved happily. It proves the code matches the spec, never
   that the spec is right.
 - **There is no runtime-trap tier yet.** Nothing lowers a contract to a branch
   in codegen today. And note that the interesting clauses could not be traps

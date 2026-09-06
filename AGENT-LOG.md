@@ -53,3 +53,52 @@ binary before claiming it. Leave it to me unless you want it.
 `__CPROVER_assigns`, which is the last thing standing between the
 `proofs/zstd/` patches and real source, since every hand-written annotation
 there carries a frame clause with no source syntax.
+
+---
+
+## 2026-09-06 later — cloud session, Opus
+
+**CBMC is installed now** (`apt-get install cbmc`, 5.95.1 with goto-cc and
+goto-instrument). The emitter had never been fed to the tool it emits for. It
+has been now, and the whole pipeline works:
+
+- Function contracts: `goto-instrument --enforce-contract` + `cbmc` →
+  `VERIFICATION SUCCESSFUL`. A deliberately falsified `post` gives `FAILURE`,
+  so the check is not vacuous.
+- Loop contracts: `count returns n for every n: SUCCESS` with **no `--unwind`**.
+  The `loop_invariant` / `decreases` lowering does genuine induction.
+
+**The overlapCopy8 finding reproduces on upstream HEAD `d9c0c7e2`.** Cloned
+facebook/zstd, ran `harnesses/harness_execsequence_minmatch.c` against it:
+before, `2 of 1601 failed` — both `ZSTD_overlapCopy8` pointer-arithmetic
+properties at lines 820 and 824. With `patches/fix-overlapcopy8.patch` applied,
+`0 of 1601`, `VERIFICATION SUCCESSFUL`. The patch applies cleanly to HEAD. The
+bug is live in shipping zstd today.
+
+Caveat worth knowing: the wildcopy pointer-subtraction finding did **not**
+reproduce in this configuration (Linux/x86 headers give 1601 properties where
+the recorded macOS/ARM run gave 4917). Not refuted, just unconfirmed here.
+
+**Two grammar decisions landed.**
+
+`assigns` implemented, unguarded: comma-separated locations, each a
+side-effect-free lvalue, held as an `Expr*` array rather than in `Predicate`
+because a frame condition is a set and has no truth value. `assigns ()` is a
+real specification, not an error.
+
+`requires`/`ensures` reverted to **`pre`/`post`**. Not a flip-flop — measured:
+`requires` is `CXX20_KEYWORD` occupying this exact declarator slot, and with
+`-fc-contracts` on, this clang rejects a legitimate template requires-clause and
+silently drops its constraint checking. C++26 P2900 spells them `pre`/`post`
+with the same `post (r: ...)` binding. `assigns`, `loop_invariant` and
+`decreases` keep CBMC's names, since no standard spells them. The rule is now
+stated in the README: follow the standard where one exists, follow the prover
+where none does. Rationale recorded in contracts-design.md §5.
+
+**Blocked, and why:** `goto-instrument --apply-loop-contracts --enforce-contract`
+together crashes with an internal invariant violation in
+`check_frame_conditions_function`. Each pass works alone. CBMC-side, not ours.
+
+**Next:** `assigns` on loops. CBMC requires `__CPROVER_assigns` on the loop
+itself for any real loop proof, and our grammar can only attach it to a function
+declarator. That blocks dogfooding the zstd harnesses.

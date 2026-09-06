@@ -9,14 +9,14 @@ int pure_fn(int) __attribute__((pure));
 int const_fn(int) __attribute__((const));
 
 // Pure and const callees are the "usable in specs" marker; no new attribute.
-int calls_pure(int n) requires (pure_fn(n) > 0);
-int calls_const(int n) requires (const_fn(n) > 0);
+int calls_pure(int n) pre (pure_fn(n) > 0);
+int calls_const(int n) pre (const_fn(n) > 0);
 
-int calls_impure(int n) requires (impure(n) > 0); // expected-error {{contract predicate must be free of side effects}}
+int calls_impure(int n) pre (impure(n) > 0); // expected-error {{contract predicate must be free of side effects}}
 // expected-note@7 {{mark 'impure' 'const' or 'pure' to allow calling it from a contract predicate}}
 
-int assigns(int n) requires ((n = 1) > 0); // expected-error {{contract predicate must be free of side effects}}
-int increments(int n) requires (n++ > 0);  // expected-error {{contract predicate must be free of side effects}}
+int assigns(int n) pre ((n = 1) > 0); // expected-error {{contract predicate must be free of side effects}}
+int increments(int n) pre (n++ > 0);  // expected-error {{contract predicate must be free of side effects}}
 
 // Ordinary side-effect-free predicates are unaffected.
-int plain(int *p, int n) requires (p != 0) requires (n > 0 && n < 100);
+int plain(int *p, int n) pre (p != 0) pre (n > 0 && n < 100);

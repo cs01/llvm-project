@@ -7486,17 +7486,22 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
 /// Recognizes a clause keyword that attaches to a function declarator.
 ///
 /// Contextual: these are ordinary identifiers outside this slot, so a program
-/// that already uses 'requires' as a name keeps working everywhere else.
+/// that already uses 'pre' as a name keeps working everywhere else.
+///
+/// 'pre' and 'post' rather than 'requires' and 'ensures' deliberately. C++26
+/// P2900 spells contracts that way, and 'requires' is a C++20 keyword occupying
+/// this exact grammatical slot, so the verifier's vocabulary cannot be borrowed
+/// here without making the extension unusable in C++ later.
 static bool isFunctionContractKeywordName(const IdentifierInfo *II,
                                           ContractClause::ClauseKind &Kind) {
   if (!II)
     return false;
-  if (II->isStr("requires")) {
-    Kind = ContractClause::CK_Requires;
+  if (II->isStr("pre")) {
+    Kind = ContractClause::CK_Pre;
     return true;
   }
-  if (II->isStr("ensures")) {
-    Kind = ContractClause::CK_Ensures;
+  if (II->isStr("post")) {
+    Kind = ContractClause::CK_Post;
     return true;
   }
   if (II->isStr("assigns")) {
@@ -7627,7 +7632,7 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
       continue;
     }
 
-    if (Kind == ContractClause::CK_Ensures) {
+    if (Kind == ContractClause::CK_Post) {
       // 'post' may bind the return value, whose type is not known here: this
       // declarator is still being built, and for `int *f(void)` the pointer
       // chunk is not added until after the function chunk. Save the tokens and
@@ -7785,8 +7790,8 @@ ExprResult Parser::ParseContractOldExpr() {
     return ExprError();
 
   // 'old' names a value at function entry, which only a 'post' has a notion of.
-  if (*ContractPredicateKind != ContractClause::CK_Ensures) {
-    Diag(OldLoc, diag::err_contract_old_outside_ensures)
+  if (*ContractPredicateKind != ContractClause::CK_Post) {
+    Diag(OldLoc, diag::err_contract_old_outside_post)
         << SourceRange(OldLoc, T.getCloseLocation());
     return ExprError();
   }
@@ -7855,7 +7860,7 @@ void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
       Predicate = Actions.ActOnContractClausePredicate(
           Clause.getKind(), Clause.getKeywordLoc(), Predicate.get());
     if (Predicate.isUsable())
-      Predicate = Actions.CheckContractEnsuresPredicate(Predicate.get());
+      Predicate = Actions.CheckContractPostPredicate(Predicate.get());
     Clause.setPredicate(Predicate.isUsable() ? Predicate.get() : nullptr);
 
     // Drain anything the predicate did not consume, then the eof marker.

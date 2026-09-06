@@ -24,9 +24,9 @@ void bad_effect(int *p)
 
 // 'assigns' composes with the other clauses, in any order.
 unsigned long decompress(void *dst, unsigned long cap)
-  requires (dst != 0)
-  assigns  (cap)
-  ensures  (r: r <= old(cap));
+  pre  (dst != 0)
+  assigns (cap)
+  post (r: r <= old(cap));
 
 // 'assigns' is contextual: a function may still be named after it.
 int assigns(int n);

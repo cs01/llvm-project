@@ -1,6 +1,6 @@
 # Readable contracts for C in clang
 
-Status: phase 1 started. `-fc-contracts` parses and type-checks `requires` clauses
+Status: phase 1 started. `-fc-contracts` parses and type-checks `pre` clauses
 (commit `7122f3da6450`); everything else below is still design.
 Priority: **compile-time checking first.** Section 6 is ordered accordingly, and
 this reverses the original phase order; see "Ordering" there for what that costs.
@@ -60,7 +60,7 @@ cost.
 | Deductive verification | Proves "precondition implies postcondition, no UB" for that function. | High | Frama-C/WP, VeriFast, VCC, CBMC |
 
 Only the third tier proves anything, and it proves the code matches the spec,
-not that the spec is right. A wrong `ensures` is proved happily.
+not that the spec is right. A wrong `post` is proved happily.
 
 **What is actually runtime-checkable is narrower than it looks.** A predicate
 can be compiled into a branch only if the program has the information at hand:
@@ -146,13 +146,13 @@ from a November-2025 checkout and were wrong; these are re-verified.
 
 Ordered by how much each is missed when absent.
 
-1. **`requires` / `ensures`.** Table stakes.
-2. **Result naming in `ensures`.**
-3. **`old(e)` in `ensures`.** Scalars only. Required more often than it looks:
+1. **`pre` / `post`.** Table stakes.
+2. **Result naming in `post`.**
+3. **`old(e)` in `post`.** Scalars only. Required more often than it looks:
    codec code mutates parameters constantly (`src += 4`, `dstCap -= n`), so a
-   `ensures` naming a by-value parameter is ambiguous between its entry and exit
-   value. P2900 forbids naming non-const by-value parameters in `ensures` for
-   exactly this reason. **Rule adopted here: an `ensures` predicate may name a
+   `post` naming a by-value parameter is ambiguous between its entry and exit
+   value. P2900 forbids naming non-const by-value parameters in `post` for
+   exactly this reason. **Rule adopted here: a `post` predicate may name a
    by-value parameter only through `old()`.** The first draft's headline example
    (`post(r: r <= dstCap)`) violated this and was wrong as written.
 4. **Frame conditions (`assigns`).** What makes modular reasoning possible at
@@ -163,12 +163,12 @@ Ordered by how much each is missed when absent.
    a specification that cannot say so lies on half its executions.
 
    The problem is narrower than it first looks, and the first draft of this
-   section got it wrong by calling for ACSL-style named behaviors. A `ensures` is a
+   section got it wrong by calling for ACSL-style named behaviors. A `post` is a
    predicate, and a predicate already expresses case analysis with the operators
    C has:
 
    ```c
-   ensures (r: is_error(r) || r <= old(dstCap))
+   post (r: is_error(r) || r <= old(dstCap))
    ```
 
    That parses and type-checks today. No new syntax buys anything there.
@@ -181,14 +181,14 @@ Ordered by how much each is missed when absent.
    ```c
    unsigned long decompress(void *dst, unsigned long dstCap,
                             const void *src, unsigned long srcSize)
-     requires    (dst != 0)
-     requires    (dstCap > 0)
-     ensures   (r: is_error(r) || r <= old(dstCap))
+     pre  (dst != 0)
+     pre  (dstCap > 0)
+     post (r: is_error(r) || r <= old(dstCap))
      assigns (dst, r) when (r: !is_error(r));
    ```
 
    An unguarded `assigns` is unconditional, which is the common case and stays
-   the short spelling. `when` takes the same result binding an `ensures` does, so
+   the short spelling. `when` takes the same result binding a `post` does, so
    there is one rule to learn rather than a new block construct with its own
    scoping. Named behaviors are rejected: they introduce a second place where
    pre- and postconditions live, and every example in the target libraries
@@ -207,6 +207,43 @@ pointer exclusion costs.
 
 ## 5. Syntax
 
+### Why `pre` / `post`, and not the verifier's `requires` / `ensures`
+
+This was tried the other way and reverted, so the reasoning is recorded rather
+than left to look like an unconsidered default.
+
+The case for borrowing CBMC's vocabulary wholesale is real: one set of names
+across the source and the prover, and `decreases` genuinely says what `variant`
+does not. `assigns`, `loop_invariant` and `decreases` are kept for exactly that
+reason — no standard spells them, so the prover's names win by default.
+
+`requires` and `ensures` are different, and lose on two counts.
+
+**`requires` is a C++20 keyword, in this exact grammatical slot.**
+`TokenKinds.def:437` has `CXX20_KEYWORD(requires, 0)`, and a trailing
+requires-clause attaches to a function declarator precisely where a precondition
+would. Measured, not assumed: with `-fc-contracts` on, this clang rejects
+
+```c++
+template <typename T> void sink(T t) requires (sizeof(T) > 1) { }
+```
+
+with "contract clause is only allowed on a function declaration", and the
+constraint checking that made `sink((char)0)` ill-formed is gone. There is no
+coexistence to negotiate.
+
+**C++26 P2900 already spells them `pre` and `post`**, with the same
+`post (r: ...)` result binding used here. Since the C++ front end is a plausible
+future direction — the front end and the call-site checker port, even though
+CBMC does not — diverging from the standard's spelling would mean choosing to be
+incompatible with the one contracts syntax C programmers are most likely to meet
+elsewhere.
+
+The resulting rule is not a compromise so much as a precedence order: **follow
+the standard where one exists, follow the prover where none does.**
+
+
+
 Contracts are real grammar. They are lexed, parsed into expressions with the
 function's parameters in scope, type-checked, and diagnosed like any other
 construct. They are not macros that expand to nothing and not comments.
@@ -214,11 +251,11 @@ construct. They are not macros that expand to nothing and not comments.
 ```c
 size_t ZSTD_decompress(void *dst, size_t dstCap,
                        const void *src, size_t srcSize)
-  requires    (valid(dst, dstCap))
-  requires    (valid(src, srcSize))
-  requires    (disjoint(dst, dstCap, src, srcSize))
+  pre  (valid(dst, dstCap))
+  pre  (valid(src, srcSize))
+  pre  (disjoint(dst, dstCap, src, srcSize))
   assigns (dst, dstCap)
-  ensures   (r: r <= old(dstCap) || ZSTD_isError(r));
+  post (r: r <= old(dstCap) || ZSTD_isError(r));
 ```
 
 ```c
@@ -252,10 +289,10 @@ impossible; parsing at the right level is ordinary.
 - **`for (...) invariant(x);` is a valid call statement today** when `loop_invariant`
   is a function. Loop clauses need lookahead, or a stricter rule that a clause
   must be followed by another clause or a compound statement.
-- **K&R declarations.** If `requires` is a typedef, `int f(a) pre(a) { }` is already
+- **K&R declarations.** If `pre` is a typedef, `int f(a) pre(a) { }` is already
   a valid K&R declaration. C23 removed K&R declarations; gate the feature on C23
   or diagnose the collision.
-- **A macro named `requires`, `ensures`, or `valid`** in any earlier header silently
+- **A macro named `pre`, `post`, or `valid`** in any earlier header silently
   rewrites contracts. This must be a diagnostic, not a surprise.
 - **Contextual keywords in the declarator suffix** are parsed on every function
   declarator, including function pointers, abstract declarators, and `sizeof`
@@ -303,8 +340,8 @@ Phases are numbered by dependency, not by the order they get built. The build
 order is **1, 3, 2**: the front end, then static call-site checking, then
 runtime checking. This is a deliberate reversal of the original plan and the
 reason is that only the static tier is worth the annotation burden on its own.
-A `requires` that merely traps at runtime competes with `assert`, which is already
-written, already free, and already understood. A `requires` that a compiler checks at
+A `pre` that merely traps at runtime competes with `assert`, which is already
+written, already free, and already understood. A `pre` that a compiler checks at
 every call site is something no C project has.
 
 What the reversal costs, stated plainly:
@@ -343,32 +380,32 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
 54699 tests):
 
 - `-fc-contracts` / `-fno-c-contracts` and `__has_feature(c_contracts)`.
-- `requires (expr)` parsed in the declarator suffix at the point section 5 predicted.
+- `pre (expr)` parsed in the declarator suffix at the point section 5 predicted.
   The prediction held: `ParseFunctionDeclarator` asserts
   `isFunctionPrototypeScope()` for its entire body (`ParseDecl.cpp:7283`) and the
   scope is exited by the caller at `:6992`, so parameters are in scope for the
   predicate with no new scope machinery.
 - `ContractClause` / `ContractSpecifier` in `AST/ContractSpecifier.h`, hanging
   off `FunctionDecl` and deliberately not off its type.
-- Sema: predicate goes through `CheckBooleanCondition`, so `requires (p)` means
-  `requires (p != 0)` and a non-scalar predicate gets the usual diagnostic. Clauses on
+- Sema: predicate goes through `CheckBooleanCondition`, so `pre (p)` means
+  `pre (p != 0)` and a non-scalar predicate gets the usual diagnostic. Clauses on
   a declarator that does not declare a function are diagnosed.
 - `-ast-dump`, `RecursiveASTVisitor` traversal, and PCH serialization. The PCH
-  work is not optional: contracts live on the decl, so without it a `requires` in a
+  work is not optional: contracts live on the decl, so without it a `pre` in a
   header would be present in a normal build and silently gone in a PCH build.
 
 **Not done, and why:**
 
-- `ensures`: **done**, with result binding. The predicate tokens are saved and
+- `post`: **done**, with result binding. The predicate tokens are saved and
   replayed once the `FunctionDecl` exists, because the result binding needs the
   return type and the declarator is incomplete where the clause appears: for
   `int *f(void)` the pointer chunk is added after the function chunk. Same shape
-  as a delayed exception specification. Naming a parameter in an `ensures` is
+  as a delayed exception specification. Naming a parameter in a `post` is
   rejected per section 4, which is the rule `old()` will lift.
 - `old()`: **done**. `ContractOldExpr`, contextual so an ordinary identifier
-  named `old` is unaffected, rejected in a `requires`, and scalars only per section 2.
+  named `old` is unaffected, rejected in a `pre`, and scalars only per section 2.
   With it the section 5 example type-checks as written, including the
-  `ensures (r: r <= old(dstCap) || ...)` form the first draft got wrong.
+  `post (r: r <= old(dstCap) || ...)` form the first draft got wrong.
 - `assigns`: **done**, unguarded. Parses a comma-separated list of locations,
   each required to be a side-effect-free lvalue, held as an `Expr*` array on the
   clause rather than in `Predicate`: a frame condition is a set of locations, so
@@ -384,9 +421,9 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
   `-fcontract-emit-cprover` prints them as `__CPROVER_loop_invariant` and
   `__CPROVER_decreases`. They are emitted once the body has been parsed rather
   than at the declarator, because that is the first point at which they are
-  reachable; the effect is that a function's `requires` and `ensures` still
+  reachable; the effect is that a function's `pre` and `post` still
   print ahead of its loops. `old` is deliberately *not* rewritten here, unlike
-  in the function clauses: `old()` is rejected outside `ensures`, so an `old` token
+  in the function clauses: `old()` is rejected outside `post`, so an `old` token
   in a loop clause is an ordinary identifier and renaming it would corrupt the
   predicate.
 
@@ -411,7 +448,7 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
 - Macro-collision diagnostic: **done** (`PPCallbacks::MacroDefined` registered
   from `Parser::Initialize`, so `-D` and the predefines buffer are covered).
   Warning in `-Wc-contracts`, not an error: a project may have an unrelated
-  `requires` macro and never write a contract.
+  `pre` macro and never write a contract.
 - Purity checking: **done**. `Expr::HasSideEffects` rejects assignment,
   increment, and calls to anything not marked `const` or `pure`, so those two
   existing attributes are the "usable in specs" marker from section 4 item 7
@@ -420,8 +457,8 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
 
 ### Phase 2: runtime checking
 `-fcontract-semantic={ignore,check}`. `check` emits a branch plus a handler call
-per checkable clause, reusing the ubsan handler plumbing. `requires` at callee entry,
-`ensures` at every return, entry snapshot for `old()` on scalars. Non-checkable
+per checkable clause, reusing the ubsan handler plumbing. `pre` at callee entry,
+`post` at every return, entry snapshot for `old()` on scalars. Non-checkable
 clauses (`valid`, `assigns`) compile to nothing and are consumed only by phase 3.
 
 **`assume` is cut.** The first draft proposed an `assume` mode lowering to
@@ -450,8 +487,8 @@ that number: a static checker's misses are invisible by construction, so
 this.
 
 That reframing also settles how much of phase 2 to build and when. The subset
-needed to serve as an oracle is `requires` checking at callee entry on scalar and
-pointer predicates, which is the cheap part. `ensures`, `old()` snapshots, and
+needed to serve as an oracle is `pre` checking at callee entry on scalar and
+pointer predicates, which is the cheap part. `post`, `old()` snapshots, and
 `observe` are product features and can wait until phase 3 has a precision number
 worth defending.
 
@@ -460,8 +497,8 @@ suites green under `check`; and the false-negative count above is reported, not
 merely collected.
 
 ### Phase 3: call-site checking
-A checker that, at a call site, checks the callee's `requires` against the current
-state, assumes its `ensures` afterward, and uses `assigns` to limit invalidation.
+A checker that, at a call site, checks the callee's `pre` against the current
+state, assumes its `post` afterward, and uses `assigns` to limit invalidation.
 
 **Precision expectations, corrected.** The first draft claimed frame conditions
 make CSA "strictly more precise", implying sub-object precision.
@@ -472,7 +509,7 @@ and `const T*` pointee preservation already exists. What survives is control ove
 real gain, but for codec code where the whole decoder state hangs off a single
 `ZSTD_DCtx *`, it collapses. **This must be measured on roughly 20 hand-annotated
 zstd functions before any of phase 3 is built.** If the measurement says the gain
-is small, phase 3 shrinks to call-site `requires` checking, which is still worth
+is small, phase 3 shrinks to call-site `pre` checking, which is still worth
 having and does not depend on frame conditions at all.
 
 **Host: a standalone Sema CFG dataflow pass on this branch.**
@@ -538,9 +575,9 @@ deriving contracts from bodies and delivering them as fix-its, so a human edits
 a proposal instead of authoring from a blank line. The first draft was too
 optimistic about this; what survives:
 
-**Leaf-function `assigns`, plus Houdini-pruned `requires` candidates.** For a leaf
+**Leaf-function `assigns`, plus Houdini-pruned `pre` candidates.** For a leaf
 function, the write set is a dataflow fact: collect stores, resolve each to a
-root, drop locals. For `requires`, propose a large candidate set (each pointer
+root, drop locals. For `pre`, propose a large candidate set (each pointer
 parameter non-null, each length parameter positive), run the phase 3 checker,
 delete whatever fails, keep the maximal consistent subset. This is Houdini, it
 needs the fast checker phase 3 provides, and it gives phase 3 something to eat
@@ -555,7 +592,7 @@ on code nobody has annotated.
   poison callers transitively. Frama-C's Inout plugin and SPARK's synthesized
   `Global` both report the same finding: the sound answer is often too coarse to
   be useful.
-- `requires` from unconditional dereference is what the nullsafe fork's
+- `pre` from unconditional dereference is what the nullsafe fork's
   `-Rnullsafe-evidence` already emits. The increment is roughly zero.
 - Corpus-driven (Daikon-style) inference: not novel, and the first draft's claim
   that "nobody is doing this" was wrong. Daikon has had a C front end (Kvasir,
@@ -575,7 +612,7 @@ on code nobody has annotated.
 **The tautology problem is worse than the first draft said.** It correctly noted
 that a contract inferred from a body and checked against that body proves
 nothing. What it missed: inferred contracts are the *strongest observed*
-behavior, not the *weakest needed* one. Ratifying an inferred `requires` on a public
+behavior, not the *weakest needed* one. Ratifying an inferred `pre` on a public
 function narrows the library's contract, and under trap semantics crashes
 existing callers that were previously fine. That is a compatibility break, not a
 description. Inference output must be scoped to internal functions, or gated
@@ -590,7 +627,7 @@ contract does not.
 The first draft cited ACSL and hand-waved the rest. The omissions materially
 changed the plan.
 
-- **CBMC function contracts** (2021 onward): `__CPROVER_requires`, `ensures`,
+- **CBMC function contracts** (2021 onward): `__CPROVER_requires`, `post`,
   `assigns`, `frees`, `loop_invariant`, `decreases`, `old`, `return_value`,
   `forall`, plus a goto-synthesizer that infers loop invariants and assigns
   clauses using CBMC as the oracle. That is the cut phase 4 and much of phase
@@ -667,7 +704,7 @@ already catch.
 
 The first draft did not consider any of these.
 
-- **Separate compilation and mixed semantics.** `requires` is checked in the callee's
+- **Separate compilation and mixed semantics.** `pre` is checked in the callee's
   TU. All of zstd's internal headers are `static inline` (`MEM_STATIC`), so the
   same function is instantiated per TU with whatever semantic that TU used, and
   `check` in one TU with `ignore` in another is live. P2900 spends much of its
@@ -682,14 +719,14 @@ The first draft did not consider any of these.
   ...)`. Nothing can be said about `...`.
 - **`restrict` and `const`.** `disjoint` duplicates `restrict`; decide whether
   it feeds the optimizer. A `const T*` pointee can still change during the call,
-  so any `ensures` over pointee data is unsound without `assigns`.
+  so any `post` over pointee data is unsound without `assigns`.
 - **Function pointers.** Both named evaluation targets dispatch through them
   (openzl codec dispatch, sqlite's VFS and `xFunc`), which makes them the worst
   possible targets for a design that defers function-pointer contracts. Section
   4 defers them anyway; this is the cost.
 - **Error paths.** Covered in section 4 item 5. Without behaviors, `assigns` lies
   about partial writes on error paths.
-- **`setjmp`/`longjmp` and signals.** `ensures` at return is bypassed by a longjmp,
+- **`setjmp`/`longjmp` and signals.** `post` at return is bypassed by a longjmp,
   which sqlite's fault-injection harness uses. `assigns` is violated by signal
   handlers.
 - **Drift.** Prototype and definition live in different files. Only the static
@@ -699,7 +736,7 @@ The first draft did not consider any of these.
   for cross-TU. Real grammar means clang-format and clangd must learn it, which
   is budgeted in phase 1. Getting this wrong makes every contributor hate the
   feature on day one, so it is a phase 1 gate and not a follow-up.
-- **Who validates the specs.** A too-strong `requires` under trap semantics is a
+- **Who validates the specs.** A too-strong `pre` under trap semantics is a
   production crash caused by the safety feature.
 
 ## 11. Effort
@@ -713,7 +750,7 @@ Engineer-months for one clang-experienced engineer. Estimates, not measurements.
 | 3, Sema dataflow host, extending `FlowNullability.cpp` | 4-6 to a usable false-positive rate on sqlite | **Chosen.** The 8-12 below was for building a dataflow host from scratch; this fork already has a calibrated one, which is what closes the gap to the CSA number |
 | 3, CSA host | 4-6 to a usable false-positive rate on sqlite | Not chosen. Would mean a second analysis and a second false-positive profile. The first draft's "bugs for nearly free" was its most underestimated line |
 | 3, Sema dataflow host from scratch | 8-12 | Superseded, kept so the comparison above is auditable |
-| 3.5, leaf `assigns` plus Houdini `requires` | 2-3 | Worth it |
+| 3.5, leaf `assigns` plus Houdini `pre` | 2-3 | Worth it |
 | 4, export to CBMC | 0.5-1 | Replaces a 12-24 month verifier |
 
 Roughly 15-23 engineer-months for the surviving plan, against 35-60 for the
@@ -729,7 +766,7 @@ subset that phase 3 actually depends on is a fraction of it.
 
 1. **Does phase 3 survive its own measurement?** If the 20-function experiment
    says frame conditions do not improve call-site precision on codec code, phase
-   3 shrinks to `requires` checking and phase 3.5's `assigns` inference loses most of
+   3 shrinks to `pre` checking and phase 3.5's `assigns` inference loses most of
    its purpose.
 2. **`observe` semantics.** Diagnose how, given a violation is detected at
    runtime? A handler call that logs and continues, matching P2900's observe.
@@ -744,7 +781,7 @@ subset that phase 3 actually depends on is a fraction of it.
 
 ### Resolved
 
-- **Error paths.** Section 4 item 5. A `ensures` expresses case analysis with `||`
+- **Error paths.** Section 4 item 5. A `post` expresses case analysis with `||`
   and needs nothing new; only `assigns` cannot be disjoined, so it gets a `when`
   guard. Named behaviors rejected.
 - **Loop clause placement.** A loop clause sequence must be followed by a

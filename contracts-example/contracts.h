@@ -7,18 +7,18 @@ int is_error(int r) __attribute__((pure));
 
 unsigned long decompress(void *dst, unsigned long dstCap,
                          const void *src, unsigned long srcSize)
-  requires (dst != 0)
-  requires (src != 0)
-  requires (dstCap > 0)
-  ensures  (r: r <= old(dstCap) || is_error((int)r));
+  pre  (dst != 0)
+  pre  (src != 0)
+  pre  (dstCap > 0)
+  post (r: r <= old(dstCap) || is_error((int)r));
 
 int *allocate(unsigned long n)
-  requires (n > 0)
-  ensures  (r: r != 0);
+  pre  (n > 0)
+  post (r: r != 0);
 
 void put(int *buf, unsigned long len, unsigned long i, int v)
-  requires (buf != 0)
-  requires (i < len);
+  pre  (buf != 0)
+  pre  (i < len);
 
 void buf_free_if_needed(void);
 

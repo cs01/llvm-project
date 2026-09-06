@@ -29,14 +29,14 @@ class ASTContext;
 class Expr;
 class VarDecl;
 
-/// A single contract clause, e.g. `requires (dst != 0)`.
+/// A single contract clause, e.g. `pre (dst != 0)`.
 class ContractClause {
 public:
   enum ClauseKind {
     /// A precondition, checked on entry to the callee.
-    CK_Requires,
+    CK_Pre,
     /// A postcondition, checked at every return.
-    CK_Ensures,
+    CK_Post,
     /// A frame condition. Not yet parsed.
     CK_Assigns,
     /// A loop invariant: holds at every iteration of the loop it is attached
@@ -57,8 +57,8 @@ private:
   /// type-check, so that one bad clause does not discard the others.
   Expr *Predicate;
 
-  /// For `ensures (r: ...)`, the binding for the return value. Null when the
-  /// clause named no result, and always null for a 'requires'.
+  /// For `post (r: ...)`, the binding for the return value. Null when the
+  /// clause named no result, and always null for a 'pre'.
   VarDecl *ResultVar = nullptr;
 
   /// For 'assigns', the frame targets: the locations the function may modify.
@@ -108,10 +108,10 @@ public:
   /// The spelling of \p Kind, for diagnostics and AST dumps.
   static const char *getKindSpelling(ClauseKind Kind) {
     switch (Kind) {
-    case CK_Requires:
-      return "requires";
-    case CK_Ensures:
-      return "ensures";
+    case CK_Pre:
+      return "pre";
+    case CK_Post:
+      return "post";
     case CK_Assigns:
       return "assigns";
     case CK_LoopInvariant:

@@ -7,9 +7,9 @@ comments, not `__attribute__` soup.
 
 ```c
 unsigned long decompress(void *dst, unsigned long dstCap, const void *src)
-  requires (dst != 0)
-  requires (dstCap > 0)
-  ensures  (r: r <= old(dstCap) || is_error((int)r));
+  pre  (dst != 0)
+  pre  (dstCap > 0)
+  post (r: r <= old(dstCap) || is_error((int)r));
 ```
 
 ```c
@@ -30,20 +30,20 @@ not crashes — they are the ones where nothing misbehaves at runtime and the
 answer is simply wrong. Fuzzing cannot find those. Tests cannot enumerate them.
 Rewriting it all is not a plan.
 
-So: give C the ability to **say what a function requires and guarantees**, in the
+So: give C the ability to **say what a function pre and guarantees**, in the
 declaration, in a form a maintainer will actually write — and then make that
 statement worth something at three levels.
 
 ### 1. Write it once, in the header
 
-Where the function is already declared. `requires` is what the caller must
-guarantee; `ensures` is what the function guarantees back, with `r` naming the
+Where the function is already declared. `pre` is what the caller must
+guarantee; `post` is what the function guarantees back, with `r` naming the
 returned value.
 
 ```c
 int *allocate(unsigned long n)
-  requires (n > 0)
-  ensures  (r: r != 0);
+  pre  (n > 0)
+  post (r: r != 0);
 ```
 
 ### 2. Every caller is checked in an ordinary build
@@ -65,7 +65,7 @@ demo.c:6:12: warning: precondition n > 0 of 'allocate' is violated by this call 
     6 |   int *p = allocate(0);
       |            ^~~~~~~~~~~
 demo.c:2:3: note: precondition declared here
-    2 |   requires (n > 0)
+    2 | pre (n > 0)
       |   ^~~~~~~~~~~~~~~~
 ```
 
@@ -133,16 +133,24 @@ Six words. Full syntax and semantics in
 
 | Keyword | Goes | Says |
 |---|---|---|
-| `requires` | after a function's parameter list | must hold when the function is **called** |
-| `ensures` | after a function's parameter list | must hold when it **returns**; `ensures (r: ...)` names the result |
-| `old` | only inside an `ensures` | the value an expression had **on entry** |
+| `pre` | after a function's parameter list | must hold when the function is **called** |
+| `post` | after a function's parameter list | must hold when it **returns**; `post (r: ...)` names the result |
+| `old` | only inside a `post` | the value an expression had **on entry** |
 | `loop_invariant` | between a loop's header and its body | true on entry and **preserved by every iteration** |
 | `decreases` | between a loop's header and its body | **strictly decreases**, never negative — so the loop terminates |
 | `assigns` | after a function's parameter list | the **only** locations the function may modify |
 
 `assigns` takes a comma-separated list of locations rather than a predicate — a
-frame condition is a *set*, not a condition. These are *contextual* keywords,
-active only under `-fc-contracts`, so code already using `requires` as an
+frame condition is a *set*, not a condition.
+
+The names follow one rule: **the standard where there is one, the prover where
+there is not.** `pre`, `post` and `old` are C++26 P2900's spelling, so a C
+programmer meeting contracts elsewhere meets the same words — and `requires` is
+unusable anyway, being a C++20 keyword in this exact slot. `assigns`,
+`loop_invariant` and `decreases` are CBMC's, since no standard spells them.
+
+These are *contextual* keywords,
+active only under `-fc-contracts`, so code already using `pre` as an
 identifier keeps compiling.
 
 Four rules bite in practice: a loop with clauses **must brace its body**;
@@ -158,9 +166,9 @@ buffer write at every level:
 
 ```c
 void put(int *buf, unsigned len, unsigned i, int v)
-  requires (buf != 0)
-  requires (i < len)
-  assigns  (buf[i]);
+  pre  (buf != 0)
+  pre  (i < len)
+  assigns (buf[i]);
 ```
 
 ### Level 1 — the front end: is the *contract* well formed?
@@ -171,8 +179,8 @@ behaviour — only about the specification itself.
 **Catches** a contract that cannot mean what it appears to:
 
 ```
-error: 'ensures' predicate cannot name parameter 'cap' directly; a by-value
-       parameter may be named in 'ensures' only through 'old()'
+error: 'post' predicate cannot name parameter 'cap' directly; a by-value
+       parameter may be named in 'post' only through 'old()'
 error: contract predicate must be free of side effects
 note: mark 'impure' 'const' or 'pure' to allow calling it from a contract predicate
 ```
@@ -209,7 +217,7 @@ put(b, n, k, 1);        // symbolic: it cannot relate n and k, so it says nothin
 That last one is the big gap, and it is not subtle:
 
 ```c
-void fill(int *buf, unsigned len) requires (buf != 0) {
+void fill(int *buf, unsigned len) pre (buf != 0) {
   for (unsigned i = 0; i <= len; i++)   // off by one
     buf[i] = 0;
 }
@@ -233,7 +241,7 @@ bugs that fuzzing cannot reach, because nothing misbehaves at runtime.
 instead of the code —
 
 ```c
-  requires (i <= len)     // wrong, but now it is the spec
+  pre  (i <= len)     // wrong, but now it is the spec
 ```
 
 — and CBMC proves the code matches it, cheerfully, forever. It also only sees
@@ -244,7 +252,7 @@ claim without telling you.
 
 | The bug | Level 1<br>front end | Level 2<br>call-site | Level 3<br>CBMC |
 |---|:---:|:---:|:---:|
-| `ensures` names a mutated parameter without `old()` | **caught** | — | — |
+| `post` names a mutated parameter without `old()` | **caught** | — | — |
 | Predicate calls an impure function | **caught** | — | — |
 | `put(b, 8, 8, 1)` — a literal breaks `i < len` | missed | **caught** | caught |
 | `put(b, n, k, 1)` — symbolic arguments | missed | missed | **caught** |
@@ -264,9 +272,10 @@ is strictly more than a comment nobody checks.
 
 ## Why a compiler, and not a header of macros
 
-Fair challenge, and worth answering directly: the keywords are deliberately
-CBMC's own names minus the `__CPROVER_` prefix, so why not
-`#define requires(x) __CPROVER_requires(x)` and skip the compiler work?
+Fair challenge, and worth answering directly: `assigns`, `loop_invariant` and
+`decreases` are CBMC's own names minus the `__CPROVER_` prefix, so why not
+`#define pre(x) __CPROVER_requires(x)`, a header of five macros, and skip the
+compiler work entirely?
 
 Because two of the three tiers cannot exist in a header:
 
@@ -275,7 +284,7 @@ Because two of the three tiers cannot exist in a header:
   dataflow pass *inside clang* emitting ordinary warnings during a normal build.
   No verifier, no harness, no separate tool, no proof. A macro gets you none of
   it.
-- **The clauses are type-checked, scoped, real AST.** `requires (dstCap > 0)` is
+- **The clauses are type-checked, scoped, real AST.** `pre (dstCap > 0)` is
   checked against the parameter's actual type; `old()` is scope-aware and
   scalar-restricted; the `r:` binding is a genuine `VarDecl`; purity is enforced
   via `Expr::HasSideEffects`. A macro is inert text until CBMC runs — and CBMC
@@ -346,7 +355,7 @@ is often assumed to be: `--unwinding-assertions` makes CBMC report when a bound
 was too small rather than silently passing, and `loop_invariant` / `decreases`
 replace the bound with induction outright — which is exactly what
 [`UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md) demonstrates on `ZSTD_wildcopy`. What
-is trusted is the *specification* and the *harness*: a wrong `ensures` is proved
+is trusted is the *specification* and the *harness*: a wrong `post` is proved
 happily, and an over-strong `__CPROVER_assume` silently narrows what was proved
 without saying so. The call-site checker contributes nothing to credit either —
 it reports only violations it can demonstrate and misses others by design, so
@@ -405,7 +414,7 @@ Writing those in this syntax and lowering them needs `assigns` above plus an
 emit mode that produces a compilable translation unit rather than clauses on
 stdout. Doing it turns every proof in that directory from a patch into source.
 
-**Runtime trapping.** Turning `requires` into a deterministic trap at the
+**Runtime trapping.** Turning `pre` into a deterministic trap at the
 earliest wrong state, for the clauses that can be branches. Worth noting that
 buffer and frame clauses can never be traps — there is no way to recover the
 allocation behind a `void *` at entry — so this tier is narrower than it sounds.

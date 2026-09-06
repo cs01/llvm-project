@@ -124,7 +124,7 @@ static void printCProverContracts(const FunctionDecl *FD,
     }
 
     switch (Clause.getKind()) {
-    case ContractClause::CK_Requires:
+    case ContractClause::CK_Pre:
       // No 'old' rewrite here. 'old()' is rejected outside 'ensures', so an
       // 'old' token in a requires is an ordinary identifier: rewriting it
       // turned `requires (old > 0)` on a parameter named 'old' into
@@ -132,7 +132,7 @@ static void printCProverContracts(const FunctionDecl *FD,
       // rather than an error.
       llvm::outs() << "__CPROVER_requires(" << Text << ")\n";
       break;
-    case ContractClause::CK_Ensures:
+    case ContractClause::CK_Post:
       // Our StmtPrinter spells the node `old(...)`; CBMC spells it
       // `__CPROVER_old(...)`. Only an 'ensures' can contain one.
       //
@@ -216,8 +216,8 @@ static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
       case ContractClause::CK_Decreases:
         llvm::outs() << "__CPROVER_decreases(" << Text << ")\n";
         break;
-      case ContractClause::CK_Requires:
-      case ContractClause::CK_Ensures:
+      case ContractClause::CK_Pre:
+      case ContractClause::CK_Post:
       case ContractClause::CK_Assigns:
         // Not parseable on a loop.
         break;
@@ -309,15 +309,15 @@ static const DeclRefExpr *findBareParameterRef(const Stmt *E) {
   return nullptr;
 }
 
-ExprResult Sema::CheckContractEnsuresPredicate(Expr *Predicate) {
+ExprResult Sema::CheckContractPostPredicate(Expr *Predicate) {
   const DeclRefExpr *DRE = findBareParameterRef(Predicate);
   if (!DRE)
     return Predicate;
 
   const auto *PVD = cast<ParmVarDecl>(DRE->getDecl());
-  Diag(DRE->getLocation(), diag::err_contract_ensures_names_parameter)
+  Diag(DRE->getLocation(), diag::err_contract_post_names_parameter)
       << PVD << DRE->getSourceRange();
-  Diag(DRE->getLocation(), diag::note_contract_ensures_use_old) << PVD->getName();
+  Diag(DRE->getLocation(), diag::note_contract_post_use_old) << PVD->getName();
   return ExprError();
 }
 

@@ -5,7 +5,7 @@
 // 'loop_invariant' is __CPROVER_loop_invariant and 'decreases' is __CPROVER_decreases.
 // A function's own clauses are emitted at the declarator and its loop clauses
 // once the body is parsed, so the two arrive in source order.
-int sum(int n) requires (n > 0) {
+int sum(int n) pre (n > 0) {
   int total = 0;
   int i = 0;
   while (i < n)
@@ -67,7 +67,7 @@ void nest(int n) {
 // CHECK-NEXT: __CPROVER_loop_invariant(j <= i)
 
 // 'old' is only a contextual keyword before '(', and 'old()' is rejected
-// outside 'ensures', so an 'old' in a loop clause is an ordinary variable and must
+// outside 'post', so an 'old' in a loop clause is an ordinary variable and must
 // not be rewritten to __CPROVER_old.
 void shadow(int n) {
   int old = 0;

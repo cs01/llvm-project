@@ -7897,7 +7897,7 @@ public:
   /// 'post' naming a parameter is ambiguous between its entry and exit value.
   /// Section 4 of the design resolves this by requiring 'old()'. P2900 forbids
   /// the same thing for the same reason.
-  ExprResult CheckContractEnsuresPredicate(Expr *Predicate);
+  ExprResult CheckContractPostPredicate(Expr *Predicate);
 
   /// Checks a loop `variant` measure: a scalar that the proof requires to be
   /// non-negative and strictly decreasing, so it is a value rather than a
