@@ -91,7 +91,9 @@ rejected. Range targets in `assigns` are next — measured, not guessed, as
 what blocks annotating real buffer code; see the
 [roadmap](#roadmap).
 
-The same three levels, against one buffer write, showing where each one stops:
+Seven bug shapes, and how far up the ladder each one survives. The first two are
+malformed **contracts** — the `post` error from level 1 above. The rest are bugs
+in **code** carrying a contract like this one:
 
 ```c
 void put(int *buf, unsigned len, unsigned i, int v)
@@ -102,13 +104,13 @@ void put(int *buf, unsigned len, unsigned i, int v)
 
 | The bug | Level 1<br>front end | Level 2<br>call-site | Level 3<br>CBMC |
 |---|:---:|:---:|:---:|
-| `post` names a mutated parameter without `old()` | **caught** | *n/a* | *n/a* |
-| Predicate calls an impure function | **caught** | *n/a* | *n/a* |
-| `put(b, 8, 8, 1)` — a literal breaks `i < len` | missed | **caught** | caught |
-| `put(b, n, k, 1)` — symbolic arguments | missed | missed | **caught** |
-| Off-by-one in the callee's own loop | missed | missed | **caught** |
-| Violation only on a loop's second iteration | missed | missed | **caught** |
-| **The contract itself is wrong** | missed | missed | **missed** |
+| **Contract:** `post` names a mutated parameter without `old()` | **caught** | *n/a* | *n/a* |
+| **Contract:** predicate calls an impure function | **caught** | *n/a* | *n/a* |
+| **Code:** `put(b, 8, 8, 1)` — a literal breaks `i < len` | missed | **caught** | caught |
+| **Code:** `put(b, n, k, 1)` — symbolic arguments | missed | missed | **caught** |
+| **Code:** off-by-one in the callee's own loop | missed | missed | **caught** |
+| **Code:** violation only on a loop's second iteration | missed | missed | **caught** |
+| **Contract: well formed, and says the wrong thing** | missed | missed | **missed** |
 
 *n/a* is not a miss: a malformed contract is a **hard error**, so the build stops
 at level 1 and the later levels never run on that code.
