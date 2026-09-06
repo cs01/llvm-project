@@ -258,13 +258,16 @@ claim without telling you.
 
 | The bug | Level 1<br>front end | Level 2<br>call-site | Level 3<br>CBMC |
 |---|:---:|:---:|:---:|
-| `post` names a mutated parameter without `old()` | **caught** | — | — |
-| Predicate calls an impure function | **caught** | — | — |
+| `post` names a mutated parameter without `old()` | **caught** | *n/a* | *n/a* |
+| Predicate calls an impure function | **caught** | *n/a* | *n/a* |
 | `put(b, 8, 8, 1)` — a literal breaks `i < len` | missed | **caught** | caught |
 | `put(b, n, k, 1)` — symbolic arguments | missed | missed | **caught** |
 | Off-by-one in the callee's own loop | missed | missed | **caught** |
 | Violation only on a loop's second iteration | missed | missed | **caught** |
 | **The contract itself is wrong** | missed | missed | **missed** |
+
+*n/a* is not a miss: a malformed contract is a **hard error**, so the build stops
+at level 1 and the later levels never run on that code.
 
 That last row is the honest floor of the whole approach, and no tool on the
 ladder fixes it: **verification proves the code matches the specification, never
