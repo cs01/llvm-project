@@ -119,6 +119,18 @@ That runs the examples above plus
 [`mistakes.c`](contracts-example/mistakes.c), which is every rule the front end
 enforces, numbered — and the PCH round-trip.
 
+`-fc-contracts` is C only, and says so rather than ignoring you:
+
+```
+error: invalid argument '-fc-contracts' not allowed with 'C++'
+```
+
+`pre` and `post` are contextual keywords in the trailing position of a function
+declarator, which in C++20 is where a `requires`-clause goes — so accepting the
+flag there would change what valid C++ means rather than extend it. A C++
+dialect has to align with P2900, which is why the keywords are already spelled
+its way.
+
 ## What each level catches
 
 Three checkers read the same contract, each catching what the one before it let
@@ -186,22 +198,35 @@ it now runs from contracts written in this syntax.
   overlap their own output — but over a bounded domain (dst 48 bytes,
   `matchLength <= 16`), so this is exhaustive checking, not an unbounded proof.
   `findings/RESULT-lz-correctness.md` states the scope.
-- **Two contract defects** where the real precondition is stronger than the
-  documented one, or absent from where it is needed entirely.
+- **Three contract defects** where the real precondition is stronger than the
+  documented one, or absent from where it is needed entirely. The newest is the
+  one that came out of *writing a contract* rather than reading code:
+  `BIT_initDStream` computes `start + 8` before comparing `srcSize` against that
+  same 8, on a path whose whole purpose is to serve `srcSize` of 1 through 7.
+  With the buffer at exactly `srcSize` it is `1 of 248 failed`; at
+  `max(srcSize, 8)`, `0 of 248`. One variable, so the missing precondition is
+  isolated exactly.
 - **An unbounded proof, written in this grammar.** `ZSTD_wildcopy` is
   memory-safe for *every* length, not just up to some bound: `0 of 208 failed`,
   one iteration, no `--unwind` at all, length to 1 GiB with symbolically
   allocated buffers. Proof by induction over the loop. The contracts are
   `assigns` / `loop_invariant` / `decreases` in upstream zstd source, lowered by
   this compiler — the generated frame is byte-identical to the hand-written one
-  it replaces. `./proofs/zstd/run-wildcopy-from-grammar.sh` reproduces it in 138 s. The
-  earlier hand-written run also proves the fix for the pointer-subtraction
-  defect: with it, zero failures; without it, exactly one.
+  it replaces. `./proofs/zstd/run-wildcopy-from-grammar.sh` reproduces it in
+  138 s. The earlier hand-written run also proves the fix for the
+  pointer-subtraction defect: with it, zero failures; without it, exactly one.
 
-None of the four is a crash, and **fuzzing cannot find any of them**, because
+None of them is a crash, and **fuzzing cannot find any of them**, because
 nothing misbehaves at runtime. That, rather than the count, is the argument.
-A fifth check — the `FSE_readNCount` bounds audit — came back clean, and the
+One more check — the `FSE_readNCount` bounds audit — came back clean, and the
 negative result is recorded too.
+
+Whether any of this actually makes C safer is being tracked as a falsifiable
+experiment with the bar written down, in
+[`EXPERIMENT-annotation-yield.md`](proofs/zstd/EXPERIMENT-annotation-yield.md).
+Findings that are real-but-unreachable, or that are really about the prover, are
+logged as such. The count of new *reachable* UB findings the grammar has
+produced so far is **zero**.
 
 Read **[proofs/zstd/COST.md](proofs/zstd/COST.md)** before estimating anything:
 solve time is driven by symbolic state size, not obligation count, and it decides
