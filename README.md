@@ -201,6 +201,10 @@ warning: precondition i < len of 'put' is violated by this call [-Wcontract-viol
 note: precondition declared here
 ```
 
+Constant arguments are folded by clang's own constant evaluator, so enum
+constants, casts, `sizeof` expressions and arithmetic all reach the predicate,
+not just literals.
+
 **Misses** three things, all deliberately:
 
 ```c
@@ -209,8 +213,10 @@ put(b, n, k, 1);        // symbolic: it cannot relate n and k, so it says nothin
 
 - **Anything symbolic.** The abstract domain is four values — known integer,
   null, non-null, unknown. Two unknowns have no relationship.
-- **Anything past a loop's first iteration.** Back edges are not iterated to a
-  fixpoint.
+- **Anything a loop disagrees with itself about.** The dataflow runs to a
+  fixpoint and merges by keeping only what every predecessor agrees on, so a
+  variable the loop changes becomes unknown rather than wrong. That costs
+  reports and never invents them.
 - **The callee's own body.** It checks callers against a contract; it never asks
   whether `put` itself honours it.
 

@@ -103,3 +103,34 @@ void post_then_overwritten(void) {
   p = 0;
   use(p); // expected-warning {{precondition p != 0 of 'use' is violated by this call}}
 }
+
+// A loop that establishes the precondition must not be reported. The pass used
+// to skip back-edge predecessors, leaving the loop header holding the pre-loop
+// state, so a fact the body killed survived to the exit edge and the call was
+// reported with n == 10.
+void loop_establishes(void) {
+  int n = 0;
+  for (int i = 0; i < 10; i++)
+    n = i + 1;
+  allocate(n); // no warning
+}
+
+// The same shape through a pointer: the body makes p non-null on every path.
+void loop_establishes_pointer(int *q, int fallback_ok) {
+  int *p = 0;
+  for (int i = 0; i < 4; i++)
+    p = fallback_ok ? q : q;
+  (void)p;
+}
+
+// Constant folding is clang's, not a hand-rolled subset, so every ordinary
+// constant expression reaches the predicate.
+enum { CAP = 8 };
+static const int Zero = 0;
+void folds(void) {
+  allocate(CAP - 8);   // expected-warning {{precondition n > 0 of 'allocate' is violated by this call}}
+  allocate(Zero);      // expected-warning {{precondition n > 0 of 'allocate' is violated by this call}}
+  allocate(0 ? 1 : 0); // expected-warning {{precondition n > 0 of 'allocate' is violated by this call}}
+  allocate((int)0);    // expected-warning {{precondition n > 0 of 'allocate' is violated by this call}}
+  allocate(sizeof(int) - sizeof(int)); // expected-warning {{precondition n > 0 of 'allocate' is violated by this call}}
+}

@@ -100,6 +100,26 @@ public:
       : Ctx(Ctx), S(S), Subst(Subst) {}
 
   AbstractValue eval(const Expr *E) const {
+    AbstractValue V = evalStructural(E);
+    if (V.K != AbstractValue::Unknown)
+      return V;
+
+    // Fall back to clang's own constant evaluator. The structural walk above
+    // knows about the abstract state, which the constant evaluator cannot see,
+    // so it goes first; but everything it does not recognise -- enum constants,
+    // casts, sizeof, `7 + 1`, `-1`, a file-scope `static const`, `0 ? 1 : 0` --
+    // is an ordinary constant expression that clang already folds. Without this
+    // the pass caught two of nine literal-argument violations.
+    if (E && !E->getType()->isPointerType() && !E->isValueDependent()) {
+      Expr::EvalResult R;
+      if (E->EvaluateAsInt(R, Ctx, Expr::SE_NoSideEffects) && R.Val.isInt())
+        return AbstractValue::makeInt(R.Val.getInt());
+    }
+    return AbstractValue::unknown();
+  }
+
+private:
+  AbstractValue evalStructural(const Expr *E) const {
     if (!E)
       return AbstractValue::unknown();
 
@@ -158,7 +178,6 @@ public:
     return AbstractValue::unknown();
   }
 
-private:
   AbstractValue evalBinary(const BinaryOperator *BO) const {
     AbstractValue L = eval(BO->getLHS());
 
@@ -253,6 +272,10 @@ class ContractChecker {
   ContractViolationReporter &Reporter;
   llvm::DenseSet<const VarDecl *> AddressTaken;
 
+  /// False while the dataflow is still converging, so that a call is only
+  /// reported once, from the final sweep, against the fixpoint state.
+  bool Reporting = false;
+
 public:
   ContractChecker(AnalysisDeclContext &AC, const ASTContext &Ctx,
                   ContractViolationReporter &Reporter)
@@ -271,6 +294,12 @@ private:
 
   void transfer(State &S, const Stmt *St);
   void checkCall(const State &S, const CallExpr *Call);
+
+  /// Recomputes one block's entry state from its predecessors and runs the
+  /// transfer over its elements. Called repeatedly until the map stops
+  /// changing, then once more with Reporting set.
+  void analyzeBlock(const CFGBlock *B, CFG *Cfg,
+                    llvm::DenseMap<const CFGBlock *, State> &BlockEntry);
 
   /// What a call's postcondition guarantees about its result.
   ///
@@ -453,7 +482,8 @@ void ContractChecker::checkCall(const State &S, const CallExpr *Call) {
     if (Clause.getKind() != ContractClause::CK_Pre || !Clause.getPredicate())
       continue;
     if (PredEval.eval(Clause.getPredicate()).isKnownFalse())
-      Reporter.reportPreconditionViolated(Call, Callee, Clause);
+      if (Reporting)
+        Reporter.reportPreconditionViolated(Call, Callee, Clause);
   }
 }
 
@@ -478,12 +508,58 @@ void ContractChecker::run() {
   llvm::DenseMap<const CFGBlock *, State> BlockEntry;
   BlockEntry[&Cfg->getEntry()] = std::move(Entry);
 
-  // A single reverse-post-order sweep. Back edges are not iterated to a
-  // fixpoint: a block is analysed from the predecessors that reach it forwards,
-  // which is exactly the path the report would describe, and skipping the
-  // fixpoint costs only missed reports, never invented ones.
+  // Iterate the sweep to a fixpoint, then report from the converged state.
+  //
+  // A single sweep was wrong, not merely imprecise. Skipping back-edge
+  // predecessors leaves a loop header holding the pre-loop state, which is
+  // strictly stronger than the truth, so a fact the body kills survives to the
+  // exit edge and the pass *invents* reports:
+  //
+  //     int n = 0;
+  //     for (int i = 0; i < 10; i++) n = i + 1;
+  //     f(n);   // n is 10; the old code reported `pre (n > 0)` violated
+  //
+  // The lattice has height two -- a variable is a known value or it is not --
+  // and the merge only ever discards facts, so the iteration is monotone and
+  // converges. The bound is a backstop against a lattice change, not a real
+  // limit.
   llvm::ReversePostOrderTraversal<CFG *> RPO(Cfg);
-  for (const CFGBlock *B : RPO) {
+  auto sameState = [](const State &A, const State &B) {
+    if (A.size() != B.size())
+      return false;
+    for (const auto &KV : A) {
+      auto It = B.find(KV.first);
+      if (It == B.end() || !(It->second == KV.second))
+        return false;
+    }
+    return true;
+  };
+
+  const unsigned MaxIterations = 64;
+  for (unsigned Iter = 0; Iter != MaxIterations; ++Iter) {
+    bool Changed = false;
+    for (const CFGBlock *B : RPO) {
+      State Before = BlockEntry.count(B) ? BlockEntry[B] : State();
+      bool Seen = BlockEntry.count(B);
+      analyzeBlock(B, Cfg, BlockEntry);
+      if (!Seen || !sameState(Before, BlockEntry[B]))
+        Changed = true;
+    }
+    if (!Changed)
+      break;
+  }
+
+  // One more sweep, this time reporting, so every call is judged against the
+  // converged state and reported exactly once.
+  Reporting = true;
+  for (const CFGBlock *B : RPO)
+    analyzeBlock(B, Cfg, BlockEntry);
+}
+
+void ContractChecker::analyzeBlock(
+    const CFGBlock *B, CFG *Cfg,
+    llvm::DenseMap<const CFGBlock *, State> &BlockEntry) {
+  {
     State Cur;
     bool First = true;
     for (const CFGBlock *Pred : B->preds()) {

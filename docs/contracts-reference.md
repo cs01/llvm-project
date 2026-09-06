@@ -214,11 +214,28 @@ The lattice is deliberately tiny — a variable is a known integer, known null,
 known non-null, or unknown. It walks blocks in reverse post-order, refines state
 along each branch edge by the condition that got there, and **merges by keeping
 only what every predecessor agrees on**: disagreement means the pass does not
-know, and not knowing must never produce a report. Back edges are not iterated
-to a fixpoint, which costs missed reports and never invents one. Variables whose
-address is taken are never tracked at all, which is the cheap defence against
-the out-parameter false positive (`T *p = 0; f(&p); p->x;`) that dominates this
-class of analysis. The function's own `pre` clauses are seeded as true on entry,
+know, and not knowing must never produce a report.
+
+The sweep is iterated to a fixpoint, then a final pass reports from the
+converged state. A single sweep was not merely imprecise, it was wrong: skipping
+back-edge predecessors left a loop header holding the pre-loop state, which is
+*stronger* than the truth, so a fact the body killed survived to the exit edge
+and the pass invented reports —
+
+```c
+int n = 0;
+for (int i = 0; i < 10; i++) n = i + 1;
+f(n);      // n is 10; this was reported as violating pre (n > 0)
+```
+
+The lattice has height two and the merge only ever discards facts, so the
+iteration is monotone and converges.
+
+Constant arguments go through `Expr::EvaluateAsInt` rather than a hand-rolled
+subset, so enum constants, casts, `sizeof`, arithmetic and file-scope
+`static const` all fold. Variables whose address is taken are never tracked at
+all, which is the cheap defence against the out-parameter false positive
+(`T *p = 0; f(&p); p->x;`) that dominates this class of analysis. The function's own `pre` clauses are seeded as true on entry,
 so a call inside the body can be discharged by a guarantee the caller already
 made, and a callee's `post` is assumed after a call.
 

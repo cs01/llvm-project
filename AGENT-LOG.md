@@ -151,3 +151,29 @@ postcondition; and `--apply-loop-contracts` on the same file proves
 Still blocked on the same thing: range targets in `assigns`. Options and
 tradeoffs written up for a decision — ACSL-style inclusive slice, half-open
 element slice, a region() builtin, or exposing CBMC's object_upto directly.
+
+### the call-site checker was inventing reports
+
+A review claim, checked against the binary rather than taken on trust, and true.
+
+    int n = 0;
+    for (int i = 0; i < 10; i++) n = i + 1;
+    f(n);      // n is 10; reported as violating pre (n > 0)
+
+The single reverse-post-order sweep skipped back-edge predecessors, so a loop
+header kept the pre-loop state — stronger than the truth — and a fact the body
+killed survived to the exit edge. The comment in the source claimed this "costs
+only missed reports, never invented ones", which is exactly backwards, and that
+claim had been copied into the README and the reference doc.
+
+Now iterated to a fixpoint, with reporting suppressed until it converges so a
+call is judged once against the converged state. The lattice is height two and
+the merge only discards facts, so it terminates.
+
+Second finding from the same review, also verified: constant folding was a
+hand-rolled subset that caught 2 of 9 genuine literal-argument violations.
+Enum constants, casts, sizeof, 7+1, -1, static const and 0?1:0 all fell through.
+Falling back to Expr::EvaluateAsInt takes it to 9 of 9.
+
+Both have regression tests in Sema/c-contracts-check.c. README and reference doc
+corrected, since both repeated the false soundness claim.
