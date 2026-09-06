@@ -7512,10 +7512,19 @@ static bool isFunctionContractKeywordName(const IdentifierInfo *II,
 }
 
 /// Recognizes a clause keyword that attaches to a loop.
+///
+/// 'assigns' appears here as well as on function declarators: CBMC requires a
+/// frame on the loop itself before it will discharge a loop invariant, since
+/// applying the invariant means havocking what the loop writes, and it has to
+/// be told what that is.
 static bool isLoopContractKeywordName(const IdentifierInfo *II,
                                       ContractClause::ClauseKind &Kind) {
   if (!II)
     return false;
+  if (II->isStr("assigns")) {
+    Kind = ContractClause::CK_Assigns;
+    return true;
+  }
   if (II->isStr("loop_invariant")) {
     Kind = ContractClause::CK_LoopInvariant;
     return true;
@@ -7745,6 +7754,39 @@ void Parser::ParseLoopContractClauses(
 
     BalancedDelimiterTracker T(*this, tok::l_paren);
     T.consumeOpen();
+
+    // A loop frame is a list of locations, exactly as on a function.
+    if (Kind == ContractClause::CK_Assigns) {
+      SmallVector<Expr *, 4> Targets;
+      bool Bad = false;
+      if (Tok.isNot(tok::r_paren)) {
+        for (;;) {
+          ExprResult Target = ParseAssignmentExpression();
+          if (Target.isInvalid()) {
+            Bad = true;
+            break;
+          }
+          Target = Actions.ActOnContractAssignsTarget(Target.get());
+          if (Target.isUsable())
+            Targets.push_back(Target.get());
+          else
+            Bad = true;
+          if (Tok.isNot(tok::comma))
+            break;
+          ConsumeToken();
+        }
+      }
+      if (Bad) {
+        T.skipToEnd();
+        continue;
+      }
+      if (T.consumeClose())
+        break;
+      Clauses.emplace_back(Kind, KeywordLoc, T.getOpenLocation(),
+                           T.getCloseLocation(), /*Predicate=*/nullptr);
+      Actions.ActOnContractAssignsClause(Clauses.back(), Targets);
+      continue;
+    }
 
     ExprResult Predicate;
     {

@@ -30,3 +30,28 @@ unsigned long decompress(void *dst, unsigned long cap)
 
 // 'assigns' is contextual: a function may still be named after it.
 int assigns(int n);
+
+// A loop takes a frame too. CBMC needs one before it will discharge a loop
+// invariant: applying the invariant means havocking what the loop writes, so it
+// has to be told what that is.
+void zero(int *buf, unsigned len) {
+  unsigned i = 0;
+  while (i < len)
+    assigns        (i, buf[i])
+    loop_invariant (i <= len)
+    decreases      (len - i)
+  {
+    buf[i] = 0;
+    i++;
+  }
+}
+
+// The same checks apply on a loop as on a function.
+void loop_bad_target(int n) {
+  int i = 0;
+  while (i < n)
+    assigns (n + 1) // expected-error {{'assigns' target must name a location that can be modified}}
+  {
+    i++;
+  }
+}

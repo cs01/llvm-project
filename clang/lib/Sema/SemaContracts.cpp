@@ -98,6 +98,24 @@ static std::string replaceToken(StringRef S, StringRef From, StringRef To) {
   return Out;
 }
 
+/// Prints one 'assigns' clause as `__CPROVER_assigns(a, b, ...)`.
+///
+/// A frame condition is a list of locations rather than a predicate, so it
+/// prints from the target list. Shared by the function and loop printers: the
+/// clause means the same thing in both places.
+static void printCProverAssigns(const ContractClause &Clause,
+                                const ASTContext &Ctx) {
+  llvm::outs() << "__CPROVER_assigns(";
+  bool First = true;
+  for (const Expr *Target : Clause.getTargets()) {
+    if (!First)
+      llvm::outs() << ", ";
+    First = false;
+    Target->printPretty(llvm::outs(), nullptr, Ctx.getPrintingPolicy());
+  }
+  llvm::outs() << ")\n";
+}
+
 /// Prints \p FD's contracts as CBMC function-contract clauses.
 ///
 /// The mapping is close to one to one, which is the argument for targeting CBMC
@@ -145,19 +163,7 @@ static void printCProverContracts(const FunctionDecl *FD,
       llvm::outs() << "__CPROVER_ensures(" << Text << ")\n";
       break;
     case ContractClause::CK_Assigns:
-      // A frame condition is a list of locations, so it is printed from the
-      // targets rather than from Text, which is empty here.
-      {
-        llvm::outs() << "__CPROVER_assigns(";
-        bool First = true;
-        for (const Expr *Target : Clause.getTargets()) {
-          if (!First)
-            llvm::outs() << ", ";
-          First = false;
-          Target->printPretty(llvm::outs(), nullptr, Ctx.getPrintingPolicy());
-        }
-        llvm::outs() << ")\n";
-      }
+      printCProverAssigns(Clause, Ctx);
       break;
     case ContractClause::CK_LoopInvariant:
     case ContractClause::CK_Decreases:
@@ -199,15 +205,17 @@ static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
     llvm::outs() << " */\n";
 
     for (const ContractClause &Clause : *CS) {
-      if (!Clause.getPredicate())
+      if (Clause.isInvalid())
         continue;
 
       // No 'old' substitution here, unlike the function clauses: 'old()' is
       // rejected outside 'post', so an 'old' token in a loop clause is an
       // ordinary identifier and rewriting it would corrupt the predicate.
       std::string Text;
-      llvm::raw_string_ostream OS(Text);
-      Clause.getPredicate()->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
+      if (const Expr *P = Clause.getPredicate()) {
+        llvm::raw_string_ostream OS(Text);
+        P->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
+      }
 
       switch (Clause.getKind()) {
       case ContractClause::CK_LoopInvariant:
@@ -216,9 +224,11 @@ static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
       case ContractClause::CK_Decreases:
         llvm::outs() << "__CPROVER_decreases(" << Text << ")\n";
         break;
+      case ContractClause::CK_Assigns:
+        printCProverAssigns(Clause, Ctx);
+        break;
       case ContractClause::CK_Pre:
       case ContractClause::CK_Post:
-      case ContractClause::CK_Assigns:
         // Not parseable on a loop.
         break;
       }

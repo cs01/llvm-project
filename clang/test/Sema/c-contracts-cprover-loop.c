@@ -79,3 +79,18 @@ void shadow(int n) {
 }
 // CHECK:      /* shadow: while at line {{[0-9]+}} */
 // CHECK-NEXT: __CPROVER_loop_invariant(old <= n)
+
+// A loop frame prints like a function's, in source order with the other loop
+// clauses, which is the order goto-instrument wants them in.
+void zero(int *buf, unsigned len) {
+  unsigned i = 0;
+  while (i < len)
+    assigns        (i, buf[i])
+    loop_invariant (i <= len)
+    decreases      (len - i)
+  { buf[i] = 0; i++; }
+}
+// CHECK:      /* zero: while at line {{[0-9]+}} */
+// CHECK-NEXT: __CPROVER_assigns(i, buf[i])
+// CHECK-NEXT: __CPROVER_loop_invariant(i <= len)
+// CHECK-NEXT: __CPROVER_decreases(len - i)

@@ -406,7 +406,25 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
   named `old` is unaffected, rejected in a `pre`, and scalars only per section 2.
   With it the section 5 example type-checks as written, including the
   `post (r: r <= old(dstCap) || ...)` form the first draft got wrong.
-- `assigns`: **done**, unguarded. Parses a comma-separated list of locations,
+- `assigns`: **done** on functions *and on loops*, unguarded, scalar targets
+  only. A loop needs its own frame before CBMC will discharge an invariant,
+  since applying one means havocking what the loop writes and it must be told
+  what that is.
+
+  **Open, and blocking the zstd rewrite:** a target naming a *range* of memory.
+  Verified against CBMC 5.95 rather than assumed: a loop frame of
+  `__CPROVER_assigns(i, buf[i])` gives "Check that buf[i] is assignable:
+  FAILURE", because the frame is evaluated at loop entry and so denotes a single
+  element, while the loop writes `buf[0..len)`. Substituting
+  `__CPROVER_object_upto(buf, len * sizeof(int))` proves the same loop
+  unbounded: `0 of 27 failed`, one iteration, no `--unwind`, length to a million
+  with a symbolically allocated buffer. The gap is in this grammar, not in the
+  lowering. Item 6 above already wants `valid(p, n)`; whether the frame form
+  should reuse that spelling, take a slice form like `buf[0 .. len]`, or expose
+  the builtin directly is undecided and should be decided before the harnesses
+  are rewritten.
+
+  Original scope: parses a comma-separated list of locations,
   each required to be a side-effect-free lvalue, held as an `Expr*` array on the
   clause rather than in `Predicate`: a frame condition is a set of locations, so
   it has no truth value to store there. `assigns ()`, the empty frame, is a real

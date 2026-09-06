@@ -102,3 +102,26 @@ together crashes with an internal invariant violation in
 **Next:** `assigns` on loops. CBMC requires `__CPROVER_assigns` on the loop
 itself for any real loop proof, and our grammar can only attach it to a function
 declarator. That blocks dogfooding the zstd harnesses.
+
+### loop frames, and the range gap they exposed
+
+`assigns` now attaches to loops as well as function declarators, and lowers to
+`__CPROVER_assigns` in the loop clause block. CBMC needs it: applying a loop
+invariant means havocking what the loop writes, so it has to be told what that
+is. Same Sema checks as the function form — side-effect-free lvalues.
+
+Verified end to end, and the verification found the next blocker.
+
+A loop frame written the obvious way, `assigns (i, buf[i])`, is **rejected** by
+CBMC: "Check that buf[i] is assignable: FAILURE". The frame is evaluated at loop
+entry, so `buf[i]` denotes one element, while the loop writes `buf[0..len)`.
+Hand-substituting `__CPROVER_object_upto(buf, len * sizeof(int))` proves the
+same loop unbounded — `0 of 27 failed`, one iteration, no `--unwind`, length to
+a million against a symbolically allocated buffer.
+
+So scalar loop frames work and memory ranges do not, and every real loop proof
+needs a range. **This, not the `when` guard, is what blocks rewriting
+proofs/zstd/harnesses/ in this grammar.** The spelling is a design decision, not
+a mechanical one — §4 item 6 already wants `valid(p, n)`, a slice form like
+`buf[0 .. len]` may read better, and exposing the CBMC builtin directly is a
+third option. Left undecided rather than invented.

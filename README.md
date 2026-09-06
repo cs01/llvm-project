@@ -402,6 +402,15 @@ whether verifying a codec is a quarter or a research program.
 
 ## Roadmap
 
+**Range targets in `assigns`.** Measured against CBMC, not guessed: a loop frame
+of `assigns (i, buf[i])` is rejected, because the frame is evaluated at loop
+entry so `buf[i]` denotes one element while the loop writes `buf[0..len)`.
+CBMC wants `__CPROVER_object_upto(buf, n)`. There is no way to say "this range
+of memory" in this grammar yet, and every real loop proof needs one — so this,
+not `when`, is what actually blocks turning `proofs/zstd/harnesses/` into
+source. The spelling is an open design question; §4 item 6 of the design already
+contemplates `valid(p, n)`, and a slice form may be the better fit.
+
 **`when` guards on `assigns`.** A frame condition is a set of locations and a
 set cannot be disjoined, so `assigns (dst) when (r: !is_error(r))` is the only
 way to say "writes the output buffer on success, nothing on error". Every
