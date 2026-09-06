@@ -1796,6 +1796,24 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
         }
       }
 
+      // An 'assigns' frame target may name a half-open range of elements,
+      // `buf[lo : hi]`, meaning buf[lo] through buf[hi - 1]. The bounds are
+      // handed back beside the base rather than built into an expression:
+      // a set of locations is not a value, so no Expr means one.
+      if (AllowContractAssignsSlices && Tok.is(tok::colon)) {
+        ColonProtectionRAIIObject RAII(*this);
+        ConsumeToken(); // ':'
+        ExprResult Upper = ParseExpression();
+        if (Upper.isInvalid() || Tok.isNot(tok::r_square)) {
+          LHS = ExprError();
+        } else {
+          ContractSliceLower = ArgExprs.empty() ? nullptr : ArgExprs[0];
+          ContractSliceUpper = Upper.get();
+        }
+        T.consumeClose();
+        break; // LHS stays the base of the range.
+      }
+
       SourceLocation RLoc = Tok.getLocation();
       if (!LHS.isInvalid() && !HasError && !Length.isInvalid() &&
           !Stride.isInvalid() && Tok.is(tok::r_square)) {

@@ -196,3 +196,24 @@ own front end wants preprocessed source:
 
 Verified both ways in Sema/c-contracts-cprover-unit-header.c: the include form
 warns, the preprocessed form rewrites the header's clauses and stays quiet.
+
+### assigns ranges land, and the loop that could not be framed now proves
+
+`assigns (buf[lo : hi])` names elements lo through hi-1. Half-open, counted in
+elements, lowering to
+`__CPROVER_object_upto(base + lo, (hi - lo) * sizeof(*base))`.
+
+This closes the gap found when loop frames went in: `assigns (i, buf[i])` was
+rejected by CBMC ("Check that buf[i] is assignable: FAILURE") because a frame is
+evaluated at loop entry, so a single subscript names one element while the loop
+writes the whole range. The generated range form is now accepted and the same
+loop proves — 0 of 27, one iteration, no --unwind, length to a million against a
+symbolically allocated buffer.
+
+The range is not an Expr. ArraySectionExpr was the obvious vehicle and its third
+operand is named LENGTH with a getLength() accessor; storing a half-open upper
+bound there is a trap, and adding our own section type meant auditing eight
+files that switch on it. A frame target is a set of locations and no Expr means
+one, so the bounds travel beside the base in AssignsTarget.
+
+Unblocks the wildcopy proof: every remaining zstd target writes buffers.

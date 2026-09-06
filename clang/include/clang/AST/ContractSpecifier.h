@@ -29,6 +29,29 @@ class ASTContext;
 class Expr;
 class VarDecl;
 
+/// One location named by an 'assigns' clause.
+///
+/// Either a single lvalue — `assigns (n)`, `assigns (*p)`, `assigns (s->f)` —
+/// or a half-open range of elements, `assigns (buf[lo : hi])`, covering
+/// `buf[lo]` through `buf[hi - 1]`.
+///
+/// Half-open, and counted in *elements* rather than bytes. Half-open so the
+/// bound written in the frame is the same one written in the loop header, with
+/// no `- 1` to get wrong in a project whose subject is off-by-one errors.
+/// Elements because CBMC's `__CPROVER_object_upto` counts bytes, and a `sizeof`
+/// multiply the author writes by hand is one they can write wrongly: too small
+/// a frame does not fail, it silently proves less.
+struct AssignsTarget {
+  /// The lvalue, or the base of the range.
+  Expr *Base = nullptr;
+  /// Inclusive lower bound. Null when this target is not a range.
+  Expr *Lower = nullptr;
+  /// Exclusive upper bound. Null when this target is not a range.
+  Expr *Upper = nullptr;
+
+  bool isRange() const { return Upper != nullptr; }
+};
+
 /// A single contract clause, e.g. `pre (dst != 0)`.
 class ContractClause {
 public:
@@ -68,7 +91,7 @@ private:
   /// it cannot reuse Predicate: a set has no truth value and, per section 4 of
   /// the design, cannot be disjoined either. Allocated in the ASTContext
   /// alongside the clause array.
-  Expr **Targets = nullptr;
+  AssignsTarget *Targets = nullptr;
   unsigned NumTargets = 0;
 
 public:
@@ -91,8 +114,8 @@ public:
   VarDecl *getResultVar() const { return ResultVar; }
   void setResultVar(VarDecl *VD) { ResultVar = VD; }
 
-  ArrayRef<Expr *> getTargets() const { return {Targets, NumTargets}; }
-  void setTargets(Expr **Ts, unsigned N) {
+  ArrayRef<AssignsTarget> getTargets() const { return {Targets, NumTargets}; }
+  void setTargets(AssignsTarget *Ts, unsigned N) {
     Targets = Ts;
     NumTargets = N;
   }

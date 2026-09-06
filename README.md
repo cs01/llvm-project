@@ -42,8 +42,9 @@ the hot decode path that years of OSS-Fuzz cannot see, because nothing
 misbehaves at runtime. [The results are below](#results-on-real-zstd).
 
 All three parts work today, verified end to end against CBMC 5.95 — contracts
-proved, and a deliberately false one correctly rejected. Range targets in
-`assigns` are next; see the [roadmap](#roadmap).
+proved, a deliberately false one correctly rejected, and a loop with a range
+frame proved for every length with no unwind bound. See the
+[roadmap](#roadmap) for what is next.
 
 
 ## What it looks like on real code
@@ -113,7 +114,10 @@ macro shadowing — in **[docs/contracts-reference.md](docs/contracts-reference.
 | `assigns` | after a function's parameter list | the **only** locations the function may modify |
 
 `assigns` takes a comma-separated list of locations rather than a predicate — a
-frame condition is a *set*, not a condition.
+frame condition is a *set*, not a condition. A location may be a range:
+`assigns (buf[0 : len])` is half-open and counted in **elements**, so the bound
+is the one already in your loop header and the `sizeof` multiply CBMC needs is
+the compiler's job.
 
 These are *contextual* keywords, active only under `-fc-contracts`, so code
 already using `pre` as an identifier keeps compiling.
@@ -228,12 +232,6 @@ solve time is driven by symbolic state size, not obligation count, and it decide
 whether verifying a codec is a quarter or a research program.
 
 ## Roadmap
-
-**Range targets in `assigns`.** There is no way to say "this range of memory" in
-this grammar yet, and every real loop proof needs one — so this, not `when`, is
-what actually blocks turning `proofs/zstd/harnesses/` into source. What CBMC
-wants instead, and the open spelling question, are in
-[§10 of the design](contracts-design.md#10-open-problems-not-yet-designed).
 
 **`when` guards on `assigns`.** A frame condition is a set of locations and a
 set cannot be disjoined, so `assigns (dst) when (r: !is_error(r))` is the only

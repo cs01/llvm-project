@@ -111,16 +111,40 @@ static std::string formatCProverClause(const ContractClause &Clause,
     return {};
 
   if (Clause.getKind() == ContractClause::CK_Assigns) {
+    auto Print = [&](const Expr *E) {
+      std::string T;
+      llvm::raw_string_ostream TS(T);
+      E->printPretty(TS, nullptr, Ctx.getPrintingPolicy());
+      return T;
+    };
+
     std::string Out = "__CPROVER_assigns(";
     bool First = true;
-    for (const Expr *Target : Clause.getTargets()) {
+    for (const AssignsTarget &Target : Clause.getTargets()) {
       if (!First)
         Out += ", ";
       First = false;
-      std::string T;
-      llvm::raw_string_ostream TS(T);
-      Target->printPretty(TS, nullptr, Ctx.getPrintingPolicy());
-      Out += T;
+
+      if (!Target.isRange()) {
+        Out += Print(Target.Base);
+        continue;
+      }
+
+      // `buf[lo : hi]` is a half-open range of *elements*. CBMC's primitive
+      // counts *bytes* from a pointer, so the conversion is this compiler's
+      // job: the base advances by lo, and the extent is (hi - lo) elements
+      // scaled by the element size. Doing that multiply by hand is how a frame
+      // ends up smaller than the loop that writes it, which does not fail —
+      // it silently proves less.
+      std::string Base = Print(Target.Base);
+      std::string Elem = "sizeof(*" + Base + ")";
+      std::string Lo = Target.Lower ? Print(Target.Lower) : std::string("0");
+      std::string Hi = Print(Target.Upper);
+
+      std::string Ptr = Target.Lower ? "(" + Base + " + " + Lo + ")" : Base;
+      std::string Count =
+          Target.Lower ? "((" + Hi + ") - (" + Lo + "))" : "(" + Hi + ")";
+      Out += "__CPROVER_object_upto(" + Ptr + ", " + Count + " * " + Elem + ")";
     }
     return Out + ")";
   }
@@ -395,37 +419,65 @@ ExprResult Sema::CheckContractPostPredicate(Expr *Predicate) {
   return ExprError();
 }
 
-ExprResult Sema::ActOnContractAssignsTarget(Expr *Target) {
+AssignsTarget Sema::ActOnContractAssignsTarget(Expr *Target, Expr *Lower,
+                                               Expr *Upper) {
+  AssignsTarget Failed;
   if (!Target)
-    return ExprError();
+    return Failed;
 
-  // A frame target names a location, so unlike a predicate it is not converted
-  // to bool and keeps its own type. What it must be is an lvalue:
+  // A range names elements of the thing Base points at, so Base must be a
+  // pointer or an array; `n[0 : 4]` on an int names nothing.
+  if (Upper) {
+    QualType T = Target->getType();
+    if (!T->isPointerType() && !T->isArrayType()) {
+      Diag(Target->getExprLoc(), diag::err_contract_assigns_slice_not_buffer)
+          << T << Target->getSourceRange();
+      return Failed;
+    }
+    for (Expr *B : {Lower, Upper}) {
+      if (!B)
+        continue;
+      if (!B->getType()->isIntegerType()) {
+        Diag(B->getExprLoc(), diag::err_contract_assigns_bound_not_integer)
+            << B->getType() << B->getSourceRange();
+        return Failed;
+      }
+      if (B->HasSideEffects(Context)) {
+        Diag(B->getExprLoc(), diag::err_contract_predicate_not_pure)
+            << B->getSourceRange();
+        return Failed;
+      }
+    }
+    return AssignsTarget{Target, Lower, Upper};
+  }
+
+  // A plain frame target names a location, so unlike a predicate it is not
+  // converted to bool and keeps its own type. What it must be is an lvalue:
   // `assigns (n)` on a parameter, `assigns (*p)`, `assigns (buf[i])`,
   // `assigns (s->field)`. A value like `assigns (n + 1)` names nothing that
   // could be written to.
   if (!Target->isLValue()) {
     Diag(Target->getExprLoc(), diag::err_contract_assigns_not_lvalue)
         << Target->getSourceRange();
-    return ExprError();
+    return Failed;
   }
 
   // Evaluating a frame target must not change the state it is describing.
   if (Target->HasSideEffects(Context)) {
     Diag(Target->getExprLoc(), diag::err_contract_predicate_not_pure)
         << Target->getSourceRange();
-    return ExprError();
+    return Failed;
   }
 
-  return Target;
+  return AssignsTarget{Target, nullptr, nullptr};
 }
 
 void Sema::ActOnContractAssignsClause(ContractClause &Clause,
-                                      ArrayRef<Expr *> Targets) {
+                                      ArrayRef<AssignsTarget> Targets) {
   // `assigns ()` is the empty frame: the function modifies nothing. That is a
   // real specification rather than an error, so it still gets a non-null array,
   // which is what lets isInvalid() tell it apart from a parse failure.
-  Expr **Stored = new (Context) Expr *[Targets.size() + 1];
+  AssignsTarget *Stored = new (Context) AssignsTarget[Targets.size() + 1];
   std::copy(Targets.begin(), Targets.end(), Stored);
   Clause.setTargets(Stored, Targets.size());
 }

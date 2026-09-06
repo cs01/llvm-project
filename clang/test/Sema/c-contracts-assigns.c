@@ -55,3 +55,27 @@ void loop_bad_target(int n) {
     i++;
   }
 }
+
+// A frame may name a half-open range of elements: buf[lo] through buf[hi - 1].
+// Half-open so the bound is the one already written in the loop header.
+void zero_range(int *buf, unsigned len) {
+  unsigned i = 0;
+  while (i < len)
+    assigns        (i, buf[0 : len])
+    loop_invariant (i <= len)
+    decreases      (len - i)
+  { buf[i] = 0; i++; }
+}
+
+// A non-zero lower bound is fine, and so is a range on a function declarator.
+void fill_tail(int *buf, unsigned lo, unsigned hi) assigns (buf[lo : hi]);
+
+// A range needs something to take elements of.
+void bad_base(int n) assigns (n[0 : 4]); // expected-error {{'assigns' range needs a pointer or array to take elements of; 'int' is neither}}
+
+// Bounds are integers.
+void bad_bound(int *buf, double d) assigns (buf[0 : d]); // expected-error {{'assigns' range bound must be an integer; 'double' is not}}
+
+// And they cannot move the state they describe.
+int tick(void);
+void impure_bound(int *buf) assigns (buf[0 : tick()]); // expected-error {{contract predicate must be free of side effects}}

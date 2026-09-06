@@ -94,3 +94,17 @@ void zero(int *buf, unsigned len) {
 // CHECK-NEXT: __CPROVER_assigns(i, buf[i])
 // CHECK-NEXT: __CPROVER_loop_invariant(i <= len)
 // CHECK-NEXT: __CPROVER_decreases(len - i)
+
+// A range lowers to CBMC's byte-counted primitive: the compiler does the
+// sizeof multiply, because a frame written one element too small does not fail,
+// it silently proves less.
+void zero_range(int *buf, unsigned len) {
+  unsigned i = 0;
+  while (i < len)
+    assigns        (i, buf[0 : len])
+    loop_invariant (i <= len)
+  { buf[i] = 0; i++; }
+}
+// CHECK:      /* zero_range: while at line {{[0-9]+}} */
+// CHECK-NEXT: __CPROVER_assigns(i, __CPROVER_object_upto((buf + 0), ((len) - (0)) * sizeof(*buf)))
+// CHECK-NEXT: __CPROVER_loop_invariant(i <= len)

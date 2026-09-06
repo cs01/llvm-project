@@ -7608,18 +7608,20 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
       // predicate, so the commas are separators and each target is parsed as an
       // assignment-expression rather than letting ParseExpression fold the
       // whole thing into one comma operator.
-      SmallVector<Expr *, 4> Targets;
+      SmallVector<AssignsTarget, 4> Targets;
       bool Bad = false;
       if (Tok.isNot(tok::r_paren)) {
         for (;;) {
+          ContractAssignsSliceRAII SliceWindow(*this);
           ExprResult Target = ParseAssignmentExpression();
           if (Target.isInvalid()) {
             Bad = true;
             break;
           }
-          Target = Actions.ActOnContractAssignsTarget(Target.get());
-          if (Target.isUsable())
-            Targets.push_back(Target.get());
+          AssignsTarget T = Actions.ActOnContractAssignsTarget(
+              Target.get(), ContractSliceLower, ContractSliceUpper);
+          if (T.Base)
+            Targets.push_back(T);
           else
             Bad = true;
           if (Tok.isNot(tok::comma))
@@ -7757,18 +7759,20 @@ void Parser::ParseLoopContractClauses(
 
     // A loop frame is a list of locations, exactly as on a function.
     if (Kind == ContractClause::CK_Assigns) {
-      SmallVector<Expr *, 4> Targets;
+      SmallVector<AssignsTarget, 4> Targets;
       bool Bad = false;
       if (Tok.isNot(tok::r_paren)) {
         for (;;) {
+          ContractAssignsSliceRAII SliceWindow(*this);
           ExprResult Target = ParseAssignmentExpression();
           if (Target.isInvalid()) {
             Bad = true;
             break;
           }
-          Target = Actions.ActOnContractAssignsTarget(Target.get());
-          if (Target.isUsable())
-            Targets.push_back(Target.get());
+          AssignsTarget T = Actions.ActOnContractAssignsTarget(
+              Target.get(), ContractSliceLower, ContractSliceUpper);
+          if (T.Base)
+            Targets.push_back(T);
           else
             Bad = true;
           if (Tok.isNot(tok::comma))

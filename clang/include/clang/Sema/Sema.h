@@ -7920,12 +7920,15 @@ public:
   ///
   /// Unlike a predicate this is not a condition, so it is not converted to
   /// bool; it must denote an object, which means an lvalue.
-  ExprResult ActOnContractAssignsTarget(Expr *Target);
+  /// \p Lower and \p Upper are the bounds of a `base[lo : hi]` slice, or null
+  /// for a plain lvalue target. Returns a target whose Base is null on error.
+  AssignsTarget ActOnContractAssignsTarget(Expr *Target, Expr *Lower,
+                                           Expr *Upper);
 
   /// Attaches the checked frame targets to \p Clause, copying them into the
   /// ASTContext so they outlive the parser's stack vector.
   void ActOnContractAssignsClause(ContractClause &Clause,
-                                  ArrayRef<Expr *> Targets);
+                                  ArrayRef<AssignsTarget> Targets);
 
   /// Attaches \p Clauses to the loop statement \p S.
   void ActOnLoopContracts(Stmt *S, ArrayRef<ContractClause> Clauses);

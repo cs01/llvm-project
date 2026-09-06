@@ -6195,6 +6195,32 @@ private:
   /// Parsing OpenACC directive mode.
   bool OpenACCDirectiveParsing = false;
 
+  /// Currently parsing an 'assigns' frame target, where `buf[lo : hi]` names a
+  /// half-open range of elements rather than being a syntax error.
+  bool AllowContractAssignsSlices = false;
+
+  /// The bounds of the slice most recently parsed under
+  /// AllowContractAssignsSlices, handed back to ParseContractClauses.
+  ///
+  /// A frame target is a set of locations, and there is no Expr that means a
+  /// set of locations, so the range travels beside the base expression rather
+  /// than being built into it. Nothing outside the 'assigns' parse reads these.
+  Expr *ContractSliceLower = nullptr;
+  Expr *ContractSliceUpper = nullptr;
+
+  /// RAII object for the window in which an 'assigns' slice is legal.
+  class ContractAssignsSliceRAII {
+    Parser &P;
+
+  public:
+    ContractAssignsSliceRAII(Parser &P) : P(P) {
+      P.AllowContractAssignsSlices = true;
+      P.ContractSliceLower = nullptr;
+      P.ContractSliceUpper = nullptr;
+    }
+    ~ContractAssignsSliceRAII() { P.AllowContractAssignsSlices = false; }
+  };
+
   /// Currently parsing a situation where an OpenACC array section could be
   /// legal, such as a 'var-list'.
   bool AllowOpenACCArraySections = false;

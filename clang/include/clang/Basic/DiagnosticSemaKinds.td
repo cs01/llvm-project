@@ -14382,6 +14382,10 @@ def warn_contract_cprover_unit_skipped_header : Warning<
   "rewritten; preprocess first so header contracts are part of the translation "
   "unit">,
   InGroup<CContracts>;
+def err_contract_assigns_slice_not_buffer : Error<
+  "'assigns' range needs a pointer or array to take elements of; %0 is neither">;
+def err_contract_assigns_bound_not_integer : Error<
+  "'assigns' range bound must be an integer; %0 is not">;
 def err_contract_assigns_not_lvalue : Error<
   "'assigns' target must name a location that can be modified">;
 def err_contract_decreases_not_scalar : Error<

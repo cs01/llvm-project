@@ -455,7 +455,24 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
   since applying one means havocking what the loop writes and it must be told
   what that is.
 
-  **Open, and blocking the zstd rewrite:** a target naming a *range* of memory.
+  **Ranges: done.** `assigns (buf[lo : hi])` names elements `lo` through
+  `hi - 1`. Half-open, so the bound written in the frame is the one written in
+  the loop header; counted in elements, so the byte multiply CBMC's primitive
+  needs is the compiler's rather than the author's — a frame one element short
+  does not fail, it silently proves less. Lowers to
+  `__CPROVER_object_upto(base + lo, (hi - lo) * sizeof(*base))`, verified
+  against CBMC 5.95: the loop that `assigns (i, buf[i])` could not discharge is
+  proved for every length, no unwind bound.
+
+  The range does not live in an `Expr`. `ArraySectionExpr` was the obvious
+  vehicle and was rejected: its third operand is named `LENGTH` with a
+  `getLength()` accessor, and storing a half-open upper bound there is a trap
+  for the next reader, while adding a section type of our own would have meant
+  auditing eight files that switch on it. A frame target is a set of locations,
+  and no `Expr` means a set of locations, so `AssignsTarget` carries the base
+  and the two bounds beside each other.
+
+  Superseded, kept for the record: a target naming a *range* of memory.
   Verified against CBMC 5.95 rather than assumed: a loop frame of
   `__CPROVER_assigns(i, buf[i])` gives "Check that buf[i] is assignable:
   FAILURE", because the frame is evaluated at loop entry and so denotes a single
