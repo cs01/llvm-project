@@ -1,23 +1,16 @@
 # C contracts for clang
 
-**Preconditions, postconditions and loop contracts for C as real compiler
-grammar** — type-checked in the AST, checked at every call site by a CFG
-dataflow pass, and lowered to CBMC so they can be *proved*. Not macros, not
-comments, not `__attribute__` soup.
+**Contracts for C that the compiler actually understands, and a battle-tested
+verifier can prove.**
 
 > A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
 > fork's other line of work, flow-sensitive nullability, is independent and lives
 > on [`nullsafe-clang-dev`](https://github.com/cs01/llvm-project/tree/nullsafe-clang-dev).
 
-## One contract, three levels
+## Write C. Have it understood. Have it proved.
 
-Give C the ability to **say what a function requires and guarantees**, in the
-declaration, in a form a maintainer will actually write — and then make that
-statement worth something at three levels.
-
-**Write it once, in the header**, where the function is already declared. `pre`
-is what the caller must guarantee; `post` is what the function guarantees back,
-with `r` naming the returned value.
+Say what a function requires and guarantees, in the declaration, where it is
+already written:
 
 ```c
 int *allocate(unsigned long n)
@@ -25,104 +18,33 @@ int *allocate(unsigned long n)
   post (r: r != 0);
 ```
 
-Then three checkers look at it, each catching what the one before it let through.
+**The compiler understands it.** Not a macro that expands to nothing, not a
+comment no tool reads — real grammar, type-checked against the actual parameter
+types, in the AST, surviving a precompiled header.
 
-### Level 1 — the front end: is the *contract* well formed?
-
-Free, on every build, on every function. It says nothing about your program's
-behaviour, only about the specification itself — and a contract that cannot mean
-what it appears to is a hard error, not a warning:
-
-```
-lvl1.c:3:12: error: 'post' predicate cannot name parameter 'n' directly; a by-value parameter may be named in 'post' only through 'old()'
-    3 |   post (r: n > 0);
-      |            ^
-lvl1.c:3:12: note: name the value at function entry with 'old(n)'
-```
-
-### Level 2 — the call-site checker: does any *caller* break it?
-
-Still free, still an ordinary build, still no verifier — a CFG dataflow pass
-looking at each call. Somewhere far away, someone writes:
-
-```c
-void setup(void) {
-  int *p = allocate(0);      // 0 is not > 0
-  ...
-}
-```
-
-and the build tells them so, pointing at both the call and the promise it broke:
+**Callers are checked on every ordinary build.** No harness, no separate tool,
+no proof. Someone writes `allocate(0)` a thousand files away and the build says
+so, pointing at the promise they broke:
 
 ```
 demo.c:6:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
-    6 |   int *p = allocate(0);
-      |            ^~~~~~~~~~~
-demo.c:2:3: note: precondition declared here
-    2 | pre (n > 0)
-      |   ^~~~~~~~~~~~~~~~
 ```
 
-### Level 3 — CBMC: is it true for *every* input?
+**And the same text is proved.** Not re-written for a verifier — the compiler
+translates what you already wrote and hands it to
+[CBMC](https://github.com/diffblue/cbmc), which answers for *every* input rather
+than the handful a test tried. CBMC is not a research toy: AWS runs it in CI on
+s2n-tls and aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and
+Kani — the Rust verifier — is built on it.
 
-You never write a verifier's syntax by hand. Ask the compiler, and it translates
-the contract you already wrote:
+Applied to real zstd this has already reproduced an undefined-behaviour bug in
+the hot decode path that years of OSS-Fuzz cannot see, because nothing
+misbehaves at runtime. [The results are below](#results-on-real-zstd).
 
-```
-$ clang -fc-contracts -fcontract-emit-cprover -fsyntax-only allocate.c
-__CPROVER_requires(n > 0)
-__CPROVER_ensures(__CPROVER_return_value != 0)
-```
+All three parts work today, verified end to end against CBMC 5.95 — contracts
+proved, and a deliberately false one correctly rejected. Range targets in
+`assigns` are next; see the [roadmap](#roadmap).
 
-Those `__CPROVER_` names are **[CBMC](https://github.com/diffblue/cbmc)'s own
-spelling** for the same two ideas you wrote above — `__CPROVER_return_value`
-being its name for `r`. That block is *generated output*, not something anyone
-types. Hand it to CBMC and it proves the contract holds for **every** input, not
-the handful a test happened to try.
-
-One source text, three levels of rigour, and you choose how far up you go per
-function. That is the whole idea.
-
-## Status
-
-All three levels work today, and the CBMC output above has been run through
-CBMC 5.95 end to end: contracts proved, and a deliberately false one correctly
-rejected. Range targets in `assigns` are next — measured, not guessed, as
-what blocks annotating real buffer code; see the
-[roadmap](#roadmap).
-
-Seven bug shapes, and how far up the ladder each one survives. The first two are
-malformed **contracts** — the `post` error from level 1 above. The rest are bugs
-in **code** carrying a contract like this one:
-
-```c
-void put(int *buf, unsigned len, unsigned i, int v)
-  pre  (buf != 0)
-  pre  (i < len)
-  assigns (buf[i]);
-```
-
-| The bug | Level 1<br>front end | Level 2<br>call-site | Level 3<br>CBMC |
-|---|:---:|:---:|:---:|
-| **Contract:** `post` names a mutated parameter without `old()` | **caught** | *n/a* | *n/a* |
-| **Contract:** predicate calls an impure function | **caught** | *n/a* | *n/a* |
-| **Code:** `put(b, 8, 8, 1)` — a literal breaks `i < len` | missed | **caught** | caught |
-| **Code:** `put(b, n, k, 1)` — symbolic arguments | missed | missed | **caught** |
-| **Code:** off-by-one in the callee's own loop | missed | missed | **caught** |
-| **Code:** violation only on a loop's second iteration | missed | missed | **caught** |
-| **Contract: well formed, and says the wrong thing** | missed | missed | **missed** |
-
-*n/a* is not a miss: a malformed contract is a **hard error**, so the build stops
-at level 1 and the later levels never run on that code.
-
-That last row is the honest floor of the whole approach, and no tool on the
-ladder fixes it: **verification proves the code matches the specification, never
-that the specification is right.** What it buys you is that the specification is
-now written down, in the declaration, where a reviewer can argue with it — which
-is strictly more than a comment nobody checks.
-
-What each level catches and misses, with the real diagnostics, is in
-[the reference](docs/contracts-reference.md#the-three-levels-in-detail).
 
 ## Quick start
 
@@ -171,6 +93,47 @@ already using `pre` as an identifier keeps compiling.
 
 Why these spellings and not the verifier's `requires` / `ensures`:
 [contracts-design.md](contracts-design.md#5-syntax).
+
+## What each level catches
+
+Three checkers read the same contract, each catching what the one before it let
+through: the **front end** (is the contract well formed?), the **call-site
+pass** (does any caller break it?), and **CBMC** (is it true for every input?).
+All three work today; the walkthrough with real diagnostics is in
+[the reference](docs/contracts-reference.md#the-three-levels-in-detail).
+
+Seven bug shapes, and how far up the ladder each survives. The first two are
+malformed **contracts**; the rest are bugs in **code** carrying a contract like
+this one:
+
+```c
+void put(int *buf, unsigned len, unsigned i, int v)
+  pre  (buf != 0)
+  pre  (i < len)
+  assigns (buf[i]);
+```
+
+| The bug | Level 1<br>front end | Level 2<br>call-site | Level 3<br>CBMC |
+|---|:---:|:---:|:---:|
+| **Contract:** `post` names a mutated parameter without `old()` | **caught** | *n/a* | *n/a* |
+| **Contract:** predicate calls an impure function | **caught** | *n/a* | *n/a* |
+| **Code:** `put(b, 8, 8, 1)` — a literal breaks `i < len` | missed | **caught** | caught |
+| **Code:** `put(b, n, k, 1)` — symbolic arguments | missed | missed | **caught** |
+| **Code:** off-by-one in the callee's own loop | missed | missed | **caught** |
+| **Code:** violation only on a loop's second iteration | missed | missed | **caught** |
+| **Contract: well formed, and says the wrong thing** | missed | missed | **missed** |
+
+*n/a* is not a miss: a malformed contract is a **hard error**, so the build stops
+at level 1 and the later levels never run on that code.
+
+That last row is the honest floor of the whole approach, and no tool on the
+ladder fixes it: **verification proves the code matches the specification, never
+that the specification is right.** What it buys you is that the specification is
+now written down, in the declaration, where a reviewer can argue with it — which
+is strictly more than a comment nobody checks.
+
+What each level catches and misses, with the real diagnostics, is in
+[the reference](docs/contracts-reference.md#the-three-levels-in-detail).
 
 ## Results on real zstd
 
