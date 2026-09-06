@@ -30,7 +30,7 @@ not crashes — they are the ones where nothing misbehaves at runtime and the
 answer is simply wrong. Fuzzing cannot find those. Tests cannot enumerate them.
 Rewriting it all is not a plan.
 
-So: give C the ability to **say what a function pre and guarantees**, in the
+So: give C the ability to **say what a function requires and guarantees**, in the
 declaration, in a form a maintainer will actually write — and then make that
 statement worth something at three levels.
 
