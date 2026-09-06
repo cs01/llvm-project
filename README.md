@@ -165,9 +165,10 @@ What each level catches and misses, with the real diagnostics, is in
 See **[proofs/zstd/](proofs/zstd/)**. Applied to the actual zstd sources, not a
 transcription.
 
-**These were produced with hand-written CBMC harnesses, before this extension
-could express them** — they are what motivated the grammar, not output from it.
-Turning them into source in this syntax is [the roadmap's](#roadmap) real test.
+**Most of these were produced with hand-written CBMC harnesses, before this
+extension could express them** — they are what motivated the grammar, not output
+from it. The unbounded proof below is the exception, and the one that matters:
+it now runs from contracts written in this syntax.
 
 - **An undefined-behaviour finding, reproduced on upstream HEAD.**
   `ZSTD_overlapCopy8` forms a pointer up to 8 bytes before the start of the
@@ -187,12 +188,15 @@ Turning them into source in this syntax is [the roadmap's](#roadmap) real test.
   `findings/RESULT-lz-correctness.md` states the scope.
 - **Two contract defects** where the real precondition is stronger than the
   documented one, or absent from where it is needed entirely.
-- **An unbounded proof.** `ZSTD_wildcopy` is memory-safe for *every* length, not
-  just up to some bound: `0 of 141 failed`, one iteration, no `--unwind` at all,
-  length to 1 GiB with symbolically allocated buffers. Proof by induction over
-  the loop, via a hand-written `__CPROVER_loop_invariant`. The same run also
-  proves the fix for the pointer-subtraction defect: with it, zero failures;
-  without it, exactly one.
+- **An unbounded proof, written in this grammar.** `ZSTD_wildcopy` is
+  memory-safe for *every* length, not just up to some bound: `0 of 208 failed`,
+  one iteration, no `--unwind` at all, length to 1 GiB with symbolically
+  allocated buffers. Proof by induction over the loop. The contracts are
+  `assigns` / `loop_invariant` / `decreases` in upstream zstd source, lowered by
+  this compiler — the generated frame is byte-identical to the hand-written one
+  it replaces. `./proofs/zstd/run-wildcopy-from-grammar.sh` reproduces it. The
+  earlier hand-written run also proves the fix for the pointer-subtraction
+  defect: with it, zero failures; without it, exactly one.
 
 None of the four is a crash, and **fuzzing cannot find any of them**, because
 nothing misbehaves at runtime. That, rather than the count, is the argument.
@@ -210,13 +214,12 @@ set cannot be disjoined, so `assigns (dst) when (r: !is_error(r))` is the only
 way to say "writes the output buffer on success, nothing on error".
 §4 item 5 of the design has the grammar.
 
-**Dogfood the grammar.** Everything under `proofs/zstd/harnesses/` is still
-hand-written `__CPROVER_*` macros — the thing this extension exists to replace.
-Half of what blocked that is now done: `-fcontract-emit-cprover-unit` rewrites a
-whole translation unit into CBMC form, and the result compiles under `goto-cc`
-and discharges under `cbmc` (verified, both function and loop contracts). What
-remains is range targets above, without which no buffer-touching frame can be
-written at all.
+**Dogfood the grammar.** One proof now runs end to end from this syntax
+(`run-wildcopy-from-grammar.sh`, above); the rest of `proofs/zstd/harnesses/` is
+still hand-written `__CPROVER_*` macros. The remaining gap is the harnesses
+themselves — `__CPROVER_assume`, symbolic allocation, the entry point — which
+this grammar does not try to express and probably should not: a contract belongs
+on the function, a harness is a proof driver.
 
 **Runtime trapping.** Turning `pre` into a deterministic trap at the
 earliest wrong state, for the clauses that can be branches. Worth noting that

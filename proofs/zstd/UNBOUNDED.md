@@ -283,6 +283,54 @@ the above.** The contracts were accepted without a diagnostic, but
 `goto-instrument` reports nothing on success either, so attachment is only
 confirmed by the absence of unwinding output in the solve. Not claiming it yet.
 
+## The same proof, from this grammar
+
+Everything above is hand-written `__CPROVER_*` macros. The point of the
+extension is not to write those, so the proof was re-expressed as source:
+
+```c
+while (1)
+  assigns        (op, ip, dstStart[0 : length + WILDCOPY_OVERLENGTH])
+  loop_invariant (__CPROVER_same_object(op, dstStart))
+  loop_invariant (__CPROVER_POINTER_OFFSET(op) < (long)length)
+  decreases      ((long)length - __CPROVER_POINTER_OFFSET(op))
+```
+
+`run-wildcopy-from-grammar.sh` runs it: `clang -fc-contracts
+-fcontract-emit-cprover-unit` rewrites the annotated TU, `goto-cc` compiles it,
+`goto-instrument --apply-loop-contracts` instruments it, `cbmc` discharges it.
+
+```
+** 0 of 208 failed (1 iterations)
+VERIFICATION SUCCESSFUL
+```
+
+The generated frame is byte-identical to the hand-written one, which is the
+check that matters — the lowering is not merely accepted, it produces the same
+text a human arrived at after the five obstacles above.
+
+It did not on the first attempt, and the difference is the **sixth obstacle**:
+
+```c
+// emitted first, twice a 50-minute timeout:
+__CPROVER_object_upto((dstStart + 0), ((length + 32) - (0)) * sizeof(*dstStart))
+// emitted now:
+__CPROVER_object_upto(dstStart, length + 32)
+```
+
+Both are the same set of bytes. CBMC carries the extent symbolically into the
+havoc it generates for the frame, so `+ 0` and `* 1` are not folded away before
+they cost solver time — they widen the expression the havoc loop is built from.
+A lowering that is *correct* is therefore not sufficient; it has to be
+*canonical*, because the prover's cost model sees the syntax. The emitter now
+drops a zero lower bound and a `sizeof` of one.
+
+The other two timeouts on the way were mine as well and are worth naming so
+they are not mistaken for tool limits: `--pointer-overflow-check`, which the
+recorded recipe does not use, and CBMC **5.95** from Ubuntu's apt, when every
+recorded time on this branch is **6.11**. The script now asserts the clause
+count it expects and refuses to run below CBMC 6.
+
 ## Remaining
 
 

@@ -75,11 +75,52 @@ honest if the near-misses are in it.
 
 ---
 
+## 2. `ZSTD_wildcopy`, proved from the grammar
+
+**Not a bug. The dogfooding milestone.** The first proof on this branch whose
+contracts were written in this syntax rather than in CBMC's macros.
+
+`ZSTD_wildcopy` in upstream zstd `d9c0c7e2`, annotated with `assigns`,
+`loop_invariant` and `decreases` (see
+[`patches/annotate-wildcopy-our-grammar.patch`](patches/annotate-wildcopy-our-grammar.patch)),
+lowered by `-fcontract-emit-cprover-unit`, and run through
+[`run-wildcopy-from-grammar.sh`](run-wildcopy-from-grammar.sh):
+
+```
+** 0 of 208 failed (1 iterations)
+VERIFICATION SUCCESSFUL
+```
+
+No `--unwind`. One iteration. `length` symbolic to 1 GiB, both buffers
+symbolically allocated. The generated frame is byte-identical to the
+hand-written one it replaces.
+
+Three things had to be true first, and two of them were bugs of mine rather
+than facts about the tool — worth recording precisely, because each looked from
+the outside like "CBMC cannot do this":
+
+| Symptom | Looked like | Actually |
+|---|---|---|
+| 40 min, no result | tool limitation | `--pointer-overflow-check`, which the recorded recipe does not use |
+| 50 min, no result | tool limitation | the lowering emitted `(p + 0)` and `* sizeof(char)`; CBMC carries the extent symbolically, so the identities cost real solver time |
+| 50 min, no result | tool limitation | CBMC **5.95** from apt; every recorded time on this branch is **6.11** |
+
+The middle one was a real defect in the emitter and is fixed. The other two are
+now caught by the script rather than rediscovered: it asserts seven lowered
+clauses, and refuses to run below CBMC 6.
+
+**What this does and does not show.** It shows the grammar can express a real
+unbounded proof over production C, which is what the branch existed to find out.
+It does not show the grammar found anything: the invariants are the same ones a
+human wrote by hand, transcribed into a syntax that type-checks them. The
+bucket-1 count is unchanged.
+
 ## Running tally
 
 | # | Function | Bucket | Reachable |
 |---|---|:---:|---|
 | 1 | `BIT_lookBits` / `BIT_getMiddleBits` | 2 | no — 30 max vs 32 table |
+| 2 | `ZSTD_wildcopy` | — | not a bug; first proof from the grammar |
 
 Bucket 1 findings so far, from this experiment: **0**.
 (`ZSTD_overlapCopy8`, the branch's one bucket-1 finding, predates it.)

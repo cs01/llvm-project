@@ -7,6 +7,8 @@
 #   this script                                  lowers, compiles, proves
 #
 # Usage:  ZSTD=~/git/zstd CLANG=../../build/bin/clang ./run-wildcopy-from-grammar.sh
+#
+# Expected:  ** 0 of 208 failed (1 iterations) / VERIFICATION SUCCESSFUL
 set -e
 ZSTD=${ZSTD:?set ZSTD to a zstd checkout with the patch applied}
 
