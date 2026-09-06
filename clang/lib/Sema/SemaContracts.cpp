@@ -119,24 +119,32 @@ static void printCProverContracts(const FunctionDecl *FD,
     llvm::raw_string_ostream OS(Text);
     Clause.getPredicate()->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
 
-    // Our StmtPrinter spells the node `old(...)`; CBMC spells it
-    // `__CPROVER_old(...)`.
-    Text = replaceToken(Text, "old", "__CPROVER_old");
-
     switch (Clause.getKind()) {
-    case ContractClause::CK_Pre:
+    case ContractClause::CK_Requires:
+      // No 'old' rewrite here. 'old()' is rejected outside 'ensures', so an
+      // 'old' token in a requires is an ordinary identifier: rewriting it
+      // turned `requires (old > 0)` on a parameter named 'old' into
+      // `__CPROVER_requires(__CPROVER_old > 0)`, which is silently wrong
+      // rather than an error.
       llvm::outs() << "__CPROVER_requires(" << Text << ")\n";
       break;
-    case ContractClause::CK_Post:
+    case ContractClause::CK_Ensures:
+      // Our StmtPrinter spells the node `old(...)`; CBMC spells it
+      // `__CPROVER_old(...)`. Only an 'ensures' can contain one.
+      //
+      // FIXME: still token substitution, so a parameter named 'old' referenced
+      // as `old(old)` is rewritten on both sides. Printing the ContractOldExpr
+      // node directly, via a printing policy, is the real fix.
+      Text = replaceToken(Text, "old", "__CPROVER_old");
       if (const VarDecl *R = Clause.getResultVar())
         Text = replaceToken(Text, R->getName(), "__CPROVER_return_value");
       llvm::outs() << "__CPROVER_ensures(" << Text << ")\n";
       break;
-    case ContractClause::CK_Writes:
+    case ContractClause::CK_Assigns:
       // Not parsed yet; when it is, this becomes __CPROVER_assigns.
       break;
-    case ContractClause::CK_Invariant:
-    case ContractClause::CK_Variant:
+    case ContractClause::CK_LoopInvariant:
+    case ContractClause::CK_Decreases:
       // Loop clauses. They hang off a statement, so they are never reachable
       // from a FunctionDecl's contracts; printCProverLoopContracts prints them.
       break;
@@ -186,15 +194,15 @@ static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
       Clause.getPredicate()->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
 
       switch (Clause.getKind()) {
-      case ContractClause::CK_Invariant:
+      case ContractClause::CK_LoopInvariant:
         llvm::outs() << "__CPROVER_loop_invariant(" << Text << ")\n";
         break;
-      case ContractClause::CK_Variant:
+      case ContractClause::CK_Decreases:
         llvm::outs() << "__CPROVER_decreases(" << Text << ")\n";
         break;
-      case ContractClause::CK_Pre:
-      case ContractClause::CK_Post:
-      case ContractClause::CK_Writes:
+      case ContractClause::CK_Requires:
+      case ContractClause::CK_Ensures:
+      case ContractClause::CK_Assigns:
         // Not parseable on a loop.
         break;
       }
@@ -285,19 +293,19 @@ static const DeclRefExpr *findBareParameterRef(const Stmt *E) {
   return nullptr;
 }
 
-ExprResult Sema::CheckContractPostPredicate(Expr *Predicate) {
+ExprResult Sema::CheckContractEnsuresPredicate(Expr *Predicate) {
   const DeclRefExpr *DRE = findBareParameterRef(Predicate);
   if (!DRE)
     return Predicate;
 
   const auto *PVD = cast<ParmVarDecl>(DRE->getDecl());
-  Diag(DRE->getLocation(), diag::err_contract_post_names_parameter)
+  Diag(DRE->getLocation(), diag::err_contract_ensures_names_parameter)
       << PVD << DRE->getSourceRange();
-  Diag(DRE->getLocation(), diag::note_contract_post_use_old) << PVD->getName();
+  Diag(DRE->getLocation(), diag::note_contract_ensures_use_old) << PVD->getName();
   return ExprError();
 }
 
-ExprResult Sema::ActOnLoopVariant(SourceLocation KeywordLoc, Expr *Measure) {
+ExprResult Sema::ActOnLoopDecreases(SourceLocation KeywordLoc, Expr *Measure) {
   if (!Measure)
     return ExprError();
 
@@ -307,7 +315,7 @@ ExprResult Sema::ActOnLoopVariant(SourceLocation KeywordLoc, Expr *Measure) {
   Measure = Converted.get();
 
   if (!Measure->getType()->isScalarType()) {
-    Diag(KeywordLoc, diag::err_contract_variant_not_scalar)
+    Diag(KeywordLoc, diag::err_contract_decreases_not_scalar)
         << Measure->getType() << Measure->getSourceRange();
     return ExprError();
   }

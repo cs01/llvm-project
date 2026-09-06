@@ -2768,7 +2768,7 @@ private:
   /// which one. The keywords are contextual: they are ordinary identifiers
   /// everywhere except the function declarator suffix, and only when
   /// -fc-contracts is on.
-  bool isContractClauseKeyword(const Token &Tok,
+  bool isFunctionContractClauseKeyword(const Token &Tok,
                                ContractClause::ClauseKind &Kind) const;
 
   /// Parses the contract clauses in a function declarator suffix and records

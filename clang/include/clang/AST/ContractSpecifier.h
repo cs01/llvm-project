@@ -29,22 +29,22 @@ class ASTContext;
 class Expr;
 class VarDecl;
 
-/// A single contract clause, e.g. `pre (dst != 0)`.
+/// A single contract clause, e.g. `requires (dst != 0)`.
 class ContractClause {
 public:
   enum ClauseKind {
     /// A precondition, checked on entry to the callee.
-    CK_Pre,
-    /// A postcondition, checked at every return. Not yet parsed.
-    CK_Post,
+    CK_Requires,
+    /// A postcondition, checked at every return.
+    CK_Ensures,
     /// A frame condition. Not yet parsed.
-    CK_Writes,
+    CK_Assigns,
     /// A loop invariant: holds at every iteration of the loop it is attached
     /// to.
-    CK_Invariant,
-    /// A loop variant: a non-negative measure that strictly decreases each
-    /// iteration, which is what makes the proof terminate.
-    CK_Variant,
+    CK_LoopInvariant,
+    /// A termination measure: a non-negative quantity that strictly decreases
+    /// each iteration, which is what makes the loop provably terminate.
+    CK_Decreases,
   };
 
 private:
@@ -57,8 +57,8 @@ private:
   /// type-check, so that one bad clause does not discard the others.
   Expr *Predicate;
 
-  /// For `post (r: ...)`, the binding for the return value. Null when the
-  /// clause named no result, and always null for a 'pre'.
+  /// For `ensures (r: ...)`, the binding for the return value. Null when the
+  /// clause named no result, and always null for a 'requires'.
   VarDecl *ResultVar = nullptr;
 
 public:
@@ -85,16 +85,16 @@ public:
   /// The spelling of \p Kind, for diagnostics and AST dumps.
   static const char *getKindSpelling(ClauseKind Kind) {
     switch (Kind) {
-    case CK_Pre:
-      return "pre";
-    case CK_Post:
-      return "post";
-    case CK_Writes:
-      return "writes";
-    case CK_Invariant:
-      return "invariant";
-    case CK_Variant:
-      return "variant";
+    case CK_Requires:
+      return "requires";
+    case CK_Ensures:
+      return "ensures";
+    case CK_Assigns:
+      return "assigns";
+    case CK_LoopInvariant:
+      return "loop_invariant";
+    case CK_Decreases:
+      return "decreases";
     }
     llvm_unreachable("unhandled contract clause kind");
   }

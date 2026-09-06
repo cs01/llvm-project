@@ -2992,10 +2992,10 @@ public:
         CharSourceRange::getTokenRange(Clause.getPredicate()->getSourceRange());
     StringRef Text = Lexer::getSourceText(R, SM, S.getLangOpts());
 
-    S.Diag(Call->getBeginLoc(), diag::warn_contract_precondition_violated)
+    S.Diag(Call->getBeginLoc(), diag::warn_contract_requires_violated)
         << (Text.empty() ? StringRef("<predicate>") : Text) << Callee
         << Call->getSourceRange();
-    S.Diag(Clause.getKeywordLoc(), diag::note_contract_precondition_declared)
+    S.Diag(Clause.getKeywordLoc(), diag::note_contract_requires_declared)
         << Clause.getSourceRange();
   }
 };
@@ -3258,7 +3258,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
 
   // Check callee preconditions at call sites.
   if (S.getLangOpts().CContracts &&
-      !Diags.isIgnored(diag::warn_contract_precondition_violated,
+      !Diags.isIgnored(diag::warn_contract_requires_violated,
                        D->getBeginLoc())) {
     ContractReporter Reporter(S);
     contracts::runContractChecking(AC, Reporter);

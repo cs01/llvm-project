@@ -7897,12 +7897,12 @@ public:
   /// 'post' naming a parameter is ambiguous between its entry and exit value.
   /// Section 4 of the design resolves this by requiring 'old()'. P2900 forbids
   /// the same thing for the same reason.
-  ExprResult CheckContractPostPredicate(Expr *Predicate);
+  ExprResult CheckContractEnsuresPredicate(Expr *Predicate);
 
   /// Checks a loop `variant` measure: a scalar that the proof requires to be
   /// non-negative and strictly decreasing, so it is a value rather than a
   /// condition.
-  ExprResult ActOnLoopVariant(SourceLocation KeywordLoc, Expr *Measure);
+  ExprResult ActOnLoopDecreases(SourceLocation KeywordLoc, Expr *Measure);
 
   /// Attaches \p Clauses to the loop statement \p S.
   void ActOnLoopContracts(Stmt *S, ArrayRef<ContractClause> Clauses);

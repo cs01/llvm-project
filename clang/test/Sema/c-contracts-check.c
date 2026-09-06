@@ -6,11 +6,11 @@
 // giving up the syntax. The syntax being an error without -fc-contracts is
 // covered by Parser/c-contracts-disabled.c.
 
-int *allocate(unsigned long n) pre (n > 0);        // expected-note 1+ {{precondition declared here}}
-void use(int *p) pre (p != 0);                     // expected-note 1+ {{precondition declared here}}
+int *allocate(unsigned long n) requires (n > 0);        // expected-note 1+ {{precondition declared here}}
+void use(int *p) requires (p != 0);                     // expected-note 1+ {{precondition declared here}}
 void put(int *buf, unsigned long len, unsigned long i, int v)
-  pre (buf != 0)                                   // expected-note {{precondition declared here}}
-  pre (i < len);                                   // expected-note {{precondition declared here}}
+  requires (buf != 0)                                   // expected-note {{precondition declared here}}
+  requires (i < len);                                   // expected-note {{precondition declared here}}
 
 void literals(void) {
   allocate(0); // expected-warning {{precondition n > 0 of 'allocate' is violated by this call}}
@@ -50,7 +50,7 @@ void unknown_argument(int *q) {
 }
 
 // A caller's own precondition is an assumption inside its body.
-void discharged_by_own_pre(int *b) pre (b != 0) {
+void discharged_by_own_pre(int *b) requires (b != 0) {
   use(b); // no warning
 }
 
@@ -64,7 +64,7 @@ void address_taken(void) {
 }
 
 // Short-circuit: the right operand need not be decidable.
-void guard_then_use(int *p) pre (p != 0) pre (*p > 0);
+void guard_then_use(int *p) requires (p != 0) requires (*p > 0);
 void short_circuit(void) {
   guard_then_use(0); // expected-warning {{precondition p != 0 of 'guard_then_use' is violated by this call}}
                      // expected-note@-3 {{precondition declared here}}
@@ -79,8 +79,8 @@ void calls_definition(void) {
 
 // A callee's postcondition is assumed after the call. Without this the pass
 // only ever catches literal arguments.
-int *allocating(unsigned long n) pre (n > 0) post (r: r != 0);
-int *unpromising(unsigned long n) pre (n > 0);
+int *allocating(unsigned long n) requires (n > 0) ensures (r: r != 0);
+int *unpromising(unsigned long n) requires (n > 0);
 
 void discharged_by_post(void) {
   int *p = allocating(4);

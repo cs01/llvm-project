@@ -422,7 +422,7 @@ AbstractValue ContractChecker::valueFromPost(const Expr *E) const {
     return AbstractValue::unknown();
 
   for (const ContractClause &Clause : *ContractDecl->getContracts())
-    if (Clause.getKind() == ContractClause::CK_Post &&
+    if (Clause.getKind() == ContractClause::CK_Ensures &&
         postImpliesNonNull(Clause.getPredicate(), Clause.getResultVar()))
       return AbstractValue::nonNull();
 
@@ -450,7 +450,7 @@ void ContractChecker::checkCall(const State &S, const CallExpr *Call) {
 
   Evaluator PredEval(Ctx, S, &Subst);
   for (const ContractClause &Clause : *CS) {
-    if (Clause.getKind() != ContractClause::CK_Pre || !Clause.getPredicate())
+    if (Clause.getKind() != ContractClause::CK_Requires || !Clause.getPredicate())
       continue;
     if (PredEval.eval(Clause.getPredicate()).isKnownFalse())
       Reporter.reportPreconditionViolated(Call, Callee, Clause);
@@ -472,7 +472,7 @@ void ContractChecker::run() {
   State Entry;
   if (const ContractSpecifier *Own = FD->getContractsForCall())
     for (const ContractClause &Clause : *Own)
-      if (Clause.getKind() == ContractClause::CK_Pre && Clause.getPredicate())
+      if (Clause.getKind() == ContractClause::CK_Requires && Clause.getPredicate())
         refine(Entry, Clause.getPredicate(), /*TrueBranch=*/true);
 
   llvm::DenseMap<const CFGBlock *, State> BlockEntry;

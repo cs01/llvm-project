@@ -9,20 +9,20 @@ unsigned long caller3(void) { return old_from_pch(1); }
 // CHECK:      FunctionDecl {{.*}} from_pch 'int (int *, int)'
 // CHECK-NEXT:   ParmVarDecl {{.*}} p 'int *'
 // CHECK-NEXT:   ParmVarDecl {{.*}} n 'int'
-// CHECK-NEXT:   pre
+// CHECK-NEXT:   requires
 // CHECK-NEXT:     BinaryOperator {{.*}} 'int' '!='
-// CHECK:        pre
+// CHECK:        requires
 // CHECK-NEXT:     BinaryOperator {{.*}} 'int' '>'
 
-// The result binding survives too, or a 'post' would come back from a PCH with
+// The result binding survives too, or a 'ensures' would come back from a PCH with
 // a predicate referring to a decl that no longer exists.
 // CHECK:      FunctionDecl {{.*}} post_from_pch 'int *(int)'
-// CHECK:        pre
-// CHECK:        post
+// CHECK:        requires
+// CHECK:        ensures
 // CHECK-NEXT:     VarDecl {{.*}} r 'int *'
 // CHECK-NEXT:     BinaryOperator {{.*}} 'int' '!='
 
 // ContractOldExpr round-trips as its own node.
 // CHECK:      FunctionDecl {{.*}} old_from_pch 'unsigned long (unsigned long)'
-// CHECK:        post
+// CHECK:        ensures
 // CHECK:          ContractOldExpr

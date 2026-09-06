@@ -14358,10 +14358,10 @@ def err_cuda_device_kernel_launch_require_rdc
             "relocatable device code (i.e. requires -fgpu-rdc)">;
 
 // C contracts (-fc-contracts)
-def warn_contract_precondition_violated : Warning<
+def warn_contract_requires_violated : Warning<
   "precondition %0 of %1 is violated by this call">,
   InGroup<ContractViolation>;
-def note_contract_precondition_declared : Note<
+def note_contract_requires_declared : Note<
   "precondition declared here">;
 
 def err_contracts_on_non_function : Error<
@@ -14372,16 +14372,16 @@ def err_contract_predicate_not_pure : Error<
   "contract predicate must be free of side effects">;
 def note_contract_predicate_pure_call : Note<
   "mark %0 'const' or 'pure' to allow calling it from a contract predicate">;
-def err_contract_post_names_parameter : Error<
-  "'post' predicate cannot name parameter %0 directly; a by-value parameter "
-  "may be named in 'post' only through 'old()'">;
-def note_contract_post_use_old : Note<
+def err_contract_ensures_names_parameter : Error<
+  "'ensures' predicate cannot name parameter %0 directly; a by-value parameter "
+  "may be named in 'ensures' only through 'old()'">;
+def note_contract_ensures_use_old : Note<
   "name the value at function entry with 'old(%0)'">;
-def err_contract_variant_not_scalar : Error<
-  "loop 'variant' must be a scalar measure; %0 is not scalar">;
+def err_contract_decreases_not_scalar : Error<
+  "loop 'decreases' must be a scalar measure; %0 is not scalar">;
 def err_contract_old_not_scalar : Error<
   "'old' requires a scalar operand; %0 is not scalar">;
-def err_contract_old_outside_post : Error<
-  "'old' may only appear in a 'post' contract clause">;
+def err_contract_old_outside_ensures : Error<
+  "'old' may only appear in an 'ensures' contract clause">;
 
 } // end of sema component.

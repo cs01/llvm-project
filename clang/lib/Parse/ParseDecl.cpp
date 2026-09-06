@@ -7483,27 +7483,56 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
 
 /// Returns true if \p II names a contract clause keyword.
 ///
-/// Shared with the macro-collision warning, which must ask the same question
-/// about a macro name that the parser asks about a token.
-static bool isContractClauseKeywordName(const IdentifierInfo *II,
-                                        ContractClause::ClauseKind &Kind) {
+/// Recognizes a clause keyword that attaches to a function declarator.
+///
+/// Contextual: these are ordinary identifiers outside this slot, so a program
+/// that already uses 'requires' as a name keeps working everywhere else.
+static bool isFunctionContractKeywordName(const IdentifierInfo *II,
+                                          ContractClause::ClauseKind &Kind) {
   if (!II)
     return false;
-  // Contextual: these are ordinary identifiers outside this slot, so a
-  // program that already uses 'pre' as a name keeps working everywhere else.
-  if (II->isStr("pre")) {
-    Kind = ContractClause::CK_Pre;
+  if (II->isStr("requires")) {
+    Kind = ContractClause::CK_Requires;
     return true;
   }
-  if (II->isStr("post")) {
-    Kind = ContractClause::CK_Post;
+  if (II->isStr("ensures")) {
+    Kind = ContractClause::CK_Ensures;
     return true;
   }
-  if (II->isStr("writes")) {
-    Kind = ContractClause::CK_Writes;
+  if (II->isStr("assigns")) {
+    Kind = ContractClause::CK_Assigns;
     return true;
   }
   return false;
+}
+
+/// Recognizes a clause keyword that attaches to a loop.
+static bool isLoopContractKeywordName(const IdentifierInfo *II,
+                                      ContractClause::ClauseKind &Kind) {
+  if (!II)
+    return false;
+  if (II->isStr("loop_invariant")) {
+    Kind = ContractClause::CK_LoopInvariant;
+    return true;
+  }
+  if (II->isStr("decreases")) {
+    Kind = ContractClause::CK_Decreases;
+    return true;
+  }
+  return false;
+}
+
+/// Any contract clause keyword, function or loop.
+///
+/// Shared with the macro-collision warning, which must ask the same question
+/// about a macro name that the parser asks about a token. The loop keywords
+/// belong here too: 'decreases' is a plausible identifier in real code, and a
+/// macro of that name would silently eat the clause exactly as one named
+/// 'requires' would.
+static bool isContractClauseKeywordName(const IdentifierInfo *II,
+                                        ContractClause::ClauseKind &Kind) {
+  return isFunctionContractKeywordName(II, Kind) ||
+         isLoopContractKeywordName(II, Kind);
 }
 
 namespace {
@@ -7533,9 +7562,11 @@ void Parser::RegisterContractKeywordMacroWarning() {
   PP.addPPCallbacks(std::make_unique<ContractKeywordMacroWarner>(PP));
 }
 
-bool Parser::isContractClauseKeyword(const Token &Tok,
-                                     ContractClause::ClauseKind &Kind) const {
-  return isContractClauseKeywordName(Tok.getIdentifierInfo(), Kind);
+bool Parser::isFunctionContractClauseKeyword(
+    const Token &Tok, ContractClause::ClauseKind &Kind) const {
+  // Function keywords only. A loop keyword in a declarator is not a clause,
+  // and must stay whatever identifier it already was.
+  return isFunctionContractKeywordName(Tok.getIdentifierInfo(), Kind);
 }
 
 void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
@@ -7543,7 +7574,7 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
 
   SmallVector<ContractClause, 2> Clauses;
   ContractClause::ClauseKind Kind;
-  while (isContractClauseKeyword(Tok, Kind)) {
+  while (isFunctionContractClauseKeyword(Tok, Kind)) {
     // A clause keyword not followed by '(' is not a clause. Backing out here
     // rather than erroring keeps unrelated constructs that happen to end in an
     // identifier from being captured by the contract grammar.
@@ -7560,14 +7591,14 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
 
     // 'writes' is recognized so that it is diagnosed rather than silently
     // parsed as something else, and so that the grammar is fixed now.
-    if (Kind == ContractClause::CK_Writes) {
+    if (Kind == ContractClause::CK_Assigns) {
       Diag(KeywordLoc, diag::err_contract_clause_unsupported)
           << ContractClause::getKindSpelling(Kind);
       T.skipToEnd();
       continue;
     }
 
-    if (Kind == ContractClause::CK_Post) {
+    if (Kind == ContractClause::CK_Ensures) {
       // 'post' may bind the return value, whose type is not known here: this
       // declarator is still being built, and for `int *f(void)` the pointer
       // chunk is not added until after the function chunk. Save the tokens and
@@ -7634,18 +7665,7 @@ void Parser::ParseLoopContractClauses(
   assert(getLangOpts().CContracts && "contracts are off");
 
   auto IsLoopClause = [](const Token &Tok, ContractClause::ClauseKind &Kind) {
-    const IdentifierInfo *II = Tok.getIdentifierInfo();
-    if (!II)
-      return false;
-    if (II->isStr("invariant")) {
-      Kind = ContractClause::CK_Invariant;
-      return true;
-    }
-    if (II->isStr("variant")) {
-      Kind = ContractClause::CK_Variant;
-      return true;
-    }
-    return false;
+    return isLoopContractKeywordName(Tok.getIdentifierInfo(), Kind);
   };
 
   ContractClause::ClauseKind Kind;
@@ -7707,11 +7727,11 @@ void Parser::ParseLoopContractClauses(
 
     // An invariant is a condition; a variant is a measure, so it keeps its own
     // arithmetic type and is only required to be scalar.
-    if (Kind == ContractClause::CK_Invariant)
+    if (Kind == ContractClause::CK_LoopInvariant)
       Predicate = Actions.ActOnContractClausePredicate(Kind, KeywordLoc,
                                                        Predicate.get());
     else
-      Predicate = Actions.ActOnLoopVariant(KeywordLoc, Predicate.get());
+      Predicate = Actions.ActOnLoopDecreases(KeywordLoc, Predicate.get());
 
     Clauses.emplace_back(Kind, KeywordLoc, T.getOpenLocation(),
                          T.getCloseLocation(),
@@ -7736,8 +7756,8 @@ ExprResult Parser::ParseContractOldExpr() {
     return ExprError();
 
   // 'old' names a value at function entry, which only a 'post' has a notion of.
-  if (*ContractPredicateKind != ContractClause::CK_Post) {
-    Diag(OldLoc, diag::err_contract_old_outside_post)
+  if (*ContractPredicateKind != ContractClause::CK_Ensures) {
+    Diag(OldLoc, diag::err_contract_old_outside_ensures)
         << SourceRange(OldLoc, T.getCloseLocation());
     return ExprError();
   }
@@ -7806,7 +7826,7 @@ void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
       Predicate = Actions.ActOnContractClausePredicate(
           Clause.getKind(), Clause.getKeywordLoc(), Predicate.get());
     if (Predicate.isUsable())
-      Predicate = Actions.CheckContractPostPredicate(Predicate.get());
+      Predicate = Actions.CheckContractEnsuresPredicate(Predicate.get());
     Clause.setPredicate(Predicate.isUsable() ? Predicate.get() : nullptr);
 
     // Drain anything the predicate did not consume, then the eof marker.

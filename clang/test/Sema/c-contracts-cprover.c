@@ -3,26 +3,26 @@
 // OFF-NOT: __CPROVER
 
 // The mapping to CBMC is close to one to one, which is the argument for
-// targeting an existing verifier rather than building one: 'pre' is
-// __CPROVER_requires, 'post' is __CPROVER_ensures with the result binding
+// targeting an existing verifier rather than building one: 'requires' is
+// __CPROVER_requires, 'ensures' is __CPROVER_ensures with the result binding
 // renamed, and 'old' is __CPROVER_old.
 unsigned long decompress(void *dst, unsigned long dstCap, const void *src)
-  pre  (dst != 0)
-  pre  (dstCap > 0)
-  post (r: r <= old(dstCap));
+  requires (dst != 0)
+  requires (dstCap > 0)
+  ensures  (r: r <= old(dstCap));
 // CHECK:      /* decompress */
 // CHECK-NEXT: __CPROVER_requires(dst != 0)
 // CHECK-NEXT: __CPROVER_requires(dstCap > 0)
 // CHECK-NEXT: __CPROVER_ensures(__CPROVER_return_value <= __CPROVER_old(dstCap))
 
-int *allocate(unsigned long n) pre (n > 0) post (r: r != 0);
+int *allocate(unsigned long n) requires (n > 0) ensures (r: r != 0);
 // CHECK:      /* allocate */
 // CHECK-NEXT: __CPROVER_requires(n > 0)
 // CHECK-NEXT: __CPROVER_ensures(__CPROVER_return_value != 0)
 
 // The result name is substituted as a whole token: 'rate' contains 'r' but is
 // not it.
-int rates(int n) pre (n > 0) post (r: r > 0);
+int rates(int n) requires (n > 0) ensures (r: r > 0);
 // CHECK:      /* rates */
 // CHECK-NEXT: __CPROVER_requires(n > 0)
 // CHECK-NEXT: __CPROVER_ensures(__CPROVER_return_value > 0)

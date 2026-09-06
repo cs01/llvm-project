@@ -5,13 +5,13 @@
 // ordinary warning from an ordinary build.
 
 void bugs(void) {
-  int *b = allocate(0);        // 'pre (n > 0)' is violated
-  put(b, 8, 8, 1);             // 'pre (i < len)' is violated: 8 < 8 is false
+  int *b = allocate(0);        // 'requires (n > 0)' is violated
+  put(b, 8, 8, 1);             // 'requires (i < len)' is violated: 8 < 8 is false
   buf_free_if_needed();
 }
 
 void correct(void) {
-  int *b = allocate(8);        // post says the result is non-null ...
+  int *b = allocate(8);        // 'ensures' says the result is non-null ...
   put(b, 8, 0, 1);             // ... so this call is discharged. Silent.
 }
 
