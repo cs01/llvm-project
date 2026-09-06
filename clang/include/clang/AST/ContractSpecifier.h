@@ -61,6 +61,16 @@ private:
   /// clause named no result, and always null for a 'requires'.
   VarDecl *ResultVar = nullptr;
 
+  /// For 'assigns', the frame targets: the locations the function may modify.
+  /// Null for every other kind.
+  ///
+  /// A frame condition is a *set of locations*, not a predicate, which is why
+  /// it cannot reuse Predicate: a set has no truth value and, per section 4 of
+  /// the design, cannot be disjoined either. Allocated in the ASTContext
+  /// alongside the clause array.
+  Expr **Targets = nullptr;
+  unsigned NumTargets = 0;
+
 public:
   ContractClause() = default;
   ContractClause(ClauseKind Kind, SourceLocation KeywordLoc,
@@ -80,7 +90,20 @@ public:
 
   VarDecl *getResultVar() const { return ResultVar; }
   void setResultVar(VarDecl *VD) { ResultVar = VD; }
-  bool isInvalid() const { return Predicate == nullptr; }
+
+  ArrayRef<Expr *> getTargets() const { return {Targets, NumTargets}; }
+  void setTargets(Expr **Ts, unsigned N) {
+    Targets = Ts;
+    NumTargets = N;
+  }
+
+  /// An 'assigns' carries targets rather than a predicate, so it is valid when
+  /// it has them. Every other kind needs a predicate.
+  bool isInvalid() const {
+    if (Kind == CK_Assigns)
+      return Targets == nullptr;
+    return Predicate == nullptr;
+  }
 
   /// The spelling of \p Kind, for diagnostics and AST dumps.
   static const char *getKindSpelling(ClauseKind Kind) {

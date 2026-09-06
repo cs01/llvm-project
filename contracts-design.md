@@ -369,8 +369,12 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
   named `old` is unaffected, rejected in a `requires`, and scalars only per section 2.
   With it the section 5 example type-checks as written, including the
   `ensures (r: r <= old(dstCap) || ...)` form the first draft got wrong.
-- `assigns`: parsed and hard-errored as unsupported, so the grammar is pinned now
-  and cannot be silently reinterpreted later.
+- `assigns`: **done**, unguarded. Parses a comma-separated list of locations,
+  each required to be a side-effect-free lvalue, held as an `Expr*` array on the
+  clause rather than in `Predicate`: a frame condition is a set of locations, so
+  it has no truth value to store there. `assigns ()`, the empty frame, is a real
+  specification and not an error. Lowers to `__CPROVER_assigns`. The `when`
+  guard from item 5 above is not implemented yet.
 - Loop clauses: **done** for `while`, `for`, and `do`, and lowered to CBMC.
   `loop_invariant (expr)` is a condition and `decreases (expr)` is a scalar measure;
   both must be pure. Held in an `ASTContext` side table rather than in the loop

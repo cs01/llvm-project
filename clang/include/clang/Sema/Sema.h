@@ -7904,6 +7904,17 @@ public:
   /// condition.
   ExprResult ActOnLoopDecreases(SourceLocation KeywordLoc, Expr *Measure);
 
+  /// Checks one 'assigns' frame target: a location the function may modify.
+  ///
+  /// Unlike a predicate this is not a condition, so it is not converted to
+  /// bool; it must denote an object, which means an lvalue.
+  ExprResult ActOnContractAssignsTarget(Expr *Target);
+
+  /// Attaches the checked frame targets to \p Clause, copying them into the
+  /// ASTContext so they outlive the parser's stack vector.
+  void ActOnContractAssignsClause(ContractClause &Clause,
+                                  ArrayRef<Expr *> Targets);
+
   /// Attaches \p Clauses to the loop statement \p S.
   void ActOnLoopContracts(Stmt *S, ArrayRef<ContractClause> Clauses);
 

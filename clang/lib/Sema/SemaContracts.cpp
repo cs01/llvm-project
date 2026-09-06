@@ -112,12 +112,16 @@ static void printCProverContracts(const FunctionDecl *FD,
 
   llvm::outs() << "/* " << FD->getNameAsString() << " */\n";
   for (const ContractClause &Clause : *CS) {
-    if (!Clause.getPredicate())
+    if (Clause.isInvalid())
       continue;
 
+    // An 'assigns' has targets instead of a predicate, so there is nothing to
+    // pretty-print here; its case below prints from the target list.
     std::string Text;
-    llvm::raw_string_ostream OS(Text);
-    Clause.getPredicate()->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
+    if (const Expr *P = Clause.getPredicate()) {
+      llvm::raw_string_ostream OS(Text);
+      P->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
+    }
 
     switch (Clause.getKind()) {
     case ContractClause::CK_Requires:
@@ -141,7 +145,19 @@ static void printCProverContracts(const FunctionDecl *FD,
       llvm::outs() << "__CPROVER_ensures(" << Text << ")\n";
       break;
     case ContractClause::CK_Assigns:
-      // Not parsed yet; when it is, this becomes __CPROVER_assigns.
+      // A frame condition is a list of locations, so it is printed from the
+      // targets rather than from Text, which is empty here.
+      {
+        llvm::outs() << "__CPROVER_assigns(";
+        bool First = true;
+        for (const Expr *Target : Clause.getTargets()) {
+          if (!First)
+            llvm::outs() << ", ";
+          First = false;
+          Target->printPretty(llvm::outs(), nullptr, Ctx.getPrintingPolicy());
+        }
+        llvm::outs() << ")\n";
+      }
       break;
     case ContractClause::CK_LoopInvariant:
     case ContractClause::CK_Decreases:
@@ -303,6 +319,41 @@ ExprResult Sema::CheckContractEnsuresPredicate(Expr *Predicate) {
       << PVD << DRE->getSourceRange();
   Diag(DRE->getLocation(), diag::note_contract_ensures_use_old) << PVD->getName();
   return ExprError();
+}
+
+ExprResult Sema::ActOnContractAssignsTarget(Expr *Target) {
+  if (!Target)
+    return ExprError();
+
+  // A frame target names a location, so unlike a predicate it is not converted
+  // to bool and keeps its own type. What it must be is an lvalue:
+  // `assigns (n)` on a parameter, `assigns (*p)`, `assigns (buf[i])`,
+  // `assigns (s->field)`. A value like `assigns (n + 1)` names nothing that
+  // could be written to.
+  if (!Target->isLValue()) {
+    Diag(Target->getExprLoc(), diag::err_contract_assigns_not_lvalue)
+        << Target->getSourceRange();
+    return ExprError();
+  }
+
+  // Evaluating a frame target must not change the state it is describing.
+  if (Target->HasSideEffects(Context)) {
+    Diag(Target->getExprLoc(), diag::err_contract_predicate_not_pure)
+        << Target->getSourceRange();
+    return ExprError();
+  }
+
+  return Target;
+}
+
+void Sema::ActOnContractAssignsClause(ContractClause &Clause,
+                                      ArrayRef<Expr *> Targets) {
+  // `assigns ()` is the empty frame: the function modifies nothing. That is a
+  // real specification rather than an error, so it still gets a non-null array,
+  // which is what lets isInvalid() tell it apart from a parse failure.
+  Expr **Stored = new (Context) Expr *[Targets.size() + 1];
+  std::copy(Targets.begin(), Targets.end(), Stored);
+  Clause.setTargets(Stored, Targets.size());
 }
 
 ExprResult Sema::ActOnLoopDecreases(SourceLocation KeywordLoc, Expr *Measure) {

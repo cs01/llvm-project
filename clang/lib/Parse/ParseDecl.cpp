@@ -7589,12 +7589,41 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
     BalancedDelimiterTracker T(*this, tok::l_paren);
     T.consumeOpen();
 
-    // 'writes' is recognized so that it is diagnosed rather than silently
-    // parsed as something else, and so that the grammar is fixed now.
     if (Kind == ContractClause::CK_Assigns) {
-      Diag(KeywordLoc, diag::err_contract_clause_unsupported)
-          << ContractClause::getKindSpelling(Kind);
-      T.skipToEnd();
+      // A frame condition is a comma-separated list of locations, not a
+      // predicate, so the commas are separators and each target is parsed as an
+      // assignment-expression rather than letting ParseExpression fold the
+      // whole thing into one comma operator.
+      SmallVector<Expr *, 4> Targets;
+      bool Bad = false;
+      if (Tok.isNot(tok::r_paren)) {
+        for (;;) {
+          ExprResult Target = ParseAssignmentExpression();
+          if (Target.isInvalid()) {
+            Bad = true;
+            break;
+          }
+          Target = Actions.ActOnContractAssignsTarget(Target.get());
+          if (Target.isUsable())
+            Targets.push_back(Target.get());
+          else
+            Bad = true;
+          if (Tok.isNot(tok::comma))
+            break;
+          ConsumeToken();
+        }
+      }
+      if (Bad) {
+        T.skipToEnd();
+        continue;
+      }
+      if (T.consumeClose())
+        break;
+
+      Clauses.emplace_back(Kind, KeywordLoc, T.getOpenLocation(),
+                           T.getCloseLocation(), /*Predicate=*/nullptr);
+      Actions.ActOnContractAssignsClause(Clauses.back(), Targets);
+      EndLoc = T.getCloseLocation();
       continue;
     }
 

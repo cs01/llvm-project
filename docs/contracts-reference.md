@@ -24,7 +24,11 @@ function-declarator:
 contract-clause:
         'requires' '(' expression ')'
         'ensures'  '(' result-binding[opt] expression ')'
-        'assigns'  '(' ... ')'           // reserved; hard error today
+        'assigns'  '(' assigns-target-list[opt] ')'
+
+assigns-target-list:
+        assignment-expression
+        assigns-target-list ',' assignment-expression
 
 result-binding:
         identifier ':'
@@ -233,7 +237,7 @@ one:
 | `old (e)` | `__CPROVER_old(e)` |
 | `loop_invariant (P)` | `__CPROVER_loop_invariant(P)` |
 | `decreases (m)` | `__CPROVER_decreases(m)` |
-| `assigns (...)` | `__CPROVER_assigns(...)` — once `assigns` is implemented |
+| `assigns (a, b)` | `__CPROVER_assigns(a, b)` |
 
 ```
 $ clang -fc-contracts -fcontract-emit-cprover -fsyntax-only decompress.c

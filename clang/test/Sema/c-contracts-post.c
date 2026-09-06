@@ -30,5 +30,5 @@ int result_is_scoped(void) ensures (q: q > 0) ensures (r > -1);
 // 'requires' and 'ensures' coexist and keep source order.
 int both(int *p) requires (p != 0) ensures (r: r > 0);
 
-// 'assigns' is still unimplemented.
-int has_writes(int *p) assigns (p); // expected-error {{'assigns' contract clauses are not supported yet}}
+// 'assigns' takes locations, not a predicate; see c-contracts-assigns.c.
+int has_writes(int *p) assigns (*p);

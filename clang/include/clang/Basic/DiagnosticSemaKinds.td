@@ -14377,6 +14377,8 @@ def err_contract_ensures_names_parameter : Error<
   "may be named in 'ensures' only through 'old()'">;
 def note_contract_ensures_use_old : Note<
   "name the value at function entry with 'old(%0)'">;
+def err_contract_assigns_not_lvalue : Error<
+  "'assigns' target must name a location that can be modified">;
 def err_contract_decreases_not_scalar : Error<
   "loop 'decreases' must be a scalar measure; %0 is not scalar">;
 def err_contract_old_not_scalar : Error<

@@ -96,7 +96,7 @@ enforces, numbered.
 
 ## The keywords
 
-Five words. Full syntax and semantics in
+Six words. Full syntax and semantics in
 **[docs/contracts-reference.md](docs/contracts-reference.md)**.
 
 | Keyword | Goes | Says |
@@ -106,8 +106,10 @@ Five words. Full syntax and semantics in
 | `old` | only inside an `ensures` | the value an expression had **on entry** |
 | `loop_invariant` | between a loop's header and its body | true on entry and **preserved by every iteration** |
 | `decreases` | between a loop's header and its body | **strictly decreases**, never negative — so the loop terminates |
+| `assigns` | after a function's parameter list | the **only** locations the function may modify |
 
-`assigns` is reserved and hard-errors today. These are *contextual* keywords,
+`assigns` takes a comma-separated list of locations rather than a predicate — a
+frame condition is a *set*, not a condition. These are *contextual* keywords,
 active only under `-fc-contracts`, so code already using `requires` as an
 identifier keeps compiling.
 
@@ -115,6 +117,118 @@ Four rules bite in practice: a loop with clauses **must brace its body**;
 predicates **must be pure** (calls only to `const`/`pure` functions); contracts
 **cannot be restated on a redeclaration**; and a macro of the same name shadows
 the keyword (with a warning). Details in the reference.
+
+## Three levels, and what each one misses
+
+One contract, three levels of rigour. You choose how far up you go per function,
+and each level catches what the one below it let through. Here is the same
+buffer write at every level:
+
+```c
+void put(int *buf, unsigned len, unsigned i, int v)
+  requires (buf != 0)
+  requires (i < len)
+  assigns  (buf[i]);
+```
+
+### Level 1 — the front end: is the *contract* well formed?
+
+Free, on every build, on every function. It says nothing about your program's
+behaviour — only about the specification itself.
+
+**Catches** a contract that cannot mean what it appears to:
+
+```
+error: 'ensures' predicate cannot name parameter 'cap' directly; a by-value
+       parameter may be named in 'ensures' only through 'old()'
+error: contract predicate must be free of side effects
+note: mark 'impure' 'const' or 'pure' to allow calling it from a contract predicate
+```
+
+**Misses** everything about whether the code obeys the contract. `put(b, 8, 8, 1)`
+compiles silently here.
+
+### Level 2 — the call-site checker: does any *caller* obviously break it?
+
+Still free, still an ordinary build, still no verifier. A CFG dataflow pass
+looking at each call.
+
+**Catches** what level 1 let through:
+
+```
+warning: precondition i < len of 'put' is violated by this call [-Wcontract-violation]
+    7 |   put(b, 8, 8, 1);
+note: precondition declared here
+```
+
+**Misses** three things, all deliberately:
+
+```c
+put(b, n, k, 1);        // symbolic: it cannot relate n and k, so it says nothing
+```
+
+- **Anything symbolic.** The abstract domain is four values — known integer,
+  null, non-null, unknown. Two unknowns have no relationship.
+- **Anything past a loop's first iteration.** Back edges are not iterated to a
+  fixpoint.
+- **The callee's own body.** It checks callers against a contract; it never asks
+  whether `put` itself honours it.
+
+That last one is the big gap, and it is not subtle:
+
+```c
+void fill(int *buf, unsigned len) requires (buf != 0) {
+  for (unsigned i = 0; i <= len; i++)   // off by one
+    buf[i] = 0;
+}
+```
+
+Level 2 is silent on this. The bug is in the body, and the bound is symbolic —
+both of its blind spots at once.
+
+### Level 3 — CBMC: is it true for *every* input?
+
+Costs a harness and solver time. In exchange it answers exhaustively rather than
+for the cases you thought of.
+
+**Catches** the `fill` off-by-one, for every `len`, by asking the solver whether
+*any* input drives `buf[i] = 0` out of bounds — and returning the concrete one
+that does. It also proves `put` writes nothing but `buf[i]`, which is what the
+`assigns` clause is for. On real zstd this level found two undefined-behaviour
+bugs that fuzzing cannot reach, because nothing misbehaves at runtime.
+
+**Misses** a specification that is wrong. Write the off-by-one into the *contract*
+instead of the code —
+
+```c
+  requires (i <= len)     // wrong, but now it is the spec
+```
+
+— and CBMC proves the code matches it, cheerfully, forever. It also only sees
+what your harness exercises, and an over-tight `__CPROVER_assume` narrows the
+claim without telling you.
+
+### The ladder, in one table
+
+| The bug | Level 1<br>front end | Level 2<br>call-site | Level 3<br>CBMC |
+|---|:---:|:---:|:---:|
+| `ensures` names a mutated parameter without `old()` | **caught** | — | — |
+| Predicate calls an impure function | **caught** | — | — |
+| `put(b, 8, 8, 1)` — a literal breaks `i < len` | missed | **caught** | caught |
+| `put(b, n, k, 1)` — symbolic arguments | missed | missed | **caught** |
+| Off-by-one in the callee's own loop | missed | missed | **caught** |
+| Violation only on a loop's second iteration | missed | missed | **caught** |
+| **The contract itself is wrong** | missed | missed | **missed** |
+
+That last row is the honest floor of the whole approach, and no tool on the
+ladder fixes it: **verification proves the code matches the specification, never
+that the specification is right.** What it buys you is that the specification is
+now written down, in the declaration, where a reviewer can argue with it — which
+is strictly more than a comment nobody checks.
+
+> Levels 1 and 2 above are real output from this branch. Level 3 is described
+> rather than pasted, since CBMC runs separately; for actual CBMC transcripts see
+> [`proofs/zstd/`](proofs/zstd/).
 
 ## Why a compiler, and not a header of macros
 
@@ -247,10 +361,11 @@ whether verifying a codec is a quarter or a research program.
 
 ## Roadmap
 
-**`assigns`, the frame condition.** The single highest-value next piece. Every
-hand-written annotation under `proofs/zstd/` carries an `__CPROVER_assigns`
-frame that has no source syntax yet; the grammar is already pinned and
-hard-errors, so the slot is reserved and waiting.
+**`when` guards on `assigns`.** A frame condition is a set of locations and a
+set cannot be disjoined, so `assigns (dst) when (r: !is_error(r))` is the only
+way to say "writes the output buffer on success, nothing on error". Every
+function in the target libraries behaves that way, so an unguarded frame lies on
+half its executions. §5 of the design has the grammar.
 
 **Dogfood the grammar.** Everything under `proofs/zstd/harnesses/` is still
 hand-written `__CPROVER_*` macros — the thing this extension exists to replace.

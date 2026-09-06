@@ -26,3 +26,17 @@ int rates(int n) requires (n > 0) ensures (r: r > 0);
 // CHECK:      /* rates */
 // CHECK-NEXT: __CPROVER_requires(n > 0)
 // CHECK-NEXT: __CPROVER_ensures(__CPROVER_return_value > 0)
+
+// A frame condition prints from its target list, comma separated, and composes
+// with the clauses either side of it.
+void repack(int *buf, unsigned long cap)
+  requires (buf != 0)
+  assigns  (buf[0], cap);
+// CHECK:      /* repack */
+// CHECK-NEXT: __CPROVER_requires(buf != 0)
+// CHECK-NEXT: __CPROVER_assigns(buf[0], cap)
+
+// The empty frame is a specification, not an absent clause.
+int reads_only(const int *p) assigns ();
+// CHECK:      /* reads_only */
+// CHECK-NEXT: __CPROVER_assigns()

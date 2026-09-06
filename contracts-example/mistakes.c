@@ -22,8 +22,8 @@ int e(int n) requires (n > 0) { return n; }
 // 6. a contract on something that isn't a function
 int (*fp)(int n) requires (n > 0);
 
-// 7. 'assigns', not implemented yet
-int g(int *p) assigns (p);
+// 7. an 'assigns' target that names no location
+int g(int *p) assigns (p + 1);
 
 // 8. a macro that would silently eat the grammar
 #define requires(x)

@@ -1,0 +1,32 @@
+// RUN: %clang_cc1 -fsyntax-only -fc-contracts -verify %s
+
+struct S { int a; int b; };
+
+// A frame condition is a list of locations, not a predicate: the commas
+// separate targets rather than forming one comma operator.
+void fill(int *buf, unsigned len, struct S *s)
+  assigns (buf[0], *buf, s->a, len);
+
+// The empty frame says the function modifies nothing. That is a specification,
+// not an error.
+int pure_query(const int *p) assigns ();
+
+// A target must name something that can be written to.
+void bad_value(int n)
+  assigns (n + 1); // expected-error {{'assigns' target must name a location that can be modified}}
+
+void bad_call(int *p)
+  assigns (p + 1); // expected-error {{'assigns' target must name a location that can be modified}}
+
+// Evaluating a target must not change the state it describes.
+void bad_effect(int *p)
+  assigns (*p++); // expected-error {{contract predicate must be free of side effects}}
+
+// 'assigns' composes with the other clauses, in any order.
+unsigned long decompress(void *dst, unsigned long cap)
+  requires (dst != 0)
+  assigns  (cap)
+  ensures  (r: r <= old(cap));
+
+// 'assigns' is contextual: a function may still be named after it.
+int assigns(int n);

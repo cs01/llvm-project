@@ -27,10 +27,10 @@ int requires = 3;
 int uses_pre_as_name(void) { return requires; }
 int pre_typedef_ok(int requires) requires (requires > 0);
 
-// 'ensures' is implemented; see c-contracts-ensures.c. 'assigns' is not, and is
-// recognized so that it is diagnosed rather than silently reinterpreted.
+// 'ensures' is implemented; see c-contracts-ensures.c. 'assigns' takes a list
+// of locations rather than a predicate; see c-contracts-assigns.c.
 int has_post(int n) ensures (r: r > 0);
-int has_writes(int *p) assigns (p);  // expected-error {{'assigns' contract clauses are not supported yet}}
+int has_writes(int *p) assigns (*p);
 
 // A clause is only allowed on a declarator that declares a function. Here the
 // declarator parses a function type but declares a pointer variable.
