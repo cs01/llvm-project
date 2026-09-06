@@ -125,3 +125,29 @@ proofs/zstd/harnesses/ in this grammar.** The spelling is a design decision, not
 a mechanical one — §4 item 6 already wants `valid(p, n)`, a slice form like
 `buf[0 .. len]` may read better, and exposing the CBMC builtin directly is a
 third option. Left undecided rather than invented.
+
+### -fcontract-emit-cprover-unit: a translation unit goto-cc can compile
+
+The clause-printing mode put `__CPROVER_requires(...)` on stdout and left you to
+splice it into CBMC input by hand, which is half of why proofs/zstd/harnesses/
+is still written in raw macros. The new flag rewrites the whole translation unit
+instead: clauses are replaced in place, everything else passes through byte for
+byte.
+
+Implementation notes worth keeping. Both modes now render through one
+`formatCProverClause()`, so the printed text and the spliced text cannot drift
+apart — two emitters producing subtly different CBMC was the real risk. The
+splice records (SourceRange, replacement) as clauses are found and applies them
+in offset order at end of TU, rather than using clang's Rewriter: clangSema does
+not link clangRewrite and dragging it in for this would be the wrong layering.
+Clauses reached through a macro expansion have no single span in the main file
+and are skipped rather than corrupted; overlapping spans keep the outer one.
+
+Verified against CBMC 5.95, not assumed. The emitted unit compiles under
+goto-cc; `goto-instrument --enforce-contract clamp` then cbmc proves the
+postcondition; and `--apply-loop-contracts` on the same file proves
+`count returns n for every n` with no --unwind at all.
+
+Still blocked on the same thing: range targets in `assigns`. Options and
+tradeoffs written up for a decision — ACSL-style inclusive slice, half-open
+element slice, a region() builtin, or exposing CBMC's object_upto directly.

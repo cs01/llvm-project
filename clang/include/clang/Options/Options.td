@@ -2121,13 +2121,22 @@ defm contract_emit_cprover : BoolFOption<
   BothFlags<[], [],
           " printing each function's contracts as CBMC clauses">>;
 
+defm contract_emit_cprover_unit : BoolFOption<
+  "contract-emit-cprover-unit",
+  LangOpts<"CContractsEmitCProverUnit">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option], "Disable">,
+  BothFlags<[], [],
+          " rewriting the translation unit with contracts in CBMC form, so the"
+          " result can be compiled by goto-cc">>;
+
 defm c_contracts : BoolFOption<
   "c-contracts",
   LangOpts<"CContracts">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable">,
   NegFlag<SetFalse, [], [ClangOption, CC1Option], "Disable">,
   BothFlags<[], [],
-          " the readable contracts extension for C ('pre', 'post', 'writes')">>;
+          " the readable contracts extension for C ('pre', 'post', 'assigns')">>;
 
 defm debug_run_lifetime_safety : BoolFOption<
   "debug-run-lifetime-safety",

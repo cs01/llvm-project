@@ -17,6 +17,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/Lexer.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Sema.h"
 #include "llvm/Support/raw_ostream.h"
@@ -98,22 +99,69 @@ static std::string replaceToken(StringRef S, StringRef From, StringRef To) {
   return Out;
 }
 
-/// Prints one 'assigns' clause as `__CPROVER_assigns(a, b, ...)`.
+/// Renders one clause as the CBMC text for it, without a trailing newline.
 ///
-/// A frame condition is a list of locations rather than a predicate, so it
-/// prints from the target list. Shared by the function and loop printers: the
-/// clause means the same thing in both places.
-static void printCProverAssigns(const ContractClause &Clause,
-                                const ASTContext &Ctx) {
-  llvm::outs() << "__CPROVER_assigns(";
-  bool First = true;
-  for (const Expr *Target : Clause.getTargets()) {
-    if (!First)
-      llvm::outs() << ", ";
-    First = false;
-    Target->printPretty(llvm::outs(), nullptr, Ctx.getPrintingPolicy());
+/// Returns the empty string for a clause with nothing to say. Both consumers go
+/// through here: -fcontract-emit-cprover prints the result, and
+/// -fcontract-emit-cprover-unit splices it over the original clause, so the two
+/// modes cannot drift apart.
+static std::string formatCProverClause(const ContractClause &Clause,
+                                       const ASTContext &Ctx) {
+  if (Clause.isInvalid())
+    return {};
+
+  if (Clause.getKind() == ContractClause::CK_Assigns) {
+    std::string Out = "__CPROVER_assigns(";
+    bool First = true;
+    for (const Expr *Target : Clause.getTargets()) {
+      if (!First)
+        Out += ", ";
+      First = false;
+      std::string T;
+      llvm::raw_string_ostream TS(T);
+      Target->printPretty(TS, nullptr, Ctx.getPrintingPolicy());
+      Out += T;
+    }
+    return Out + ")";
   }
-  llvm::outs() << ")\n";
+
+  const Expr *P = Clause.getPredicate();
+  if (!P)
+    return {};
+  std::string Text;
+  {
+    llvm::raw_string_ostream OS(Text);
+    P->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
+  }
+
+  switch (Clause.getKind()) {
+  case ContractClause::CK_Pre:
+    // No 'old' rewrite here. 'old()' is rejected outside 'post', so an 'old'
+    // token in a pre is an ordinary identifier: rewriting it turned
+    // `pre (old > 0)` on a parameter named 'old' into
+    // `__CPROVER_requires(__CPROVER_old > 0)`, silently wrong rather than an
+    // error.
+    return "__CPROVER_requires(" + Text + ")";
+  case ContractClause::CK_Post:
+    // Our StmtPrinter spells the node `old(...)`; CBMC spells it
+    // `__CPROVER_old(...)`. Only a 'post' can contain one.
+    //
+    // FIXME: still token substitution, so a parameter named 'old' referenced as
+    // `old(old)` is rewritten on both sides. Printing the ContractOldExpr node
+    // via a printing policy is the real fix.
+    Text = replaceToken(Text, "old", "__CPROVER_old");
+    if (const VarDecl *R = Clause.getResultVar())
+      Text = replaceToken(Text, R->getName(), "__CPROVER_return_value");
+    return "__CPROVER_ensures(" + Text + ")";
+  case ContractClause::CK_LoopInvariant:
+    // No 'old' rewrite on loop clauses either, for the same reason.
+    return "__CPROVER_loop_invariant(" + Text + ")";
+  case ContractClause::CK_Decreases:
+    return "__CPROVER_decreases(" + Text + ")";
+  case ContractClause::CK_Assigns:
+    llvm_unreachable("handled above");
+  }
+  llvm_unreachable("unhandled contract clause kind");
 }
 
 /// Prints \p FD's contracts as CBMC function-contract clauses.
@@ -130,113 +178,108 @@ static void printCProverContracts(const FunctionDecl *FD,
 
   llvm::outs() << "/* " << FD->getNameAsString() << " */\n";
   for (const ContractClause &Clause : *CS) {
-    if (Clause.isInvalid())
-      continue;
-
-    // An 'assigns' has targets instead of a predicate, so there is nothing to
-    // pretty-print here; its case below prints from the target list.
-    std::string Text;
-    if (const Expr *P = Clause.getPredicate()) {
-      llvm::raw_string_ostream OS(Text);
-      P->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
-    }
-
-    switch (Clause.getKind()) {
-    case ContractClause::CK_Pre:
-      // No 'old' rewrite here. 'old()' is rejected outside 'ensures', so an
-      // 'old' token in a requires is an ordinary identifier: rewriting it
-      // turned `requires (old > 0)` on a parameter named 'old' into
-      // `__CPROVER_requires(__CPROVER_old > 0)`, which is silently wrong
-      // rather than an error.
-      llvm::outs() << "__CPROVER_requires(" << Text << ")\n";
-      break;
-    case ContractClause::CK_Post:
-      // Our StmtPrinter spells the node `old(...)`; CBMC spells it
-      // `__CPROVER_old(...)`. Only an 'ensures' can contain one.
-      //
-      // FIXME: still token substitution, so a parameter named 'old' referenced
-      // as `old(old)` is rewritten on both sides. Printing the ContractOldExpr
-      // node directly, via a printing policy, is the real fix.
-      Text = replaceToken(Text, "old", "__CPROVER_old");
-      if (const VarDecl *R = Clause.getResultVar())
-        Text = replaceToken(Text, R->getName(), "__CPROVER_return_value");
-      llvm::outs() << "__CPROVER_ensures(" << Text << ")\n";
-      break;
-    case ContractClause::CK_Assigns:
-      printCProverAssigns(Clause, Ctx);
-      break;
-    case ContractClause::CK_LoopInvariant:
-    case ContractClause::CK_Decreases:
-      // Loop clauses. They hang off a statement, so they are never reachable
-      // from a FunctionDecl's contracts; printCProverLoopContracts prints them.
-      break;
-    }
+    std::string Text = formatCProverClause(Clause, Ctx);
+    if (!Text.empty())
+      llvm::outs() << Text << "\n";
   }
 }
 
-/// Prints the loop contracts reachable from \p S as CBMC loop-contract clauses.
+/// Walks the loop contracts reachable from \p S, handing each clause to \p OnClause.
 ///
-/// `invariant` is `__CPROVER_loop_invariant` and `variant` is
-/// `__CPROVER_decreases`. Unlike `pre` and `post`, these hang off a statement
-/// inside the body rather than off the declarator, so they have to be walked
-/// for rather than read off the FunctionDecl.
-static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
-                                      const ASTContext &Ctx) {
+/// Both modes need the same walk: loop clauses hang off statements inside the
+/// body rather than off the FunctionDecl, so they have to be found rather than
+/// read off a list.
+static void forEachLoopContract(
+    const Stmt *S, const ASTContext &Ctx,
+    llvm::function_ref<void(const Stmt *, const ContractSpecifier &)> OnLoop) {
   if (!S)
     return;
+  if (const ContractSpecifier *CS = Ctx.getLoopContracts(S))
+    OnLoop(S, *CS);
+  for (const Stmt *Child : S->children())
+    forEachLoopContract(Child, Ctx, OnLoop);
+}
 
-  if (const ContractSpecifier *CS = Ctx.getLoopContracts(S)) {
-    const char *Keyword = isa<WhileStmt>(S) ? "while"
-                          : isa<ForStmt>(S) ? "for"
+/// Prints the loop contracts reachable from \p S as CBMC loop-contract clauses.
+static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
+                                      const ASTContext &Ctx) {
+  forEachLoopContract(S, Ctx, [&](const Stmt *L, const ContractSpecifier &CS) {
+    const char *Keyword = isa<WhileStmt>(L) ? "while"
+                          : isa<ForStmt>(L) ? "for"
                                             : "do";
-    PresumedLoc PL = Ctx.getSourceManager().getPresumedLoc(S->getBeginLoc());
+    PresumedLoc PL = Ctx.getSourceManager().getPresumedLoc(L->getBeginLoc());
     llvm::outs() << "/* " << FD->getNameAsString() << ": " << Keyword
                  << " at line " << (PL.isValid() ? PL.getLine() : 0);
 
     // goto-instrument takes loop contracts on 'while' and 'for' only; on a 'do'
-    // it rejects them outright, which proofs/zstd hit by hand. The fix is the
-    // mechanical do { B } while (C) => while (1) { B; if (!C) break; } rewrite,
-    // but applying it here would mean emitting rewritten source rather than
-    // clauses, which is not what this mode does. Say so instead of printing
-    // clauses that CBMC will refuse without explanation.
-    if (isa<DoStmt>(S))
+    // it rejects them outright, which proofs/zstd hit by hand. The mechanical
+    // do { B } while (C) => while (1) { B; if (!C) break; } rewrite fixes it,
+    // but this mode emits clauses rather than restructured source. Say so
+    // instead of printing clauses CBMC will refuse without explanation.
+    if (isa<DoStmt>(L))
       llvm::outs() << "; needs the do => while (1) { B; if (!C) break; }"
                       " rewrite before goto-instrument accepts these";
     llvm::outs() << " */\n";
 
-    for (const ContractClause &Clause : *CS) {
-      if (Clause.isInvalid())
-        continue;
-
-      // No 'old' substitution here, unlike the function clauses: 'old()' is
-      // rejected outside 'post', so an 'old' token in a loop clause is an
-      // ordinary identifier and rewriting it would corrupt the predicate.
-      std::string Text;
-      if (const Expr *P = Clause.getPredicate()) {
-        llvm::raw_string_ostream OS(Text);
-        P->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
-      }
-
-      switch (Clause.getKind()) {
-      case ContractClause::CK_LoopInvariant:
-        llvm::outs() << "__CPROVER_loop_invariant(" << Text << ")\n";
-        break;
-      case ContractClause::CK_Decreases:
-        llvm::outs() << "__CPROVER_decreases(" << Text << ")\n";
-        break;
-      case ContractClause::CK_Assigns:
-        printCProverAssigns(Clause, Ctx);
-        break;
-      case ContractClause::CK_Pre:
-      case ContractClause::CK_Post:
-        // Not parseable on a loop.
-        break;
-      }
+    for (const ContractClause &Clause : CS) {
+      std::string Text = formatCProverClause(Clause, Ctx);
+      if (!Text.empty())
+        llvm::outs() << Text << "\n";
     }
-  }
+  });
+}
 
-  for (const Stmt *Child : S->children())
-    printCProverLoopContracts(Child, FD, Ctx);
+/// Records the CBMC replacement for every clause in \p CS.
+static void recordCProverRewrites(
+    const ContractSpecifier &CS, const ASTContext &Ctx,
+    SmallVectorImpl<std::pair<SourceRange, std::string>> &Out) {
+  for (const ContractClause &Clause : CS) {
+    std::string Text = formatCProverClause(Clause, Ctx);
+    if (!Text.empty())
+      Out.emplace_back(Clause.getSourceRange(), std::move(Text));
+  }
+}
+
+void Sema::EmitCProverUnit() {
+  if (!getLangOpts().CContractsEmitCProverUnit)
+    return;
+
+  SourceManager &SM = getSourceManager();
+  FileID Main = SM.getMainFileID();
+  StringRef Buf = SM.getBufferData(Main);
+
+  // Offset order, so the splice is one forward pass. Clauses are discovered in
+  // parse order, which is not the same thing once a 'post' has been replayed
+  // from cached tokens after the body it precedes.
+  struct Edit {
+    unsigned Begin, End;
+    std::string Text;
+  };
+  SmallVector<Edit, 8> Edits;
+  for (const auto &R : CProverUnitRewrites) {
+    if (!R.first.isValid())
+      continue;
+    std::pair<FileID, unsigned> B = SM.getDecomposedLoc(R.first.getBegin());
+    std::pair<FileID, unsigned> E = SM.getDecomposedLoc(
+        Lexer::getLocForEndOfToken(R.first.getEnd(), 0, SM, getLangOpts()));
+    // A clause reached through a macro expansion has no single span in the
+    // main file to replace, so it is left alone rather than corrupted.
+    if (B.first != Main || E.first != Main || E.second < B.second)
+      continue;
+    Edits.push_back({B.second, E.second, R.second});
+  }
+  llvm::sort(Edits, [](const Edit &A, const Edit &B) {
+    return A.Begin < B.Begin;
+  });
+
+  unsigned Pos = 0;
+  for (const Edit &E : Edits) {
+    if (E.Begin < Pos)
+      continue; // Overlapping spans: keep the first, which is the outer one.
+    llvm::outs() << Buf.substr(Pos, E.Begin - Pos) << E.Text;
+    Pos = E.End;
+  }
+  llvm::outs() << Buf.substr(Pos);
 }
 
 void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
@@ -265,17 +308,29 @@ void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
 void Sema::EmitCProverContracts(const FunctionDecl *FD) {
   // Called after the delayed 'post' predicates have been replayed, since until
   // then those clauses have no predicate to print.
-  if (getLangOpts().CContractsEmitCProver && FD)
+  if (!FD)
+    return;
+  if (getLangOpts().CContractsEmitCProver)
     printCProverContracts(FD, Context);
+  if (getLangOpts().CContractsEmitCProverUnit)
+    if (const ContractSpecifier *CS = FD->getContracts())
+      recordCProverRewrites(*CS, Context, CProverUnitRewrites);
 }
 
 void Sema::EmitCProverLoopContracts(const Decl *D) {
-  if (!getLangOpts().CContractsEmitCProver || !D)
+  if (!D)
     return;
   const auto *FD = dyn_cast<FunctionDecl>(D);
   if (!FD || !FD->hasBody())
     return;
-  printCProverLoopContracts(FD->getBody(), FD, Context);
+  if (getLangOpts().CContractsEmitCProver)
+    printCProverLoopContracts(FD->getBody(), FD, Context);
+  if (getLangOpts().CContractsEmitCProverUnit)
+    forEachLoopContract(FD->getBody(), Context,
+                        [&](const Stmt *, const ContractSpecifier &CS) {
+                          recordCProverRewrites(CS, Context,
+                                                CProverUnitRewrites);
+                        });
 }
 
 ExprResult Sema::BuildContractOldExpr(SourceLocation OldLoc,

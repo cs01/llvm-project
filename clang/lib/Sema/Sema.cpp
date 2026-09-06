@@ -1303,6 +1303,10 @@ void Sema::ActOnEndOfTranslationUnit() {
   if (PP.isCodeCompletionEnabled())
     return;
 
+  // The whole file has been seen, so every contract clause that will be
+  // rewritten is known. -fcontract-emit-cprover-unit writes the result here.
+  EmitCProverUnit();
+
   // Complete translation units and modules define vtables and perform implicit
   // instantiations. PCH files do not.
   if (TUKind != TU_Prefix) {

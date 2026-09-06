@@ -169,6 +169,7 @@ give up and assume nothing. With one, `ZSTD_wildcopy` is proved memory-safe for
 |---|---|
 | `-fc-contracts` | turn the keywords on. Without it they are ordinary identifiers |
 | `-fcontract-emit-cprover` | print the contracts as CBMC clauses on stdout |
+| `-fcontract-emit-cprover-unit` | rewrite the whole translation unit into CBMC form, ready for `goto-cc` |
 | `-Wcontract-violation` | the call-site violation warning (on by default, inside `-Wc-contracts`) |
 
 `__has_feature(c_contracts)` is true under the flag, so a header can carry

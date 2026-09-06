@@ -419,9 +419,11 @@ half its executions. §5 of the design has the grammar.
 
 **Dogfood the grammar.** Everything under `proofs/zstd/harnesses/` is still
 hand-written `__CPROVER_*` macros — the thing this extension exists to replace.
-Writing those in this syntax and lowering them needs `assigns` above plus an
-emit mode that produces a compilable translation unit rather than clauses on
-stdout. Doing it turns every proof in that directory from a patch into source.
+Half of what blocked that is now done: `-fcontract-emit-cprover-unit` rewrites a
+whole translation unit into CBMC form, and the result compiles under `goto-cc`
+and discharges under `cbmc` (verified, both function and loop contracts). What
+remains is range targets above, without which no buffer-touching frame can be
+written at all.
 
 **Runtime trapping.** Turning `pre` into a deterministic trap at the
 earliest wrong state, for the clauses that can be branches. Worth noting that

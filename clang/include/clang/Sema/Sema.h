@@ -7886,6 +7886,18 @@ public:
   /// until the body has been parsed.
   void EmitCProverLoopContracts(const Decl *D);
 
+  /// Under -fcontract-emit-cprover-unit, the clause text to splice over each
+  /// original clause, keyed by the source range it replaces.
+  ///
+  /// Collected rather than applied as we go because the clauses are discovered
+  /// in parse order across the whole file, and the result has to be written out
+  /// once, in offset order, at the end of the translation unit.
+  SmallVector<std::pair<SourceRange, std::string>, 8> CProverUnitRewrites;
+
+  /// Writes the translation unit with every contract clause replaced by its
+  /// CBMC spelling, so the result can be handed to goto-cc.
+  void EmitCProverUnit();
+
   /// Diagnoses contract clauses on a declarator that did not produce a
   /// FunctionDecl.
   void DiagnoseContractsOnNonFunction(Declarator &D);
