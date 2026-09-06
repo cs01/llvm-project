@@ -12,6 +12,36 @@ laptop, CBMC 6.11, single invocation.
 | `ZSTD_execSequence` | same, unwind 34 (the semantic bound) | 3756 | > 45 min, unfinished |
 | `ZSTD_execSequence` | dst 96 / lit 64, match <= 96, unwind 40 | 3412 | > 35 min, abandoned |
 
+## Loop contracts change the shape of the cost, not just the size
+
+Every row above is bounded: the price buys a result up to some `unwind`. Loop
+contracts buy a different thing, and they are *cheaper*, because there is no
+unwinding left to pay for. Measured in this repo's Linux CI container (4 cores),
+CBMC 6.11:
+
+| Target | Configuration | Obligations | Wall time |
+|---|---|---|---|
+| `ZSTD_wildcopy` | loop contract, no `--unwind`, length to 1 GiB | 208 | **138 s** |
+| `ZSTD_wildcopy` | same, frame emitted as `(p + 0)` and `* sizeof(char)` | 208 | > 50 min, killed |
+
+Same proof, same obligations, same answer. The second row is what this branch's
+emitter produced before it was taught to canonicalise: a frame that denotes the
+identical set of bytes, written with an additive and a multiplicative identity
+left in. CBMC carries the extent symbolically into the havoc it generates, so
+the identities are not folded away before they reach the solver — they widen the
+expression the havoc loop is built from.
+
+The lesson generalises past this one bug. **When a tool consumes generated text,
+the generator's output is part of the cost model.** A lowering that is correct
+but not canonical looks, from the outside, exactly like a tool that cannot
+handle your program.
+
+The other two apparent limits hit on the way to that number were also local:
+`--pointer-overflow-check`, which the recorded recipe does not use (40 min, no
+result), and CBMC **5.95** from Ubuntu's apt where loop-contract handling
+differs from 6.x. Before concluding the prover cannot do something, check the
+flags and the version — `run-wildcopy-from-grammar.sh` now pins both.
+
 ## Reading this
 
 The cost is driven by the size of the symbolic state, not by the number of

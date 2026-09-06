@@ -305,6 +305,11 @@ while (1)
 VERIFICATION SUCCESSFUL
 ```
 
+138 seconds for the whole pipeline, preprocessing through solve. Worth sitting
+with next to [COST.md](COST.md)'s bounded rows, which run to tens of minutes for
+a result that only holds up to some `unwind`: removing the bound made this proof
+*cheaper*, because there is no unwinding left to pay for.
+
 The generated frame is byte-identical to the hand-written one, which is the
 check that matters — the lowering is not merely accepted, it produces the same
 text a human arrived at after the five obstacles above.

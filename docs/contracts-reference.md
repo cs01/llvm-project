@@ -178,6 +178,21 @@ give up and assume nothing. With one, `ZSTD_wildcopy` is proved memory-safe for
 `__has_feature(c_contracts)` is true under the flag, so a header can carry
 contracts and still compile with a stock clang.
 
+`-fc-contracts` is **C only**, and a C++ input is a hard error rather than a
+silent no-op:
+
+```
+error: invalid argument '-fc-contracts' not allowed with 'C++'
+```
+
+The reason is a genuine collision rather than a scoping preference. `pre` and
+`post` are contextual keywords in the trailing position of a function
+declarator, which in C++20 is where a `requires`-clause goes. Accepting the flag
+there would mean deciding, at that point, whether an identifier is a contract
+keyword or the start of a constraint — so the flag would change what existing,
+valid C++ means. A C++ dialect of this grammar has to align with P2900 instead,
+which is why the keywords are already spelled its way.
+
 ## How it works inside clang
 
 Four stages, each a real part of the compiler rather than a preprocessor trick.

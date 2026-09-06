@@ -619,6 +619,14 @@ static bool FixupInvocation(CompilerInvocation &Invocation,
     Diags.Report(diag::err_drv_argument_not_allowed_with)
         << GetInputKindName(IK) << "-fsycl";
 
+  // The contracts extension is C-only. Its clause keywords are contextual, and
+  // in C++ 'pre'/'post' would have to be told apart from ordinary identifiers
+  // in the one place a requires-clause can also appear, so accepting the flag
+  // there would change the meaning of valid C++ rather than extend it.
+  if (LangOpts.CContracts && LangOpts.CPlusPlus)
+    Diags.Report(diag::err_drv_argument_not_allowed_with)
+        << "-fc-contracts" << GetInputKindName(IK);
+
   if (Args.hasArg(OPT_fgnu89_inline) && LangOpts.CPlusPlus)
     Diags.Report(diag::err_drv_argument_not_allowed_with)
         << "-fgnu89-inline" << GetInputKindName(IK);
