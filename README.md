@@ -46,29 +46,56 @@ proved, and a deliberately false one correctly rejected. Range targets in
 `assigns` are next; see the [roadmap](#roadmap).
 
 
-## Quick start
+## What it looks like on real code
 
-```sh
-cmake -G Ninja -S llvm -B build \
-  -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS=clang \
-  -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=ON \
-  -DLLVM_USE_LINKER=lld \
-  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-  -DLLVM_OPTIMIZED_TABLEGEN=ON
-ninja -C build clang
+A header, annotated the way you would actually write it —
+[`contracts-example/contracts.h`](contracts-example/contracts.h):
+
+```c
+unsigned long decompress(void *dst, unsigned long dstCap,
+                         const void *src, unsigned long srcSize)
+  pre  (dst != 0)
+  pre  (src != 0)
+  pre  (dstCap > 0)
+  post (r: r <= old(dstCap) || is_error((int)r));
+
+void put(int *buf, unsigned long len, unsigned long i, int v)
+  pre  (buf != 0)
+  pre  (i < len);
 ```
 
-Then see everything the extension does, end to end:
+`old(dstCap)` is the value at entry — required rather than optional, because a C
+parameter is a copy the body may freely mutate, so a `post` naming a bare
+parameter would be silently ambiguous.
 
-```sh
-CLANG=build/bin/clang ./contracts-example/run.sh
+Now compile a file that uses it. Nothing special: an ordinary `-fsyntax-only`.
+
+```c
+int *b = allocate(0);        // 0 does not satisfy n > 0
+put(b, 8, 8, 1);             // 8 < 8 is false
+```
+```
+checked.c:8:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
+contracts.h:16:3: note: precondition declared here
+   16 |   pre  (n > 0)
+checked.c:9:3: warning: precondition i < len of 'put' is violated by this call [-Wcontract-violation]
+contracts.h:21:3: note: precondition declared here
+   21 |   pre  (i < len);
 ```
 
-That runs the four demo files in [`contracts-example/`](contracts-example/):
-[`contracts.h`](contracts-example/contracts.h) is the grammar,
-[`checked.c`](contracts-example/checked.c) is compile-time call-site checking,
-[`mistakes.c`](contracts-example/mistakes.c) is every rule the front end
-enforces, numbered.
+Two things it does **not** warn about, which matter as much:
+
+```c
+int *b = allocate(8);   // post says non-null ...
+put(b, 8, 0, 1);        // ... so this is discharged. Silent.
+
+int *p = maybe;
+if (c) p = 0;
+put(p, 8, 0, 1);        // two edges disagree: it says nothing rather than guess
+```
+
+It reports only violations it can *demonstrate*. That is the difference between
+a warning people leave on and one they turn off.
 
 ## The keywords
 
@@ -93,6 +120,28 @@ already using `pre` as an identifier keeps compiling.
 
 Why these spellings and not the verifier's `requires` / `ensures`:
 [contracts-design.md](contracts-design.md#5-syntax).
+
+## Build it
+
+```sh
+cmake -G Ninja -S llvm -B build \
+  -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS=clang \
+  -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DLLVM_USE_LINKER=lld \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DLLVM_OPTIMIZED_TABLEGEN=ON
+ninja -C build clang
+```
+
+Then see everything the extension does, end to end:
+
+```sh
+CLANG=build/bin/clang ./contracts-example/run.sh
+```
+
+That runs the examples above plus
+[`mistakes.c`](contracts-example/mistakes.c), which is every rule the front end
+enforces, numbered — and the PCH round-trip.
 
 ## What each level catches
 
