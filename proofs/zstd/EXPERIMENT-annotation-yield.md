@@ -115,12 +115,57 @@ It does not show the grammar found anything: the invariants are the same ones a
 human wrote by hand, transcribed into a syntax that type-checks them. The
 bucket-1 count is unchanged.
 
+## 3. `BIT_initDStream` forms a pointer eight bytes into a one-byte buffer
+
+**Bucket 2 — bad spec, with a bucket-1 shape.** The defect is confirmed; whether
+a crafted stream reaches undefined behaviour depends on the caller and is not
+established. Full write-up:
+[`findings/FINDING-initdstream-limitptr.md`](findings/FINDING-initdstream-limitptr.md).
+
+`bitD->limitPtr = bitD->start + sizeof(bitD->bitContainer)` runs before `srcSize`
+is compared against that same 8, and the branch below it exists to serve
+`srcSize` of 1 through 7. With the buffer allocated at exactly `srcSize` — what
+the doc-comment entitles a caller to pass — and nothing assumed beyond
+`1 <= srcSize <= 8`:
+
+```
+[BIT_initDStream.pointer_arithmetic.5] pointer arithmetic:
+    pointer outside object bounds in bitD->start + sizeof(BitContainerType): FAILURE
+** 1 of 248 failed
+```
+
+Allocating the same buffer at `max(srcSize, 8)` and changing nothing else takes
+it to `0 of 248`. One variable, so the requirement is isolated exactly: the body
+needs eight readable bytes whatever `srcSize` says, and the header promises
+`srcSize`.
+
+Three things this entry is worth more for than the finding itself:
+
+- **The check set decided the outcome.** `--pointer-check` reports this function
+  clean. The defect is in a pointer that is computed and compared but never
+  dereferenced, so only `--pointer-overflow-check` sees it. The same run with
+  `--conversion-check` instead produced two failures, both of them zstd's
+  `ERROR()` convention (`(size_t)-1`) and neither of them UB. A finding count is
+  a statement about the flags before it is a statement about the code.
+- **The front end caught an error in the finding.** The first draft of the
+  contract said `post (r: r == srcSize)`, and clang rejected it: `srcSize` is a
+  by-value copy the body may mutate, so a bare mention is ambiguous between its
+  entry and exit value. Level 1 catching a specification bug inside a document
+  about specification bugs is the argument for type-checking contracts rather
+  than writing them in comments.
+- **The codebase already knows.** The *fast* four-stream path guards exactly
+  this, with a comment saying why: `if (length1 < 8 || ... ) return 0;  /*
+  HUF_initFastDStream() requires this */`. The requirement is enforced in one
+  path and absent from the other, which is what an unwritten precondition looks
+  like from the outside.
+
 ## Running tally
 
 | # | Function | Bucket | Reachable |
 |---|---|:---:|---|
 | 1 | `BIT_lookBits` / `BIT_getMiddleBits` | 2 | no — 30 max vs 32 table |
 | 2 | `ZSTD_wildcopy` | — | not a bug; first proof from the grammar |
+| 3 | `BIT_initDStream` | 2 | shape of 1; caller reachability open |
 
 Bucket 1 findings so far, from this experiment: **0**.
 (`ZSTD_overlapCopy8`, the branch's one bucket-1 finding, predates it.)

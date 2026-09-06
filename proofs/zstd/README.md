@@ -8,7 +8,7 @@ inputs satisfying the stated assumption.
 
 | Directory | What is in it |
 |---|---|
-| [`findings/`](findings/) | What the proofs actually established: two UB findings, two contract defects, one clean audit, one correctness result |
+| [`findings/`](findings/) | What the proofs actually established: two UB findings, three contract defects, one clean audit, one correctness result |
 | [`harnesses/`](harnesses/) | The CBMC harnesses, one per obligation, plus two minimal reproducers |
 | [`patches/`](patches/) | The annotations and the one real fix, as patches against upstream zstd |
 | [`UNBOUNDED.md`](UNBOUNDED.md) | How the wildcopy proof escaped the unwind bound, and the five obstacles on the way |

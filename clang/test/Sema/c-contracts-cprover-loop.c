@@ -118,3 +118,13 @@ void byte_ranges(unsigned char *b, int *w, unsigned lo, unsigned hi)
   assigns (b[0 : hi], b[lo : hi], w[0 : hi]);
 // CHECK:      /* byte_ranges */
 // CHECK-NEXT: __CPROVER_assigns(__CPROVER_object_upto(b, hi), __CPROVER_object_upto((b + lo), ((hi) - (lo))), __CPROVER_object_upto(w, hi * sizeof(*w)))
+
+// One element scaled by its own size is that size, which matters because a
+// single-element frame is the ordinary way to write an out-parameter. Only the
+// literal 1 folds: `n` elements has to keep the multiply even when a caller
+// always passes 1.
+struct S { long a, b; };
+void out_param(struct S *s, unsigned n)
+  assigns (s[0 : 1], s[1 : 2], s[0 : n]);
+// CHECK:      /* out_param */
+// CHECK-NEXT: __CPROVER_assigns(__CPROVER_object_upto(s, sizeof(*s)), __CPROVER_object_upto((s + 1), ((2) - (1)) * sizeof(*s)), __CPROVER_object_upto(s, n * sizeof(*s)))

@@ -162,8 +162,18 @@ static std::string formatCProverClause(const ContractClause &Clause,
       bool ByteSized =
           !Elem.isNull() && !Elem->isIncompleteType() &&
           Ctx.getTypeSizeInChars(Elem).isOne();
-      if (!ByteSized)
-        Count += " * sizeof(*" + Base + ")";
+      if (!ByteSized) {
+        // One element scaled by its own size is just that size, and a
+        // single-element frame ('assigns (p[0 : 1])' for an out-parameter) is
+        // common enough to be worth the special case.
+        llvm::APSInt CountVal;
+        bool CountIsOne =
+            Target.Upper->isIntegerConstantExpr(Ctx) &&
+            (CountVal = Target.Upper->EvaluateKnownConstInt(Ctx)) == 1;
+        Count = (LowerIsZero && CountIsOne)
+                    ? "sizeof(*" + Base + ")"
+                    : Count + " * sizeof(*" + Base + ")";
+      }
 
       Out += "__CPROVER_object_upto(" + Ptr + ", " + Count + ")";
     }
