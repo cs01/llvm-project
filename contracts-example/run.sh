@@ -10,6 +10,14 @@ echo "== contracts are accepted and land in the AST =="
   | grep -E 'pre:|post:|ContractOldExpr|implicit used r'
 
 echo
+echo "== contracts are checked at every call site, at compile time =="
+"$CLANG" -fsyntax-only -fc-contracts checked.c 2>&1 || true
+
+echo
+echo "== the same clauses lower to CBMC, so they can be proved =="
+"$CLANG" -fsyntax-only -fc-contracts -fcontract-emit-cprover contracts.h
+
+echo
 echo "== every rule the front end enforces =="
 "$CLANG" -fsyntax-only -fc-contracts mistakes.c 2>&1 || true
 

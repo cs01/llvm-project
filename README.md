@@ -68,6 +68,12 @@ transcription:
   back" lives.
 - **Two contract defects** where the real precondition is stronger than the
   documented one, or absent from where it is needed entirely.
+- **An unbounded proof.** `ZSTD_wildcopy` is memory-safe for *every* length, not
+  just up to some bound: `0 of 141 failed`, one iteration, no `--unwind` at all,
+  length to 1 GiB with symbolically allocated buffers. Proof by induction over
+  the loop, via a hand-written `__CPROVER_loop_invariant`. The same run also
+  proves the fix for the pointer-subtraction defect: with it, zero failures;
+  without it, exactly one.
 
 None of the four is a crash, and **fuzzing cannot find any of them**, because
 nothing misbehaves at runtime. That, rather than the count, is the argument.
@@ -80,10 +86,26 @@ whether verifying a codec is a quarter or a research program.
 
 ## What is not done
 
-`writes` is diagnosed as unimplemented. Loop invariants are designed but not
-parsed. Proofs are bounded — exhaustive over a small domain rather than
-universal; `proofs/zstd/UNBOUNDED.md` has the loop-contract route out and the
-`do`/`while` blocker found along the way.
+`writes` is diagnosed as unimplemented, and loop `invariant` / `variant` are
+designed but not parsed — today the invariants live in the CBMC annotations
+rather than in the source, which is the gap those clauses close.
+
+Most results are still bounded: exhaustive over a small domain rather than
+universal. `ZSTD_wildcopy` is the exception and shows the route out.
+`proofs/zstd/UNBOUNDED.md` documents that route and, more usefully, the four
+obstacles hit on the way, none of which is about mathematics:
+
+- CBMC rejects loop contracts on `do`/`while`; the loop must be rewritten.
+- `do { } while (0)` macros count as loops, so a contract silently attaches to
+  the wrong one. No diagnostic.
+- The `assigns` clause havocs the cursors before the invariant is assumed, so
+  raw pointer comparisons in an invariant get flagged themselves. Use
+  `__CPROVER_same_object` and `__CPROVER_POINTER_OFFSET`.
+- A symbolic extent in `assigns` generates its own unbounded havoc loop. Use a
+  concrete bound where the semantics give you one.
+
+That list is the honest scoping input: the hard part of applying this to real C
+is toolchain-versus-codebase fit, not proving things.
 
 ---
 

@@ -199,6 +199,33 @@ function. It is not obviously the bottleneck, but it is a reason a per-function
 harness for a `static` function costs more than the same function would if it
 were exported.
 
+### The fourth obstacle: a symbolic `assigns` extent is itself a loop
+
+`--show-loops` on the pruned program reported exactly the two annotated loops,
+and CBMC then unwound `ZSTD_safecopy.2`. That third loop does not exist in the
+source: `--apply-loop-contracts` *creates* it, to havoc the region named by
+
+```c
+__CPROVER_assigns(op, ip, __CPROVER_object_upto(opTail, tail))
+```
+
+Havocking a region whose extent is symbolic needs a loop, and that loop is
+unbounded, so the contract that was supposed to remove an unbounded loop
+introduces one.
+
+Both extents here are semantically bounded, so both can be concrete: the
+`length < 8` path writes at most 8 bytes, and the leftovers run from `op` to
+`oend` with `op >= oend_w`, which the caller keeps within
+`WILDCOPY_OVERLENGTH`. Writing the bound the code already guarantees, rather
+than the symbolic expression, removes the generated loop.
+
+Two smaller notes from the same attempt. `goto-instrument --drop-unused-functions`
+takes the goto program from 386 loops to 7, which matters because a harness for
+a `static` function has to include the whole translation unit. And the first
+harness set `oend_w = op + length`, which makes `oend <= oend_w` true and takes
+the early return, leaving the leftovers loop unreachable: the harness has to put
+`oend_w` strictly below `oend` to exercise the path at all.
+
 **Status: solving.** The contracts were accepted without a diagnostic, but
 `goto-instrument` reports nothing on success either, so attachment is only
 confirmed by the absence of unwinding output in the solve. Not claiming it yet.

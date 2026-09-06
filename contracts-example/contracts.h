@@ -20,4 +20,6 @@ void put(int *buf, unsigned long len, unsigned long i, int v)
   pre (buf != 0)
   pre (i < len);
 
+void buf_free_if_needed(void);
+
 #endif
