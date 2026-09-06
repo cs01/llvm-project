@@ -257,18 +257,28 @@ void Sema::EmitCProverUnit() {
     std::string Text;
   };
   SmallVector<Edit, 8> Edits;
+  unsigned Skipped = 0;
   for (const auto &R : CProverUnitRewrites) {
     if (!R.first.isValid())
       continue;
     std::pair<FileID, unsigned> B = SM.getDecomposedLoc(R.first.getBegin());
     std::pair<FileID, unsigned> E = SM.getDecomposedLoc(
         Lexer::getLocForEndOfToken(R.first.getEnd(), 0, SM, getLangOpts()));
-    // A clause reached through a macro expansion has no single span in the
-    // main file to replace, so it is left alone rather than corrupted.
-    if (B.first != Main || E.first != Main || E.second < B.second)
+    // A clause reached through a macro expansion, or declared in an included
+    // header, has no span in the main file to replace. Leaving it alone is
+    // right; doing so silently is not, because contracts belong in headers and
+    // the result would be a translation unit that quietly proves less than the
+    // author wrote.
+    if (B.first != Main || E.first != Main || E.second < B.second) {
+      ++Skipped;
       continue;
+    }
     Edits.push_back({B.second, E.second, R.second});
   }
+  if (Skipped)
+    Diag(SM.getLocForStartOfFile(Main),
+         diag::warn_contract_cprover_unit_skipped_header)
+        << Skipped;
   llvm::sort(Edits,
              [](const Edit &A, const Edit &B) { return A.Begin < B.Begin; });
 

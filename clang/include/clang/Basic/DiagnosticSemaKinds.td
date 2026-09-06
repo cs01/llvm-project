@@ -14377,6 +14377,11 @@ def err_contract_post_names_parameter : Error<
   "may be named in 'post' only through 'old()'">;
 def note_contract_post_use_old : Note<
   "name the value at function entry with 'old(%0)'">;
+def warn_contract_cprover_unit_skipped_header : Warning<
+  "%0 contract clause%s0 declared outside this file %plural{1:was|:were}0 not "
+  "rewritten; preprocess first so header contracts are part of the translation "
+  "unit">,
+  InGroup<CContracts>;
 def err_contract_assigns_not_lvalue : Error<
   "'assigns' target must name a location that can be modified">;
 def err_contract_decreases_not_scalar : Error<

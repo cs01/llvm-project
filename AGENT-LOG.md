@@ -177,3 +177,22 @@ Falling back to Expr::EvaluateAsInt takes it to 9 of 9.
 
 Both have regression tests in Sema/c-contracts-check.c. README and reference doc
 corrected, since both repeated the false soundness claim.
+
+### the unit rewriter was silently dropping header contracts
+
+Found by asking what happens when a contract lives where contracts belong.
+
+-fcontract-emit-cprover-unit rewrites spans in the main file, so a clause
+declared in an included header had nothing to replace and was skipped. The
+output was byte-identical to the input, with no indication that anything had
+been left out — a translation unit that quietly proves less than the author
+wrote, which is worse than an error.
+
+It now counts what it skipped and says so, pointing at the fix. The fix is to
+preprocess first, which is the documented zstd workflow anyway because CBMC's
+own front end wants preprocessed source:
+
+    clang -E -> clang -fcontract-emit-cprover-unit -> goto-cc -> cbmc
+
+Verified both ways in Sema/c-contracts-cprover-unit-header.c: the include form
+warns, the preprocessed form rewrites the header's clauses and stays quiet.
