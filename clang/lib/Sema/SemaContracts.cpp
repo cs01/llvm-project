@@ -16,6 +16,7 @@
 #include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Sema.h"
 #include "llvm/Support/raw_ostream.h"
@@ -133,6 +134,11 @@ static void printCProverContracts(const FunctionDecl *FD,
       break;
     case ContractClause::CK_Writes:
       // Not parsed yet; when it is, this becomes __CPROVER_assigns.
+      break;
+    case ContractClause::CK_Invariant:
+    case ContractClause::CK_Variant:
+      // Loop clauses. They hang off a statement, so they are never reachable
+      // from a FunctionDecl's contracts; printCProverLoopContracts prints them.
       break;
     }
   }
