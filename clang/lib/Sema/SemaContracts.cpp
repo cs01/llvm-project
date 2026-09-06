@@ -184,7 +184,8 @@ static void printCProverContracts(const FunctionDecl *FD,
   }
 }
 
-/// Walks the loop contracts reachable from \p S, handing each clause to \p OnClause.
+/// Walks the loop contracts reachable from \p S, handing each clause to \p
+/// OnClause.
 ///
 /// Both modes need the same walk: loop clauses hang off statements inside the
 /// body rather than off the FunctionDecl, so they have to be found rather than
@@ -268,9 +269,8 @@ void Sema::EmitCProverUnit() {
       continue;
     Edits.push_back({B.second, E.second, R.second});
   }
-  llvm::sort(Edits, [](const Edit &A, const Edit &B) {
-    return A.Begin < B.Begin;
-  });
+  llvm::sort(Edits,
+             [](const Edit &A, const Edit &B) { return A.Begin < B.Begin; });
 
   unsigned Pos = 0;
   for (const Edit &E : Edits) {
@@ -326,11 +326,10 @@ void Sema::EmitCProverLoopContracts(const Decl *D) {
   if (getLangOpts().CContractsEmitCProver)
     printCProverLoopContracts(FD->getBody(), FD, Context);
   if (getLangOpts().CContractsEmitCProverUnit)
-    forEachLoopContract(FD->getBody(), Context,
-                        [&](const Stmt *, const ContractSpecifier &CS) {
-                          recordCProverRewrites(CS, Context,
-                                                CProverUnitRewrites);
-                        });
+    forEachLoopContract(
+        FD->getBody(), Context, [&](const Stmt *, const ContractSpecifier &CS) {
+          recordCProverRewrites(CS, Context, CProverUnitRewrites);
+        });
 }
 
 ExprResult Sema::BuildContractOldExpr(SourceLocation OldLoc,
