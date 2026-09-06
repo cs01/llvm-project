@@ -97,7 +97,10 @@ void zero(int *buf, unsigned len) {
 
 // A range lowers to CBMC's byte-counted primitive: the compiler does the
 // sizeof multiply, because a frame written one element too small does not fail,
-// it silently proves less.
+// it silently proves less. A zero lower bound emits no `+ 0` and no
+// subtraction: CBMC carries the extent expression symbolically, so the
+// identities are not free — the unsimplified form of this very frame did not
+// discharge in fifty minutes.
 void zero_range(int *buf, unsigned len) {
   unsigned i = 0;
   while (i < len)
@@ -106,5 +109,12 @@ void zero_range(int *buf, unsigned len) {
   { buf[i] = 0; i++; }
 }
 // CHECK:      /* zero_range: while at line {{[0-9]+}} */
-// CHECK-NEXT: __CPROVER_assigns(i, __CPROVER_object_upto((buf + 0), ((len) - (0)) * sizeof(*buf)))
+// CHECK-NEXT: __CPROVER_assigns(i, __CPROVER_object_upto(buf, len * sizeof(*buf)))
 // CHECK-NEXT: __CPROVER_loop_invariant(i <= len)
+
+// A byte-sized element makes the scale factor an identity too, so it is dropped.
+// A non-zero lower bound still shifts the base and narrows the extent.
+void byte_ranges(unsigned char *b, int *w, unsigned lo, unsigned hi)
+  assigns (b[0 : hi], b[lo : hi], w[0 : hi]);
+// CHECK:      /* byte_ranges */
+// CHECK-NEXT: __CPROVER_assigns(__CPROVER_object_upto(b, hi), __CPROVER_object_upto((b + lo), ((hi) - (lo))), __CPROVER_object_upto(w, hi * sizeof(*w)))

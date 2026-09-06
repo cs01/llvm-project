@@ -137,14 +137,35 @@ static std::string formatCProverClause(const ContractClause &Clause,
       // ends up smaller than the loop that writes it, which does not fail —
       // it silently proves less.
       std::string Base = Print(Target.Base);
-      std::string Elem = "sizeof(*" + Base + ")";
-      std::string Lo = Target.Lower ? Print(Target.Lower) : std::string("0");
       std::string Hi = Print(Target.Upper);
 
-      std::string Ptr = Target.Lower ? "(" + Base + " + " + Lo + ")" : Base;
+      // Simplify aggressively. These are identities, but CBMC carries the
+      // extent expression symbolically into the formula it solves, so `(p + 0)`
+      // and `* sizeof(char)` are not free: the hand-written frame this was
+      // checked against discharges in one iteration, and the unsimplified form
+      // of the same frame did not finish in fifty minutes.
+      llvm::APSInt LowerVal;
+      bool LowerIsZero =
+          !Target.Lower ||
+          (Target.Lower->isIntegerConstantExpr(Ctx) &&
+           (LowerVal = Target.Lower->EvaluateKnownConstInt(Ctx)) == 0);
+
+      std::string Ptr =
+          LowerIsZero ? Base : "(" + Base + " + " + Print(Target.Lower) + ")";
       std::string Count =
-          Target.Lower ? "((" + Hi + ") - (" + Lo + "))" : "(" + Hi + ")";
-      Out += "__CPROVER_object_upto(" + Ptr + ", " + Count + " * " + Elem + ")";
+          LowerIsZero ? Hi
+                      : "((" + Hi + ") - (" + Print(Target.Lower) + "))";
+
+      // A byte-sized element makes the scale factor the identity too, and byte
+      // buffers are most of what a C frame condition ever names.
+      QualType Elem = Target.Base->getType()->getPointeeType();
+      bool ByteSized =
+          !Elem.isNull() && !Elem->isIncompleteType() &&
+          Ctx.getTypeSizeInChars(Elem).isOne();
+      if (!ByteSized)
+        Count += " * sizeof(*" + Base + ")";
+
+      Out += "__CPROVER_object_upto(" + Ptr + ", " + Count + ")";
     }
     return Out + ")";
   }
