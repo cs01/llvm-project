@@ -34,23 +34,45 @@ So: give C the ability to **say what a function requires and guarantees**, in th
 declaration, in a form a maintainer will actually write — and then make that
 statement worth something at three levels.
 
-**Write it once.**
+### 1. Write it once, in the header
+
+Where the function is already declared. `requires` is what the caller must
+guarantee; `ensures` is what the function guarantees back, with `r` naming the
+returned value.
 
 ```c
-int *allocate(unsigned long n) requires (n > 0) ensures (r: r != 0);
+int *allocate(unsigned long n)
+  requires (n > 0)
+  ensures  (r: r != 0);
 ```
 
-**Get it checked in an ordinary build.** No harness, no separate tool, no proof:
+### 2. Every caller is checked in an ordinary build
+
+No harness, no separate tool, no proof — an ordinary warning, from an ordinary
+compile. Somewhere far away, someone writes:
+
+```c
+void setup(void) {
+  int *p = allocate(0);      // 0 is not > 0
+  ...
+}
+```
+
+and the build tells them so, pointing at both the call and the promise it broke:
 
 ```
-demo.c:4:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
-    4 |   int *p = allocate(0);
+demo.c:6:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
+    6 |   int *p = allocate(0);
       |            ^~~~~~~~~~~
-demo.c:1:32: note: precondition declared here
+demo.c:2:3: note: precondition declared here
+    2 |   requires (n > 0)
+      |   ^~~~~~~~~~~~~~~~
 ```
 
-**And get it proved when it matters.** The same clause lowers to CBMC, which
-answers for *every* input rather than the ones you thought to try:
+### 3. And proved, when it matters
+
+You never write a verifier's syntax by hand. Ask the compiler, and it translates
+the contract you already wrote:
 
 ```
 $ clang -fc-contracts -fcontract-emit-cprover -fsyntax-only allocate.c
@@ -58,13 +80,23 @@ __CPROVER_requires(n > 0)
 __CPROVER_ensures(__CPROVER_return_value != 0)
 ```
 
+Those `__CPROVER_` names are **[CBMC](https://github.com/diffblue/cbmc)'s own
+spelling** for the same two ideas you wrote above — `__CPROVER_return_value`
+being its name for `r`. That block is *generated output*, not something anyone
+types. Hand it to CBMC and it proves the contract holds for **every** input, not
+the handful a test happened to try.
+
+---
+
 One source text, three levels of rigour, and you choose how far up you go per
 function. That is the whole idea. Applied to real zstd it has already found two
 undefined-behaviour bugs and proved the LZ reconstruction emits the right bytes
 — [see below](#results-on-real-zstd).
 
-Today the front end, the call-site checker and the CBMC export all work.
-`assigns` and runtime trapping are next; see the [roadmap](#roadmap).
+All three levels work today, and the CBMC output above has been run through
+CBMC 5.95 end to end: contracts proved, and a deliberately false one correctly
+rejected. `when` guards and runtime trapping are next; see the
+[roadmap](#roadmap).
 
 > A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
 > fork's other line of work, flow-sensitive nullability, is independent and lives
