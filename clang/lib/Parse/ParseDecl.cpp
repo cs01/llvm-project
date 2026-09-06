@@ -7629,6 +7629,96 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
     D.setContractClauses(Clauses);
 }
 
+void Parser::ParseLoopContractClauses(
+    SmallVectorImpl<ContractClause> &Clauses) {
+  assert(getLangOpts().CContracts && "contracts are off");
+
+  auto IsLoopClause = [](const Token &Tok, ContractClause::ClauseKind &Kind) {
+    const IdentifierInfo *II = Tok.getIdentifierInfo();
+    if (!II)
+      return false;
+    if (II->isStr("invariant")) {
+      Kind = ContractClause::CK_Invariant;
+      return true;
+    }
+    if (II->isStr("variant")) {
+      Kind = ContractClause::CK_Variant;
+      return true;
+    }
+    return false;
+  };
+
+  ContractClause::ClauseKind Kind;
+  if (!IsLoopClause(Tok, Kind) || NextToken().isNot(tok::l_paren))
+    return;
+
+  // Decide before parsing anything. `while (x) invariant(x);` is a call
+  // statement and must stay one, so the clause grammar only applies when the
+  // sequence is followed by a compound statement. Scanning the token stream is
+  // how that stays true without backtracking over Sema side effects.
+  {
+    unsigned I = 0;
+    for (;;) {
+      const Token &T0 = GetLookAheadToken(I);
+      ContractClause::ClauseKind Ignored;
+      if (!IsLoopClause(T0, Ignored) ||
+          GetLookAheadToken(I + 1).isNot(tok::l_paren))
+        break;
+      unsigned Depth = 0;
+      I += 1; // at the '('
+      for (;;) {
+        const Token &T = GetLookAheadToken(I);
+        if (T.is(tok::eof) || T.is(tok::semi) || T.is(tok::l_brace))
+          return; // malformed; leave the tokens alone
+        if (T.is(tok::l_paren))
+          ++Depth;
+        else if (T.is(tok::r_paren)) {
+          --Depth;
+          if (Depth == 0) {
+            ++I;
+            break;
+          }
+        }
+        ++I;
+      }
+    }
+    if (GetLookAheadToken(I).isNot(tok::l_brace))
+      return; // not a contract: leave it to be parsed as whatever it is
+  }
+
+  while (IsLoopClause(Tok, Kind) && NextToken().is(tok::l_paren)) {
+    SourceLocation KeywordLoc = ConsumeToken();
+
+    BalancedDelimiterTracker T(*this, tok::l_paren);
+    T.consumeOpen();
+
+    ExprResult Predicate;
+    {
+      llvm::SaveAndRestore<std::optional<ContractClause::ClauseKind>>
+          PredicateKind(ContractPredicateKind, Kind);
+      Predicate = ParseExpression();
+    }
+    if (Predicate.isInvalid()) {
+      T.skipToEnd();
+      continue;
+    }
+    if (T.consumeClose())
+      break;
+
+    // An invariant is a condition; a variant is a measure, so it keeps its own
+    // arithmetic type and is only required to be scalar.
+    if (Kind == ContractClause::CK_Invariant)
+      Predicate = Actions.ActOnContractClausePredicate(Kind, KeywordLoc,
+                                                       Predicate.get());
+    else
+      Predicate = Actions.ActOnLoopVariant(KeywordLoc, Predicate.get());
+
+    Clauses.emplace_back(Kind, KeywordLoc, T.getOpenLocation(),
+                         T.getCloseLocation(),
+                         Predicate.isUsable() ? Predicate.get() : nullptr);
+  }
+}
+
 ExprResult Parser::ParseContractOldExpr() {
   assert(ContractPredicateKind && "not in a contract predicate");
   SourceLocation OldLoc = ConsumeToken();

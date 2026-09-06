@@ -371,7 +371,19 @@ Gate: lit tests for parse, sema, `-ast-dump`, and clang-format. No codegen.
   `post (r: r <= old(dstCap) || ...)` form the first draft got wrong.
 - `writes`: parsed and hard-errored as unsupported, so the grammar is pinned now
   and cannot be silently reinterpreted later.
-- Loop clauses: blocked on question 6, which is still open.
+- Loop clauses: **done for `while`**. `invariant (expr)` is a condition and
+  `variant (expr)` is a scalar measure; both must be pure. Held in an
+  `ASTContext` side table rather than in the loop nodes, since contracts are
+  rare and `WhileStmt` is among the most numerous nodes in any AST. `for` and
+  `do` still need the same hook.
+
+  The follow-set rule from section 12 is implemented as a token-stream
+  lookahead rather than as an error: the parser scans balanced parens past the
+  clause sequence and only commits to the clause grammar if a compound
+  statement follows. `while (x) invariant(x);` therefore still parses as the
+  call statement it has always been. Implementing it as "error if no `{`" was
+  the first attempt and was wrong, because the point of the rule is to preserve
+  existing meaning, not to reject the old spelling.
 - Attribute spelling: question 7, still open. Everything downstream is written
   against the AST, so it stays cheap to add.
 - Prototype-to-definition inheritance and rebinding: clauses are per-declaration

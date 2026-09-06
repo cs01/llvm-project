@@ -148,6 +148,13 @@ class TextNodeDumper
   /// \p ASTContext to \p dump. Not all parts of the AST dump output will be
   /// available without the \p ASTContext.
   const ASTContext *Context = nullptr;
+
+public:
+  /// The context, if the dump was given one. Used by the traverser to reach
+  /// side tables such as loop contracts.
+  const ASTContext *getContext() const { return Context; }
+
+private:
   const SourceManager *SM = nullptr;
 
   /// The policy to use for printing; can be defaulted.

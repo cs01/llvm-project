@@ -581,6 +581,18 @@ public:
       Visit(D->getBody());
   }
 
+  void VisitWhileStmt(const WhileStmt *S) {
+    const ASTContext *Ctx = getNodeDelegate().getContext();
+    if (const ContractSpecifier *CS = Ctx ? Ctx->getLoopContracts(S) : nullptr)
+      for (const ContractClause &Clause : *CS)
+        getNodeDelegate().AddChild(Clause.getKindSpelling(), [=] {
+          if (Clause.getPredicate())
+            Visit(Clause.getPredicate());
+        });
+    // Children are visited by the framework after this returns; adding them
+    // here as well duplicates every substatement.
+  }
+
   void VisitFieldDecl(const FieldDecl *D) {
     if (D->isBitField())
       Visit(D->getBitWidth());

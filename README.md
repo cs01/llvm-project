@@ -86,9 +86,11 @@ whether verifying a codec is a quarter or a research program.
 
 ## What is not done
 
-`writes` is diagnosed as unimplemented, and loop `invariant` / `variant` are
-designed but not parsed — today the invariants live in the CBMC annotations
-rather than in the source, which is the gap those clauses close.
+`writes` is diagnosed as unimplemented. Loop `invariant` / `variant` now parse
+on `while` and land in the AST; `for` and `do` still need the same hook, and
+nothing lowers them to `__CPROVER_loop_invariant` yet, so the zstd proofs still
+carry hand-written CBMC annotations. Closing that last gap is what turns every
+invariant in `proofs/zstd/` from a patch into source.
 
 Most results are still bounded: exhaustive over a small domain rather than
 universal. `ZSTD_wildcopy` is the exception and shows the route out.

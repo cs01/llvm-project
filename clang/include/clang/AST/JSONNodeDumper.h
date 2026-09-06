@@ -127,6 +127,13 @@ class JSONNodeDumper
 
   const SourceManager &SM;
   ASTContext& Ctx;
+
+public:
+  /// Mirrors TextNodeDumper::getContext so the shared traverser can reach
+  /// context-held side tables whichever delegate is in use.
+  const ASTContext *getContext() const { return &Ctx; }
+
+private:
   ASTNameGenerator ASTNameGen;
   PrintingPolicy PrintPolicy;
   const comments::CommandTraits *Traits;

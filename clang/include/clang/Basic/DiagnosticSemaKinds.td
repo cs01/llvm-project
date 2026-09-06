@@ -14377,6 +14377,8 @@ def err_contract_post_names_parameter : Error<
   "may be named in 'post' only through 'old()'">;
 def note_contract_post_use_old : Note<
   "name the value at function entry with 'old(%0)'">;
+def err_contract_variant_not_scalar : Error<
+  "loop 'variant' must be a scalar measure; %0 is not scalar">;
 def err_contract_old_not_scalar : Error<
   "'old' requires a scalar operand; %0 is not scalar">;
 def err_contract_old_outside_post : Error<

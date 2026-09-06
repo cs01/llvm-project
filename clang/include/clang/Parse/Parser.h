@@ -2797,6 +2797,14 @@ private:
   /// \p TheDecl exists, with the parameters and the result binding in scope.
   void ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D);
 
+  /// Parses `invariant (expr)` / `variant (expr)` between a loop header and its
+  /// body, returning them in \p Clauses.
+  ///
+  /// The sequence must be followed by a compound statement. That rule is what
+  /// keeps `for (...) invariant(x);` meaning what it means today, a call
+  /// statement, rather than silently becoming a contract.
+  void ParseLoopContractClauses(SmallVectorImpl<ContractClause> &Clauses);
+
   /// Which contract clause's predicate is being parsed, if any. 'old' is a
   /// contextual keyword only inside one, so that a program using 'old' as an
   /// ordinary identifier keeps working everywhere else.

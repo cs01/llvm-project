@@ -27,6 +27,11 @@ public:
   NodeTreePrinter(llvm::raw_ostream &OS)
       : TextTreeStructure(OS, /* showColors */ false), OS(OS) {}
 
+  /// Part of the node-delegate interface: the traverser uses it to reach
+  /// context-held side tables such as loop contracts. This printer is not
+  /// given a context, and has no contracts to show.
+  const ASTContext *getContext() const { return nullptr; }
+
   void Visit(const Decl *D) {
     if (!D) {
       OS << "<<<NULL>>>";

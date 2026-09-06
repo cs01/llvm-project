@@ -39,6 +39,12 @@ public:
     CK_Post,
     /// A frame condition. Not yet parsed.
     CK_Writes,
+    /// A loop invariant: holds at every iteration of the loop it is attached
+    /// to.
+    CK_Invariant,
+    /// A loop variant: a non-negative measure that strictly decreases each
+    /// iteration, which is what makes the proof terminate.
+    CK_Variant,
   };
 
 private:
@@ -85,6 +91,10 @@ public:
       return "post";
     case CK_Writes:
       return "writes";
+    case CK_Invariant:
+      return "invariant";
+    case CK_Variant:
+      return "variant";
     }
     llvm_unreachable("unhandled contract clause kind");
   }

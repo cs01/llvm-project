@@ -1767,6 +1767,8 @@ def err_contract_clause_unsupported : Error<
   "'%0' contract clauses are not supported yet">;
 def err_contract_clause_expected_lparen : Error<
   "expected '(' after '%0'">;
+def err_contract_loop_clause_needs_compound : Error<
+  "loop contract clauses must be followed by a compound statement">;
 def warn_contract_keyword_macro : Warning<
   "macro named %0 hides the contract clause keyword of the same name">,
   InGroup<CContracts>;

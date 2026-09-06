@@ -1802,6 +1802,12 @@ StmtResult Parser::ParseWhileStatement(SourceLocation *TrailingElseLoc,
   getActions().OpenACC().ActOnWhileStmt(WhileLoc);
   getCurScope()->EnterLoopBody(PrecedingLabel);
 
+  // Loop contracts sit between the header and the body, with the loop's own
+  // scope open so a predicate can name anything the condition could.
+  SmallVector<ContractClause, 2> LoopClauses;
+  if (getLangOpts().CContracts)
+    ParseLoopContractClauses(LoopClauses);
+
   // C99 6.8.5p5 - In C99, the body of the while statement is a scope, even if
   // there is no compound stmt.  C90 does not have this clause.  We only do this
   // if the body isn't a compound statement to avoid push/pop in common cases.
@@ -1829,7 +1835,11 @@ StmtResult Parser::ParseWhileStatement(SourceLocation *TrailingElseLoc,
   if (Cond.isInvalid() || Body.isInvalid())
     return StmtError();
 
-  return Actions.ActOnWhileStmt(WhileLoc, LParen, Cond, RParen, Body.get());
+  StmtResult WhileRes =
+      Actions.ActOnWhileStmt(WhileLoc, LParen, Cond, RParen, Body.get());
+  if (getLangOpts().CContracts && WhileRes.isUsable())
+    Actions.ActOnLoopContracts(WhileRes.get(), LoopClauses);
+  return WhileRes;
 }
 
 StmtResult Parser::ParseDoStatement(LabelDecl *PrecedingLabel) {

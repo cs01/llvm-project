@@ -7893,6 +7893,14 @@ public:
   /// the same thing for the same reason.
   ExprResult CheckContractPostPredicate(Expr *Predicate);
 
+  /// Checks a loop `variant` measure: a scalar that the proof requires to be
+  /// non-negative and strictly decreasing, so it is a value rather than a
+  /// condition.
+  ExprResult ActOnLoopVariant(SourceLocation KeywordLoc, Expr *Measure);
+
+  /// Attaches \p Clauses to the loop statement \p S.
+  void ActOnLoopContracts(Stmt *S, ArrayRef<ContractClause> Clauses);
+
   /// Builds an `old (e)` expression, which names the value \p SubExpr had at
   /// function entry. Restricted to scalars: snapshotting anything larger has
   /// no cheap lowering, and section 2 of the design limits it accordingly.

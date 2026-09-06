@@ -221,6 +221,34 @@ ExprResult Sema::CheckContractPostPredicate(Expr *Predicate) {
   return ExprError();
 }
 
+ExprResult Sema::ActOnLoopVariant(SourceLocation KeywordLoc, Expr *Measure) {
+  if (!Measure)
+    return ExprError();
+
+  ExprResult Converted = DefaultFunctionArrayLvalueConversion(Measure);
+  if (Converted.isInvalid())
+    return ExprError();
+  Measure = Converted.get();
+
+  if (!Measure->getType()->isScalarType()) {
+    Diag(KeywordLoc, diag::err_contract_variant_not_scalar)
+        << Measure->getType() << Measure->getSourceRange();
+    return ExprError();
+  }
+  if (Measure->HasSideEffects(Context)) {
+    Diag(Measure->getExprLoc(), diag::err_contract_predicate_not_pure)
+        << Measure->getSourceRange();
+    return ExprError();
+  }
+  return Measure;
+}
+
+void Sema::ActOnLoopContracts(Stmt *S, ArrayRef<ContractClause> Clauses) {
+  if (!S || Clauses.empty())
+    return;
+  Context.setLoopContracts(S, ContractSpecifier::Create(Context, Clauses));
+}
+
 void Sema::DiagnoseContractsOnNonFunction(Declarator &D) {
   if (!D.hasContractClauses())
     return;

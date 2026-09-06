@@ -18,6 +18,7 @@
 #include "clang/AST/CanonicalType.h"
 #include "clang/AST/CommentCommandTraits.h"
 #include "clang/AST/ComparisonCategories.h"
+#include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/ExternalASTSource.h"
@@ -221,6 +222,12 @@ struct PFPField {
 /// Holds long-lived AST nodes (such as types and decls) that can be
 /// referred to throughout the semantic analysis of a file.
 class ASTContext : public RefCountedBase<ASTContext> {
+  /// Contract clauses attached to loop statements under -fc-contracts.
+  ///
+  /// Held on the side rather than in the loop nodes: contracts are rare and
+  /// WhileStmt/ForStmt are among the most numerous nodes in any AST.
+  llvm::DenseMap<const Stmt *, ContractSpecifier *> LoopContracts;
+
   friend class NestedNameSpecifier;
 
   mutable SmallVector<Type *, 0> Types;
@@ -983,6 +990,16 @@ public:
   bool AtomicUsesUnsupportedLibcall(const AtomicExpr *E) const;
 
   const LangOptions& getLangOpts() const { return LangOpts; }
+
+  /// The contract clauses attached to loop statement \p S, or null.
+  ContractSpecifier *getLoopContracts(const Stmt *S) const {
+    auto It = LoopContracts.find(S);
+    return It == LoopContracts.end() ? nullptr : It->second;
+  }
+  void setLoopContracts(const Stmt *S, ContractSpecifier *CS) {
+    if (CS)
+      LoopContracts[S] = CS;
+  }
 
   // If this condition is false, typo correction must be performed eagerly
   // rather than delayed in many places, as it makes use of dependent types.
