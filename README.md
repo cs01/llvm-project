@@ -15,11 +15,9 @@ Give C the ability to **say what a function requires and guarantees**, in the
 declaration, in a form a maintainer will actually write — and then make that
 statement worth something at three levels.
 
-### 1. Write it once, in the header
-
-Where the function is already declared. `pre` is what the caller must
-guarantee; `post` is what the function guarantees back, with `r` naming the
-returned value.
+**Write it once, in the header**, where the function is already declared. `pre`
+is what the caller must guarantee; `post` is what the function guarantees back,
+with `r` naming the returned value.
 
 ```c
 int *allocate(unsigned long n)
@@ -27,10 +25,25 @@ int *allocate(unsigned long n)
   post (r: r != 0);
 ```
 
-### 2. Every caller is checked in an ordinary build
+Then three checkers look at it, each catching what the one before it let through.
 
-No harness, no separate tool, no proof — an ordinary warning, from an ordinary
-compile. Somewhere far away, someone writes:
+### Level 1 — the front end: is the *contract* well formed?
+
+Free, on every build, on every function. It says nothing about your program's
+behaviour, only about the specification itself — and a contract that cannot mean
+what it appears to is a hard error, not a warning:
+
+```
+lvl1.c:3:12: error: 'post' predicate cannot name parameter 'n' directly; a by-value parameter may be named in 'post' only through 'old()'
+    3 |   post (r: n > 0);
+      |            ^
+lvl1.c:3:12: note: name the value at function entry with 'old(n)'
+```
+
+### Level 2 — the call-site checker: does any *caller* break it?
+
+Still free, still an ordinary build, still no verifier — a CFG dataflow pass
+looking at each call. Somewhere far away, someone writes:
 
 ```c
 void setup(void) {
@@ -50,7 +63,7 @@ demo.c:2:3: note: precondition declared here
       |   ^~~~~~~~~~~~~~~~
 ```
 
-### 3. And proved, when it matters
+### Level 3 — CBMC: is it true for *every* input?
 
 You never write a verifier's syntax by hand. Ask the compiler, and it translates
 the contract you already wrote:
@@ -78,7 +91,7 @@ rejected. Range targets in `assigns` are next — measured, not guessed, as
 what blocks annotating real buffer code; see the
 [roadmap](#roadmap).
 
-Here is the same buffer write, and what each level does with it:
+The same three levels, against one buffer write, showing where each one stops:
 
 ```c
 void put(int *buf, unsigned len, unsigned i, int v)
