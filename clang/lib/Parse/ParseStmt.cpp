@@ -1857,6 +1857,11 @@ StmtResult Parser::ParseDoStatement(LabelDecl *PrecedingLabel) {
   getActions().OpenACC().ActOnDoStmt(DoLoc);
   getCurScope()->EnterLoopBody(PrecedingLabel);
 
+  // A 'do' body follows the keyword directly, so the clauses sit between them.
+  SmallVector<ContractClause, 2> DoClauses;
+  if (getLangOpts().CContracts)
+    ParseLoopContractClauses(DoClauses);
+
   // C99 6.8.5p5 - In C99, the body of the do statement is a scope, even if
   // there is no compound stmt.  C90 does not have this clause. We only do this
   // if the body isn't a compound statement to avoid push/pop in common cases.
@@ -1915,8 +1920,12 @@ StmtResult Parser::ParseDoStatement(LabelDecl *PrecedingLabel) {
   if (Cond.isInvalid() || Body.isInvalid())
     return StmtError();
 
-  return Actions.ActOnDoStmt(DoLoc, Body.get(), WhileLoc, T.getOpenLocation(),
-                             Cond.get(), T.getCloseLocation());
+  StmtResult DoRes =
+      Actions.ActOnDoStmt(DoLoc, Body.get(), WhileLoc, T.getOpenLocation(),
+                          Cond.get(), T.getCloseLocation());
+  if (getLangOpts().CContracts && DoRes.isUsable())
+    Actions.ActOnLoopContracts(DoRes.get(), DoClauses);
+  return DoRes;
 }
 
 bool Parser::isForRangeIdentifier() {
@@ -2341,6 +2350,10 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc,
   // the other parts.
   getCurScope()->EnterLoopBody(PrecedingLabel);
 
+  SmallVector<ContractClause, 2> LoopClauses;
+  if (getLangOpts().CContracts)
+    ParseLoopContractClauses(LoopClauses);
+
   bool BodyStartsWithAttr = Tok.isOneOf(tok::l_square, tok::kw___attribute);
   SourceLocation BodyBeginLoc = Tok.getLocation();
 
@@ -2408,9 +2421,12 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc,
   if (ForRangeInfo.ParsedForRangeDecl())
     return Actions.FinishCXXForRangeStmt(ForRangeStmt.get(), Body.get());
 
-  return Actions.ActOnForStmt(ForLoc, T.getOpenLocation(), FirstPart.get(),
-                              SecondPart, ThirdPart, T.getCloseLocation(),
-                              Body.get());
+  StmtResult ForRes = Actions.ActOnForStmt(
+      ForLoc, T.getOpenLocation(), FirstPart.get(), SecondPart, ThirdPart,
+      T.getCloseLocation(), Body.get());
+  if (getLangOpts().CContracts && ForRes.isUsable())
+    Actions.ActOnLoopContracts(ForRes.get(), LoopClauses);
+  return ForRes;
 }
 
 StmtResult Parser::ParseGotoStatement() {

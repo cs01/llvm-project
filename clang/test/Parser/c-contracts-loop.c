@@ -40,3 +40,9 @@ void bad_variant(int n, struct Big b) {
     n--;
   }
 }
+
+// The follow-set rule holds for every loop form.
+void calls_in_all_forms(int x) {
+  for (;x;) invariant(x);
+  do invariant(x); while (x);
+}

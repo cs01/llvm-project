@@ -15,3 +15,19 @@ void fill(int *buf, unsigned len) {
 // CHECK-NEXT:     BinaryOperator {{.*}} '<='
 // CHECK:        variant
 // CHECK-NEXT:     BinaryOperator {{.*}} '-'
+
+// All three loop forms carry clauses.
+void all_forms(int *buf, unsigned len) {
+  for (unsigned i = 0; i < len; i++)
+    invariant (i <= len)
+  { buf[i] = 0; }
+
+  unsigned j = 0;
+  do
+    variant (len - j)
+  { j++; } while (j < len);
+}
+// CHECK:      ForStmt
+// CHECK-NEXT:   invariant
+// CHECK:      DoStmt
+// CHECK-NEXT:   variant

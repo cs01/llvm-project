@@ -581,17 +581,23 @@ public:
       Visit(D->getBody());
   }
 
-  void VisitWhileStmt(const WhileStmt *S) {
+  /// Emits the loop contracts attached to \p S, if any. Children are visited
+  /// by the framework after the visitor returns, so this adds only the clauses.
+  void dumpLoopContracts(const Stmt *S) {
     const ASTContext *Ctx = getNodeDelegate().getContext();
-    if (const ContractSpecifier *CS = Ctx ? Ctx->getLoopContracts(S) : nullptr)
-      for (const ContractClause &Clause : *CS)
-        getNodeDelegate().AddChild(Clause.getKindSpelling(), [=] {
-          if (Clause.getPredicate())
-            Visit(Clause.getPredicate());
-        });
-    // Children are visited by the framework after this returns; adding them
-    // here as well duplicates every substatement.
+    const ContractSpecifier *CS = Ctx ? Ctx->getLoopContracts(S) : nullptr;
+    if (!CS)
+      return;
+    for (const ContractClause &Clause : *CS)
+      getNodeDelegate().AddChild(Clause.getKindSpelling(), [=] {
+        if (Clause.getPredicate())
+          Visit(Clause.getPredicate());
+      });
   }
+
+  void VisitWhileStmt(const WhileStmt *S) { dumpLoopContracts(S); }
+  void VisitForStmt(const ForStmt *S) { dumpLoopContracts(S); }
+  void VisitDoStmt(const DoStmt *S) { dumpLoopContracts(S); }
 
   void VisitFieldDecl(const FieldDecl *D) {
     if (D->isBitField())
