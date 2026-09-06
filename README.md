@@ -143,11 +143,11 @@ Six words. Full syntax and semantics in
 `assigns` takes a comma-separated list of locations rather than a predicate — a
 frame condition is a *set*, not a condition.
 
-The names follow one rule: **the standard where there is one, the prover where
-there is not.** `pre`, `post` and `old` are C++26 P2900's spelling, so a C
-programmer meeting contracts elsewhere meets the same words — and `requires` is
-unusable anyway, being a C++20 keyword in this exact slot. `assigns`,
-`loop_invariant` and `decreases` are CBMC's, since no standard spells them.
+The names follow one rule: **the standard where there is one, the older spec
+languages where there is not.** `pre` and `post` are C++26 P2900's spelling, so
+a C programmer meeting contracts elsewhere meets the same words. `old` predates
+all of them — Eiffel, JML's `\old`, ACSL's `\old`. `assigns`, `loop_invariant`
+and `decreases` are ACSL's, which CBMC then adopted.
 
 These are *contextual* keywords,
 active only under `-fc-contracts`, so code already using `pre` as an
