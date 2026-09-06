@@ -22,20 +22,49 @@ void fill(int *buf, unsigned len) {
 }
 ```
 
-## Status
+## The goal
 
-| Tier | State | What it gives you |
-|---|---|---|
-| Front end | **working** | clauses parse, type-check, land in the AST, survive a PCH |
-| Call-site checking | **working** | `-Wcontract-violation`, an ordinary warning in an ordinary build |
-| CBMC export | **working** | `-fcontract-emit-cprover` prints the clauses as CBMC contracts |
-| `assigns` (frame conditions) | **not implemented** | parses, then hard-errors. The main gap |
-| Runtime trapping | **not implemented** | nothing lowers a contract to a branch in codegen |
+C is not going anywhere. Billions of lines of it decode your video, compress
+your backups and terminate your TLS, and the interesting bugs in that code are
+not crashes — they are the ones where nothing misbehaves at runtime and the
+answer is simply wrong. Fuzzing cannot find those. Tests cannot enumerate them.
+Rewriting it all is not a plan.
 
-Two honest caveats up front, because they decide whether this is useful to you:
-**the call-site checker proves nothing** — it is unsound and incomplete by
-design, and reports only violations it can demonstrate. And **CBMC does all the
-actual proving**; clang emits, it does not verify.
+So: give C the ability to **say what a function requires and guarantees**, in the
+declaration, in a form a maintainer will actually write — and then make that
+statement worth something at three levels.
+
+**Write it once.**
+
+```c
+int *allocate(unsigned long n) requires (n > 0) ensures (r: r != 0);
+```
+
+**Get it checked in an ordinary build.** No harness, no separate tool, no proof:
+
+```
+demo.c:4:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
+    4 |   int *p = allocate(0);
+      |            ^~~~~~~~~~~
+demo.c:1:32: note: precondition declared here
+```
+
+**And get it proved when it matters.** The same clause lowers to CBMC, which
+answers for *every* input rather than the ones you thought to try:
+
+```
+$ clang -fc-contracts -fcontract-emit-cprover -fsyntax-only allocate.c
+__CPROVER_requires(n > 0)
+__CPROVER_ensures(__CPROVER_return_value != 0)
+```
+
+One source text, three levels of rigour, and you choose how far up you go per
+function. That is the whole idea. Applied to real zstd it has already found two
+undefined-behaviour bugs and proved the LZ reconstruction emits the right bytes
+— [see below](#results-on-real-zstd).
+
+Today the front end, the call-site checker and the CBMC export all work.
+`assigns` and runtime trapping are next; see the [roadmap](#roadmap).
 
 > A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
 > fork's other line of work, flow-sensitive nullability, is independent and lives
@@ -111,10 +140,10 @@ Plus the practical one: `__CPROVER_*` in shipped source means vendoring CBMC
 headers or `#ifdef` walls. A contextual keyword behind a flag doesn't perturb
 the production build at all.
 
-**The honest bottom line:** the *proof* tier alone would not justify the
-compiler work — that part really is a translation layer, and the design doc says
-so. The type checking and the call-site checker are what make this a compiler
-feature rather than a header.
+The CBMC export on its own really is a translation layer, and the design doc
+says as much. What makes this a compiler feature rather than a header is the
+other two tiers — and those are the ones every build gets, on every function,
+whether or not anyone ever runs a prover.
 
 ## How CBMC fits
 
@@ -204,26 +233,30 @@ Read **[proofs/zstd/COST.md](proofs/zstd/COST.md)** before estimating anything:
 solve time is driven by symbolic state size, not obligation count, and it decides
 whether verifying a codec is a quarter or a research program.
 
-## What is not done
+## Roadmap
 
-`loop_invariant` / `decreases` parse on `while`, `for` and `do`, land in the AST,
-and lower to `__CPROVER_loop_invariant` / `__CPROVER_decreases`. What still
-stands between that and turning the `proofs/zstd/` patches into source is
-`assigns`, diagnosed as unimplemented: every hand-written annotation there also
-carries an `__CPROVER_assigns` frame with no source syntax yet. `do` loops need
-one more step even then, since goto-instrument rejects loop contracts on `do`;
-the emitter says so on each one rather than rewriting the loop, because it emits
-clauses, not source.
+**`assigns`, the frame condition.** The single highest-value next piece. Every
+hand-written annotation under `proofs/zstd/` carries an `__CPROVER_assigns`
+frame that has no source syntax yet; the grammar is already pinned and
+hard-errors, so the slot is reserved and waiting.
 
-**The harnesses are still written backwards.** Everything under
-`proofs/zstd/harnesses/` is hand-written `__CPROVER_*` macros — the very thing
-this extension exists to replace. They should be written in this syntax and
-lowered. Two things block that: `assigns` above, and the fact that
-`-fcontract-emit-cprover` prints clauses to stdout rather than emitting a
-compilable annotated translation unit CBMC can consume. Closing both is what
-would let the branch dogfood its own grammar.
+**Dogfood the grammar.** Everything under `proofs/zstd/harnesses/` is still
+hand-written `__CPROVER_*` macros — the thing this extension exists to replace.
+Writing those in this syntax and lowering them needs `assigns` above plus an
+emit mode that produces a compilable translation unit rather than clauses on
+stdout. Doing it turns every proof in that directory from a patch into source.
 
-Most results are still bounded: exhaustive over a small domain rather than
+**Runtime trapping.** Turning `requires` into a deterministic trap at the
+earliest wrong state, for the clauses that can be branches. Worth noting that
+buffer and frame clauses can never be traps — there is no way to recover the
+allocation behind a `void *` at entry — so this tier is narrower than it sounds.
+
+**Contract inference**, so the first annotation on a large codebase is not
+hand-written from nothing.
+
+### Known terrain
+
+Most results today are bounded: exhaustive over a small domain rather than
 universal. `ZSTD_wildcopy` is the exception and shows the route out.
 `proofs/zstd/UNBOUNDED.md` documents that route and, more usefully, the four
 obstacles hit on the way, none of which is about mathematics:
@@ -244,8 +277,9 @@ obstacles hit on the way, none of which is about mathematics:
   burden rather than adding a fixed cost. This is the one that does not go away
   with a rewrite.
 
-That list is the honest scoping input: the hard part of applying this to real C
+That list is the useful scoping input: the hard part of applying this to real C
 is toolchain-versus-codebase fit, not proving things.
+
 ## Where to go deeper
 
 - **[docs/contracts-reference.md](docs/contracts-reference.md)** — full grammar,
