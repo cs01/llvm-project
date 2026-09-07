@@ -22,12 +22,13 @@ demo.c:2:3: note: precondition declared here
       |   ^~~~~~~~~~~~
 ```
 
-No harness, no annotation at the call site, no separate tool run. The comment
-that used to say `/* n must be positive */` now says it to the compiler.
+There is no harness, no annotation at the call site, and no separate tool to
+run. The comment that used to say `/* n must be positive */` now says it to the
+compiler.
 
-CBMC is not a research toy: AWS runs it in CI on s2n-tls and aws-c-common,
-FreeRTOS's TCP/IP stack is verified with it, and Kani — the Rust verifier — is
-built on it.
+CBMC is already used in production: AWS runs it in CI on s2n-tls and
+aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and Kani, the Rust
+verifier, is built on it.
 
 > A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
 > fork's other line of work, flow-sensitive nullability, is independent and lives
@@ -47,9 +48,9 @@ cmake -G Ninja -S llvm -B build \
 ninja -C build clang
 ```
 
-Proving anything additionally needs [CBMC](https://github.com/diffblue/cbmc)
-6.x, with `goto-cc` and `goto-instrument`. Ubuntu ships 5.95, whose loop-contract
-handling differs; take a release `.deb` from the CBMC repository instead.
+Proving anything also needs [CBMC](https://github.com/diffblue/cbmc) 6.x, with
+`goto-cc` and `goto-instrument`. Ubuntu ships 5.95, whose loop-contract handling
+differs, so take a release `.deb` from the CBMC repository instead.
 
 ## Usage
 
@@ -70,11 +71,12 @@ To see everything the extension does, end to end:
 CLANG=build/bin/clang ./contracts-example/run.sh
 ```
 
-That runs the examples below plus
-[`mistakes.c`](contracts-example/mistakes.c), which is every rule the front end
-enforces, numbered — and the PCH round-trip.
+That runs the examples below, plus
+[`mistakes.c`](contracts-example/mistakes.c), which numbers every rule the front
+end enforces, and the PCH round-trip.
 
-`-fc-contracts` is C only, and says so rather than ignoring you:
+`-fc-contracts` is C only, and rejects a C++ input rather than silently
+ignoring the flag:
 
 ```
 error: invalid argument '-fc-contracts' not allowed with 'C++'
@@ -90,7 +92,8 @@ its way.
 
 ### Preconditions and postconditions
 
-Half a contract is what the caller owes. The other half is what it is owed:
+One half of a contract is what the caller owes; the other half is what the
+caller is owed in return:
 
 ```c
 int *allocate(unsigned long n)
@@ -98,14 +101,14 @@ int *allocate(unsigned long n)
   post (r: r != 0);
 ```
 
-`r:` names the return value for this clause only. Now a caller that checks the
-result for null is checking something the callee already promised, and a caller
-that *doesn't* is no longer guessing.
+`r:` names the return value for this clause only. A caller that checks the
+result for null is now re-checking something the callee already promised, and one
+that skips the check is relying on the contract rather than guessing.
 
 ### Pointers and buffers
 
-Almost every C function worth specifying takes a pointer and a length, and the
-thing you want to say about them is not expressible in C:
+Almost every C function worth specifying takes a pointer and a length, and what
+you need to say about them cannot be written in C itself:
 
 ```c
 size_t decode(void *dst, size_t dstCap, const void *src, size_t srcSize)
@@ -119,7 +122,7 @@ bytes. `old(dstCap)` is the value at entry — required for a by-value parameter
 because C lets the body reassign it and the reader cannot tell which one you
 meant.
 
-One thing to know early, because the words sound like synonyms and are not:
+These two sound like synonyms and are not, which is worth knowing early.
 `readable(p, n)` is a *lower bound*. It promises n bytes and says nothing about
 the size of the object, so a read at `p[n + 3]` is not caught. `fresh(p, n)`
 gives an object of exactly n bytes and does catch it. Preconditions on a
@@ -179,9 +182,9 @@ counter and the buffer range.
 
 ### Keyword reference
 
-Six words. Full syntax, semantics, and the four rules that bite in practice —
-braced loop bodies, pure predicates, no restating a contract on a redeclaration,
-macro shadowing — are in
+There are six keywords. The full syntax and semantics, along with the four rules
+that bite in practice — braced loop bodies, pure predicates, no restating a
+contract on a redeclaration, and macro shadowing — are in
 **[docs/contracts-reference.md](docs/contracts-reference.md)**.
 
 | Keyword | Goes | Says |
@@ -202,7 +205,7 @@ the compiler's job.
 These are *contextual* keywords, active only under `-fc-contracts`, so code
 already using `pre` as an identifier keeps compiling.
 
-Why these spellings and not the verifier's `requires` / `ensures`:
+For why these spellings rather than the verifier's `requires` and `ensures`, see
 [contracts-design.md](contracts-design.md#5-syntax).
 
 ## How it works
