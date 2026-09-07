@@ -60,6 +60,21 @@ Proving anything also needs [CBMC](https://github.com/diffblue/cbmc) 6.x, with
 `goto-cc` and `goto-instrument`. Ubuntu ships 5.95, whose loop-contract handling
 differs, so take a release `.deb` from the CBMC repository instead.
 
+CBMC is three tools used in sequence, and both of the others come up below:
+
+- **`goto-cc`** stands in for the C compiler. It is command-line compatible with
+  `gcc`, but instead of an object file it emits a *goto program*: the same code
+  with every loop, `break` and `switch` lowered to conditional gotos, so the
+  verifier has one control-flow construct to reason about rather than a dozen.
+- **`goto-instrument`** rewrites that goto program — this is the step that turns
+  a contract into something to prove, by asserting a precondition, havocking
+  what a frame permits, or replacing a call with the callee's contract.
+- **`cbmc`** does the proving.
+
+`goto-cc` is an ordinary C front end and has never heard of `pre` or `assigns`,
+which is what `-fcontract-emit-cprover-unit` below is for: it hands `goto-cc` a
+translation unit in the `__CPROVER_*` spelling it does understand.
+
 ## Usage
 
 | Flag | What it does |
