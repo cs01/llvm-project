@@ -5,6 +5,9 @@ been looked at. **Read this before starting a new codebase** — the negatives a
 here precisely so nobody spends a day re-deriving them.
 
 Reproduce any of it with [`repro/`](repro/): `cd repro && ./run-all.sh`.
+The *shapes* behind these findings, and the detectors built from them, are in
+[`PATTERNS.md`](PATTERNS.md) — start there if you are opening a new codebase:
+`./hunt.sh ~/your-tree`.
 
 ## Findings
 
@@ -45,10 +48,11 @@ reading them. Do not re-triage them.
 | `zlib contrib/puff/pufftest.c:81` | the line is `buf = NULL;` — a *write* to `buf`, not a read of the freed value, and `free(buf)` precedes it deliberately |
 | `zlib examples/enough.c:335` | `memset(vector + g.done[index].len, ...)` reads `.len`, a `size_t` member. The freed pointer is `.vec`, which is not read |
 | `redis src/zmalloc.c:563` | `zmalloc_oom_handler(size)` reads `size`, an integer argument, not the reallocated pointer |
+| `jq src/jv.c:455` | the loop reads `values.values_num`, the integer count. The freed pointer is `values.values`, which is not read before line 457 reassigns it |
 
-The pattern in all three: the scanner matches any read of a *name that shares a
-prefix* with the reallocated pointer. Confirm every hit by reading it. Two of
-seven were real.
+The pattern in all four: the scanner matches any read of a *name that shares a
+prefix* with the reallocated pointer — `.len` is not `.vec`, `.values_num` is
+not `.values`. Confirm every hit by reading it. Two of eight were real.
 
 ## Not looked at yet
 
@@ -59,7 +63,9 @@ boundary, on sizes an attacker controls.**
   the allocation base from a type byte *stored in the buffer*, so every sds
   function carries an unwritten precondition: `s` points just past an intact
   header. Nothing in the source says it.
-- **jq `jv.c`** — cloned, untouched. Refcounted values with pointer tagging.
+- **jq `jv.c`** — the realloc detector has been run over it (one hit, triaged
+  false above). Not yet annotated: refcounted values with pointer tagging are
+  the interesting part and are untouched.
 - **zlib `inflate.c` `updatewindow`** — window wrapping, `put - state->wsize`.
 - **libpng, brotli, lz4** — same family as zstd, not cloned.
 
