@@ -22,13 +22,15 @@ demo.c:2:3: note: precondition declared here
       |   ^~~~~~~~~~~~
 ```
 
-There is no harness, no annotation at the call site, and no separate tool to
-run. The comment that used to say `/* n must be positive */` now says it to the
-compiler.
+The contract is written once, on the declaration. Call sites need nothing, and
+the build needs no harness and no separate tool. Without it, `n > 0` is the kind
+of constraint that lives in a doc comment, where nothing checks it and nothing
+warns when a caller gets it wrong.
 
-CBMC is already used in production: AWS runs it in CI on s2n-tls and
-aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and Kani, the Rust
-verifier, is built on it.
+Proving that a contract *holds*, rather than checking calls against it, is
+CBMC's job, and CBMC is already used in production: AWS runs it in CI on s2n-tls
+and aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and Kani, the
+Rust verifier, is built on it.
 
 > A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
 > fork's other line of work, flow-sensitive nullability, is independent and lives
