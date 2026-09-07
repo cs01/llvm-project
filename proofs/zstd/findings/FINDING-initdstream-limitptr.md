@@ -133,7 +133,63 @@ the value is dead there. This is not proposed as a patch: the point of the
 finding is the missing precondition, and upstream may prefer to state the
 stronger contract instead and leave the arithmetic alone.
 
-## The open question
+## The caller's guards permit it, proved
+
+The open question below was "do the caller's checks allow a stream shorter than
+eight bytes at the end of the buffer?" They do, and
+[`harnesses/harness_huf4x_stream4.c`](../harnesses/harness_huf4x_stream4.c)
+produces the counterexample in 14 seconds against
+`HUF_decompress4X1_usingDTable_internal_body` with `cSrc` allocated at exactly
+`cSrcSize`:
+
+```
+[BIT_initDStream.pointer_arithmetic.5] pointer arithmetic:
+    pointer outside object bounds in bitD->start + sizeof(BitContainerType): FAILURE
+```
+
+```
+cSrcSize = 15                 valid offsets 0..14, one-past-end is 15
+jump table  length1=2  length2=5  length3=1
+length4 = 15 - (2 + 5 + 1 + 6) = 1
+
+istart1 = +6    istart2 = +8    istart3 = +13   istart4 = +14
+```
+
+Every guard on that path passes: `cSrcSize >= 10`, `dstSize >= 6`,
+`length4 > cSrcSize` is false, `opStart4 > oend` is false. Then
+`BIT_initDStream(&bitD2, istart + 8, 5)` computes `start + 8 = istart + 16`,
+one byte past one-past-the-end. Streams 3 and 4 are further out, at `+21` and
+`+22`. The arithmetic checks by hand, which is the point of quoting it: the
+result does not rest on trusting the tool.
+
+The proof cuts the function off immediately after the four
+`BIT_initDStream` calls, under `#ifdef ZSTD_REACH_PROBE`. Removing later code
+is an under-approximation and cannot manufacture a trace, so the counterexample
+is real; it is what took the run from a 2400-second timeout to 14 seconds.
+
+## What is still open, and why this is not yet bucket 1
+
+`cSrc` is not its own object in the library. `ZSTD_decodeLiteralsBlock` passes
+`istart + lhSize` with size `litCSize` -- a **sub-range of the caller's input
+buffer**:
+
+```c
+hufSuccess = HUF_decompress4X_usingDTable(
+    dctx->litBuffer, litSize, istart+lhSize, litCSize, dctx->HUFptr, flags);
+```
+
+So `start + 8` past the end of a short stream lands in the bytes that follow the
+literals section, which are still inside the user's buffer, and no rule is
+broken. Within a frame the sequences section follows the literals, so those
+bytes normally exist.
+
+What would close it is a caller whose literals section ends where the input
+object ends. That is one more step, not a hand-wave, and until it is taken this
+stays **bucket 2**: the contract is provably weaker than the code needs, and the
+caller's own validation provably permits the shape, but no execution of a zstd
+entry point has been shown to reach undefined behaviour.
+
+## The original open question
 
 Whether a crafted stream reaches it depends on the caller's *object*, not on
 `srcSize`. `BIT_initDStream`'s sub-buffer usually sits inside a larger frame

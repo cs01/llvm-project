@@ -165,7 +165,7 @@ Three things this entry is worth more for than the finding itself:
 |---|---|:---:|---|
 | 1 | `BIT_lookBits` / `BIT_getMiddleBits` | 2 | no — 30 max vs 32 table |
 | 2 | `ZSTD_wildcopy` | — | not a bug; first proof from the grammar |
-| 3 | `BIT_initDStream` | 2 | shape of 1; caller reachability open |
+| 3 | `BIT_initDStream` | 2 | caller's guards proved to permit it; buffer-end coincidence still open |
 
 Bucket 1 findings so far, from this experiment: **0**.
 (`ZSTD_overlapCopy8`, the branch's one bucket-1 finding, predates it.)
