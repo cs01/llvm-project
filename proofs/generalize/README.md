@@ -13,7 +13,7 @@ attacker controls.**
 
 | Project | Target | State |
 |---|---|---|
-| zlib | `inflate_table` (`inftrees.c`) | harness written, solving |
+| zlib | `inflate_table` (`inftrees.c`) | **bucket 2** — [doc understates the table size](zlib/FINDING-inflate-table-doc.md) |
 | zlib | `inflate_fast` (`inffast.c`) | read, no defect found — see below |
 | redis | `sds.c` header recovery | scouted, harness not written |
 | jq | `jv.c` | not started |
@@ -60,4 +60,16 @@ code needs, and someone implementing against the comment would be wrong.
 
 [`zlib/harness_inflate_table.c`](zlib/harness_inflate_table.c) gives `table`
 exactly the `2^bits` entries the comment promises and nothing more, with `lens`
-fully symbolic. Result pending; it will be recorded here either way.
+fully symbolic.
+
+**It is not enough.** With `codes <= 5` and `bits = 3`, a `2^bits` table gives
+`3 of 330 failed`, one of them a write through `next[(huff >> drop) + fill]`;
+doubling it to 16 entries gives `0 of 330`. `2^bits` sizes only the *root*
+table, and any code longer than `bits` needs a sub-table past it. zlib itself is
+fine — every in-tree caller passes an `ENOUGH`-sized array — so this is bucket 2,
+a documented contract weaker than the code needs. Full write-up in
+[`FINDING-inflate-table-doc.md`](zlib/FINDING-inflate-table-doc.md).
+
+That is the method reproducing on a second codebase, by the same route as the
+zstd findings: write down what the documentation promises, and ask the prover
+whether the body agrees.

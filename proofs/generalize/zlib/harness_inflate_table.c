@@ -19,8 +19,11 @@
 unsigned nondet_uint(void);
 unsigned short nondet_ushort(void);
 
-#define CODES_MAX 12u
-#define ROOT_BITS  4u
+// Kept small deliberately. inflate_table's own loops run to MAXBITS (15)
+// whatever `codes` is, so the unwind bound is fixed and the symbolic state
+// is what has to come down: 12 codes did not finish in 25 minutes.
+#define CODES_MAX  5u
+#define ROOT_BITS  3u
 
 void harness(void)
 {
