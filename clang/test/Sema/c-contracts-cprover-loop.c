@@ -128,3 +128,25 @@ void out_param(struct S *s, unsigned n)
   assigns (s[0 : 1], s[1 : 2], s[0 : n]);
 // CHECK:      /* out_param */
 // CHECK-NEXT: __CPROVER_assigns(__CPROVER_object_upto(s, sizeof(*s)), __CPROVER_object_upto((s + 1), ((2) - (1)) * sizeof(*s)), __CPROVER_object_upto(s, n * sizeof(*s)))
+
+// goto-instrument refuses loop contracts on a 'do' loop, so the emitted unit
+// carries the mechanical rewrite instead of the author carrying it in their
+// source. Behaviour is identical -- the body still runs before the test -- and
+// the clauses stay between the header and the body where CBMC wants them. The
+// original ';' is left as an empty statement.
+// RUN: %clang_cc1 -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit %s \
+// RUN:   | FileCheck -check-prefix=UNIT %s
+void zero_do(unsigned char *b, unsigned n) {
+  unsigned i = 0;
+  do
+    assigns        (i, b[0 : n])
+    loop_invariant (i < n)
+    decreases      (n - i)
+  { b[i] = 0; i++; } while (i < n);
+}
+// UNIT:      void zero_do(unsigned char *b, unsigned n) {
+// UNIT:      while (1)
+// UNIT-NEXT: __CPROVER_assigns(i, __CPROVER_object_upto(b, n))
+// UNIT-NEXT: __CPROVER_loop_invariant(i < n)
+// UNIT-NEXT: __CPROVER_decreases(n - i)
+// UNIT-NEXT: { b[i] = 0; i++; if (!(i < n)) break; } ;

@@ -58,23 +58,43 @@ if [ "$N" -eq 0 ]; then A=PASS; else A=FAIL; fi
 report "2 no prover vocabulary in annotated source" PASS "$A" "$N __CPROVER tokens in the patch"
 
 # ---------------------------------------------------------------- case 3
-# A do/while loop should be annotatable where it stands. Today the function has
-# to be restructured for the contract to attach, which is a change a maintainer
-# is being asked to make to shipping code for the benefit of a tool.
+# A do/while has to be annotatable where it stands. goto-instrument rejects loop
+# contracts on a do loop, and asking a maintainer to restructure shipping code
+# for a tool is how this conversation ends -- zstd's hot loops are do/while by
+# convention. So the compiler performs the rewrite, not the author:
+#
+#   do CLAUSES { B } while (C);  ->  while (1) CLAUSES { B if (!(C)) break; } ;
 cat > "$WORK/c3.c" <<'EOF'
-void f(unsigned char *b, unsigned n) {
+void *__CPROVER_allocate(unsigned long, int);
+void __CPROVER_assume(int);
+void zero_do(unsigned char *b, unsigned n) pre (writable(b, n)) {
   unsigned i = 0;
   do
-    __CPROVER_assigns(i, __CPROVER_object_upto(b, n))
-    __CPROVER_loop_invariant(i < n)
-    __CPROVER_decreases(n - i)
+    assigns        (i, b[0 : n])
+    loop_invariant (i < n)
+    decreases      (n - i)
   { b[i] = 0; i++; } while (i < n);
 }
+void harness(void) {
+  unsigned n; __CPROVER_assume(n >= 1 && n <= 64);
+  zero_do(__CPROVER_allocate(n, 0), n);
+}
 EOF
-if goto-cc -c "$WORK/c3.c" -o "$WORK/c3.goto" 2>/dev/null &&
-   goto-instrument --apply-loop-contracts "$WORK/c3.goto" "$WORK/c3i.goto" 2>&1 |
-     grep -q "unsupported on do/while"; then A=FAIL; else A=PASS; fi
-report "3 a loop verifies without restructuring" FAIL "$A" "goto-instrument rejects do/while"
+A=FAIL; D="lowering produced no output"
+$CLANG -cc1 -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit \
+    "$WORK/c3.c" > "$WORK/c3out.c" 2>/dev/null
+if [ -s "$WORK/c3out.c" ] && goto-cc "$WORK/c3out.c" -o "$WORK/c3.goto" 2>/dev/null; then
+  if goto-instrument --apply-loop-contracts "$WORK/c3.goto" "$WORK/c3i.goto" 2>&1 |
+       grep -q "unsupported on do/while"; then
+    D="goto-instrument still rejects it"
+  elif timeout 900 cbmc "$WORK/c3i.goto" --function harness --bounds-check \
+         --pointer-check $SOLVER 2>&1 | grep -q "VERIFICATION SUCCESSFUL"; then
+    A=PASS; D="author's do/while proved, no --unwind"
+  else
+    D="instrumented but did not verify"
+  fi
+fi
+report "3 a loop verifies without restructuring" PASS "$A" "$D"
 
 # ---------------------------------------------------------------- case 4
 # The scalability question, in two halves. Verification that must inline every

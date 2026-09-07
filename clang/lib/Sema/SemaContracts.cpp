@@ -349,6 +349,44 @@ static void forEachLoopContract(
     forEachLoopContract(Child, Ctx, OnLoop);
 }
 
+/// Records the edits that turn a contracted `do` loop into the `while (1)` form
+/// goto-instrument will accept.
+///
+///   do  CLAUSES { B } while (C);  =>  while (1) CLAUSES { B if (!(C)) break; }
+///   ;
+///
+/// Behaviour is identical -- the body still runs before the test -- and the
+/// clauses stay where CBMC wants them, between the header and the body. The
+/// original `;` is left as an empty statement rather than hunted down.
+///
+/// This is the compiler doing the transformation instead of asking the author
+/// to restructure shipping code: zstd's hot loops are `do`/`while` by
+/// convention, and proofs/zstd/UNBOUNDED.md records the hand rewrite as the
+/// first obstacle hit when annotating one.
+static void recordDoWhileRewrite(
+    const DoStmt *DS, const ASTContext &Ctx,
+    SmallVectorImpl<std::pair<SourceRange, std::string>> &Out) {
+  const auto *Body = dyn_cast<CompoundStmt>(DS->getBody());
+  if (!Body)
+    return; // Diagnosed by the caller: there is no brace to hang the test on.
+
+  const SourceManager &SM = Ctx.getSourceManager();
+  StringRef Cond = Lexer::getSourceText(
+      CharSourceRange::getTokenRange(DS->getCond()->getSourceRange()), SM,
+      Ctx.getLangOpts());
+
+  // `do` -> `while (1)`. A single token, so begin and end are the same.
+  Out.emplace_back(SourceRange(DS->getBeginLoc(), DS->getBeginLoc()),
+                   "while (1)");
+
+  // The body's closing brace carries the exit test.
+  Out.emplace_back(SourceRange(Body->getRBracLoc(), Body->getRBracLoc()),
+                   ("if (!(" + Cond + ")) break; }").str());
+
+  // The trailing `while (C)` has nothing left to say.
+  Out.emplace_back(SourceRange(DS->getWhileLoc(), DS->getRParenLoc()), "");
+}
+
 /// Prints the loop contracts reachable from \p S as CBMC loop-contract clauses.
 static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
                                       const ASTContext &Ctx) {
@@ -501,9 +539,20 @@ void Sema::EmitCProverLoopContracts(const Decl *D) {
     printCProverLoopContracts(FD->getBody(), FD, Context);
   if (getLangOpts().CContractsEmitCProverUnit)
     forEachLoopContract(
-        FD->getBody(), Context, [&](const Stmt *, const ContractSpecifier &CS) {
+        FD->getBody(), Context,
+        [&](const Stmt *L, const ContractSpecifier &CS) {
           recordCProverRewrites(CS, Context, CProverUnitRewrites,
                                 NumInvalidContractClauses);
+          // A 'do' loop also needs restructuring, not just clause
+          // substitution, because goto-instrument refuses loop contracts on
+          // one. The author keeps their loop; the emitted unit gets the shape
+          // the prover accepts.
+          if (const auto *DS = dyn_cast<DoStmt>(L)) {
+            if (isa<CompoundStmt>(DS->getBody()))
+              recordDoWhileRewrite(DS, Context, CProverUnitRewrites);
+            else
+              Diag(DS->getBeginLoc(), diag::warn_contract_do_needs_braces);
+          }
         });
 }
 

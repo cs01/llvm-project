@@ -14382,6 +14382,10 @@ def warn_contract_cprover_unit_skipped_header : Warning<
   "rewritten; preprocess first so header contracts are part of the translation "
   "unit">,
   InGroup<CContracts>;
+def warn_contract_do_needs_braces : Warning<
+  "a 'do' loop with contracts needs a braced body to be rewritten for the "
+  "prover; its contracts are emitted but will be rejected">,
+  InGroup<CContracts>;
 def err_contract_cprover_unit_invalid_clause : Error<
   "refusing to rewrite this translation unit: %0 contract clause%s0 did not "
   "type-check, and the output would be part contract syntax and part CBMC">;
