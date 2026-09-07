@@ -133,27 +133,45 @@ report "4a callee's frame holds at the call site" PASS "$A4a" "$D4a"
 report "4b callee's postcondition holds at the site" FAIL "$A4b" "$D4b"
 
 # ---------------------------------------------------------------- case 5
-# A contract on a FORCE_INLINE function has to reach the sites it is inlined
-# into. zstd's decoder has fifteen such uses; if each needs its invariant
-# repeated by hand the annotation burden multiplies rather than being paid once.
+# A contract on an always_inline function has to reach the sites it is inlined
+# into. zstd's decoder has fifteen such uses, so if each needed its invariant
+# repeated by hand the annotation burden would multiply rather than being paid
+# once. Written in this grammar, with a harness -- an earlier version of this
+# case called the function directly with an unconstrained pointer and failed for
+# that reason rather than for anything to do with inlining.
 cat > "$WORK/c5.c" <<'EOF'
-static inline __attribute__((always_inline)) void inner(unsigned char *b, unsigned n) {
+void *__CPROVER_allocate(unsigned long, int);
+void __CPROVER_assume(int);
+static inline __attribute__((always_inline))
+void inner(unsigned char *b, unsigned n) {
   unsigned i = 0;
   while (i < n)
-    __CPROVER_assigns(i, __CPROVER_object_upto(b, n))
-    __CPROVER_loop_invariant(i <= n)
-    __CPROVER_decreases(n - i)
+    assigns        (i, b[0 : n])
+    loop_invariant (i <= n)
+    decreases      (n - i)
   { b[i] = 0; i++; }
 }
 void outer(unsigned char *b, unsigned n) { inner(b, n); }
+void harness(void) {
+  unsigned n; __CPROVER_assume(n >= 1 && n <= 64);
+  outer(__CPROVER_allocate(n, 0), n);
+}
 EOF
-A=FAIL; D="loop still unwound in the caller"
-if goto-cc -c "$WORK/c5.c" -o "$WORK/c5.goto" 2>/dev/null &&
+A=FAIL; D="lowering produced no output"
+$CLANG -cc1 -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit \
+    "$WORK/c5.c" > "$WORK/c5out.c" 2>/dev/null
+if [ -s "$WORK/c5out.c" ] && goto-cc "$WORK/c5out.c" -o "$WORK/c5.goto" 2>/dev/null &&
    goto-instrument --apply-loop-contracts "$WORK/c5.goto" "$WORK/c5i.goto" >/dev/null 2>&1; then
-  OUT=$(timeout 300 cbmc "$WORK/c5i.goto" --function outer --bounds-check 2>&1)
-  printf '%s' "$OUT" | grep -q "VERIFICATION SUCCESSFUL" && { A=PASS; D="proved with no unwind bound"; }
+  # No --unwind: if the contract did not reach the inlined copy, this unwinds
+  # forever instead of returning.
+  if timeout 600 cbmc "$WORK/c5i.goto" --function harness --bounds-check \
+       --pointer-check $SOLVER 2>&1 | grep -q "VERIFICATION SUCCESSFUL"; then
+    A=PASS; D="proved through the inlined copy, no --unwind"
+  else
+    D="loop still unwound in the caller"
+  fi
 fi
-report "5 contract survives into a FORCE_INLINE site" FAIL "$A" "$D"
+report "5 contract survives into a FORCE_INLINE site" PASS "$A" "$D"
 
 # ---------------------------------------------------------------- case 6
 # A wrong contract must fail. A tool that only ever agrees is worth nothing.

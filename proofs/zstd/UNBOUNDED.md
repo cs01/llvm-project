@@ -16,13 +16,20 @@ None of them is about mathematics, and each is expanded below.
   `__CPROVER_same_object` and `__CPROVER_POINTER_OFFSET`.
 - A symbolic extent in `assigns` generates its own unbounded havoc loop. Use a
   concrete bound where the semantics give you one.
-- **`FORCE_INLINE` functions defeat callee contracts.** `ZSTD_wildcopy` is
-  inlined into `ZSTD_safecopy` before contracts are applied, so the invariant
-  written on the standalone function does not transfer. Loop contracts are per
-  loop *instance*, so an inlined loop needs its invariant repeated at every site.
-  The decoder has fifteen `FORCE_INLINE` uses, which multiplies the annotation
-  burden rather than adding a fixed cost. This is the one that does not go away
-  with a rewrite.
+- **`FORCE_INLINE` was recorded as defeating callee contracts. It does not, on
+  CBMC 6.11.** This entry said an inlined loop needed its invariant repeated at
+  every call site, and called it the obstacle that does not go away with a
+  rewrite. A minimal reproduction says otherwise: an `always_inline` function
+  whose loop carries a contract, called from another function, proves in one
+  iteration with no `--unwind`, and does so identically with and without the
+  attribute. The control matters — with the contract removed the same program
+  unwinds forever — so the contract is doing the work and it does reach the
+  inlined copy. Kept as `e2e` case 5.
+
+  What blocked `ZSTD_safecopy` was therefore something else, most likely the
+  symbolic `assigns` extent above, or a CBMC older than 6. Re-testing safecopy
+  itself is still open; nothing here says it now passes, only that this reason
+  for its failing was wrong.
 
 The hard part of applying this to real C is toolchain-versus-codebase fit,
 not proving things.
@@ -278,8 +285,9 @@ than adding a fixed cost.
 It also explains why `ZSTD_wildcopy` verified cleanly on its own: the standalone
 harness calls it directly, so there is nothing to inline it into.
 
-**Status: `ZSTD_wildcopy` proved unbounded standalone; `ZSTD_safecopy` blocked on
-the above.** The contracts were accepted without a diagnostic, but
+**Status: `ZSTD_wildcopy` proved unbounded standalone; `ZSTD_safecopy` still
+unproved, but the inlining reason recorded above turned out to be wrong, so its
+actual blocker is unestablished.** The contracts were accepted without a diagnostic, but
 `goto-instrument` reports nothing on success either, so attachment is only
 confirmed by the absence of unwinding output in the solve. Not claiming it yet.
 

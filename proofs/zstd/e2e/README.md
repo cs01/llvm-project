@@ -18,13 +18,13 @@ tells you to come update this file.
 | 3 | A loop verifies without restructuring the function | **pass** |
 | 4a | A callee's frame holds at the call site | **pass** |
 | 4b | A callee's postcondition holds at the call site | fail |
-| 5 | A contract on a FORCE_INLINE function reaches its call sites | fail |
+| 5 | A contract on a FORCE_INLINE function reaches its call sites | **pass** |
 | 6 | A wrong contract fails, loudly | **pass** |
 | 7 | A proof fits in a CI step (60 s budget) | **pass**, 10 s |
 | 8 | Annotations can live in the upstream source tree | fail |
 | 9 | A violated precondition can trap at runtime | **pass**, scalar `pre` |
 
-Seven of nine. The seven that pass are not the easy ones: a wrong contract really
+Eight of nine. The eight that pass are not the easy ones: a wrong contract really
 is rejected, the frame really does hold across a call replacement, and the
 unbounded proof really does fit in a CI step. The five that fail are the ones
 between a research artifact and something a maintainer would adopt.
