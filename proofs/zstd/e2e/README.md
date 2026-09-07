@@ -88,3 +88,12 @@ Case 4 is the one that decides whether this scales. Verification that must
 inline every callee is bounded by the size of the whole program; verification
 that can replace a call with its contract is bounded by one function at a time.
 Everything else here is ergonomics by comparison.
+
+**Not yet covered: the third direction of case 4.** 4a and 4b ask what a caller
+may *assume* from a callee's contract — the frame, then the postcondition. The
+opposite direction, whether replacing a call asserts the callee's
+*precondition* at the call site, is the one the README's level-3 column rests on:
+it is what catches a violation the call-site warning declines to report, such as
+a pointer that is null on only one path. `--replace-call-with-contract` is
+specified to assert it, and nothing here runs that yet. Given 4b already fails,
+it should not be assumed to work until a case demonstrates it.

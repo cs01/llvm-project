@@ -404,10 +404,11 @@ put(b, n, k, 1);        // symbolic: it cannot relate n and k, so it says nothin
 
 - **Anything symbolic.** The abstract domain is four values — known integer,
   null, non-null, unknown. Two unknowns have no relationship.
-- **Anything a loop disagrees with itself about.** The dataflow runs to a
-  fixpoint and merges by keeping only what every predecessor agrees on, so a
-  variable the loop changes becomes unknown rather than wrong. That costs
-  reports and never invents them.
+- **Anything two paths disagree about.** The dataflow runs to a fixpoint and
+  merges by keeping only what every predecessor agrees on, so a variable that is
+  null on one edge and unknown on another comes out unknown rather than wrong.
+  Both `if (c) p = 0;` before a call and a variable a loop rewrites are silent
+  for this one reason. That costs reports and never invents them.
 - **The callee's own body.** It checks callers against a contract; it never asks
   whether `put` itself honours it.
 

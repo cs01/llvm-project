@@ -245,9 +245,21 @@ void caller(int c, int *maybe) {
 ```
 
 It reports only violations it can *demonstrate* — the difference between a
-warning people leave on and one they turn off. A fuller example, including
-`old()` and the numbered list of every rule the front end enforces, is in
-[`contracts-example/`](contracts-example/).
+warning people leave on and one they turn off. The second call breaks the
+precondition only when `c` is non-zero, and nothing at this level can decide
+whether it ever is; the dataflow merges by keeping what every path agrees on, so
+`p` becomes unknown rather than wrong.
+
+Two other levels do reach it. CBMC decides it: verifying `caller` with
+`goto-instrument --replace-call-with-contract use` asserts the callee's
+precondition at the call site, and the solver returns the concrete `c` that
+breaks it. `-fcontract-runtime-checks` reaches it at run time, for the inputs an
+execution actually takes — `p != 0` is a scalar predicate, unlike the memory
+clauses that tier declines. Neither is a substitute for the other: the warning is
+free on every build, the solver is exhaustive but costs a harness.
+
+A fuller example, including `old()` and the numbered list of every rule the front
+end enforces, is in [`contracts-example/`](contracts-example/).
 
 **Most proofs today are bounded**: exhaustive over a small domain rather than
 universal. `ZSTD_wildcopy` is the exception and shows the route out.
