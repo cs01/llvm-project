@@ -1,5 +1,9 @@
 # Does this work outside zstd?
 
+> The index of every finding, every clean result, and what has not been
+> looked at is [`../FINDINGS.md`](../FINDINGS.md). Reproductions are in
+> [`../repro/`](../repro/). Start there.
+
 Everything under [`proofs/zstd/`](../zstd/) is one codebase, one domain, one
 author's idioms. Two reachable defects came out of it, both of the same shape: a
 pointer formed outside its object and never dereferenced. That shape is
