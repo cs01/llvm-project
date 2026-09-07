@@ -37,22 +37,30 @@ another sanitizer.
 | zstd `ZSTD_wildcopy` | the unbounded proof target | Memory-safe for every length, `0 of 205`, no `--unwind`. [UNBOUNDED.md](zstd/UNBOUNDED.md) |
 | zstd `ZSTD_safecopy` | second loop-bearing function in the decode path | Unproved, and the recorded reason (FORCE_INLINE) was **wrong** — see the note in UNBOUNDED.md. Its actual blocker is unestablished. |
 
-## Scanner hits already triaged as false positives
+## The detector's false positives, and why there are none left
 
-[`scan-realloc-aliasing.py`](scan-realloc-aliasing.py) is a text-level filter
-and says so. These are the hits it reports that are **not** defects, checked by
-reading them. Do not re-triage them.
+The realloc detector reported 6 hits with 1 real when it was written. It now
+reports **4 across six source trees, and all 4 are real.** Each false positive
+was a distinct confusion, each is now ruled out mechanically, and the taxonomy
+is in [PATTERNS.md](PATTERNS.md#shape-b--a-pointer-read-after-realloc-freed-it).
+
+Previously-reported hits that are **not** defects, kept here so they are not
+re-triaged if a rule ever regresses:
 
 | Hit | Why it is fine |
 |---|---|
-| `zlib contrib/puff/pufftest.c:81` | the line is `buf = NULL;` — a *write* to `buf`, not a read of the freed value, and `free(buf)` precedes it deliberately |
-| `zlib examples/enough.c:335` | `memset(vector + g.done[index].len, ...)` reads `.len`, a `size_t` member. The freed pointer is `.vec`, which is not read |
-| `redis src/zmalloc.c:563` | `zmalloc_oom_handler(size)` reads `size`, an integer argument, not the reallocated pointer |
-| `jq src/jv.c:455` | the loop reads `values.values_num`, the integer count. The freed pointer is `values.values`, which is not read before line 457 reassigns it |
+| `zlib contrib/puff/pufftest.c:81` | `buf = NULL;` is a *write*, not a read of the freed value |
+| `zlib examples/enough.c:335` | reads `.len`, a `size_t`. The freed pointer is `.vec` |
+| `redis src/zmalloc.c:563` | reads `size`, an integer argument |
+| `redis src/rdb.c:2572` | inside `if (nv == NULL)` — the failure path, where the old block is still live and must be freed. Correct code |
+| `jq src/jv.c:455` | reads `values.values_num`, the integer count |
+| `sqlite src/printf.c:1233` | `p->nAlloc` is the size argument, not the pointer |
 
-The pattern in all four: the scanner matches any read of a *name that shares a
-prefix* with the reallocated pointer — `.len` is not `.vec`, `.values_num` is
-not `.values`. Confirm every hit by reading it. Two of eight were real.
+The lesson generalises past this detector: **a filter that silences a finding is
+worse than the noise it removes.** Tightening these rules once eliminated every
+false positive *and* the real expat defect, because expat's guard returns and
+everything after it is the success path. Every rule here was re-checked against
+the known-real sites before it was kept.
 
 ## Not looked at yet
 

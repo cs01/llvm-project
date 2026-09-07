@@ -62,8 +62,23 @@ numerically correct on every real target, which is why it survives.
 reaches the bad case.
 
 *Detector:* [`detectors/realloc-aliasing.py`](detectors/realloc-aliasing.py).
-Text-level and deliberately noisy — 2 of 7 hits were real. It matches any read
-of a name sharing a prefix with the reallocated pointer, so confirm by reading.
+Text-level, but no longer noisy: **4 hits across six trees, 4 real.** It started
+at 1-in-6 and every false positive turned out to be a distinct, mechanizable
+confusion rather than an inherent limit of grepping:
+
+| What it confused | Example | Rule now applied |
+|---|---|---|
+| a sibling field for the pointer | `values.values_num` is not `values.values`; `.len` is not `.vec` | expand a stem to sibling members **only inside a `union`**, where the names really do denote one object |
+| a write for a read | zlib's `buf = NULL;` | ignore the name when it is an assignment target |
+| the failure path for the success path | redis `rdb.c` frees the old block inside `if (nv == NULL)` — correct, that is realloc's contract | compute the guard's block extent, and handle `== 0` as well as `== NULL`, `if(` without a space, and a body on the guard's own line |
+| a size argument for the pointer | sqlite's `p->nAlloc = sqlite3DbMallocSize(db, zNew)` looks like a repair | a repair assigns the pointer itself, optionally cast — not a function *of* it |
+| a substring for the name | `realptr` matched `ptr` | word boundaries on both sides |
+
+Getting there needed the control both ways. Tightening once removed every false
+positive **and the true positive in expat**, because its guard returns and
+everything after it is the success path. A filter that silences the finding is
+worse than the noise it removed, so each rule was checked against the known-real
+sites before it was kept.
 
 *Found:* expat `storeRawNames`, sqlite `fts3_unicode.c` and one more.
 *Cleared:* zlib `pufftest.c`, zlib `enough.c`, redis `zmalloc.c` — all triaged
