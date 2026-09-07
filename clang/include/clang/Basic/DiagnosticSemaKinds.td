@@ -14382,6 +14382,9 @@ def warn_contract_cprover_unit_skipped_header : Warning<
   "rewritten; preprocess first so header contracts are part of the translation "
   "unit">,
   InGroup<CContracts>;
+def err_contract_cprover_unit_invalid_clause : Error<
+  "refusing to rewrite this translation unit: %0 contract clause%s0 did not "
+  "type-check, and the output would be part contract syntax and part CBMC">;
 def err_contract_assigns_slice_not_buffer : Error<
   "'assigns' range needs a pointer or array to take elements of; %0 is neither">;
 def err_contract_assigns_bound_not_integer : Error<

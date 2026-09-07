@@ -21,6 +21,7 @@
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Sema.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cstring>
 
 using namespace clang;
 
@@ -75,6 +76,87 @@ ExprResult Sema::ActOnContractClausePredicate(ContractClause::ClauseKind Kind,
   return Cond;
 }
 
+namespace {
+/// A contract intrinsic: the spelling an author writes, the CBMC builtin it
+/// lowers to, and how many pointer/size arguments it takes.
+///
+/// These exist so that a contract about memory can be written in C rather than
+/// in the prover's vocabulary. Every one of them is a question about a pointer
+/// that C itself gives no way to ask.
+struct ContractIntrinsic {
+  const char *Name;    ///< as written in the clause
+  const char *CProver; ///< as CBMC spells it
+  unsigned NumPtrArgs; ///< leading `const void *` parameters
+  bool HasSizeArg;     ///< trailing size_t parameter
+};
+
+constexpr ContractIntrinsic ContractIntrinsicTable[] = {
+    // 'readable' is a lower bound: it claims n bytes may be read and says
+    // nothing about the size of the object above that, so a read past n is
+    // not caught. 'fresh' allocates an object of exactly n bytes, distinct
+    // from every other, and does catch it. The difference decides whether an
+    // over-read is found, so both spellings exist rather than one guessing.
+    {"readable", "__CPROVER_r_ok", 1, true},
+    {"fresh", "__CPROVER_is_fresh", 1, true},
+    {"writable", "__CPROVER_w_ok", 1, true},
+    {"same_object", "__CPROVER_same_object", 2, false},
+    {"pointer_offset", "__CPROVER_POINTER_OFFSET", 1, false},
+};
+} // namespace
+
+FunctionDecl *Sema::LookupContractIntrinsic(const IdentifierInfo &II,
+                                            SourceLocation Loc) {
+  const ContractIntrinsic *Info = nullptr;
+  for (const ContractIntrinsic &C : ContractIntrinsicTable)
+    if (II.getName() == C.Name)
+      Info = &C;
+  if (!Info)
+    return nullptr;
+
+  auto It = ContractIntrinsics.find(&II);
+  if (It != ContractIntrinsics.end())
+    return It->second;
+
+  QualType ConstVoidPtr = Context.getPointerType(Context.VoidTy.withConst());
+  SmallVector<QualType, 2> ParamTys(Info->NumPtrArgs, ConstVoidPtr);
+  if (Info->HasSizeArg)
+    ParamTys.push_back(Context.getSizeType());
+
+  // 'pointer_offset' answers with a signed distance; the rest are predicates.
+  QualType RetTy = II.getName() == "pointer_offset"
+                       ? Context.getPointerDiffType()
+                       : Context.IntTy;
+
+  FunctionProtoType::ExtProtoInfo EPI;
+  QualType FnTy = Context.getFunctionType(RetTy, ParamTys, EPI);
+
+  DeclContext *DC = Context.getTranslationUnitDecl();
+  FunctionDecl *FD = FunctionDecl::Create(
+      Context, DC, Loc, Loc, DeclarationName(&II), FnTy,
+      Context.getTrivialTypeSourceInfo(FnTy), SC_Extern,
+      /*UsesFPIntrin=*/false, /*isInlineSpecified=*/false,
+      /*hasWrittenPrototype=*/true, ConstexprSpecKind::Unspecified);
+  FD->setImplicit();
+
+  SmallVector<ParmVarDecl *, 3> Params;
+  for (QualType T : ParamTys)
+    Params.push_back(ParmVarDecl::Create(Context, FD, Loc, Loc, /*Id=*/nullptr,
+                                         T, /*TInfo=*/nullptr, SC_None,
+                                         /*DefArg=*/nullptr));
+  FD->setParams(Params);
+
+  // Marks it usable in a predicate: the purity check below reads exactly this
+  // attribute, so the intrinsics go through the same gate as a user's own
+  // spec-safe function rather than around it.
+  FD->addAttr(ConstAttr::CreateImplicit(Context, Loc));
+
+  ContractIntrinsics[&II] = FD;
+  return FD;
+}
+
+/// Rewrites the intrinsic spellings in \p Text to their CBMC builtins.
+static std::string lowerContractIntrinsics(StringRef Text);
+
 /// Replaces whole-token occurrences of \p From with \p To in \p S.
 ///
 /// Substring replacement would corrupt an identifier that merely contains the
@@ -95,6 +177,38 @@ static std::string replaceToken(StringRef S, StringRef From, StringRef To) {
     Out += S.substr(Pos, Found - Pos).str();
     Out += (LeftOK && RightOK) ? To.str() : From.str();
     Pos = End;
+  }
+  return Out;
+}
+
+static std::string lowerContractIntrinsics(StringRef Text) {
+  std::string Out = Text.str();
+  for (const ContractIntrinsic &C : ContractIntrinsicTable) {
+    // Only a call is an intrinsic. A local named `readable` that the predicate
+    // merely reads is left alone, which matters because the intrinsic is only
+    // reached when ordinary lookup found nothing -- so both spellings can be
+    // live in one translation unit.
+    std::string Result;
+    StringRef Rest = Out;
+    while (true) {
+      size_t Found = Rest.find(C.Name);
+      if (Found == StringRef::npos) {
+        Result += Rest.str();
+        break;
+      }
+      size_t End = Found + std::strlen(C.Name);
+      auto IsIdentChar = [](char Ch) {
+        return isAlphanumeric(Ch) || Ch == '_';
+      };
+      size_t Paren = Rest.find_first_not_of(' ', End);
+      bool IsCall = Paren != StringRef::npos && Rest[Paren] == '(';
+      bool Whole = (Found == 0 || !IsIdentChar(Rest[Found - 1])) &&
+                   (End >= Rest.size() || !IsIdentChar(Rest[End]));
+      Result += Rest.substr(0, Found).str();
+      Result += (Whole && IsCall) ? C.CProver : C.Name;
+      Rest = Rest.substr(End);
+    }
+    Out = std::move(Result);
   }
   return Out;
 }
@@ -188,6 +302,9 @@ static std::string formatCProverClause(const ContractClause &Clause,
     llvm::raw_string_ostream OS(Text);
     P->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
   }
+  // `readable(p, n)` is the author's spelling; `__CPROVER_r_ok(p, n)` is the
+  // prover's. Every clause kind can carry one.
+  Text = lowerContractIntrinsics(Text);
 
   switch (Clause.getKind()) {
   case ContractClause::CK_Pre:
@@ -286,13 +403,16 @@ static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
 }
 
 /// Records the CBMC replacement for every clause in \p CS.
-static void recordCProverRewrites(
-    const ContractSpecifier &CS, const ASTContext &Ctx,
-    SmallVectorImpl<std::pair<SourceRange, std::string>> &Out) {
+static void
+recordCProverRewrites(const ContractSpecifier &CS, const ASTContext &Ctx,
+                      SmallVectorImpl<std::pair<SourceRange, std::string>> &Out,
+                      unsigned &NumInvalid) {
   for (const ContractClause &Clause : CS) {
     std::string Text = formatCProverClause(Clause, Ctx);
     if (!Text.empty())
       Out.emplace_back(Clause.getSourceRange(), std::move(Text));
+    else if (Clause.isInvalid())
+      ++NumInvalid;
   }
 }
 
@@ -300,7 +420,19 @@ void Sema::EmitCProverUnit() {
   if (!getLangOpts().CContractsEmitCProverUnit)
     return;
 
+  // A clause that did not type-check has no rewrite, so its original text
+  // would survive into the output next to the clauses that were rewritten.
+  // That file is neither this grammar nor CBMC's, compiles as neither, and
+  // says nothing about which half is missing. Refuse instead: the errors are
+  // already on stderr, and half a translation unit is worse than none.
   SourceManager &SM = getSourceManager();
+  if (NumInvalidContractClauses) {
+    Diag(SM.getLocForStartOfFile(SM.getMainFileID()),
+         diag::err_contract_cprover_unit_invalid_clause)
+        << NumInvalidContractClauses;
+    return;
+  }
+
   FileID Main = SM.getMainFileID();
   StringRef Buf = SM.getBufferData(Main);
 
@@ -379,7 +511,8 @@ void Sema::EmitCProverContracts(const FunctionDecl *FD) {
     printCProverContracts(FD, Context);
   if (getLangOpts().CContractsEmitCProverUnit)
     if (const ContractSpecifier *CS = FD->getContracts())
-      recordCProverRewrites(*CS, Context, CProverUnitRewrites);
+      recordCProverRewrites(*CS, Context, CProverUnitRewrites,
+                            NumInvalidContractClauses);
 }
 
 void Sema::EmitCProverLoopContracts(const Decl *D) {
@@ -393,7 +526,8 @@ void Sema::EmitCProverLoopContracts(const Decl *D) {
   if (getLangOpts().CContractsEmitCProverUnit)
     forEachLoopContract(
         FD->getBody(), Context, [&](const Stmt *, const ContractSpecifier &CS) {
-          recordCProverRewrites(CS, Context, CProverUnitRewrites);
+          recordCProverRewrites(CS, Context, CProverUnitRewrites,
+                                NumInvalidContractClauses);
         });
 }
 

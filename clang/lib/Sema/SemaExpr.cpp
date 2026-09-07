@@ -2940,6 +2940,16 @@ ExprResult Sema::ActOnIdExpression(Scope *S, CXXScopeSpec &SS,
   if (R.isAmbiguous())
     return ExprError();
 
+  // Inside a contract clause, `readable(p, n)` and its siblings need no
+  // declaration: saying "this pointer is good for n bytes" is the commonest
+  // precondition in C, and an author should not have to know what the prover
+  // calls it. Ordinary lookup ran first, so a codebase with its own function
+  // of that name keeps it.
+  if (R.empty() && HasTrailingLParen && II && LangOpts.CContracts &&
+      InContractPredicate)
+    if (FunctionDecl *FD = LookupContractIntrinsic(*II, NameLoc))
+      R.addDecl(FD);
+
   // This could be an implicitly declared function reference if the language
   // mode allows it as a feature.
   if (R.empty() && HasTrailingLParen && II &&

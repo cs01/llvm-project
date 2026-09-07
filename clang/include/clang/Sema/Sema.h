@@ -7865,6 +7865,39 @@ public:
 
   // --- C contracts (-fc-contracts). Implementations in SemaContracts.cpp. ---
 
+  /// True while parsing the inside of a contract clause. Only there do the
+  /// contract intrinsics below exist, so nothing outside a clause changes
+  /// meaning.
+  bool InContractPredicate = false;
+
+  /// RAII object for the window in which the contract intrinsics are visible.
+  class ContractPredicateRAII {
+    Sema &S;
+    bool Saved;
+
+  public:
+    ContractPredicateRAII(Sema &S) : S(S), Saved(S.InContractPredicate) {
+      S.InContractPredicate = true;
+    }
+    ~ContractPredicateRAII() { S.InContractPredicate = Saved; }
+  };
+
+  /// Implicitly declared contract intrinsics, keyed by name, so that every use
+  /// in a translation unit refers to one declaration.
+  llvm::DenseMap<const IdentifierInfo *, FunctionDecl *> ContractIntrinsics;
+
+  /// Declares the contract intrinsic named \p II on first use, or returns the
+  /// one already made. Returns null if \p II is not an intrinsic name.
+  ///
+  /// These are spelled as ordinary calls -- `readable(p, n)` -- and need no
+  /// declaration, which is the point: saying "this pointer is good for n
+  /// bytes" is the most common precondition in C, and it should not require
+  /// the author to know what the prover calls it. They are looked up only
+  /// after ordinary lookup has failed and only inside a clause, so a
+  /// codebase that has its own `readable` keeps it.
+  FunctionDecl *LookupContractIntrinsic(const IdentifierInfo &II,
+                                        SourceLocation Loc);
+
   /// Checks the predicate of a contract clause and applies the contextual
   /// conversion to bool. Returns an invalid result if the predicate cannot be
   /// used, in which case the clause is recorded without one so that the
@@ -7893,6 +7926,11 @@ public:
   /// in parse order across the whole file, and the result has to be written out
   /// once, in offset order, at the end of the translation unit.
   SmallVector<std::pair<SourceRange, std::string>, 8> CProverUnitRewrites;
+
+  /// Contract clauses that did not type-check, and so have no rewrite. The
+  /// unit rewriter refuses to emit anything when this is non-zero rather than
+  /// splice a file that is half this grammar and half CBMC's.
+  unsigned NumInvalidContractClauses = 0;
 
   /// Writes the translation unit with every contract clause replaced by its
   /// CBMC spelling, so the result can be handed to goto-cc.

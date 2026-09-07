@@ -4,10 +4,13 @@ Say what a function requires and guarantees, in the declaration. `-fc-contracts`
 type-checks it, warns the callers who break it, and lowers it to
 [CBMC](https://github.com/diffblue/cbmc) to be proved.
 
+## The smallest useful one
+
+A precondition is one line, and it goes where the reader already looks:
+
 ```c
 int *allocate(unsigned long n)
-  pre  (n > 0)
-  post (r: r != 0);
+  pre (n > 0);
 ```
 
 Someone calls it wrong, a thousand files away. Ordinary build, ordinary warning:
@@ -21,16 +24,69 @@ demo.c:2:3: note: precondition declared here
       |   ^~~~~~~~~~~~
 ```
 
-Ask for the proof form and the compiler writes the verifier's syntax for you:
+No harness, no annotation at the call site, no separate tool run. The comment
+that used to say `/* n must be positive */` now says it to the compiler.
 
-```
-$ clang -fc-contracts -fcontract-emit-cprover -fsyntax-only allocate.c
-__CPROVER_requires(n > 0)
-__CPROVER_ensures(__CPROVER_return_value != 0)
+## What it gives back
+
+Half a contract is what the caller owes. The other half is what it is owed:
+
+```c
+int *allocate(unsigned long n)
+  pre  (n > 0)
+  post (r: r != 0);
 ```
 
-Loops take a frame, an invariant, and a termination measure — enough for CBMC to
-prove a loop for *every* length instead of unrolling it to a bound:
+`r:` names the return value for this clause only. Now a caller that checks the
+result for null is checking something the callee already promised, and a caller
+that *doesn't* is no longer guessing.
+
+## Real C takes buffers
+
+Almost every C function worth specifying takes a pointer and a length, and the
+thing you want to say about them is not expressible in C:
+
+```c
+size_t decode(void *dst, size_t dstCap, const void *src, size_t srcSize)
+  pre  (readable(src, srcSize))
+  pre  (writable(dst, dstCap))
+  post (r: r <= old(dstCap) || is_error(r));
+```
+
+`readable(p, n)` and `writable(p, n)` say the pointer is good for that many
+bytes. `old(dstCap)` is the value at entry — required for a by-value parameter,
+because C lets the body reassign it and the reader cannot tell which one you
+meant.
+
+One thing to know early, because the words sound like synonyms and are not:
+`readable(p, n)` is a *lower bound*. It promises n bytes and says nothing about
+the size of the object, so a read at `p[n + 3]` is not caught. `fresh(p, n)`
+gives an object of exactly n bytes and does catch it. Preconditions on a
+function you are verifying usually want `fresh`; obligations you are placing on
+a caller usually want `readable`.
+
+## What it may change
+
+A prover cannot verify a caller without knowing what a callee leaves alone, so
+a frame condition is the clause that makes everything else composable:
+
+```c
+size_t decode(void *dst, size_t dstCap, const void *src, size_t srcSize)
+  pre     (readable(src, srcSize))
+  pre     (writable(dst, dstCap))
+  assigns (((char *)dst)[0 : dstCap])
+  post    (r: r <= old(dstCap) || is_error(r));
+```
+
+`buf[0 : n]` is a half-open range of *elements*; the compiler does the `sizeof`
+multiply. Anything not named is guaranteed untouched — which is what lets a
+proof about a caller use this contract instead of the function body.
+
+## Loops, and why they are the interesting case
+
+A bounded checker unrolls a loop to some `--unwind N` and tells you the code is
+right up to N. An invariant and a termination measure replace the bound with
+induction, and the result holds for every length:
 
 ```c
 void zero(int *buf, unsigned len) {
@@ -42,6 +98,29 @@ void zero(int *buf, unsigned len) {
   { buf[i] = 0; i++; }
 }
 ```
+
+That is the difference between "tested harder than fuzzing" and "proved".
+
+## What it is worth on real code
+
+`ZSTD_wildcopy`, in upstream zstd at `d9c0c7e2`, annotated in exactly the syntax
+above and proved memory-safe for **every** length — `length` symbolic to 1 GiB,
+both buffers symbolically allocated, no `--unwind` at all:
+
+```
+** 0 of 208 failed (1 iterations)
+VERIFICATION SUCCESSFUL
+```
+
+15 seconds, reproducible: `./proofs/zstd/run-wildcopy-from-grammar.sh`. The
+frame the compiler generated is byte-identical to the one a human wrote by hand
+after hitting five separate obstacles, which are all written down in
+[`UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md).
+
+The same work found real defects in zstd, including a pointer formed before the
+start of a buffer in the hot decode path that four years of OSS-Fuzz did not
+surface — because nothing misbehaves at runtime. [What was found, and what it
+was worth](#results-on-real-zstd), including the negative results, is below.
 
 CBMC is not a research toy: AWS runs it in CI on s2n-tls and aws-c-common,
 FreeRTOS's TCP/IP stack is verified with it, and Kani — the Rust verifier — is

@@ -7586,6 +7586,9 @@ bool Parser::isFunctionContractClauseKeyword(
 void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
   assert(getLangOpts().CContracts && "contracts are off");
 
+  // The contract intrinsics ('readable', 'writable', ...) exist only here.
+  Sema::ContractPredicateRAII IntrinsicWindow(Actions);
+
   SmallVector<ContractClause, 2> Clauses;
   ContractClause::ClauseKind Kind;
   while (isFunctionContractClauseKeyword(Tok, Kind)) {
@@ -7707,6 +7710,8 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
 
 void Parser::ParseLoopContractClauses(
     SmallVectorImpl<ContractClause> &Clauses) {
+  Sema::ContractPredicateRAII IntrinsicWindow(Actions);
+
   assert(getLangOpts().CContracts && "contracts are off");
 
   auto IsLoopClause = [](const Token &Tok, ContractClause::ClauseKind &Kind) {
@@ -7847,6 +7852,8 @@ ExprResult Parser::ParseContractOldExpr() {
 }
 
 void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
+  Sema::ContractPredicateRAII IntrinsicWindow(Actions);
+
   auto *FD = dyn_cast_or_null<FunctionDecl>(TheDecl);
   if (!FD)
     return;
