@@ -305,10 +305,17 @@ while (1)
 VERIFICATION SUCCESSFUL
 ```
 
-138 seconds for the whole pipeline, preprocessing through solve. Worth sitting
-with next to [COST.md](COST.md)'s bounded rows, which run to tens of minutes for
-a result that only holds up to some `unwind`: removing the bound made this proof
+15 seconds for the whole pipeline, preprocessing through solve, with `z3`
+installed; about four minutes on CBMC's built-in SAT backend. Worth sitting with
+next to [COST.md](COST.md)'s bounded rows, which run to tens of minutes for a
+result that only holds up to some `unwind`: removing the bound made this proof
 *cheaper*, because there is no unwinding left to pay for.
+
+The solver gap is not incidental to that. This harness allocates both buffers
+symbolically, so their extent never becomes a constant and there is nothing for
+CBMC to usefully bit-blast; an SMT solver with a theory of arrays skips the
+whole encoding. On the fixed-size-array harnesses in this directory the same
+flag *loses* by more than 2x. [COST.md](COST.md) has the table and the rule.
 
 The generated frame is byte-identical to the hand-written one, which is the
 check that matters — the lowering is not merely accepted, it produces the same

@@ -38,6 +38,14 @@ cbmc harness_lookbits.i --function harness \
 `-DNDEBUG` matters: it compiles out the `assert` that would otherwise mask the
 question, which is what a shipped build does.
 
+**Install `z3` too, and read [COST.md](COST.md#which-solver-and-why-it-is-not-one-answer)
+before choosing.** Solver choice is worth up to 20x here, in *either* direction:
+`--z3` beats CBMC's built-in SAT backend by that much on the harnesses whose
+buffers are allocated symbolically, and loses to it by more than 2x on the ones
+with fixed-size arrays and an `--unwind`. The rule is mechanical -- symbolic
+extents want SMT, concrete extents being unwound want SAT -- and guessing is
+worth more than one run of each.
+
 Three more things this setup needs, learned the hard way:
 
 - **`__builtin_memcpy` has no body in CBMC.** Apple's headers route `memcpy`

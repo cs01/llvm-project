@@ -9,6 +9,7 @@
 # Usage:  ZSTD=~/git/zstd CLANG=../../build/bin/clang ./run-wildcopy-from-grammar.sh
 #
 # Expected:  ** 0 of 208 failed (1 iterations) / VERIFICATION SUCCESSFUL
+#            about 20 s with z3 installed, about 4 min without.
 set -e
 ZSTD=${ZSTD:?set ZSTD to a zstd checkout with the patch applied}
 
@@ -52,7 +53,21 @@ grep '__CPROVER_loop_invariant\|__CPROVER_assigns\|__CPROVER_decreases' "$WORK/w
 # 5. Prove. No --unwind: the loop contract replaces the bound with induction.
 goto-cc "$WORK/wc.c" -o "$WORK/wc.goto"
 goto-instrument --apply-loop-contracts "$WORK/wc.goto" "$WORK/wci.goto"
+
+# Z3 if it is installed. This harness allocates both buffers symbolically, so
+# their extent never becomes a constant, and an SMT solver with a theory of
+# arrays does not have to bit-blast it: 13 s against 245 s for CBMC's built-in
+# SAT backend, same 208 obligations, same answer. Do not generalise the flag --
+# on the fixed-size-array harnesses in this directory it loses badly, and
+# COST.md gives the rule and the numbers.
+if command -v z3 >/dev/null 2>&1; then
+  SOLVER=--z3
+else
+  SOLVER=
+  echo "note: z3 not installed; using CBMC's built-in SAT backend (~20x slower here)" >&2
+fi
+
 # --bounds-check --pointer-check only. Adding --pointer-overflow-check to this
 # harness did not finish in 40 minutes; UNBOUNDED.md's recorded run does not use
 # it and returns in one iteration.
-cbmc "$WORK/wci.goto" --function harness --bounds-check --pointer-check
+cbmc "$WORK/wci.goto" --function harness --bounds-check --pointer-check $SOLVER
