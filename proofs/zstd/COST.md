@@ -33,6 +33,33 @@ were measured at 208 obligations, before the hand-declared prover externs were
 replaced by the contract intrinsics; the same proof is 205 obligations today and
 the solve times are unchanged.)
 
+### Do not pick: race them
+
+The rule below is mechanical, but applying it requires knowing whether the
+extents in a harness are symbolic before you have run it, and on a harness
+someone else wrote that is a guess. A wrong guess on one of the rows above
+costs half an hour; the cores to run both at once cost nothing on any machine
+this work happens on.
+
+[`proofs/solve.sh`](../solve.sh) starts every installed solver on the same goto
+binary, keeps the first real verdict, and kills the rest. Three details matter
+more than the racing:
+
+- **Only exit 0 and 10 count as a verdict.** A loser exiting 6 on a front-end
+  error would otherwise cross the line first and be reported as the answer.
+- **On timeout it prints the phase each solver reached.** All of them still in
+  `Starting Bounded Model Checking` means no solver was ever going to help: the
+  harness is symex-bound and has to shrink. That is the failure this table's
+  rows cannot distinguish from a hard solve, and it is the more common one.
+- **A tie is fine.** On the expat `storeRawNames` harness the built-in SAT path
+  takes 2.31 s and `--z3` 2.40 s, so the race decides nothing and costs nothing.
+  Racing only has to pay on the rows where the gap is 20x.
+
+Recorded honestly: no row in the table above was produced by the racer, and the
+expat harness is too small to discriminate between the backends. The evidence
+that the split is real is still the measurements below. What the racer removes
+is the need to predict which side of it a new harness falls on.
+
 **The rule, and it is mechanical:**
 
 > If the buffer extents are **symbolic**, use `--z3`.
