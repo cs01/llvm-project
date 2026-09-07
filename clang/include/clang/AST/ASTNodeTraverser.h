@@ -568,6 +568,16 @@ public:
             Visit(Clause.getResultVar());
           if (Clause.getPredicate())
             Visit(Clause.getPredicate());
+          // An 'assigns' has targets instead of a predicate, so without this
+          // it dumps as a bare label and a frame that was lost -- through a
+          // PCH, say -- looks identical to one that survived.
+          for (const AssignsTarget &T : Clause.getTargets()) {
+            Visit(T.Base);
+            if (T.Lower)
+              Visit(T.Lower);
+            if (T.Upper)
+              Visit(T.Upper);
+          }
         });
 
     if (Traversal == TK_IgnoreUnlessSpelledInSource && D->isDefaulted())
@@ -592,6 +602,13 @@ public:
       getNodeDelegate().AddChild(Clause.getKindSpelling(), [=] {
         if (Clause.getPredicate())
           Visit(Clause.getPredicate());
+        for (const AssignsTarget &T : Clause.getTargets()) {
+          Visit(T.Base);
+          if (T.Lower)
+            Visit(T.Lower);
+          if (T.Upper)
+            Visit(T.Upper);
+        }
       });
   }
 

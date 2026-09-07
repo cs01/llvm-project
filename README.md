@@ -117,6 +117,20 @@ frame the compiler generated is byte-identical to the one a human wrote by hand
 after hitting five separate obstacles, which are all written down in
 [`UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md).
 
+Two limits on that sentence, because "proved" should mean what it says:
+
+- **It covers the `ZSTD_no_overlap` path.** That is the branch the harness
+  exercises and the one the annotated loop is in. The short-offset
+  `ZSTD_overlap_src_before_dst` path has its own `do { COPY8 } while` loop,
+  which carries no contract — `goto-instrument` rejects loop contracts on a `do`
+  loop — so nothing above says anything about it.
+- **The source is rewritten, not just annotated.** The proof runs against a
+  proof-only edit: the hot loop restructured from `do`/`while` to `while (1)`,
+  `COPY16` inlined because `do { } while (0)` counts as a loop, and the `diff`
+  computation moved inside the overlap branch where it is defined. Behaviour is
+  identical and the patch says so at each point, but it is not upstream's text
+  character for character.
+
 The same work found real defects in zstd, including a pointer formed before the
 start of a buffer in the hot decode path that four years of OSS-Fuzz did not
 surface — because nothing misbehaves at runtime. [What was found, and what it

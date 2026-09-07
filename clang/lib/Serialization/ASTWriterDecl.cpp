@@ -943,6 +943,16 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
       Record.AddSourceLocation(C.getRParenLoc());
       Record.AddDeclRef(C.getResultVar());
       Record.AddStmt(C.getPredicate());
+      // An 'assigns' clause carries targets rather than a predicate, and a
+      // clause that comes back without them is invalid -- which silently
+      // contributes no frame at all rather than failing. Contracts belong in
+      // headers, so this is the common path, not the exotic one.
+      Record.push_back(C.getTargets().size());
+      for (const AssignsTarget &T : C.getTargets()) {
+        Record.AddStmt(T.Base);
+        Record.AddStmt(T.Lower);
+        Record.AddStmt(T.Upper);
+      }
     }
   } else {
     Record.push_back(0);

@@ -193,5 +193,10 @@ def err_module_no_size_mtime_for_header : Error<
 def err_module_unable_to_hash_content : Error<
   "failed to hash content for '%0' because memory buffer cannot be retrieved">;
 } // let CategoryName
+
+def warn_contract_pch_drops_loop_contracts : Warning<
+  "loop contracts are not written to a precompiled header; loops in this "
+  "header will carry no contracts when it is used through the PCH">,
+  InGroup<DiagGroup<"contract-pch">>;
 } // let Component
 

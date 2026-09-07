@@ -26,3 +26,9 @@ unsigned long caller3(void) { return old_from_pch(1); }
 // CHECK:      FunctionDecl {{.*}} old_from_pch 'unsigned long (unsigned long)'
 // CHECK:        post
 // CHECK:          ContractOldExpr
+
+// CHECK:      FunctionDecl {{.*}} assigns_from_pch 'void (int *, unsigned int)'
+// CHECK:        assigns
+// CHECK-NEXT:     DeclRefExpr {{.*}} 'buf'
+// CHECK-NEXT:     IntegerLiteral {{.*}} 0
+// CHECK-NEXT:     DeclRefExpr {{.*}} 'len'

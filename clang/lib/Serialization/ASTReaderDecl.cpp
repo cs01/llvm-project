@@ -1161,6 +1161,20 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
       Expr *Predicate = Record.readExpr();
       Clauses.emplace_back(Kind, KeywordLoc, LParenLoc, RParenLoc, Predicate);
       Clauses.back().setResultVar(ResultVar);
+      if (unsigned NumTargets = Record.readInt()) {
+        SmallVector<AssignsTarget, 4> Targets;
+        Targets.reserve(NumTargets);
+        for (unsigned T = 0; T != NumTargets; ++T) {
+          AssignsTarget Target;
+          Target.Base = Record.readExpr();
+          Target.Lower = Record.readExpr();
+          Target.Upper = Record.readExpr();
+          Targets.push_back(Target);
+        }
+        auto *Stored = new (Reader.getContext()) AssignsTarget[Targets.size()];
+        std::copy(Targets.begin(), Targets.end(), Stored);
+        Clauses.back().setTargets(Stored, Targets.size());
+      }
     }
     FD->setContracts(ContractSpecifier::Create(Reader.getContext(), Clauses));
   }

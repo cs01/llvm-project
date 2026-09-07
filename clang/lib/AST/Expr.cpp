@@ -3798,6 +3798,13 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
     return cast<ConstantExpr>(this)->getSubExpr()->HasSideEffects(
         Ctx, IncludePossibleEffects);
 
+  case ContractOldExprClass:
+    // Snapshotting is not itself an effect, but what is snapshotted may be:
+    // `old(f())` is as impure as `f()`, and the predicate purity check reads
+    // exactly this answer.
+    return cast<ContractOldExpr>(this)->getSubExpr()->HasSideEffects(
+        Ctx, IncludePossibleEffects);
+
   case CallExprClass:
   case CXXOperatorCallExprClass:
   case CXXMemberCallExprClass:

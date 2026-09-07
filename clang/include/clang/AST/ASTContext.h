@@ -996,6 +996,11 @@ public:
     auto It = LoopContracts.find(S);
     return It == LoopContracts.end() ? nullptr : It->second;
   }
+  /// Whether any loop in this translation unit carries contracts. Serialization
+  /// asks, because it cannot yet write the side table and would otherwise drop
+  /// them without saying so.
+  bool hasAnyLoopContracts() const { return !LoopContracts.empty(); }
+
   void setLoopContracts(const Stmt *S, ContractSpecifier *CS) {
     if (CS)
       LoopContracts[S] = CS;

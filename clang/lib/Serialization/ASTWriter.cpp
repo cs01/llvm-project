@@ -5535,6 +5535,13 @@ ASTWriter::WriteAST(llvm::PointerUnion<Sema *, Preprocessor *> Subject,
 
   ASTHasCompilerErrors = PPRef.getDiagnostics().hasUncompilableErrorOccurred();
 
+  // Loop contracts live in a side table keyed by Stmt, which this writer cannot
+  // yet emit. Dropping them silently would mean a header's loops verify when
+  // compiled directly and prove nothing through a PCH, with no way to tell the
+  // difference from the output -- so say it instead.
+  if (SemaPtr && SemaPtr->getASTContext().hasAnyLoopContracts())
+    PPRef.getDiagnostics().Report(diag::warn_contract_pch_drops_loop_contracts);
+
   // Emit the file header.
   Stream.Emit((unsigned)'C', 8);
   Stream.Emit((unsigned)'P', 8);

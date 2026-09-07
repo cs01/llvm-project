@@ -491,6 +491,12 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
     return Cl::CL_PRValue;
     break;
 
+    // 'old(x)' is the value x held at entry: a snapshot, so a prvalue. Nothing
+    // may be taken of its address or assigned to it, and saying so here is what
+    // turns `post (r: &old(n) != 0)` into a diagnostic rather than a crash.
+  case Expr::ContractOldExprClass:
+    return Cl::CL_PRValue;
+
   case Expr::CXXParenListInitExprClass:
     if (isa<ArrayType>(E->getType()))
       return Cl::CL_ArrayTemporary;

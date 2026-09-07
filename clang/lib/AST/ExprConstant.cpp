@@ -22516,6 +22516,11 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::OpenACCAsteriskSizeExprClass:
     return NoDiag();
 
+    // 'old(x)' is the value a parameter held at entry, which is a runtime
+    // quantity however constant x looks at the point it is written.
+  case Expr::ContractOldExprClass:
+    return ICEDiag(IK_NotICE, E->getBeginLoc());
+
   case Expr::PackIndexingExprClass:
     return CheckICE(cast<PackIndexingExpr>(E)->getSelectedExpr(), Ctx);
 

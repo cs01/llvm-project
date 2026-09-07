@@ -33,3 +33,13 @@ int ptr_entry(int *p) post (r: old(p) != 0);
 // 'old' is contextual: outside a predicate it is an ordinary identifier.
 int old = 7;
 int uses_old(void) { return old; }
+
+// 'old(x)' is a snapshot, so a prvalue. Saying so is what makes these
+// diagnostics rather than a crash in expression classification: both of these
+// reached llvm_unreachable before, and `&old(n)` is an ordinary typo.
+int addr_of_old(int n) post (r: &old(n) != 0);
+// expected-error@-1 {{cannot take the address of an rvalue}}
+// expected-error@-2 {{contract predicate must be free of side effects}}
+int assign_to_old(int n) post (r: (old(n) = 1) != 0);
+// expected-error@-1 {{expression is not assignable}}
+// expected-error@-2 {{contract predicate must be free of side effects}}
