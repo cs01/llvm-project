@@ -149,6 +149,10 @@ built on it.
 As important as what it catches. Both of these are silent:
 
 ```c
+void put(int *buf, unsigned len, unsigned i, int v)   // does buf[i] = v
+  pre  (buf != 0)
+  pre  (i < len);
+
 int *b = allocate(8);   // post says non-null ...
 put(b, 8, 0, 1);        // ... so this call is discharged
 
@@ -234,10 +238,10 @@ All three work today; the walkthrough with real diagnostics is in
 
 Seven bug shapes, and how far up the ladder each survives. The first two are
 malformed **contracts**; the rest are bugs in **code** carrying a contract like
-this one:
+this one — the `put` from above, now also carrying a frame:
 
 ```c
-void put(int *buf, unsigned len, unsigned i, int v)
+void put(int *buf, unsigned len, unsigned i, int v)   // does buf[i] = v
   pre  (buf != 0)
   pre  (i < len)
   assigns (buf[i]);
@@ -247,8 +251,8 @@ void put(int *buf, unsigned len, unsigned i, int v)
 |---|:---:|:---:|:---:|
 | **Contract:** `post` names a mutated parameter without `old()` | **caught** | *n/a* | *n/a* |
 | **Contract:** predicate calls an impure function | **caught** | *n/a* | *n/a* |
-| **Code:** `put(b, 8, 8, 1)` — a literal breaks `i < len` | missed | **caught** | caught |
-| **Code:** `put(b, n, k, 1)` — symbolic arguments | missed | missed | **caught** |
+| **Code:** `put(b, 8, 8, 1)` — `len` and `i` are both 8, breaking `i < len` | missed | **caught** | caught |
+| **Code:** `put(b, n, k, 1)` — the same bug, but `len` and `i` are variables | missed | missed | **caught** |
 | **Code:** off-by-one in the callee's own loop | missed | missed | **caught** |
 | **Code:** violation only on a loop's second iteration | missed | missed | **caught** |
 | **Contract: well formed, and says the wrong thing** | missed | missed | **missed** |
