@@ -551,14 +551,34 @@ ExprResult Sema::BuildContractOldExpr(SourceLocation OldLoc,
   return new (Context) ContractOldExpr(OldLoc, LParenLoc, RParenLoc, SubExpr);
 }
 
-/// Returns the first parameter named anywhere in \p E outside an `old`, or
-/// null.
+/// Returns the first parameter whose *value* is read anywhere in \p E outside
+/// an `old`, or null.
 ///
 /// Descent stops at a ContractOldExpr: naming a parameter there is exactly the
 /// supported way to do it, so those references are not the ambiguous ones.
+///
+/// It also stops at a dereference. `post (*op - *ip >= 8)` -- which is
+/// `ZSTD_overlapCopy8`'s own documented postcondition -- reads memory, not the
+/// parameter, and memory is shared with the caller: the pointer is the one that
+/// was passed in and the bytes are the ones the body left behind. There is
+/// nothing for a reader to be confused about and nothing for `old` to add, so
+/// requiring it there only made real contracts unwritable. The ambiguity the
+/// rule exists for is a *value* read, `post (n > 0)`, where a body that did
+/// `n -= k` leaves the reader unable to tell which `n` was meant.
 static const DeclRefExpr *findBareParameterRef(const Stmt *E) {
   if (isa<ContractOldExpr>(E))
     return nullptr;
+
+  // Anything under a load addresses memory rather than reporting the
+  // parameter's own value.
+  if (const auto *UO = dyn_cast<UnaryOperator>(E))
+    if (UO->getOpcode() == UO_Deref)
+      return nullptr;
+  if (isa<ArraySubscriptExpr>(E))
+    return nullptr;
+  if (const auto *ME = dyn_cast<MemberExpr>(E))
+    if (ME->isArrow())
+      return nullptr;
 
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
     if (isa<ParmVarDecl>(DRE->getDecl()))
