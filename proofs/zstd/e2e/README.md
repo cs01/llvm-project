@@ -22,6 +22,7 @@ tells you to come update this file.
 | 6 | A wrong contract fails, loudly | **pass** |
 | 7 | A proof fits in a CI step (60 s budget) | **pass**, 10 s |
 | 8 | Annotations can live in the upstream source tree | fail |
+| 9 | A violated precondition can trap at runtime | fail |
 
 Five of nine. The five that pass are not the easy ones: a wrong contract really
 is rejected, the frame really does hold across a call replacement, and the
@@ -51,6 +52,37 @@ sit behind the parser and do not depend on the spelling. Changing the surface
 syntax to one of the lower three rows is a parser change, not a redesign, and it
 is the difference between a fork nobody installs and a tool that reads
 annotations already sitting in someone's repository.
+
+## Case 9, and where a runtime check has to go
+
+The tier that most potential users ask for first -- ship a checked build, trap
+on a violated precondition, no prover in CI -- is easy for scalar clauses and
+impossible in the obvious place for memory clauses. C gives no way to recover an
+allocation's bounds from a `void *`, so `pre (readable(src, srcSize))` cannot be
+checked where `src` arrives.
+
+`__builtin_dynamic_object_size`, which is how `_FORTIFY_SOURCE` works, was
+measured against the cases that matter:
+
+| what the pointer is | recovered size |
+|---|---|
+| a fixed array | 16 |
+| `malloc(40)` | 40 |
+| `malloc(n)`, n symbolic | 7 |
+| an interior pointer, `heap + 8` | 32 |
+| **an opaque function parameter** | **-1, unknown** |
+
+The last row is the design. Object size is available at the *allocation* site and
+gone by the *callee*, so a check emitted in the function prologue can only ever
+cover scalars. Emitted at the **call site** it usually succeeds, because the
+caller still has the allocation in view -- which is exactly why `_FORTIFY_SOURCE`
+checks at the call to `memcpy` rather than inside it.
+
+That is also where the call-site checker already runs. The static tier warns
+when it can prove a violation; a runtime check traps when it cannot decide
+statically but the size is live at run time. One mechanism, one location, two
+tiers -- rather than a third thing bolted to the prologue that silently skips
+every clause about memory.
 
 Case 4 is the one that decides whether this scales. Verification that must
 inline every callee is bounded by the size of the whole program; verification

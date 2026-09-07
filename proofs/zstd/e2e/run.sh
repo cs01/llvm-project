@@ -177,6 +177,22 @@ A=FAIL; D="stock compilers reject the annotation"
 if cc -fsyntax-only "$WORK/c8.c" >/dev/null 2>&1; then A=PASS; D="stock cc accepts it"; fi
 report "8 annotations can live in upstream source" FAIL "$A" "$D"
 
+# ---------------------------------------------------------------- case 9
+# A violated precondition should be able to trap, for the people who cannot run
+# a prover in CI but can ship a checked build. Scalar clauses are the easy half;
+# see e2e/README.md for why the memory clauses have to be checked at the call
+# site rather than in the prologue.
+cat > "$WORK/c9.c" <<'EOF'
+int half(int n) pre (n > 0) { return n / 2; }
+int main(void) { return half(0); }
+EOF
+A=FAIL; D="no runtime checking tier yet"
+if $CLANG -fc-contracts -fcontract-runtime-checks "$WORK/c9.c" -o "$WORK/c9" 2>/dev/null; then
+  "$WORK/c9" 2>/dev/null; RC=$?
+  [ "$RC" -ne 0 ] && { A=PASS; D="violated precondition trapped (exit $RC)"; }
+fi
+report "9 a violated precondition can trap at runtime" FAIL "$A" "$D"
+
 echo
 if [ "$FAILED" -eq 0 ]; then
   echo "all cases behaved as recorded"
