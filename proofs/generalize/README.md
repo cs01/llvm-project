@@ -36,6 +36,16 @@ distinguishes a moved block from an in-place one.
 This is the first finding from a codebase with no authorship or idiom overlap
 with zstd, which is what the question at the top of this file was asking.
 
+## And it reproduces through the branch's own grammar
+
+Everything in this file was found with hand-written CBMC harnesses, which is
+evidence about CBMC, not about this fork. Annotating expat `storeRawNames` with
+`pre` clauses and lowering it with `-fcontract-emit-cprover-unit` gives the
+identical result: same two properties, same 20740 obligations, on an 11k-line
+real translation unit. See [the write-up](expat/RESULT-grammar-end-to-end.md),
+including the two things it does *not* show: the clauses are not what detects
+the defect, and `--enforce-contract` still crashes on this TU.
+
 ## And the finding generalises into a detector
 
 The expat defect has a shape a script can look for: the argument a
