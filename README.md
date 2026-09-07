@@ -20,13 +20,8 @@ int *allocate(unsigned long n)
   pre (n > 0);
 ```
 
-`-fc-contracts` type-checks that clause, warns about the calls that violate it,
-and lowers it to [CBMC](https://github.com/diffblue/cbmc), a formal verifier for
-C, which can prove it holds for *every* input rather than the ones a test
-happens to cover.
-
-A caller gets it wrong a thousand files away, and an ordinary build gives an
-ordinary warning:
+Under `-fc-contracts`, a caller that gets it wrong a thousand files away is an
+ordinary warning on an ordinary build:
 
 ```
 demo.c:6:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
@@ -37,12 +32,11 @@ demo.c:2:3: note: precondition declared here
       |   ^~~~~~~~~~~~
 ```
 
-The contract is written once, on the declaration. Call sites need nothing, and
-the build needs no harness and no separate tool.
-
-CBMC is not a research prototype. AWS runs it in CI on s2n-tls and
-aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and Kani, the Rust
-verifier, is built on it.
+Nothing is needed at the call site, and nothing beyond the compiler: no harness,
+no separate tool. The proving step is [CBMC](https://github.com/diffblue/cbmc),
+a formal verifier for C that is already used in production — AWS runs it in CI
+on s2n-tls and aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and
+Kani, the Rust verifier, is built on it.
 
 > A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
 > fork's other line of work, flow-sensitive nullability, is independent and lives
