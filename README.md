@@ -122,12 +122,20 @@ bytes. `old(dstCap)` is the value at entry — required for a by-value parameter
 because C lets the body reassign it and the reader cannot tell which one you
 meant.
 
-These two sound like synonyms and are not, which is worth knowing early.
-`readable(p, n)` is a *lower bound*. It promises n bytes and says nothing about
-the size of the object, so a read at `p[n + 3]` is not caught. `fresh(p, n)`
-gives an object of exactly n bytes and does catch it. Preconditions on a
-function you are verifying usually want `fresh`; obligations you are placing on
-a caller usually want `readable`.
+There is a third one, `fresh`, and it is worth meeting early, because it and
+`readable` both read as "this pointer is good for n bytes" while meaning
+different things — and picking the wrong one decides whether a bug is found.
+
+`readable(p, n)` is a *lower bound on the size of the object*: n bytes are
+readable, and there may be more. Since it says nothing about the size above n, a
+read at `p[n + 3]` verifies clean.
+
+`fresh(p, n)` pins the size instead — a distinct object of exactly n bytes — so
+the same read fails, because there is provably nothing there.
+
+Proving a function safe usually wants `fresh`, since that is what catches the
+function's own over-reads. A contract written for its callers usually wants
+`readable`, since demanding an exact size asks for more than you mean.
 
 ### Frame conditions
 
