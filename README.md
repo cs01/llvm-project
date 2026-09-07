@@ -1,14 +1,22 @@
 # Contracts for C in clang
 
-A contract says what a function requires from its callers and what it guarantees
-in return, written directly in the declaration. `-fc-contracts` type-checks it,
-warns about the calls that violate it, and lowers it to
-[CBMC](https://github.com/diffblue/cbmc) to be proved.
+A C prototype can say that `allocate` takes an `unsigned long` and returns an
+`int *`. It cannot say that the argument must be non-zero, or that the result is
+never null. Constraints like those end up in a doc comment, which nothing
+checks, or in an `assert`, which fires at run time on whatever inputs you
+happened to run — after the wrong call has already been made.
+
+A contract states them in the declaration, where the compiler can act on them:
 
 ```c
 int *allocate(unsigned long n)
   pre (n > 0);
 ```
+
+`-fc-contracts` type-checks that clause, warns about the calls that violate it,
+and lowers it to [CBMC](https://github.com/diffblue/cbmc), a formal verifier for
+C, which can prove it holds for *every* input rather than the ones a test
+happens to cover.
 
 A caller gets it wrong a thousand files away, and an ordinary build gives an
 ordinary warning:
@@ -23,14 +31,11 @@ demo.c:2:3: note: precondition declared here
 ```
 
 The contract is written once, on the declaration. Call sites need nothing, and
-the build needs no harness and no separate tool. Without it, `n > 0` is the kind
-of constraint that lives in a doc comment, where nothing checks it and nothing
-warns when a caller gets it wrong.
+the build needs no harness and no separate tool.
 
-Proving that a contract *holds*, rather than checking calls against it, is
-CBMC's job, and CBMC is already used in production: AWS runs it in CI on s2n-tls
-and aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and Kani, the
-Rust verifier, is built on it.
+CBMC is not a research prototype. AWS runs it in CI on s2n-tls and
+aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and Kani, the Rust
+verifier, is built on it.
 
 > A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
 > fork's other line of work, flow-sensitive nullability, is independent and lives
