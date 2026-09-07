@@ -16,8 +16,9 @@ attacker controls.**
 | zlib | `inflate_table` (`inftrees.c`) | **bucket 2** — [doc understates the table size](zlib/FINDING-inflate-table-doc.md) |
 | zlib | `inflate_fast` (`inffast.c`) | read, no defect found — see below |
 | expat | `storeRawNames` (`xmlparse.c`) | **defect found**: [freed pointer read after realloc](expat/FINDING-storerawnames-freed-pointer.md) |
-| redis | `sds.c` header recovery | scouted, harness not written |
-| jq | `jv.c` | not started |
+| sqlite | `fts3_unicode.c`, `fts5_hash.c` | **2 defects found**: [freed pointer read after realloc](sqlite/FINDING-realloc-freed-pointer-reads.md) |
+| redis | `sds.c` realloc paths | read, no defect found: every path recomputes from the new pointer |
+| jq | `jv.c` | swept by the detector, nothing; hand read not started |
 
 ## expat: the method found one in a second codebase
 
@@ -30,6 +31,27 @@ distinguishes a moved block from an in-place one.
 
 This is the first finding from a codebase with no authorship or idiom overlap
 with zstd, which is what the question at the top of this file was asking.
+
+## And the finding generalises into a detector
+
+The expat defect has a shape a script can look for: the argument a
+`realloc`-shaped call later repairs from its own result, read in between.
+[`scan-realloc-aliasing.py`](../scan-realloc-aliasing.py) does that, and is
+validated by pointing it at libexpat, where it reports `storeRawNames` and
+nothing else in 9436 lines.
+
+Swept over redis, jq, sqlite and quickjs it found
+[two more in sqlite](sqlite/FINDING-realloc-freed-pointer-reads.md): a pointer
+subtraction whose operands both point into the freed block, and a hash-chain
+walk that compares against the freed pointer. sqlite is plausibly the
+most-tested C in existence, which is the useful part of the result: neither site
+dereferences the stale pointer, so there is nothing for ASan to trap and nothing
+for a fuzzer corpus to distinguish.
+
+Everything else the sweep reported was sqlite's deliberate
+`if( pNew==0 ){ free_the_old_one(); }` idiom, which is correct, since a failed
+`realloc` leaves the old block alone. The detector does not model that guard;
+its hits are triage, not verdicts.
 
 **A null result is a result.** If ten annotated functions across four codebases
 produce nothing, that belongs here in the same words as the findings — the whole
