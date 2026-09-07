@@ -1,7 +1,8 @@
 # Contracts for C in clang
 
-Say what a function requires and guarantees, in the declaration. `-fc-contracts`
-type-checks it, warns the callers who break it, and lowers it to
+A contract says what a function requires from its callers and what it guarantees
+in return, written directly in the declaration. `-fc-contracts` type-checks it,
+warns about the calls that violate it, and lowers it to
 [CBMC](https://github.com/diffblue/cbmc) to be proved.
 
 ```c
@@ -9,7 +10,8 @@ int *allocate(unsigned long n)
   pre (n > 0);
 ```
 
-Someone calls it wrong, a thousand files away. Ordinary build, ordinary warning:
+A caller gets it wrong a thousand files away, and an ordinary build gives an
+ordinary warning:
 
 ```
 demo.c:6:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
