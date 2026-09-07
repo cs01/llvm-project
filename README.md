@@ -141,6 +141,16 @@ size_t decode(void *dst, size_t dstCap, const void *src, size_t srcSize)
 multiply. Anything not named is guaranteed untouched — which is what lets a
 proof about a caller use this contract instead of the function body.
 
+This needs its own clause because a `post` cannot say it. "Nothing else changed"
+would have to name every global and every object reachable through every
+pointer, and say each one still equals its entry value. `assigns ()` — the empty
+frame, modifying nothing — is the strongest one you can write, not an error.
+
+The hazard is that a frame which is too *small* does not fail. It quietly proves
+less: name half the buffer a function writes and the verifier will happily
+discharge a weaker theorem than the one you meant. This is why a range is
+counted in elements and the `sizeof` multiply is the compiler's job.
+
 ### Loops
 
 A bounded checker unrolls a loop to some `--unwind N` and tells you the code is
@@ -159,6 +169,11 @@ void zero(int *buf, unsigned len) {
 ```
 
 That is the difference between "tested harder than fuzzing" and "proved".
+
+The loop needs a frame of its own for the same reason a function does: applying
+an invariant means havocking whatever the loop writes and re-establishing the
+invariant on top, so the prover has to be told what that is. Here it is the
+counter and the buffer range.
 
 ### Keyword reference
 
