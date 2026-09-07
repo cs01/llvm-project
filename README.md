@@ -92,8 +92,8 @@ its way.
 
 ### Preconditions and postconditions
 
-One half of a contract is what the caller owes; the other half is what the
-caller is owed in return:
+A `pre` is a condition the caller has to satisfy before calling. A `post` is
+what the function guarantees when it returns:
 
 ```c
 int *allocate(unsigned long n)
