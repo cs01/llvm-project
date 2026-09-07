@@ -4,10 +4,6 @@ Say what a function requires and guarantees, in the declaration. `-fc-contracts`
 type-checks it, warns the callers who break it, and lowers it to
 [CBMC](https://github.com/diffblue/cbmc) to be proved.
 
-## The smallest useful one
-
-A precondition is one line, and it goes where the reader already looks:
-
 ```c
 int *allocate(unsigned long n)
   pre (n > 0);
@@ -27,7 +23,70 @@ demo.c:2:3: note: precondition declared here
 No harness, no annotation at the call site, no separate tool run. The comment
 that used to say `/* n must be positive */` now says it to the compiler.
 
-## What it gives back
+CBMC is not a research toy: AWS runs it in CI on s2n-tls and aws-c-common,
+FreeRTOS's TCP/IP stack is verified with it, and Kani — the Rust verifier — is
+built on it.
+
+> A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
+> fork's other line of work, flow-sensitive nullability, is independent and lives
+> on [`nullsafe-clang-dev`](https://github.com/cs01/llvm-project/tree/nullsafe-clang-dev).
+
+## Installation
+
+Build clang from this branch:
+
+```sh
+cmake -G Ninja -S llvm -B build \
+  -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS=clang \
+  -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DLLVM_USE_LINKER=lld \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DLLVM_OPTIMIZED_TABLEGEN=ON
+ninja -C build clang
+```
+
+Proving anything additionally needs [CBMC](https://github.com/diffblue/cbmc)
+6.x, with `goto-cc` and `goto-instrument`. Ubuntu ships 5.95, whose loop-contract
+handling differs; take a release `.deb` from the CBMC repository instead.
+
+## Usage
+
+| Flag | What it does |
+|---|---|
+| `-fc-contracts` | enable the keywords. Without it they are ordinary identifiers |
+| `-Wcontract-violation` | warn at call sites that provably break a precondition (on by default) |
+| `-fcontract-runtime-checks` | check each precondition at function entry at run time |
+| `-fcontract-emit-cprover` | print each function's contracts as CBMC clauses |
+| `-fcontract-emit-cprover-unit` | rewrite the whole translation unit into CBMC form, ready for `goto-cc` |
+
+`__has_feature(c_contracts)` is true under the flag, so a header can carry
+contracts and still compile with a stock clang.
+
+To see everything the extension does, end to end:
+
+```sh
+CLANG=build/bin/clang ./contracts-example/run.sh
+```
+
+That runs the examples below plus
+[`mistakes.c`](contracts-example/mistakes.c), which is every rule the front end
+enforces, numbered — and the PCH round-trip.
+
+`-fc-contracts` is C only, and says so rather than ignoring you:
+
+```
+error: invalid argument '-fc-contracts' not allowed with 'C++'
+```
+
+`pre` and `post` are contextual keywords in the trailing position of a function
+declarator, which in C++20 is where a `requires`-clause goes — so accepting the
+flag there would change what valid C++ means rather than extend it. A C++
+dialect has to align with P2900, which is why the keywords are already spelled
+its way.
+
+## Writing contracts
+
+### Preconditions and postconditions
 
 Half a contract is what the caller owes. The other half is what it is owed:
 
@@ -41,7 +100,7 @@ int *allocate(unsigned long n)
 result for null is checking something the callee already promised, and a caller
 that *doesn't* is no longer guessing.
 
-## Real C takes buffers
+### Pointers and buffers
 
 Almost every C function worth specifying takes a pointer and a length, and the
 thing you want to say about them is not expressible in C:
@@ -65,7 +124,7 @@ gives an object of exactly n bytes and does catch it. Preconditions on a
 function you are verifying usually want `fresh`; obligations you are placing on
 a caller usually want `readable`.
 
-## What it may change
+### Frame conditions
 
 A prover cannot verify a caller without knowing what a callee leaves alone, so
 a frame condition is the clause that makes everything else composable:
@@ -82,7 +141,7 @@ size_t decode(void *dst, size_t dstCap, const void *src, size_t srcSize)
 multiply. Anything not named is guaranteed untouched — which is what lets a
 proof about a caller use this contract instead of the function body.
 
-## Loops, and why they are the interesting case
+### Loops
 
 A bounded checker unrolls a loop to some `--unwind N` and tells you the code is
 right up to N. An invariant and a termination measure replace the bound with
@@ -101,77 +160,12 @@ void zero(int *buf, unsigned len) {
 
 That is the difference between "tested harder than fuzzing" and "proved".
 
-## What it is worth on real code
-
-`ZSTD_wildcopy`, in upstream zstd at `d9c0c7e2`, annotated in exactly the syntax
-above and proved memory-safe for **every** length — `length` symbolic to 1 GiB,
-both buffers symbolically allocated, no `--unwind` at all:
-
-```
-** 0 of 205 failed (1 iterations)
-VERIFICATION SUCCESSFUL
-```
-
-15 seconds, reproducible: `./proofs/zstd/run-wildcopy-from-grammar.sh`. The
-frame the compiler generated is byte-identical to the one a human wrote by hand
-after hitting five separate obstacles, which are all written down in
-[`UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md).
-
-Two limits on that sentence, because "proved" should mean what it says:
-
-- **It covers the `ZSTD_no_overlap` path.** That is the branch the harness
-  exercises and the one the annotated loop is in. The short-offset
-  `ZSTD_overlap_src_before_dst` path has its own `do { COPY8 } while` loop,
-  which carries no contract — `goto-instrument` rejects loop contracts on a `do`
-  loop — so nothing above says anything about it.
-- **The source is rewritten, not just annotated.** The proof runs against a
-  proof-only edit: the hot loop restructured from `do`/`while` to `while (1)`,
-  `COPY16` inlined because `do { } while (0)` counts as a loop, and the `diff`
-  computation moved inside the overlap branch where it is defined. Behaviour is
-  identical and the patch says so at each point, but it is not upstream's text
-  character for character.
-
-The same work found real defects in zstd, including a pointer formed before the
-start of a buffer in the hot decode path that four years of OSS-Fuzz did not
-surface — because nothing misbehaves at runtime. [What was found, and what it
-was worth](#results-on-real-zstd), including the negative results, is below.
-
-CBMC is not a research toy: AWS runs it in CI on s2n-tls and aws-c-common,
-FreeRTOS's TCP/IP stack is verified with it, and Kani — the Rust verifier — is
-built on it.
-
-> A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
-> fork's other line of work, flow-sensitive nullability, is independent and lives
-> on [`nullsafe-clang-dev`](https://github.com/cs01/llvm-project/tree/nullsafe-clang-dev).
-
-## What it does not warn about
-
-As important as what it catches. Both of these are silent:
-
-```c
-void put(int *buf, unsigned len, unsigned i, int v)   // does buf[i] = v
-  pre  (buf != 0)
-  pre  (i < len);
-
-int *b = allocate(8);   // post says non-null ...
-put(b, 8, 0, 1);        // ... so this call is discharged
-
-int *p = maybe;
-if (c) p = 0;
-put(p, 8, 0, 1);        // the two edges disagree, so it says nothing
-```
-
-It reports only violations it can *demonstrate* — the difference between a
-warning people leave on and one they turn off.
-
-A fuller example, including `old()` and the numbered list of every rule the front
-end enforces, is in [`contracts-example/`](contracts-example/).
-
-## The keywords
+### Keyword reference
 
 Six words. Full syntax, semantics, and the four rules that bite in practice —
 braced loop bodies, pure predicates, no restating a contract on a redeclaration,
-macro shadowing — in **[docs/contracts-reference.md](docs/contracts-reference.md)**.
+macro shadowing — are in
+**[docs/contracts-reference.md](docs/contracts-reference.md)**.
 
 | Keyword | Goes | Says |
 |---|---|---|
@@ -194,41 +188,7 @@ already using `pre` as an identifier keeps compiling.
 Why these spellings and not the verifier's `requires` / `ensures`:
 [contracts-design.md](contracts-design.md#5-syntax).
 
-## Build it
-
-```sh
-cmake -G Ninja -S llvm -B build \
-  -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_PROJECTS=clang \
-  -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_ASSERTIONS=ON \
-  -DLLVM_USE_LINKER=lld \
-  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
-  -DLLVM_OPTIMIZED_TABLEGEN=ON
-ninja -C build clang
-```
-
-Then see everything the extension does, end to end:
-
-```sh
-CLANG=build/bin/clang ./contracts-example/run.sh
-```
-
-That runs the examples above plus
-[`mistakes.c`](contracts-example/mistakes.c), which is every rule the front end
-enforces, numbered — and the PCH round-trip.
-
-`-fc-contracts` is C only, and says so rather than ignoring you:
-
-```
-error: invalid argument '-fc-contracts' not allowed with 'C++'
-```
-
-`pre` and `post` are contextual keywords in the trailing position of a function
-declarator, which in C++20 is where a `requires`-clause goes — so accepting the
-flag there would change what valid C++ means rather than extend it. A C++
-dialect has to align with P2900, which is why the keywords are already spelled
-its way.
-
-## What each level catches
+## How it works
 
 Three checkers read the same contract, each catching what the one before it let
 through: the **front end** (is the contract well formed?), the **call-site
@@ -238,7 +198,7 @@ All three work today; the walkthrough with real diagnostics is in
 
 Seven bug shapes, and how far up the ladder each survives. The first two are
 malformed **contracts**; the rest are bugs in **code** carrying a contract like
-this one — the `put` from above, now also carrying a frame:
+this one:
 
 ```c
 void put(int *buf, unsigned len, unsigned i, int v)   // does buf[i] = v
@@ -266,8 +226,42 @@ that the specification is right.** What it buys you is that the specification is
 now written down, in the declaration, where a reviewer can argue with it — which
 is strictly more than a comment nobody checks.
 
-What each level catches and misses, with the real diagnostics, is in
-[the reference](docs/contracts-reference.md#the-three-levels-in-detail).
+## Limitations
+
+**The call-site warning stays quiet unless it can prove a violation.** Both of
+these are silent:
+
+```c
+void put(int *buf, unsigned len, unsigned i, int v)   // does buf[i] = v
+  pre  (buf != 0)
+  pre  (i < len);
+
+int *b = allocate(8);   // post says non-null ...
+put(b, 8, 0, 1);        // ... so this call is discharged
+
+int *p = maybe;
+if (c) p = 0;
+put(p, 8, 0, 1);        // the two edges disagree, so it says nothing
+```
+
+It reports only violations it can *demonstrate* — the difference between a
+warning people leave on and one they turn off. A fuller example, including
+`old()` and the numbered list of every rule the front end enforces, is in
+[`contracts-example/`](contracts-example/).
+
+**Most proofs today are bounded**: exhaustive over a small domain rather than
+universal. `ZSTD_wildcopy` is the exception and shows the route out.
+[`proofs/zstd/UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md) documents that route and,
+more usefully, the five obstacles hit on the way, none of which is about
+mathematics. That list is the useful scoping input: the hard part of applying
+this to real C is toolchain-versus-codebase fit, not proving things.
+
+**Nine checks a maintainer would demand before annotating their own code** are
+written as an executable suite in [`proofs/zstd/e2e/`](proofs/zstd/e2e/), with
+the failing ones recorded as failing on purpose. The one that decides whether
+anyone can adopt this is the surface syntax: `pre (n > 0)` is a hard error under
+stock gcc and clang, which is why the zstd patch wraps every clause in an
+`#ifdef`.
 
 ## Results on real zstd
 
@@ -276,8 +270,42 @@ transcription.
 
 **Most of these were produced with hand-written CBMC harnesses, before this
 extension could express them** — they are what motivated the grammar, not output
-from it. The unbounded proof below is the exception, and the one that matters:
-it now runs from contracts written in this syntax.
+from it. The unbounded proof is the exception, and the one that matters: it now
+runs from contracts written in this syntax.
+
+### An unbounded proof, written in this grammar
+
+`ZSTD_wildcopy`, in upstream zstd at `d9c0c7e2`, is memory-safe for **every**
+length — `length` symbolic to 1 GiB, both buffers symbolically allocated, no
+`--unwind` at all:
+
+```
+** 0 of 205 failed (1 iterations)
+VERIFICATION SUCCESSFUL
+```
+
+Proof by induction over the loop: 15 seconds, reproducible with
+`./proofs/zstd/run-wildcopy-from-grammar.sh`. The frame the compiler generated is
+byte-identical to the one a human wrote by hand after hitting five separate
+obstacles. The earlier hand-written run also proves the fix for the
+pointer-subtraction defect below: with it, zero failures; without it, exactly
+one.
+
+Two limits on that sentence, because "proved" should mean what it says:
+
+- **It covers the `ZSTD_no_overlap` path.** That is the branch the harness
+  exercises and the one the annotated loop is in. The short-offset
+  `ZSTD_overlap_src_before_dst` path has its own `do { COPY8 } while` loop,
+  which carries no contract — `goto-instrument` rejects loop contracts on a `do`
+  loop — so nothing above says anything about it.
+- **The source is rewritten, not just annotated.** The proof runs against a
+  proof-only edit: the hot loop restructured from `do`/`while` to `while (1)`,
+  `COPY16` inlined because `do { } while (0)` counts as a loop, and the `diff`
+  computation moved inside the overlap branch where it is defined. Behaviour is
+  identical and the patch says so at each point, but it is not upstream's text
+  character for character.
+
+### What else was found
 
 - **An undefined-behaviour finding, reproduced on upstream HEAD.**
   `ZSTD_overlapCopy8` forms a pointer up to 8 bytes before the start of the
@@ -303,22 +331,13 @@ it now runs from contracts written in this syntax.
   With the buffer at exactly `srcSize` it is `1 of 248 failed`; at
   `max(srcSize, 8)`, `0 of 248`. One variable, so the missing precondition is
   isolated exactly.
-- **An unbounded proof, written in this grammar.** `ZSTD_wildcopy` is
-  memory-safe for *every* length, not just up to some bound: `0 of 205 failed`,
-  one iteration, no `--unwind` at all, length to 1 GiB with symbolically
-  allocated buffers. Proof by induction over the loop. The contracts are
-  `assigns` / `loop_invariant` / `decreases` in upstream zstd source, lowered by
-  this compiler — the generated frame is byte-identical to the hand-written one
-  it replaces. `./proofs/zstd/run-wildcopy-from-grammar.sh` reproduces it in
-  15 s. The earlier hand-written run also proves the fix for the
-  pointer-subtraction defect: with it, zero failures; without it, exactly one.
 
 None of them is a crash, and **fuzzing cannot find any of them**, because
 nothing misbehaves at runtime. That, rather than the count, is the argument.
 One more check — the `FSE_readNCount` bounds audit — came back clean, and the
 negative result is recorded too.
 
-Whether any of this actually makes C safer is being tracked as a falsifiable
+Whether any of this actually makes C safer is tracked as a falsifiable
 experiment with the bar written down, in
 [`EXPERIMENT-annotation-yield.md`](proofs/zstd/EXPERIMENT-annotation-yield.md).
 Findings that are real-but-unreachable, or that are really about the prover, are
@@ -331,42 +350,30 @@ whether verifying a codec is a quarter or a research program.
 
 ## Roadmap
 
-**`when` guards on `assigns`.** A frame condition is a set of locations and a
-set cannot be disjoined, so `assigns (dst) when (r: !is_error(r))` is the only
-way to say "writes the output buffer on success, nothing on error".
-§4 item 5 of the design has the grammar.
+- **`when` guards on `assigns`.** A frame condition is a set of locations and a
+  set cannot be disjoined, so `assigns (dst) when (r: !is_error(r))` is the only
+  way to say "writes the output buffer on success, nothing on error".
+  §4 item 5 of the design has the grammar.
+- **Dogfood the grammar.** One proof now runs end to end from this syntax; the
+  rest of `proofs/zstd/harnesses/` is still hand-written `__CPROVER_*` macros.
+  The remaining gap is the harnesses themselves — `__CPROVER_assume`, symbolic
+  allocation, the entry point — which this grammar does not try to express and
+  probably should not: a contract belongs on the function, a harness is a proof
+  driver.
+- **Runtime checking at the call site.** `-fcontract-runtime-checks` already
+  turns a `pre` into a check at function entry, calling a weak
+  `__contract_violation(predicate, file, line, function)` that a project can
+  replace with its own fault handler. What remains is the clauses about memory:
+  those cannot be checked at entry, because C gives no way to recover an
+  allocation from a pointer parameter, so the compiler declines them rather than
+  emitting a check that would silently pass. The answer is to check them at the
+  call site, where the caller still has the allocation in view — the same reason
+  `_FORTIFY_SOURCE` checks at the call to `memcpy` rather than inside it, and the
+  same place `-Wcontract-violation` already runs.
+- **Contract inference**, so the first annotation on a large codebase is not
+  hand-written from nothing.
 
-**Dogfood the grammar.** One proof now runs end to end from this syntax
-(`run-wildcopy-from-grammar.sh`, above); the rest of `proofs/zstd/harnesses/` is
-still hand-written `__CPROVER_*` macros. The remaining gap is the harnesses
-themselves — `__CPROVER_assume`, symbolic allocation, the entry point — which
-this grammar does not try to express and probably should not: a contract belongs
-on the function, a harness is a proof driver.
-
-**Runtime checking, at the call site.** `-fcontract-runtime-checks` already
-turns a `pre` into a check at function entry, calling a weak
-`__contract_violation(predicate, file, line, function)` that a project can
-replace with its own fault handler. What remains is the clauses about memory:
-those cannot be checked at entry, because C gives no way to recover an
-allocation from a pointer parameter, so the compiler declines them rather than
-emitting a check that would silently pass. The answer is to check them at the
-call site, where the caller still has the allocation in view -- the same reason
-`_FORTIFY_SOURCE` checks at the call to `memcpy` rather than inside it, and the
-same place `-Wcontract-violation` already runs.
-
-**Contract inference**, so the first annotation on a large codebase is not
-hand-written from nothing.
-
-### Known terrain
-
-Most results today are bounded: exhaustive over a small domain rather than
-universal. `ZSTD_wildcopy` is the exception and shows the route out.
-[`proofs/zstd/UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md) documents that route and,
-more usefully, the five obstacles hit on the way, none of which is about
-mathematics. That list is the useful scoping input: the hard part of applying
-this to real C is toolchain-versus-codebase fit, not proving things.
-
-## Where to go deeper
+## Documentation
 
 - **[docs/contracts-reference.md](docs/contracts-reference.md)** — full grammar,
   semantics, how the parser, AST, CFG pass and CBMC emitter actually work, what
@@ -383,6 +390,11 @@ DO-333 formal-methods supplement, DO-330 tool qualification — is answered in
 [the reference](docs/contracts-reference.md#does-this-apply-to-do-178c--do-333-formal-methods).
 Short version: the shape fits, the stack is not qualified, and qualification is
 the blocker rather than the mathematics.
+
+## License
+
+Apache License v2.0 with LLVM Exceptions, the same as the rest of the LLVM
+project. See [LICENSE.TXT](LICENSE.TXT).
 
 ---
 
