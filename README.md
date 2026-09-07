@@ -232,16 +232,16 @@ is strictly more than a comment nobody checks.
 these are silent:
 
 ```c
-void put(int *buf, unsigned len, unsigned i, int v)   // does buf[i] = v
-  pre  (buf != 0)
-  pre  (i < len);
+void use(int *p) pre (p != 0);
 
-int *b = allocate(8);   // post says non-null ...
-put(b, 8, 0, 1);        // ... so this call is discharged
+void caller(int c, int *maybe) {
+  int *b = allocate(8);   // allocate's post says non-null ...
+  use(b);                 // ... so this call is discharged
 
-int *p = maybe;
-if (c) p = 0;
-put(p, 8, 0, 1);        // the two edges disagree, so it says nothing
+  int *p = maybe;
+  if (c) p = 0;
+  use(p);                 // the two edges disagree, so it says nothing
+}
 ```
 
 It reports only violations it can *demonstrate* — the difference between a
