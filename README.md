@@ -1,12 +1,19 @@
 # Contracts for C in clang
 
-A C prototype can say that `allocate` takes an `unsigned long` and returns an
-`int *`. It cannot say that the argument must be non-zero, or that the result is
-never null. Constraints like those end up in a doc comment, which nothing
-checks, or in an `assert`, which fires at run time on whatever inputs you
-happened to run — after the wrong call has already been made.
+This branch makes contracts a first-class feature of clang. You write what a
+function requires and what it guarantees into its declaration; the compiler then
+holds every caller in the codebase to it, however large that codebase is, and a
+formal verifier can prove the function itself honours it for every possible
+input. None of it depends on a convention being followed or a reviewer noticing.
 
-A contract states them in the declaration, where the compiler can act on them:
+The gap it fills shows up in any C prototype. A declaration can say that
+`allocate` takes an `unsigned long` and returns an `int *`; it has no way to add
+that the argument must be non-zero, or that the result is never null.
+Constraints like those end up in a doc comment, which nothing checks, or in an
+`assert`, which fires at run time on whatever inputs you happened to run — after
+the wrong call has already been made.
+
+A contract states them where the compiler can act on them:
 
 ```c
 int *allocate(unsigned long n)
