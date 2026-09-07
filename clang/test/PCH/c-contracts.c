@@ -32,3 +32,7 @@ unsigned long caller3(void) { return old_from_pch(1); }
 // CHECK-NEXT:     DeclRefExpr {{.*}} 'buf'
 // CHECK-NEXT:     IntegerLiteral {{.*}} 0
 // CHECK-NEXT:     DeclRefExpr {{.*}} 'len'
+
+// CHECK:      FunctionDecl {{.*}} pure_from_pch 'int (const int *)'
+// CHECK:        assigns
+// CHECK-NOT:    assigns invalid

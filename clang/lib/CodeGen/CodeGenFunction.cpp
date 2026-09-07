@@ -33,6 +33,7 @@
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/DiagnosticFrontend.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
@@ -1283,6 +1284,11 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
   }
 
   EmitFunctionProlog(*CurFnInfo, CurFn, Args);
+
+  // Contract preconditions, once the parameters they name are in scope.
+  if (getLangOpts().CContractsRuntimeChecks)
+    if (const auto *ContractFD = dyn_cast_if_present<FunctionDecl>(D))
+      EmitContractPreconditionChecks(ContractFD);
 
   if (const CXXMethodDecl *MD = dyn_cast_if_present<CXXMethodDecl>(D);
       MD && !MD->isStatic()) {
@@ -3561,4 +3567,78 @@ void CodeGenFunction::emitPFPPostCopyUpdates(Address DestPtr, Address SrcPtr,
     auto SrcFieldPtr = EmitAddressOfPFPField(SrcPtr, Field);
     Builder.CreateStore(Builder.CreateLoad(SrcFieldPtr), DestFieldPtr);
   }
+}
+
+/// Emits a runtime check for each 'pre' clause of \p FD that can have one.
+///
+/// A violated clause calls __contract_violation(), which is deliberately shaped
+/// like glibc's __assert_fail so that it reads as familiar and so a project can
+/// route it into an existing fault handler. A weak definition that traps is
+/// emitted alongside, so nothing has to be linked in for this to work and a
+/// strong definition anywhere in the program wins.
+///
+/// Clauses about memory are *declined*, not skipped: an allocation's bounds are
+/// not recoverable from a `void *` at function entry, and a check that quietly
+/// passed on `pre (readable(p, n))` would look like coverage while providing
+/// none.
+void CodeGenFunction::EmitContractPreconditionChecks(const FunctionDecl *FD) {
+  const ContractSpecifier *CS = FD->getContracts();
+  if (!CS)
+    return;
+
+  for (const ContractClause &Clause : *CS) {
+    if (Clause.getKind() != ContractClause::CK_Pre || Clause.isInvalid())
+      continue;
+    const Expr *Pred = Clause.getPredicate();
+    if (!Pred || !CodeGenFunction::isContractRuntimeCheckable(Pred)) {
+      CGM.getDiags().Report(Clause.getKeywordLoc(),
+                            diag::warn_contract_not_runtime_checkable);
+      continue;
+    }
+
+    SourceLocation Loc = Clause.getKeywordLoc();
+    llvm::BasicBlock *Broken = createBasicBlock("contract.broken");
+    llvm::BasicBlock *Ok = createBasicBlock("contract.ok");
+    EmitBranchOnBoolExpr(Pred, Ok, Broken, /*TrueCount=*/0);
+
+    EmitBlock(Broken);
+    {
+      PresumedLoc PLoc =
+          CGM.getContext().getSourceManager().getPresumedLoc(Loc);
+      std::string Text;
+      {
+        llvm::raw_string_ostream OS(Text);
+        Pred->printPretty(OS, nullptr, CGM.getContext().getPrintingPolicy());
+      }
+      llvm::Value *Args[] = {
+          CGM.GetAddrOfConstantCString(Text, ".contract.pred").getPointer(),
+          CGM.GetAddrOfConstantCString(PLoc.isValid() ? PLoc.getFilename() : "",
+                                       ".contract.file")
+              .getPointer(),
+          Builder.getInt32(PLoc.isValid() ? PLoc.getLine() : 0),
+          CGM.GetAddrOfConstantCString(FD->getNameAsString(), ".contract.func")
+              .getPointer(),
+      };
+      EmitNounwindRuntimeCall(CGM.getContractViolationFn(), Args);
+      Builder.CreateUnreachable();
+    }
+    EmitBlock(Ok);
+  }
+}
+
+/// Whether \p E can be evaluated by generated code at function entry.
+///
+/// The contract intrinsics cannot: they ask about an allocation, and C offers
+/// no way to recover one from a pointer parameter.
+bool CodeGenFunction::isContractRuntimeCheckable(const Stmt *E) {
+  if (const auto *CE = dyn_cast<CallExpr>(E))
+    if (const FunctionDecl *Callee = CE->getDirectCallee())
+      if (Callee->isImplicit() && findContractIntrinsic(Callee->getName()))
+        return false;
+
+  for (const Stmt *Child : E->children())
+    if (Child && !isContractRuntimeCheckable(Child))
+      return false;
+
+  return true;
 }

@@ -76,40 +76,10 @@ ExprResult Sema::ActOnContractClausePredicate(ContractClause::ClauseKind Kind,
   return Cond;
 }
 
-namespace {
-/// A contract intrinsic: the spelling an author writes, the CBMC builtin it
-/// lowers to, and how many pointer/size arguments it takes.
-///
-/// These exist so that a contract about memory can be written in C rather than
-/// in the prover's vocabulary. Every one of them is a question about a pointer
-/// that C itself gives no way to ask.
-struct ContractIntrinsic {
-  const char *Name;    ///< as written in the clause
-  const char *CProver; ///< as CBMC spells it
-  unsigned NumPtrArgs; ///< leading `const void *` parameters
-  bool HasSizeArg;     ///< trailing size_t parameter
-};
-
-constexpr ContractIntrinsic ContractIntrinsicTable[] = {
-    // 'readable' is a lower bound: it claims n bytes may be read and says
-    // nothing about the size of the object above that, so a read past n is
-    // not caught. 'fresh' allocates an object of exactly n bytes, distinct
-    // from every other, and does catch it. The difference decides whether an
-    // over-read is found, so both spellings exist rather than one guessing.
-    {"readable", "__CPROVER_r_ok", 1, true},
-    {"fresh", "__CPROVER_is_fresh", 1, true},
-    {"writable", "__CPROVER_w_ok", 1, true},
-    {"same_object", "__CPROVER_same_object", 2, false},
-    {"pointer_offset", "__CPROVER_POINTER_OFFSET", 1, false},
-};
-} // namespace
 
 FunctionDecl *Sema::LookupContractIntrinsic(const IdentifierInfo &II,
                                             SourceLocation Loc) {
-  const ContractIntrinsic *Info = nullptr;
-  for (const ContractIntrinsic &C : ContractIntrinsicTable)
-    if (II.getName() == C.Name)
-      Info = &C;
+  const ContractIntrinsicInfo *Info = findContractIntrinsic(II.getName());
   if (!Info)
     return nullptr;
 
@@ -154,9 +124,6 @@ FunctionDecl *Sema::LookupContractIntrinsic(const IdentifierInfo &II,
   return FD;
 }
 
-/// Rewrites the intrinsic spellings in \p Text to their CBMC builtins.
-static std::string lowerContractIntrinsics(StringRef Text);
-
 /// Replaces whole-token occurrences of \p From with \p To in \p S.
 ///
 /// Substring replacement would corrupt an identifier that merely contains the
@@ -181,37 +148,45 @@ static std::string replaceToken(StringRef S, StringRef From, StringRef To) {
   return Out;
 }
 
-static std::string lowerContractIntrinsics(StringRef Text) {
-  std::string Out = Text.str();
-  for (const ContractIntrinsic &C : ContractIntrinsicTable) {
-    // Only a call is an intrinsic. A local named `readable` that the predicate
-    // merely reads is left alone, which matters because the intrinsic is only
-    // reached when ordinary lookup found nothing -- so both spellings can be
-    // live in one translation unit.
-    std::string Result;
-    StringRef Rest = Out;
-    while (true) {
-      size_t Found = Rest.find(C.Name);
-      if (Found == StringRef::npos) {
-        Result += Rest.str();
-        break;
-      }
-      size_t End = Found + std::strlen(C.Name);
-      auto IsIdentChar = [](char Ch) {
-        return isAlphanumeric(Ch) || Ch == '_';
-      };
-      size_t Paren = Rest.find_first_not_of(' ', End);
-      bool IsCall = Paren != StringRef::npos && Rest[Paren] == '(';
-      bool Whole = (Found == 0 || !IsIdentChar(Rest[Found - 1])) &&
-                   (End >= Rest.size() || !IsIdentChar(Rest[End]));
-      Result += Rest.substr(0, Found).str();
-      Result += (Whole && IsCall) ? C.CProver : C.Name;
-      Rest = Rest.substr(End);
+namespace {
+/// Prints contract nodes the way CBMC spells them, instead of patching the
+/// printed text afterwards.
+///
+/// Substitution on the printed string cannot tell `readable(p, n)` resolved to
+/// the intrinsic from one that resolved to a function the project declared
+/// itself: both print the same characters. It rewrote either, so a codebase
+/// with its own `readable` got a proof about CBMC's builtin rather than about
+/// its function, and nothing said so. Deciding from the resolved callee is the
+/// only way to get that right.
+class CProverPrinter : public PrinterHelper {
+public:
+  bool handledStmt(Stmt *S, raw_ostream &OS) override {
+    auto *CE = dyn_cast<CallExpr>(S);
+    if (!CE)
+      return false;
+    const FunctionDecl *Callee = CE->getDirectCallee();
+    // Only the compiler's own implicit declarations are intrinsics. A user's
+    // function of the same name is a different decl and prints as itself.
+    if (!Callee || !Callee->isImplicit())
+      return false;
+    const ContractIntrinsicInfo *Info =
+        findContractIntrinsic(Callee->getName());
+    if (!Info)
+      return false;
+
+    OS << Info->CProver << "(";
+    for (unsigned I = 0, N = CE->getNumArgs(); I != N; ++I) {
+      if (I)
+        OS << ", ";
+      CE->getArg(I)->printPretty(OS, this, Policy);
     }
-    Out = std::move(Result);
+    OS << ")";
+    return true;
   }
-  return Out;
-}
+
+  PrintingPolicy Policy{LangOptions()};
+};
+} // namespace
 
 /// Renders one clause as the CBMC text for it, without a trailing newline.
 ///
@@ -299,12 +274,13 @@ static std::string formatCProverClause(const ContractClause &Clause,
     return {};
   std::string Text;
   {
+    CProverPrinter Helper;
+    Helper.Policy = Ctx.getPrintingPolicy();
     llvm::raw_string_ostream OS(Text);
-    P->printPretty(OS, nullptr, Ctx.getPrintingPolicy());
+    // The helper renders the intrinsics as CBMC's builtins on the way out, so
+    // the decision is made from the callee that was actually resolved.
+    P->printPretty(OS, &Helper, Ctx.getPrintingPolicy());
   }
-  // `readable(p, n)` is the author's spelling; `__CPROVER_r_ok(p, n)` is the
-  // prover's. Every clause kind can carry one.
-  Text = lowerContractIntrinsics(Text);
 
   switch (Clause.getKind()) {
   case ContractClause::CK_Pre:
@@ -569,25 +545,40 @@ static const DeclRefExpr *findBareParameterRef(const Stmt *E) {
   if (isa<ContractOldExpr>(E))
     return nullptr;
 
-  // Anything under a load addresses memory rather than reporting the
-  // parameter's own value.
-  if (const auto *UO = dyn_cast<UnaryOperator>(E))
-    if (UO->getOpcode() == UO_Deref)
-      return nullptr;
-  if (isa<ArraySubscriptExpr>(E))
-    return nullptr;
-  if (const auto *ME = dyn_cast<MemberExpr>(E))
-    if (ME->isArrow())
-      return nullptr;
-
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
     if (isa<ParmVarDecl>(DRE->getDecl()))
       return DRE;
 
+  // The pointer a load goes through addresses memory rather than reporting its
+  // own value, so it is exempt -- but only that pointer. `post (buf[i] == 0)`
+  // still has to diagnose `i`, which is an ordinary value read and is exactly
+  // as ambiguous as `post (i > 0)` when the body writes to it.
+  const Expr *LoadedThrough = nullptr;
+  if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_Deref)
+      LoadedThrough = UO->getSubExpr();
+  } else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+    LoadedThrough = ASE->getBase();
+  } else if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    if (ME->isArrow())
+      LoadedThrough = ME->getBase();
+  }
+
+  const DeclRefExpr *Exempt = nullptr;
+  if (LoadedThrough) {
+    const Expr *Base = LoadedThrough->IgnoreParenImpCasts();
+    // Only a bare pointer parameter. `*(p + i)` reads i's value to choose the
+    // address, so that one is still reported.
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(Base))
+      if (isa<ParmVarDecl>(DRE->getDecl()) && DRE->getType()->isPointerType())
+        Exempt = DRE;
+  }
+
   for (const Stmt *Child : E->children())
     if (Child)
-      if (const DeclRefExpr *DRE = findBareParameterRef(Child))
-        return DRE;
+      if (const DeclRefExpr *Found = findBareParameterRef(Child))
+        if (Found != Exempt)
+          return Found;
 
   return nullptr;
 }

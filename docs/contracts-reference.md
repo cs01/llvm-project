@@ -174,9 +174,44 @@ give up and assume nothing. With one, `ZSTD_wildcopy` is proved memory-safe for
 | `-fcontract-emit-cprover` | print the contracts as CBMC clauses on stdout |
 | `-fcontract-emit-cprover-unit` | rewrite the whole translation unit into CBMC form, ready for `goto-cc` |
 | `-Wcontract-violation` | the call-site violation warning (on by default, inside `-Wc-contracts`) |
+| `-fcontract-runtime-checks` | check `pre` clauses at run time, calling `__contract_violation()` when one breaks |
 
 `__has_feature(c_contracts)` is true under the flag, so a header can carry
 contracts and still compile with a stock clang.
+
+### Runtime checking
+
+`-fcontract-runtime-checks` evaluates each `pre` at function entry and calls
+
+```c
+void __contract_violation(const char *predicate, const char *file,
+                          unsigned line, const char *function);
+```
+
+when one is false. The signature is deliberately `__assert_fail`-shaped, and a
+**weak** definition that traps is emitted with it: nothing has to be linked in
+for this to work, and any strong definition in the program replaces it. That is
+the point — a project with its own fault handler routes contract violations
+into it rather than getting an undebuggable `ud2`:
+
+```
+ok 5
+CONTRACT: demo.c:13: half: violated 'n > 0'
+```
+
+Two limits, both structural rather than unfinished:
+
+- **`pre` only, for now.** A `post` has to be evaluated on every return path,
+  which is more machinery than this first tier has.
+- **Clauses about memory cannot be checked here, and say so.** `readable`,
+  `writable`, `fresh` and `same_object` ask about an allocation, and C gives no
+  way to recover one from a pointer parameter, so the compiler warns rather than
+  emitting a check that would silently pass. `__builtin_dynamic_object_size`
+  recovers the size at an *allocation* site and returns `-1` for an opaque
+  parameter, which is why the answer for those clauses is a check at the **call
+  site** rather than in the prologue — the caller still has the allocation in
+  view, the same reason `_FORTIFY_SOURCE` checks at the call to `memcpy` rather
+  than inside it. That tier is not built yet.
 
 `-fc-contracts` is **C only**, and a C++ input is a hard error rather than a
 silent no-op:

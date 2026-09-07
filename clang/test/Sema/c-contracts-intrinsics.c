@@ -40,6 +40,15 @@ int mine(void) pre (usable());
 // CHECK:      /* mine */
 // CHECK-NEXT: __CPROVER_requires(usable())
 
+// A project's own 'readable' is a different declaration, so it must survive
+// into the CBMC form as itself. Deciding this from the printed text is
+// impossible -- both spellings print identically -- so the emitter decides from
+// the callee that lookup resolved, and this is the case that proves it does.
+__attribute__((const)) int readable(const void *p, size_t n);
+int theirs(const void *p, size_t n) pre (readable(p, n));
+// CHECK:      /* theirs */
+// CHECK-NEXT: __CPROVER_requires(readable(p, n))
+
 // A local of the same name is read, not called, so it is not rewritten.
 int shadowed(int readable) pre (readable > 0);
 // CHECK:      /* shadowed */

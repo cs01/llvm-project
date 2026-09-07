@@ -41,6 +41,42 @@ class VarDecl;
 /// Elements because CBMC's `__CPROVER_object_upto` counts bytes, and a `sizeof`
 /// multiply the author writes by hand is one they can write wrongly: too small
 /// a frame does not fail, it silently proves less.
+/// A contract intrinsic: the spelling an author writes, the CBMC builtin it
+/// lowers to, and its shape.
+///
+/// These let a contract ask the questions about a pointer that C itself cannot
+/// ask. They are also exactly the clauses a runtime check cannot evaluate --
+/// an allocation's bounds are not recoverable from a `void *` -- so CodeGen
+/// consults this table to know what it must decline rather than skip.
+struct ContractIntrinsicInfo {
+  const char *Name;    ///< as written in the clause
+  const char *CProver; ///< as CBMC spells it
+  unsigned NumPtrArgs; ///< leading `const void *` parameters
+  bool HasSizeArg;     ///< trailing size_t parameter
+};
+
+inline constexpr ContractIntrinsicInfo ContractIntrinsicTable[] = {
+    // 'readable' is a lower bound: it claims n bytes may be read and says
+    // nothing about the size of the object above that, so a read past n is not
+    // caught. 'fresh' gives an object of exactly n bytes, distinct from every
+    // other, and does catch it. The difference decides whether an over-read is
+    // found, so both spellings exist rather than one guessing.
+    {"readable", "__CPROVER_r_ok", 1, true},
+    {"fresh", "__CPROVER_is_fresh", 1, true},
+    {"writable", "__CPROVER_w_ok", 1, true},
+    {"same_object", "__CPROVER_same_object", 2, false},
+    {"pointer_offset", "__CPROVER_POINTER_OFFSET", 1, false},
+};
+
+/// The intrinsic \p Name names, or null if it is not one.
+inline const ContractIntrinsicInfo *
+findContractIntrinsic(llvm::StringRef Name) {
+  for (const ContractIntrinsicInfo &C : ContractIntrinsicTable)
+    if (Name == C.Name)
+      return &C;
+  return nullptr;
+}
+
 struct AssignsTarget {
   /// The lvalue, or the base of the range.
   Expr *Base = nullptr;

@@ -1161,7 +1161,8 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
       Expr *Predicate = Record.readExpr();
       Clauses.emplace_back(Kind, KeywordLoc, LParenLoc, RParenLoc, Predicate);
       Clauses.back().setResultVar(ResultVar);
-      if (unsigned NumTargets = Record.readInt()) {
+      unsigned NumTargets = Record.readInt();
+      if (Kind == ContractClause::CK_Assigns) {
         SmallVector<AssignsTarget, 4> Targets;
         Targets.reserve(NumTargets);
         for (unsigned T = 0; T != NumTargets; ++T) {
@@ -1171,9 +1172,15 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
           Target.Upper = Record.readExpr();
           Targets.push_back(Target);
         }
-        auto *Stored = new (Reader.getContext()) AssignsTarget[Targets.size()];
+        // Even when there are none. `assigns ()` means "modifies nothing",
+        // which is the strongest frame a function can have; isInvalid() tells a
+        // frame from a clause that failed to parse by whether this pointer is
+        // null, so leaving it null would turn that contract into a parse error
+        // on the way out of a PCH. Over-allocate by one so zero targets still
+        // yields a non-null pointer.
+        auto *Stored = new (Reader.getContext()) AssignsTarget[NumTargets + 1];
         std::copy(Targets.begin(), Targets.end(), Stored);
-        Clauses.back().setTargets(Stored, Targets.size());
+        Clauses.back().setTargets(Stored, NumTargets);
       }
     }
     FD->setContracts(ContractSpecifier::Create(Reader.getContext(), Clauses));

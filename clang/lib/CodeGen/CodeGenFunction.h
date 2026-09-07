@@ -2619,6 +2619,15 @@ public:
   /// EmitFunctionProlog - Emit the target specific LLVM code to load the
   /// arguments for the given function. This is also responsible for naming the
   /// LLVM function arguments.
+  /// Emits a runtime check for each checkable 'pre' clause of \p FD, under
+  /// -fcontract-runtime-checks.
+  void EmitContractPreconditionChecks(const FunctionDecl *FD);
+
+  /// Whether \p E can be evaluated by generated code at function entry. The
+  /// contract intrinsics cannot: they ask about an allocation, which C gives no
+  /// way to recover from a pointer parameter.
+  static bool isContractRuntimeCheckable(const Stmt *E);
+
   void EmitFunctionProlog(const CGFunctionInfo &FI, llvm::Function *Fn,
                           const FunctionArgList &Args);
 

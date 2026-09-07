@@ -2130,6 +2130,15 @@ defm contract_emit_cprover_unit : BoolFOption<
           " rewriting the translation unit with contracts in CBMC form, so the"
           " result can be compiled by goto-cc">>;
 
+defm contract_runtime_checks : BoolFOption<
+  "contract-runtime-checks",
+  LangOpts<"CContractsRuntimeChecks">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option], "Disable">,
+  BothFlags<[], [],
+          " checking contract clauses at run time, calling"
+          " __contract_violation() when one is broken">>;
+
 defm c_contracts : BoolFOption<
   "c-contracts",
   LangOpts<"CContracts">, DefaultFalse,

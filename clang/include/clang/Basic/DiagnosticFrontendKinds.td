@@ -561,4 +561,9 @@ def warn_dyndbg_unable_to_create_target : Warning<
 
 def err_dyndbg_no_instrumentation : Error<
     "'-fdynamic-debugging' unsupported with instrumentation (PGO/code coverage)">;
+
+def warn_contract_not_runtime_checkable : Warning<
+  "this clause asks about an allocation, which cannot be checked at run time; "
+  "it is proved rather than checked">,
+  InGroup<CContracts>;
 }

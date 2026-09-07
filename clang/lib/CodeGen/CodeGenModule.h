@@ -1438,6 +1438,12 @@ public:
 
   ///@}
 
+  /// __contract_violation(pred, file, line, function), shaped like
+  /// __assert_fail so it reads as familiar and can be routed into an existing
+  /// fault handler. A weak trapping definition is emitted with it, so nothing
+  /// need be linked in and any strong definition in the program wins.
+  llvm::FunctionCallee getContractViolationFn();
+
   llvm::Function *getLLVMLifetimeStartFn();
   llvm::Function *getLLVMLifetimeEndFn();
   llvm::Function *getLLVMFakeUseFn();

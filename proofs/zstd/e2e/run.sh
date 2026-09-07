@@ -191,7 +191,7 @@ if $CLANG -fc-contracts -fcontract-runtime-checks "$WORK/c9.c" -o "$WORK/c9" 2>/
   "$WORK/c9" 2>/dev/null; RC=$?
   [ "$RC" -ne 0 ] && { A=PASS; D="violated precondition trapped (exit $RC)"; }
 fi
-report "9 a violated precondition can trap at runtime" FAIL "$A" "$D"
+report "9 a violated precondition can trap at runtime" PASS "$A" "$D"
 
 echo
 if [ "$FAILED" -eq 0 ]; then

@@ -563,22 +563,26 @@ public:
 
     if (const ContractSpecifier *CS = D->getContracts())
       for (const ContractClause &Clause : *CS)
-        getNodeDelegate().AddChild(Clause.getKindSpelling(), [=] {
-          if (Clause.getResultVar())
-            Visit(Clause.getResultVar());
-          if (Clause.getPredicate())
-            Visit(Clause.getPredicate());
-          // An 'assigns' has targets instead of a predicate, so without this
-          // it dumps as a bare label and a frame that was lost -- through a
-          // PCH, say -- looks identical to one that survived.
-          for (const AssignsTarget &T : Clause.getTargets()) {
-            Visit(T.Base);
-            if (T.Lower)
-              Visit(T.Lower);
-            if (T.Upper)
-              Visit(T.Upper);
-          }
-        });
+        getNodeDelegate().AddChild(
+            Clause.isInvalid()
+                ? std::string(Clause.getKindSpelling()) + " invalid"
+                : std::string(Clause.getKindSpelling()),
+            [=] {
+              if (Clause.getResultVar())
+                Visit(Clause.getResultVar());
+              if (Clause.getPredicate())
+                Visit(Clause.getPredicate());
+              // An 'assigns' has targets instead of a predicate, so without
+              // this it dumps as a bare label and a frame that was lost --
+              // through a PCH, say -- looks identical to one that survived.
+              for (const AssignsTarget &T : Clause.getTargets()) {
+                Visit(T.Base);
+                if (T.Lower)
+                  Visit(T.Lower);
+                if (T.Upper)
+                  Visit(T.Upper);
+              }
+            });
 
     if (Traversal == TK_IgnoreUnlessSpelledInSource && D->isDefaulted())
       return;

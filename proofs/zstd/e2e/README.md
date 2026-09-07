@@ -22,9 +22,9 @@ tells you to come update this file.
 | 6 | A wrong contract fails, loudly | **pass** |
 | 7 | A proof fits in a CI step (60 s budget) | **pass**, 10 s |
 | 8 | Annotations can live in the upstream source tree | fail |
-| 9 | A violated precondition can trap at runtime | fail |
+| 9 | A violated precondition can trap at runtime | **pass**, scalar `pre` |
 
-Five of nine. The five that pass are not the easy ones: a wrong contract really
+Six of nine. The six that pass are not the easy ones: a wrong contract really
 is rejected, the frame really does hold across a call replacement, and the
 unbounded proof really does fit in a CI step. The five that fail are the ones
 between a research artifact and something a maintainer would adopt.

@@ -32,3 +32,18 @@ int both(int *p) pre (p != 0) post (r: r > 0);
 
 // 'assigns' takes locations, not a predicate; see c-contracts-assigns.c.
 int has_writes(int *p) assigns (*p);
+
+// The pointer a load goes through is exempt in 'post': `buf[0]` and `*op` read
+// memory shared with the caller, and there is nothing for old() to disambiguate.
+int deref_ok(int *buf) post (buf[0] == 0);
+int diff_ok(int **op, int **ip) post (*op - *ip >= 8);
+
+// An index is not exempt. It is an ordinary value read, and as ambiguous as
+// `post (i > 0)` when the body writes to it -- which is the case the rule is
+// for, so pruning the whole subtree under a load would have lost it.
+int index_bad(int *buf, int i) post (buf[i] == 0);
+// expected-error@-1 {{'post' predicate cannot name parameter 'i' directly}}
+// expected-note@-2 {{name the value at function entry with 'old(i)'}}
+int arith_bad(int *p, int i) post (*(p + i) == 0);
+// expected-error@-1 {{'post' predicate cannot name parameter 'p' directly}}
+// expected-note@-2 {{name the value at function entry with 'old(p)'}}

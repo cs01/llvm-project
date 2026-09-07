@@ -339,10 +339,16 @@ themselves — `__CPROVER_assume`, symbolic allocation, the entry point — whic
 this grammar does not try to express and probably should not: a contract belongs
 on the function, a harness is a proof driver.
 
-**Runtime trapping.** Turning `pre` into a deterministic trap at the
-earliest wrong state, for the clauses that can be branches. Worth noting that
-buffer and frame clauses can never be traps — there is no way to recover the
-allocation behind a `void *` at entry — so this tier is narrower than it sounds.
+**Runtime checking, at the call site.** `-fcontract-runtime-checks` already
+turns a `pre` into a check at function entry, calling a weak
+`__contract_violation(predicate, file, line, function)` that a project can
+replace with its own fault handler. What remains is the clauses about memory:
+those cannot be checked at entry, because C gives no way to recover an
+allocation from a pointer parameter, so the compiler declines them rather than
+emitting a check that would silently pass. The answer is to check them at the
+call site, where the caller still has the allocation in view -- the same reason
+`_FORTIFY_SOURCE` checks at the call to `memcpy` rather than inside it, and the
+same place `-Wcontract-violation` already runs.
 
 **Contract inference**, so the first annotation on a large codebase is not
 hand-written from nothing.
