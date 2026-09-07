@@ -108,7 +108,7 @@ above and proved memory-safe for **every** length — `length` symbolic to 1 GiB
 both buffers symbolically allocated, no `--unwind` at all:
 
 ```
-** 0 of 208 failed (1 iterations)
+** 0 of 205 failed (1 iterations)
 VERIFICATION SUCCESSFUL
 ```
 
@@ -300,7 +300,7 @@ it now runs from contracts written in this syntax.
   `max(srcSize, 8)`, `0 of 248`. One variable, so the missing precondition is
   isolated exactly.
 - **An unbounded proof, written in this grammar.** `ZSTD_wildcopy` is
-  memory-safe for *every* length, not just up to some bound: `0 of 208 failed`,
+  memory-safe for *every* length, not just up to some bound: `0 of 205 failed`,
   one iteration, no `--unwind` at all, length to 1 GiB with symbolically
   allocated buffers. Proof by induction over the loop. The contracts are
   `assigns` / `loop_invariant` / `decreases` in upstream zstd source, lowered by

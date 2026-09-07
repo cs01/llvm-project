@@ -51,9 +51,11 @@ report "1 contracts cost nothing in a normal build" PASS "$A" "object code ident
 # ---------------------------------------------------------------- case 2
 # The annotated zstd source should contain no prover vocabulary. The point of
 # the extension is that a maintainer writes C, not CBMC.
-N=$(grep -c "__CPROVER" "$HERE/../patches/annotate-wildcopy-our-grammar.patch" 2>/dev/null || echo 0)
+# grep -c prints 0 and exits 1 when there are no matches, so no `|| echo 0`.
+N=$(grep -c "__CPROVER" "$HERE/../patches/annotate-wildcopy-our-grammar.patch" 2>/dev/null)
+N=${N:-0}
 if [ "$N" -eq 0 ]; then A=PASS; else A=FAIL; fi
-report "2 no prover vocabulary in annotated source" FAIL "$A" "$N __CPROVER tokens in the patch"
+report "2 no prover vocabulary in annotated source" PASS "$A" "$N __CPROVER tokens in the patch"
 
 # ---------------------------------------------------------------- case 3
 # A do/while loop should be annotatable where it stands. Today the function has

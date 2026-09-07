@@ -14,7 +14,7 @@ tells you to come update this file.
 | # | What a maintainer wants | Today |
 |---|---|:---:|
 | 1 | Contracts cost nothing in a normal build | **pass** |
-| 2 | The annotated source contains no prover vocabulary | fail |
+| 2 | The annotated source contains no prover vocabulary | **pass** |
 | 3 | A loop verifies without restructuring the function | fail |
 | 4a | A callee's frame holds at the call site | **pass** |
 | 4b | A callee's postcondition holds at the call site | fail |
@@ -23,7 +23,7 @@ tells you to come update this file.
 | 7 | A proof fits in a CI step (60 s budget) | **pass**, 10 s |
 | 8 | Annotations can live in the upstream source tree | fail |
 
-Four of nine. The four that pass are not the easy four: a wrong contract really
+Five of nine. The five that pass are not the easy ones: a wrong contract really
 is rejected, the frame really does hold across a call replacement, and the
 unbounded proof really does fit in a CI step. The five that fail are the ones
 between a research artifact and something a maintainer would adopt.

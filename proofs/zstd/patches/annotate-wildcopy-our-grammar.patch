@@ -1,19 +1,11 @@
 diff --git a/lib/common/zstd_internal.h b/lib/common/zstd_internal.h
-index 86a0fc5..902f74c 100644
+index 86a0fc5..0fd870c 100644
 --- a/lib/common/zstd_internal.h
 +++ b/lib/common/zstd_internal.h
-@@ -214,21 +214,32 @@ typedef enum {
+@@ -214,21 +214,24 @@ typedef enum {
   *         - ZSTD_overlap_src_before_dst: The src and dst may overlap, but they MUST be at least 8 bytes apart.
   *           The src buffer must be before the dst buffer.
   */
-+
-+/* --- verification only: CBMC provenance builtins, declared pure so they may be
-+ * called from a contract predicate. Nothing here affects a normal build. --- */
-+#ifdef ZSTD_CONTRACTS
-+typedef long __CPROVER_ssize_t_;
-+int  __CPROVER_same_object(const void *, const void *)  __attribute__((const));
-+long __CPROVER_POINTER_OFFSET(const void *)             __attribute__((const));
-+#endif
 +
  MEM_STATIC FORCE_INLINE_ATTR
  void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e const ovtype)
@@ -38,7 +30,7 @@ index 86a0fc5..902f74c 100644
          /* Separate out the first COPY16() call because the copy length is
           * almost certain to be short, so the branches have different
           * probabilities. Since it is almost certain to be short, only do
-@@ -239,11 +250,25 @@ void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e con
+@@ -239,11 +242,25 @@ void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e con
          if (16 >= length) return;
          op += 16;
          ip += 16;
@@ -52,12 +44,12 @@ index 86a0fc5..902f74c 100644
 +        while (1)
 +#ifdef ZSTD_CONTRACTS
 +        assigns        (op, ip, dstStart[0 : length + WILDCOPY_OVERLENGTH])
-+        loop_invariant (__CPROVER_same_object(op, dstStart))
-+        loop_invariant (__CPROVER_same_object(ip, (const BYTE*)src))
-+        loop_invariant (__CPROVER_POINTER_OFFSET(op) >= 16)
-+        loop_invariant (__CPROVER_POINTER_OFFSET(op) < (long)length)
-+        loop_invariant (__CPROVER_POINTER_OFFSET(ip) == __CPROVER_POINTER_OFFSET(op))
-+        decreases      ((long)length - __CPROVER_POINTER_OFFSET(op))
++        loop_invariant (same_object(op, dstStart))
++        loop_invariant (same_object(ip, (const BYTE*)src))
++        loop_invariant (pointer_offset(op) >= 16)
++        loop_invariant (pointer_offset(op) < (long)length)
++        loop_invariant (pointer_offset(ip) == pointer_offset(op))
++        decreases      ((long)length - pointer_offset(op))
 +#endif
 +        {
 +            ZSTD_copy16(op, ip); op += 16; ip += 16;

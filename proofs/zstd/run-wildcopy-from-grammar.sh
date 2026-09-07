@@ -8,7 +8,7 @@
 #
 # Usage:  ZSTD=~/git/zstd CLANG=../../build/bin/clang ./run-wildcopy-from-grammar.sh
 #
-# Expected:  ** 0 of 208 failed (1 iterations) / VERIFICATION SUCCESSFUL
+# Expected:  ** 0 of 205 failed (1 iterations) / VERIFICATION SUCCESSFUL
 #            about 20 s with z3 installed, about 4 min without.
 set -e
 ZSTD=${ZSTD:?set ZSTD to a zstd checkout with the patch applied}
@@ -57,7 +57,7 @@ goto-instrument --apply-loop-contracts "$WORK/wc.goto" "$WORK/wci.goto"
 # Z3 if it is installed. This harness allocates both buffers symbolically, so
 # their extent never becomes a constant, and an SMT solver with a theory of
 # arrays does not have to bit-blast it: 13 s against 245 s for CBMC's built-in
-# SAT backend, same 208 obligations, same answer. Do not generalise the flag --
+# SAT backend, same obligations, same answer. Do not generalise the flag --
 # on the fixed-size-array harnesses in this directory it loses badly, and
 # COST.md gives the rule and the numbers.
 if command -v z3 >/dev/null 2>&1; then

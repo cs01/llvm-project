@@ -28,7 +28,10 @@ running, Linux container with 4 cores, CBMC 6.11:
 | `execSequence`, `--unwind 12` | fixed 96 / 64 / 64 arrays | **685 s** | > 1800 s | > 1800 s |
 | `execSequence`, `--unwind 34` | same | **1640 s** | > 2700 s | > 2700 s |
 
-Every finishing run agrees: same obligation count, same verdict.
+Every finishing run agrees: same obligation count, same verdict. (These rows
+were measured at 208 obligations, before the hand-declared prover externs were
+replaced by the contract intrinsics; the same proof is 205 obligations today and
+the solve times are unchanged.)
 
 **The rule, and it is mechanical:**
 

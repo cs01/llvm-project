@@ -291,17 +291,21 @@ extension is not to write those, so the proof was re-expressed as source:
 ```c
 while (1)
   assigns        (op, ip, dstStart[0 : length + WILDCOPY_OVERLENGTH])
-  loop_invariant (__CPROVER_same_object(op, dstStart))
-  loop_invariant (__CPROVER_POINTER_OFFSET(op) < (long)length)
-  decreases      ((long)length - __CPROVER_POINTER_OFFSET(op))
+  loop_invariant (same_object(op, dstStart))
+  loop_invariant (pointer_offset(op) < (long)length)
+  decreases      ((long)length - pointer_offset(op))
 ```
+
+Every name in that is C written by the author. There is no prover vocabulary in
+the annotated source and no hand-declared externs to get wrong: `same_object`
+and `pointer_offset` are contract intrinsics the compiler knows.
 
 `run-wildcopy-from-grammar.sh` runs it: `clang -fc-contracts
 -fcontract-emit-cprover-unit` rewrites the annotated TU, `goto-cc` compiles it,
 `goto-instrument --apply-loop-contracts` instruments it, `cbmc` discharges it.
 
 ```
-** 0 of 208 failed (1 iterations)
+** 0 of 205 failed (1 iterations)
 VERIFICATION SUCCESSFUL
 ```
 
