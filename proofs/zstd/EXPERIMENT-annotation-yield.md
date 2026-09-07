@@ -165,7 +165,14 @@ Three things this entry is worth more for than the finding itself:
 |---|---|:---:|---|
 | 1 | `BIT_lookBits` / `BIT_getMiddleBits` | 2 | no — 30 max vs 32 table |
 | 2 | `ZSTD_wildcopy` | — | not a bug; first proof from the grammar |
-| 3 | `BIT_initDStream` | 2 | caller's guards proved to permit it; buffer-end coincidence still open |
+| 3 | `BIT_initDStream` | **1** | yes, via `ZSTD_decompressBlock` (static API) |
 
-Bucket 1 findings so far, from this experiment: **0**.
-(`ZSTD_overlapCopy8`, the branch's one bucket-1 finding, predates it.)
+Bucket 1 findings so far, from this experiment: **1**.
+
+Entry 3 started as a contract written on a function -- "what does
+`BIT_initDStream` actually require of its buffer?" -- and the answer was
+stronger than the header promised. Chasing that gap to a caller took three
+harnesses and ended at a `>` that should be a `>=`. It is a real reachable
+defect in shipping zstd, it is not a crash, and fuzzing structurally cannot
+find it. `ZSTD_overlapCopy8`, the branch's other bucket-1 finding, predates
+this experiment.

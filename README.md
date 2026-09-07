@@ -396,7 +396,11 @@ experiment with the bar written down, in
 [`EXPERIMENT-annotation-yield.md`](proofs/zstd/EXPERIMENT-annotation-yield.md).
 Findings that are real-but-unreachable, or that are really about the prover, are
 logged as such. The count of new *reachable* UB findings the grammar has
-produced so far is **zero**.
+produced is **one**: `BIT_initDStream` forms a pointer up to seven bytes past
+the end of the caller's buffer, reachable from the public `ZSTD_decompressBlock`
+with a Huffman literals section that ends where the buffer ends -- which
+`ZSTD_decodeLiteralsBlock` permits because its guard is `>` where it wants
+`>=`. It began as a contract written on the function, not as a bug hunt.
 
 Read **[proofs/zstd/COST.md](proofs/zstd/COST.md)** before estimating anything:
 solve time is driven by symbolic state size, not obligation count, and it decides

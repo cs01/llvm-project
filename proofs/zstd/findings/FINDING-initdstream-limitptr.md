@@ -167,7 +167,71 @@ The proof cuts the function off immediately after the four
 is an under-approximation and cannot manufacture a trace, so the counterexample
 is real; it is what took the run from a 2400-second timeout to 14 seconds.
 
-## What is still open, and why this is not yet bucket 1
+## The caller chain, closed
+
+`cSrc` is a sub-range in the library rather than its own allocation, so the
+proof above left one question: does a real caller ever put a short stream at the
+end of its *object*? It does, and the guard that allows it is a `>` that should
+be a `>=`.
+
+`ZSTD_decodeLiteralsBlock`, `zstd_decompress_block.c`:
+
+```c
+RETURN_ERROR_IF(litCSize + lhSize > srcSize, corruption_detected, "");
+```
+
+Strictly greater, so `lhSize + litCSize == srcSize` is accepted: the literals
+section may end exactly where the caller's buffer ends. And in
+`ZSTD_decompressBlock()` -- a public entry point -- that buffer is the user's
+own object, passed straight down:
+
+```
+ZSTD_decompressBlock(dctx, dst, cap, src, srcSize)   src is the caller's object
+  -> ZSTD_decompressBlock_deprecated
+    -> ZSTD_decompressBlock_internal
+      -> ZSTD_decodeLiteralsBlock(dctx, src, srcSize, ...)        line 2201
+        -> HUF_decompress4X_usingDTable(..., istart + lhSize, litCSize, ...)
+          -> BIT_initDStream(&bitD4, istart4, length4)
+```
+
+[`harnesses/harness_huf4x_subrange.c`](../harnesses/harness_huf4x_subrange.c)
+models exactly that shape -- allocate the whole block, hand the decoder its tail
+-- and fails in three seconds:
+
+```
+total = 34            object is 34 bytes, one-past-end is 34
+lhSize = 2            cSrc = block + 2, cSrcSize = 32
+jump table 6 / 12 / 2 so length4 = 32 - 26 = 6
+istart4 = block + 28, and istart4 + length4 = 34, the end of the object
+
+BIT_initDStream(&bitD4, block + 28, 6)  ->  limitPtr = block + 36
+```
+
+Two bytes past one-past-the-end. Every guard on the path passes:
+`cSrcSize >= 10`, `dstSize >= 6`, `length4 > cSrcSize` false, `opStart4 > oend`
+false. The arithmetic checks by hand.
+
+The undefined behaviour happens **before** any error return. Even a block that
+later fails sequence parsing has already formed the pointer.
+
+### Scope, stated precisely
+
+- **It is the block-level API.** `ZSTD_decompressBlock` is `ZSTDLIB_STATIC_API`,
+  for advanced users, not the `ZSTD_decompress` frame path. Whether a frame can
+  also place a literals section at its buffer's end is not established here:
+  sequences and an optional checksum normally follow.
+- **The Huffman table is modelled, not built.** The harness hands the decoder a
+  well-formed X1 table descriptor rather than one decoded from the stream. The
+  jump-table arithmetic and every guard are the real code; the table is an
+  assumption.
+- **Nothing is dereferenced.** Same severity class as
+  [`ZSTD_overlapCopy8`](FINDING-overlapcopy8-oob-pointer.md): nothing misbehaves
+  at runtime, which is why fuzzing does not reach it, and it is exactly the
+  freedom a provenance-exploiting optimiser may take.
+
+## What was open before that
+
+
 
 `cSrc` is not its own object in the library. `ZSTD_decodeLiteralsBlock` passes
 `istart + lhSize` with size `litCSize` -- a **sub-range of the caller's input
