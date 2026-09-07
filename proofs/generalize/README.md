@@ -15,8 +15,21 @@ attacker controls.**
 |---|---|---|
 | zlib | `inflate_table` (`inftrees.c`) | **bucket 2** — [doc understates the table size](zlib/FINDING-inflate-table-doc.md) |
 | zlib | `inflate_fast` (`inffast.c`) | read, no defect found — see below |
+| expat | `storeRawNames` (`xmlparse.c`) | **defect found**: [freed pointer read after realloc](expat/FINDING-storerawnames-freed-pointer.md) |
 | redis | `sds.c` header recovery | scouted, harness not written |
 | jq | `jv.c` | not started |
+
+## expat: the method found one in a second codebase
+
+[`storeRawNames`](expat/FINDING-storerawnames-freed-pointer.md) repairs its
+cached pointers *after* `realloc` has already freed the block they point into,
+so it compares and subtracts an indeterminate pointer value. It is the same
+class as the zstd findings, and survived for the same reason: nothing
+dereferences the stale pointer, so ASan is silent and no fuzzer input
+distinguishes a moved block from an in-place one.
+
+This is the first finding from a codebase with no authorship or idiom overlap
+with zstd, which is what the question at the top of this file was asking.
 
 **A null result is a result.** If ten annotated functions across four codebases
 produce nothing, that belongs here in the same words as the findings — the whole
