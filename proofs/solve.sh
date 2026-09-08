@@ -101,5 +101,15 @@ for C in $CANDIDATES; do
   RCS=$( [ -f "$WORK/$NAME.rc" ] && cat "$WORK/$NAME.rc" || echo running )
   printf '   %-10s rc=%-8s last phase: %s\n' "$NAME" "$RCS" "${PHASE:-<none>}"
 done
-echo "   all still in Bounded Model Checking => symex-bound, not solver-bound: shrink the harness."
+ALL6=1
+for C in $CANDIDATES; do
+  NAME=${C%%:*}
+  [ -f "$WORK/$NAME.rc" ] && [ "$(cat "$WORK/$NAME.rc")" = "6" ] || ALL6=0
+done
+if [ "$ALL6" = "1" ]; then
+  echo "   every solver exited 6: the goto program is malformed, not hard."
+  echo "   look at the goto-cc / goto-instrument step, not the solver."
+else
+  echo "   all still in Bounded Model Checking => symex-bound, not solver-bound: shrink the harness."
+fi
 exit 124

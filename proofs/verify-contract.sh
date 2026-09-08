@@ -63,7 +63,23 @@ OUT=$(goto-instrument --apply-loop-contracts --enforce-contract "$FN" \
         "$W/a.goto" "$W/e.goto" 2>&1) || true
 printf '%s' "$OUT" | grep -qi "not found" && {
   echo "goto-instrument could not find $FN" >&2; exit 4; }
-printf '%s' "$OUT" | grep -i "reason" >&2
+if printf '%s' "$OUT" | grep -qi "reason"; then
+  printf '%s\n' "$OUT" | grep -i "reason" >&2
+  # CBMC cannot check a frame condition while a loop in the function is
+  # unconstrained, so a function contract needs loop contracts on every loop
+  # the function contains. Naming them is the difference between a usable
+  # message and a dead end.
+  if printf '%s' "$OUT" | grep -qi "loops remain"; then
+    echo "" >&2
+    echo "  every loop in $FN needs its own contract before its frame can be" >&2
+    echo "  checked. the loops are:" >&2
+    goto-instrument --show-loops "$W/a.goto" 2>/dev/null |
+      grep -i "^Loop $FN\.\|$FN\." | sed 's/^/    /' >&2
+    echo "" >&2
+    echo "  add to each:  assigns (...) loop_invariant (...) decreases (...)" >&2
+  fi
+  exit 5
+fi
 
 # 5. Race the solvers rather than guessing one.
 # shellcheck disable=SC2086
