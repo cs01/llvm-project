@@ -104,6 +104,16 @@ mis-recorded once already:
    9 loop clauses, 475 s). `inflate_table`'s frame still needs eleven triples
    that nobody has written. That is labour, not a capability gap, and calling it
    a wall was wrong.
-2. **The grammar has no quantifier.** `lens[]` wants "every element is at most
-   MAXBITS" and there is no way to say it; the proof above pins `codes == 5` and
-   spells out five indices. That is a workaround and it does not scale.
+2. **The quantifier arrived separately.** The first version of this proof pinned
+   `codes == 5` and spelled out five indices, because `lens[]` wants "every
+   element is at most MAXBITS" and nothing could say it. `forall (i : lo, hi)`
+   landed on the branch in 445c3e05cc68, so the clause is now
+
+   ```c
+   pre (forall (i : 0, codes) lens[i] <= 15)
+   ```
+
+   with `codes` left as a range rather than a constant. **The timings recorded
+   above are from the pinned version**, which is what was actually run; the
+   quantified contract is being re-measured and this section will carry its
+   numbers or say why it is slower.

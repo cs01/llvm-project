@@ -10,6 +10,7 @@ This is a *proof* vocabulary that also checks at run time.
 | language                         | C++                                    | **C** (rejected under `-x c++`)                   |
 | status                           | **standardised**, ships in GCC 16      | a fork, one implementation                        |
 | clauses                          | `pre`, `post`, `contract_assert`       | `pre`, `post`, `old`, `assigns`, `loop_invariant`, `decreases` |
+| quantifiers                      | —                                      | `forall (i : lo, hi) pred`                        |
 | entry values in `post`           | none; a parameter named in `post` must be `const` | `old(x)`                          |
 | frame conditions                 | —                                      | `assigns (dst[0 : n])`                            |
 | loop reasoning                   | —                                      | `loop_invariant`, `decreases`                     |
@@ -18,9 +19,10 @@ This is a *proof* vocabulary that also checks at run time.
 | static proof                     | out of scope                           | CBMC, entry point generated from the contract     |
 | may the optimiser assume it?     | **no**, by design — even unchecked     | no (see below)                                    |
 
-The four clauses C++26 does not have are not decoration: they are what a prover
+The clauses C++26 does not have are not decoration: they are what a prover
 needs. `pre`/`post` alone cannot say what a function may modify, cannot make a
-loop tractable, and cannot describe the extent of a buffer. zlib's
+loop tractable, cannot describe the extent of a buffer, and cannot say anything
+about every element of an array. zlib's
 `inflate_table` needs `fresh` on the target of an out-parameter — `code **table`
 — and that sentence has no spelling in P2900.
 
