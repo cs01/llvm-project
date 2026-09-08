@@ -62,8 +62,25 @@ single-invocation form exists at all.
 So the entry above stands for the real case. The correction is narrower than it
 first looked: what is really "the two passes do not compose" is limited to a
 self-contained loop, and everything about inlining transitivity is unaffected.
-Not re-run against zstd itself — no checkout was available — so the table is a
-minimal model of the shape, not a measurement of `ZSTD_execSequence`.
+
+**Re-measured on real zstd, and the model was right.** With the seven
+preconditions on `ZSTD_execSequence`, a function contract on `ZSTD_wildcopy`,
+and loop contracts on both of `ZSTD_safecopy`'s `while` loops, all written in
+the portable grammar (`requires: 9`, matching what
+`RESULT-execsequence-from-grammar.md` records):
+
+```
+single pass:  Reason: Loops remain in function 'ZSTD_execSequence'
+two passes:   pass 1 OK
+              Reason: Loops remain in function 'ZSTD_execSequence'
+```
+
+`goto-instrument --show-loops` on the loop-contracted binary reports **41 loops
+still inside `ZSTD_execSequence`**. So the gap is not one or two annotations
+away. Annotating `ZSTD_safecopy`'s two obvious loops moves the count barely at
+all, because the bulk arrives through inlining — including every `do { } while
+(0)` macro in the path, which CBMC counts as a loop, exactly as
+[UNBOUNDED.md](../zstd/UNBOUNDED.md) records for `COPY16`.
 
 ## 2. FIXED (diagnosed) -- `FORCE_INLINE` silently discards a callee's contract
 
