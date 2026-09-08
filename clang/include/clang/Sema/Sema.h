@@ -7919,6 +7919,10 @@ public:
   /// until the body has been parsed.
   void EmitCProverLoopContracts(const Decl *D);
 
+  /// Warns about contracts that the compiler accepts but the prover cannot
+  /// use: an always_inline carrier, a missing frame, an un-annotated loop.
+  void DiagnoseContractVerifiability(const FunctionDecl *FD);
+
   /// Under -fcontract-emit-cprover-unit, the clause text to splice over each
   /// original clause, keyed by the source range it replaces.
   ///

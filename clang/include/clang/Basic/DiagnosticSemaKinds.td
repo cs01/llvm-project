@@ -14386,6 +14386,34 @@ def warn_contract_do_needs_braces : Warning<
   "a 'do' loop with contracts needs a braced body to be rewritten for the "
   "prover; its contracts are emitted but will be rejected">,
   InGroup<CContracts>;
+// Traps that make a contract silently useless to the prover rather than wrong
+// to the compiler. Each of these was hit annotating real code; see
+// proofs/contracts-eval/ISSUES.md.
+def warn_contract_on_always_inline : Warning<
+  "contract on %0 has no effect on callers: the function is 'always_inline', "
+  "and a loop or function contract does not transfer to the inlined copy">,
+  InGroup<CContracts>;
+def note_contract_always_inline_here : Note<
+  "'always_inline' declared here; drop it in the verification build to check "
+  "callers against this contract">;
+def warn_contract_fn_uncontracted_loop : Warning<
+  "%0 has a contract but its body contains a loop with no loop contract; "
+  "contract checking needs a loop-free body and will be refused">,
+  InGroup<CContracts>;
+def note_contract_uncontracted_loop_here : Note<
+  "this loop needs 'loop_invariant' and 'decreases', or the enclosing "
+  "function's contract cannot be checked">;
+def warn_contract_missing_assigns : Warning<
+  "%0 has a contract but no 'assigns' clause, so its frame is empty; every "
+  "write it makes through a parameter will be reported as a violation">,
+  InGroup<CContracts>;
+def note_contract_missing_assigns_write : Note<
+  "this write is outside the empty frame">;
+def note_contract_use_intrinsic : Note<
+  "use the contract intrinsic '%0' rather than CBMC's '%1'">;
+def note_contract_intrinsics_available : Note<
+  "contract intrinsics are 'readable', 'writable', 'fresh', 'same_object' and "
+  "'pointer_offset'">;
 def err_contract_cprover_unit_invalid_clause : Error<
   "refusing to rewrite this translation unit: %0 contract clause%s0 did not "
   "type-check, and the output would be part contract syntax and part CBMC">;

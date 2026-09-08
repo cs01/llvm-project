@@ -2619,6 +2619,9 @@ Decl *Parser::ParseFunctionStatementBody(Decl *Decl, ParseScope &BodyScope) {
   // exists. Loop clauses live in the body, so they are emitted here instead,
   // which also puts them after their function's requires/ensures in the output.
   Actions.EmitCProverLoopContracts(Res);
+  // Body-dependent contract checks: the clauses were seen at the declarator,
+  // but whether they are usable depends on what the body turned out to contain.
+  Actions.DiagnoseContractVerifiability(dyn_cast_or_null<FunctionDecl>(Res));
   return Res;
 }
 
