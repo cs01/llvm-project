@@ -67,9 +67,26 @@ ExprResult Sema::ActOnContractClausePredicate(ContractClause::ClauseKind Kind,
   if (Cond.get()->HasSideEffects(Context)) {
     Diag(Cond.get()->getExprLoc(), diag::err_contract_predicate_not_pure)
         << Cond.get()->getSourceRange();
-    if (const FunctionDecl *Callee = findImpureCallee(Cond.get()))
-      Diag(Callee->getLocation(), diag::note_contract_predicate_pure_call)
-          << Callee;
+    if (const FunctionDecl *Callee = findImpureCallee(Cond.get())) {
+      // Anyone arriving from CBMC writes __CPROVER_r_ok before they write
+      // 'readable', and the purity error is a confusing way to be told so:
+      // the predicate has no side effects, the name is simply not an
+      // intrinsic. Say that instead, and name the spelling that works.
+      StringRef CalleeName = Callee->getName();
+      const ContractIntrinsicInfo *Equivalent = nullptr;
+      for (const ContractIntrinsicInfo &C : ContractIntrinsicTable)
+        if (CalleeName == C.CProver)
+          Equivalent = &C;
+
+      if (Equivalent)
+        Diag(Callee->getLocation(), diag::note_contract_use_intrinsic)
+            << Equivalent->Name << Equivalent->CProver;
+      else if (CalleeName.starts_with("__CPROVER"))
+        Diag(Callee->getLocation(), diag::note_contract_intrinsics_available);
+      else
+        Diag(Callee->getLocation(), diag::note_contract_predicate_pure_call)
+            << Callee;
+    }
     return ExprError();
   }
 
@@ -634,6 +651,97 @@ void Sema::EmitCProverContracts(const FunctionDecl *FD) {
     if (const ContractSpecifier *CS = FD->getContracts())
       recordCProverRewrites(*CS, Context, CProverUnitRewrites,
                             NumInvalidContractClauses);
+}
+
+/// The first loop under \p S that carries no loop contract, or null.
+///
+/// Contract checking rewrites a function into straight-line code before it can
+/// check a frame, so a single un-annotated loop anywhere in the body -- or in
+/// anything inlined into it -- makes the function's own contract unusable.
+static const Stmt *findUncontractedLoop(const Stmt *S, const ASTContext &Ctx) {
+  if (!S)
+    return nullptr;
+  if (isa<WhileStmt>(S) || isa<ForStmt>(S) || isa<DoStmt>(S))
+    if (!Ctx.getLoopContracts(S))
+      return S;
+  for (const Stmt *Child : S->children())
+    if (const Stmt *Found = findUncontractedLoop(Child, Ctx))
+      return Found;
+  return nullptr;
+}
+
+/// Whether \p E ultimately addresses storage reached through a pointer
+/// parameter, so that writing to it escapes the function.
+static bool rootsAtPointerParam(const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *ME = dyn_cast<MemberExpr>(E))
+    return ME->isArrow() ? rootsAtPointerParam(ME->getBase())
+                         : rootsAtPointerParam(ME->getBase());
+  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
+    return rootsAtPointerParam(ASE->getBase());
+  if (const auto *UO = dyn_cast<UnaryOperator>(E))
+    if (UO->getOpcode() == UO_Deref)
+      return rootsAtPointerParam(UO->getSubExpr());
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    if (const auto *PVD = dyn_cast<ParmVarDecl>(DRE->getDecl()))
+      return PVD->getType()->isPointerType();
+  return false;
+}
+
+/// The first write through a pointer parameter under \p S, or null.
+static const Expr *findWriteThroughParam(const Stmt *S) {
+  if (!S)
+    return nullptr;
+  if (const auto *BO = dyn_cast<BinaryOperator>(S))
+    if (BO->isAssignmentOp() && rootsAtPointerParam(BO->getLHS()))
+      return BO;
+  if (const auto *UO = dyn_cast<UnaryOperator>(S))
+    if (UO->isIncrementDecrementOp() && rootsAtPointerParam(UO->getSubExpr()))
+      return UO;
+  for (const Stmt *Child : S->children())
+    if (const Expr *Found = findWriteThroughParam(Child))
+      return Found;
+  return nullptr;
+}
+
+void Sema::DiagnoseContractVerifiability(const FunctionDecl *FD) {
+  if (!FD || !FD->hasContracts() || !FD->hasBody())
+    return;
+  const ContractSpecifier *CS = FD->getContracts();
+  const Stmt *Body = FD->getBody();
+
+  // An always_inline callee is pasted into its caller before contracts are
+  // applied, so neither its frame nor its loops' invariants survive. Accepting
+  // the clause and having it do nothing is the one outcome that misleads.
+  if (const auto *AI = FD->getAttr<AlwaysInlineAttr>()) {
+    Diag(CS->clauses().front().getKeywordLoc(),
+         diag::warn_contract_on_always_inline)
+        << FD;
+    Diag(AI->getLocation(), diag::note_contract_always_inline_here);
+  }
+
+  // A contract with no frame is checked against an empty one, so every write
+  // the function makes is a violation -- five diagnostics about the body when
+  // the fault is a missing clause in the header.
+  bool HasAssigns = false;
+  for (const ContractClause &C : CS->clauses())
+    if (C.getKind() == ContractClause::CK_Assigns)
+      HasAssigns = true;
+  if (!HasAssigns)
+    if (const Expr *W = findWriteThroughParam(Body)) {
+      Diag(CS->clauses().front().getKeywordLoc(),
+           diag::warn_contract_missing_assigns)
+          << FD;
+      Diag(W->getExprLoc(), diag::note_contract_missing_assigns_write)
+          << W->getSourceRange();
+    }
+
+  if (const Stmt *L = findUncontractedLoop(Body, Context)) {
+    Diag(CS->clauses().front().getKeywordLoc(),
+         diag::warn_contract_fn_uncontracted_loop)
+        << FD;
+    Diag(L->getBeginLoc(), diag::note_contract_uncontracted_loop_here);
+  }
 }
 
 void Sema::EmitCProverLoopContracts(const Decl *D) {

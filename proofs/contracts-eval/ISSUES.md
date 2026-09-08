@@ -7,7 +7,7 @@ appear until the same pipeline meets zstd or expat.
 
 Ordered by how much they cost.
 
-## 1. `--enforce-contract` requires a loop-free body, so function contracts are gated on loop contracts
+## 1. FIXED (diagnosed) -- `--enforce-contract` requires a loop-free body, so function contracts are gated on loop contracts
 
 Hit on `ZSTD_execSequence`:
 
@@ -30,7 +30,7 @@ detect this at the point the user can act on it: when `-fcontract-emit-cprover-u
 emits a function contract for a function whose body (after the inlining the
 verification build will do) contains an un-annotated loop, say so.
 
-## 2. `FORCE_INLINE` silently discards a callee's contract
+## 2. FIXED (diagnosed) -- `FORCE_INLINE` silently discards a callee's contract
 
 `ZSTD_wildcopy` is `MEM_STATIC FORCE_INLINE_ATTR`. Its contract does not
 transfer to the copy inlined into `ZSTD_safecopy`, so a caller cannot be
@@ -132,7 +132,7 @@ Not `_FORTIFY_SOURCE`; verified by rewriting the `__builtin___*_chk`
 expansions away and reproducing. See
 [the write-up](../generalize/expat/RESULT-grammar-end-to-end.md).
 
-## 7. A function contract with `pre` but no `assigns` is enforced with an empty frame
+## 7. FIXED (diagnosed) -- a function contract with `pre` but no `assigns` is enforced with an empty frame
 
 Hit on the first annotation of `nghttp2_buf_reserve`, which had five `pre`
 clauses and no frame:
@@ -180,7 +180,7 @@ logic or an explicitly quantified frame. Until then, functions of this shape can
 be given `pre` clauses and loop contracts but cannot be `--enforce-contract`ed
 at all, because issue 7 means the empty frame rejects every write.
 
-## 9. Reaching for `__CPROVER_*` in a clause gives a diagnostic about side effects
+## 9. FIXED -- reaching for `__CPROVER_*` in a clause gave a diagnostic about side effects
 
 Writing what a CBMC user would write:
 
@@ -217,6 +217,29 @@ Numeric exception : 0
 So on expat the entire `goto-instrument` stage is unavailable, and loop
 contracts cannot be applied either. The earlier write-up attributed this to
 `--enforce-contract` specifically; that was too narrow.
+
+## What has been fixed
+
+Issues 1, 2, 7 and 9 are now diagnosed in clang, at the point the author can act
+on them, instead of surfacing as a `goto-instrument` internal-invariant crash or
+a pile of failures pointing at the wrong line.
+
+| Was | Now |
+|---|---|
+| contract on an `always_inline` function silently did nothing | `warning: contract on 'wildcopy' has no effect on callers: the function is 'always_inline'` + a note on the attribute |
+| `pre` with no `assigns` produced one failure per field written | `warning: 'zero_one' has a contract but no 'assigns' clause, so its frame is empty` + a note on the offending write |
+| an un-annotated loop crashed `goto-instrument` with an internal invariant | `warning: 'clear' has a contract but its body contains a loop with no loop contract` + a note on the loop |
+| `__CPROVER_r_ok` in a predicate said "must be free of side effects" | note: `use the contract intrinsic 'readable' rather than CBMC's '__CPROVER_r_ok'`, and an unknown `__CPROVER_*` lists the five intrinsics |
+
+`Sema::DiagnoseContractVerifiability` runs at the end of a function body, since
+all three body-dependent checks need the body. Regression tests:
+`clang/test/Sema/c-contracts-verifiability.c` and
+`clang/test/Sema/c-contracts-intrinsic-spelling.c`; each case is one of the real
+functions above reduced to its shape. The suite is 26 tests and green.
+
+Still open: 3 (pass ordering, a script fix), 5 (platform preprocessing), 6/6b
+(`goto-instrument` recursion, upstream), 8 (frames for linked structures, a
+design question).
 
 ## Where this leaves the pipeline
 
