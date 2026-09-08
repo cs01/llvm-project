@@ -38,9 +38,13 @@ which also runs the control. With `codes` pinned at 5 and `bits = 3`:
 
 | `table` size | result | solver time |
 |---|---|---|
-| 8 (`2^bits`, what the comment promises) | **3 of 353 failed** | 51 s |
-| 16 | 0 of 353 | 1340 s |
-| 64 | 0 of 353 | 832 s |
+| 8 (`2^bits`, what the comment promises) | **3 of 338 failed** | 63 s |
+| 16 | (control running; recorded when measured) | |
+
+An earlier version of this contract spelled the element bound out as five
+indices instead of `forall`; it gave 3 of 353 in 51 s, 0 of 353 at 16 entries
+and 0 of 353 at 64. Same three properties, different property count because the
+contract differs. The numbers above are the `forall` contract's own.
 
 The counterexample is 26x cheaper than either proof, which is the usual
 asymmetry: a counterexample needs one path, a proof needs all of them. The

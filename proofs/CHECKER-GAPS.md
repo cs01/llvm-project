@@ -101,3 +101,47 @@ documented postcondition is `*op - *ip >= 8` and was unwritable. The remaining
 restriction is deliberate — CBMC reads a bare parameter in `ensures` as its
 entry value, so `old()` is for the reader — but it is friction every author
 meets, and it was met three times in one session.
+
+## 6. `forall` stops constraining when its range is symbolic, and says nothing
+
+`forall (i : 0, n) lens[i] <= 15` lowers to
+`__CPROVER_forall { unsigned long i; (i < n) ==> (lens[i] <= 15) }`. Whether
+that assumption does any work depends on whether `n` is concrete, and nothing
+warns when it does not.
+
+Measured on zlib's `inflate_table`, same contract, one clause changed:
+
+| the range | result |
+|---|---|
+| `pre (codes == 5)` — concrete | **3 of 338 failed**, 63 s. The three real properties, identical to spelling the five indices out by hand. |
+| `pre (codes >= 1 && codes <= 5)` — symbolic | **29 of 338 failed**, 447 s. |
+
+The 26 extra failures are the tell: `array 'count' upper bound in
+count[lens[sym]]`, `offs[lens[sym]]`, `work + sym` out of bounds. Every one of
+them is a consequence of `lens[i]` being unconstrained. The quantified
+assumption contributed *nothing*, and the run still reported a counterexample —
+so it looks like a finding, and it is an artefact.
+
+**Why this is the dangerous shape.** An assumption that is dropped does not fail
+loudly; it makes the property set *larger*, and a bigger red number reads like a
+better result. The failure mode of a missing `assigns` (gap 1d) is an
+unrecognisable error message. The failure mode here is a plausible bug report.
+
+It is also the shape that hides the opposite error. Had those 26 properties been
+provable anyway, the run would have gone green with an assumption nobody was
+using, and the proof would have meant less than it appeared to.
+
+*Open.* Options, none implemented:
+
+- Refuse a `forall` whose range bound is not a compile-time constant, which is
+  honest and narrow but rejects the case a caller most wants.
+- Warn, and say what the alternative is.
+- Emit an unwound conjunction ourselves when the bound has a known upper limit
+  from an earlier clause: `codes <= 5` makes five conjuncts, which is exactly
+  what the annotation said before `forall` existed and is what verified.
+
+The third is the useful one, and it is the same trick a reader would do by hand.
+Until then, the rule for an author is: **a `forall` bound must be pinned by an
+earlier clause to a single value, or the quantifier is decoration.** Run the
+control — pin the bound and see whether the failure count moves — before
+believing any run that contains one.

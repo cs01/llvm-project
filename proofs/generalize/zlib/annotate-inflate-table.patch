@@ -1,8 +1,6 @@
-diff --git a/inftrees.c b/inftrees.c
-index 99d8d77..94f76ac 100644
 --- a/inftrees.c
 +++ b/inftrees.c
-@@ -45,7 +45,29 @@ const char inflate_copyright[] =
+@@ -45,7 +45,33 @@
   */
  int ZLIB_INTERNAL inflate_table(codetype type, unsigned short FAR *lens,
                                  unsigned codes, code FAR * FAR *table,
@@ -14,7 +12,11 @@ index 99d8d77..94f76ac 100644
 +       at 3 bits to keep the symbolic state tractable; the loops run to MAXBITS
 +       whatever `codes` is, so the shape of the proof does not depend on it. */
 +    pre (type == LENS)
-+    pre (codes >= 1 && codes <= 5)
++    /* Pinned, not ranged. A 'forall' whose bound is symbolic contributes
++       nothing and does not say so -- codes in [1,5] gives 29 of 338 failed,
++       26 of them artefacts of lens[] being unconstrained. See
++       proofs/CHECKER-GAPS.md gap 6. */
++    pre (codes == 5)
 +    pre (fresh(lens, codes * sizeof(unsigned short)))
 +    /* MAXBITS is 15; a longer code is a caller error, and zlib's own callers
 +       cannot produce one. This is the clause that needed a quantifier -- it was
