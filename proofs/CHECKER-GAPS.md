@@ -113,7 +113,7 @@ Measured on zlib's `inflate_table`, same contract, one clause changed:
 
 | the range | result |
 |---|---|
-| `pre (codes == 5)` — concrete | **3 of 338 failed**, 63 s. The three real properties, identical to spelling the five indices out by hand. |
+| `pre (codes == 5)` — concrete | **3 of 338 failed**, 63 s. The three real properties, identical to spelling the five indices out by hand; widening the clause under test then gives 0 of 338 in 182 s. |
 | `pre (codes >= 1 && codes <= 5)` — symbolic | **29 of 338 failed**, 447 s. |
 
 The 26 extra failures are the tell: `array 'count' upper bound in
@@ -141,6 +141,10 @@ using, and the proof would have meant less than it appeared to.
   what the annotation said before `forall` existed and is what verified.
 
 The third is the useful one, and it is the same trick a reader would do by hand.
+It is also worth doing for speed rather than only for honesty: where the
+quantifier *does* work, it is markedly cheaper than the conjunction a reader
+would write instead — 182 s against 1340 s for the same widened proof — so
+unwinding it internally should not be confused with giving up on it.
 Until then, the rule for an author is: **a `forall` bound must be pinned by an
 earlier clause to a single value, or the quantifier is decoration.** Run the
 control — pin the bound and see whether the failure count moves — before

@@ -39,12 +39,17 @@ which also runs the control. With `codes` pinned at 5 and `bits = 3`:
 | `table` size | result | solver time |
 |---|---|---|
 | 8 (`2^bits`, what the comment promises) | **3 of 338 failed** | 63 s |
-| 16 | (control running; recorded when measured) | |
+| 16 | 0 of 338 — `VERIFICATION SUCCESSFUL` | 182 s |
 
 An earlier version of this contract spelled the element bound out as five
-indices instead of `forall`; it gave 3 of 353 in 51 s, 0 of 353 at 16 entries
-and 0 of 353 at 64. Same three properties, different property count because the
-contract differs. The numbers above are the `forall` contract's own.
+separate clauses instead of `forall`; it gave 3 of 353 in 51 s and 0 of 353 at
+16 and at 64 entries. Same three properties, different property count because
+the contract differs.
+
+Worth noting what the quantifier cost: **nothing, and it paid.** The widened
+proof takes 182 s with `forall` against 1340 s with the five clauses spelled
+out — one quantified assumption is cheaper for the solver than five scalar ones,
+not merely tidier in the source.
 
 The counterexample is 26x cheaper than either proof, which is the usual
 asymmetry: a counterexample needs one path, a proof needs all of them. The
