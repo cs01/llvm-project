@@ -122,14 +122,34 @@ ninja -C build clang
 | `-fcontract-runtime-checks` | check each precondition at function entry at run time |
 | `-fcontract-emit-cprover` | print each function's contracts as CBMC clauses |
 | `-fcontract-emit-cprover-unit` | rewrite the whole translation unit into CBMC form, ready for `goto-cc` |
+| `-fcontract-emit-harness` | emit a CBMC entry point per contracted function, built from its preconditions |
 
 `__has_feature(c_contracts)` is true under the flag, so a header can carry
 contracts and still compile with a stock clang.
 
+### What `-fcontract-runtime-checks` covers
+
+It compiles a precondition into a branch at the callee's entry that calls
+`__contract_violation()`. That symbol is weak and traps by default, so a program
+with its own fault handler can define it and win. The flag is opt-in, and covers
+less of a contract than its name suggests:
+
+| Clause | At run time |
+|---|---|
+| `pre (n > 0)`, and anything else over scalars | checked |
+| `post (r: ...)` | not checked; compile-time and CBMC only |
+| `pre (readable(p, n))`, `writable` | declined: an allocation's bounds cannot be recovered from a `void *` |
+| `pre (forall ...)` | declined: the range is not known until the call |
+| `assigns` | not checkable without shadow memory |
+
+A declined clause produces a warning naming the reason. Nothing is quietly
+skipped, because a check that silently passed would look like coverage while
+providing none.
+
 To run some examples, build clang, then try:
 
 ```sh
-CLANG=build/bin/clang ./contracts-example/run.sh
+./contracts-example/run.sh          # or CLANG=/path/to/bin/clang ./contracts-example/run.sh
 ```
 
 ## Writing contracts
