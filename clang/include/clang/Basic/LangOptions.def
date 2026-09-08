@@ -527,6 +527,7 @@ LANGOPT(CContracts, 1, 0, NotCompatible, "readable contracts extension for C")
 LANGOPT(CContractsEmitCProver, 1, 0, NotCompatible, "print contracts in CBMC form")
 LANGOPT(CContractsEmitCProverUnit, 1, 0, NotCompatible, "rewrite the translation unit into CBMC form")
 LANGOPT(CContractsRuntimeChecks, 1, 0, NotCompatible, "check contracts at run time")
+LANGOPT(CContractsEmitHarness, 1, 0, NotCompatible, "emit a CBMC entry point from each contract")
 
 LANGOPT(DebugRunLifetimeSafety, 1, 0, Benign, "Run lifetime safety analysis for C++. Does not enable warnings.")
 

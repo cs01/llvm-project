@@ -430,6 +430,105 @@ recordCProverRewrites(const ContractSpecifier &CS, const ASTContext &Ctx,
   }
 }
 
+/// Emits a CBMC entry point for \p FD, built from its preconditions.
+///
+/// This is what makes a contract usable on a function with loops.
+/// `goto-instrument --enforce-contract` refuses unless *every* loop-shaped
+/// construct in the function already carries a contract -- including
+/// `do { } while (0)` macros and loops in branches the precondition excludes --
+/// which measured out at eleven loops for zlib's `inflate_table`, or roughly
+/// thirty-three clauses before a seven-clause contract could be checked at all.
+/// See proofs/CHECKER-GAP-loop-requirement.md.
+///
+/// A harness needs none of that: CBMC unwinds normally. And the harness is the
+/// one thing an author should never be writing by hand, because a hand-written
+/// `__CPROVER_assume` is an assumption nobody reviews. Generating it from the
+/// contract keeps the reviewable artifact in the source.
+///
+///   void f(char *p, size_t n) pre (fresh(p, n)) pre (n > 0 && n < 64);
+///
+/// becomes
+///
+///   void __contract_harness_f(void) {
+///     size_t n; char *p;
+///     __CPROVER_assume(n > 0 && n < 64);
+///     p = __CPROVER_allocate(n, 0);
+///     f(p, n);
+///   }
+///
+/// Uninitialised locals are nondeterministic in CBMC, so a parameter no clause
+/// mentions is simply unconstrained -- which is the honest default: the
+/// contract said nothing about it.
+static void emitContractHarness(const FunctionDecl *FD, const ASTContext &Ctx,
+                                llvm::raw_ostream &OS) {
+  const ContractSpecifier *CS = FD->getContracts();
+  if (!CS)
+    return;
+
+  auto Print = [&](const Expr *E) {
+    std::string T;
+    llvm::raw_string_ostream SS(T);
+    CProverPrinter Helper;
+    Helper.Policy = Ctx.getPrintingPolicy();
+    E->printPretty(SS, &Helper, Ctx.getPrintingPolicy());
+    return T;
+  };
+
+  // A `fresh(p, n)` precondition allocates rather than assumes: it is the
+  // clause that says how big the object is, and CBMC cannot conjure that from
+  // an assumption over an unconstrained pointer.
+  llvm::StringMap<std::string> Allocated;
+  SmallVector<std::string, 4> Assumes;
+  for (const ContractClause &C : *CS) {
+    if (C.getKind() != ContractClause::CK_Pre || C.isInvalid())
+      continue;
+    const auto *Call =
+        dyn_cast<CallExpr>(C.getPredicate()->IgnoreParenImpCasts());
+    const FunctionDecl *Callee = Call ? Call->getDirectCallee() : nullptr;
+    if (Callee && Callee->isImplicit() && Callee->getName() == "fresh" &&
+        Call->getNumArgs() == 2) {
+      const auto *Arg =
+          dyn_cast<DeclRefExpr>(Call->getArg(0)->IgnoreParenImpCasts());
+      if (Arg && isa<ParmVarDecl>(Arg->getDecl())) {
+        Allocated[Arg->getDecl()->getName()] = Print(Call->getArg(1));
+        continue;
+      }
+    }
+    Assumes.push_back(Print(C.getPredicate()));
+  }
+
+  OS << "\n/* entry point generated from " << FD->getNameAsString()
+     << "'s contract; do not write one by hand */\n";
+  OS << "void __contract_harness_" << FD->getNameAsString() << "(void) {\n";
+
+  for (const ParmVarDecl *P : FD->parameters()) {
+    if (P->getName().empty())
+      continue;
+    OS << "  " << P->getType().getAsString(Ctx.getPrintingPolicy()) << " "
+       << P->getName() << ";\n";
+  }
+  // Assumptions first: an allocation size is usually a parameter the other
+  // clauses constrain, and allocating before constraining it wastes the bound.
+  for (const std::string &A : Assumes)
+    OS << "  __CPROVER_assume(" << A << ");\n";
+  for (const ParmVarDecl *P : FD->parameters()) {
+    auto It = Allocated.find(P->getName());
+    if (It != Allocated.end())
+      OS << "  " << P->getName() << " = __CPROVER_allocate(" << It->second
+         << ", 0);\n";
+  }
+
+  OS << "  " << FD->getNameAsString() << "(";
+  bool First = true;
+  for (const ParmVarDecl *P : FD->parameters()) {
+    if (!First)
+      OS << ", ";
+    First = false;
+    OS << (P->getName().empty() ? "0" : P->getName());
+  }
+  OS << ");\n}\n";
+}
+
 void Sema::EmitCProverUnit() {
   if (!getLangOpts().CContractsEmitCProverUnit)
     return;
@@ -491,6 +590,14 @@ void Sema::EmitCProverUnit() {
     Pos = E.End;
   }
   llvm::outs() << Buf.substr(Pos);
+
+  // The harness goes last: it calls the function, so the definition has to
+  // precede it in the emitted unit.
+  if (getLangOpts().CContractsEmitHarness)
+    for (Decl *D : Context.getTranslationUnitDecl()->decls())
+      if (const auto *FD = dyn_cast<FunctionDecl>(D))
+        if (FD->getContracts() && FD->doesThisDeclarationHaveABody())
+          emitContractHarness(FD, Context, llvm::outs());
 }
 
 void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {

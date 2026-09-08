@@ -2130,6 +2130,15 @@ defm contract_emit_cprover_unit : BoolFOption<
           " rewriting the translation unit with contracts in CBMC form, so the"
           " result can be compiled by goto-cc">>;
 
+defm contract_emit_harness : BoolFOption<
+  "contract-emit-harness",
+  LangOpts<"CContractsEmitHarness">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option], "Disable">,
+  BothFlags<[], [],
+          " emitting a CBMC entry point for each contracted function, built"
+          " from its preconditions, so no harness is written by hand">>;
+
 defm contract_runtime_checks : BoolFOption<
   "contract-runtime-checks",
   LangOpts<"CContractsRuntimeChecks">, DefaultFalse,

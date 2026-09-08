@@ -8216,6 +8216,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   Args.addOptInFlag(CmdArgs, options::OPT_fcontract_runtime_checks,
                     options::OPT_fno_contract_runtime_checks);
 
+  Args.addOptInFlag(CmdArgs, options::OPT_fcontract_emit_harness,
+                    options::OPT_fno_contract_emit_harness);
+
   if (Args.hasFlag(options::OPT_funique_source_file_names,
                    options::OPT_fno_unique_source_file_names, false)) {
     if (Arg *A = Args.getLastArg(options::OPT_unique_source_file_identifier_EQ))
