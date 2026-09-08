@@ -3582,9 +3582,38 @@ void CodeGenFunction::emitPFPPostCopyUpdates(Address DestPtr, Address SrcPtr,
 /// passed on `pre (readable(p, n))` would look like coverage while providing
 /// none.
 void CodeGenFunction::EmitContractPreconditionChecks(const FunctionDecl *FD) {
-  const ContractSpecifier *CS = FD->getContracts();
-  if (!CS)
+  // Contracts are normally written on the prototype in a header, and the
+  // definition being emitted here restates nothing, so the clauses have to be
+  // found on the chain rather than on this declaration.
+  const FunctionDecl *ContractDecl = FD->getContractDecl();
+  if (!ContractDecl)
     return;
+  const ContractSpecifier *CS = ContractDecl->getContracts();
+
+  // A predicate written on the prototype names the prototype's parameters,
+  // which have no storage in the function being emitted. Point them at the
+  // definition's parameters, which Sema has already matched one for one, and
+  // drop the aliases again once the checks are emitted.
+  llvm::SmallVector<const Decl *, 8> AliasedParams;
+  if (ContractDecl != FD) {
+    if (ContractDecl->getNumParams() != FD->getNumParams())
+      return;
+    for (unsigned I = 0, N = FD->getNumParams(); I != N; ++I) {
+      auto It = LocalDeclMap.find(FD->getParamDecl(I));
+      if (It == LocalDeclMap.end()) {
+        for (const Decl *P : AliasedParams)
+          LocalDeclMap.erase(P);
+        return;
+      }
+      const ParmVarDecl *From = ContractDecl->getParamDecl(I);
+      LocalDeclMap.insert({From, It->second});
+      AliasedParams.push_back(From);
+    }
+  }
+  llvm::scope_exit DropAliases([&] {
+    for (const Decl *P : AliasedParams)
+      LocalDeclMap.erase(P);
+  });
 
   for (const ContractClause &Clause : *CS) {
     if (Clause.getKind() != ContractClause::CK_Pre || Clause.isInvalid())

@@ -21,6 +21,17 @@ int half(int n) pre (n > 0) { return n / 2; }
 // OFF-NOT: __contract_violation
 // OFF-NOT: contract.broken
 
+// The usual shape: the contract is on the prototype in a header and the
+// definition restates nothing, so the clauses have to be found on the
+// redeclaration chain. The predicate names the prototype's parameters, which
+// have no storage here, so they are aliased to the definition's.
+int split(int n) pre (n > 0);
+int split(int n) { return n / 2; }
+// CHECK-LABEL: define {{.*}}@split
+// CHECK: br i1 {{.*}}, label %contract.ok, label %contract.broken
+// CHECK: contract.broken:
+// CHECK: call void @__contract_violation(
+
 // A clause about an allocation cannot be checked at entry, and is declined
 // rather than silently passed.
 void takes(const void *p, size_t n) pre (readable(p, n)) {}
