@@ -2812,6 +2812,7 @@ private:
 
   /// Parses `old '(' expression ')'` inside a contract predicate.
   ExprResult ParseContractOldExpr();
+  ExprResult ParseContractForallExpr();
 
   /// ParseRefQualifier - Parses a member function ref-qualifier. Returns
   /// true if a ref-qualifier is found.

@@ -1529,6 +1529,10 @@ void StmtProfiler::VisitContractOldExpr(const ContractOldExpr *S) {
   VisitExpr(S);
 }
 
+void StmtProfiler::VisitContractForallExpr(const ContractForallExpr *S) {
+  VisitExpr(S);
+}
+
 void StmtProfiler::VisitParenListExpr(const ParenListExpr *S) {
   VisitExpr(S);
 }

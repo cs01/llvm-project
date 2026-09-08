@@ -896,6 +896,12 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
           Tok.getIdentifierInfo()->isStr("old") && NextToken().is(tok::l_paren))
         return ParseContractOldExpr();
 
+      // 'forall' is contextual in exactly the same way.
+      if (ContractPredicateKind && Tok.is(tok::identifier) &&
+          Tok.getIdentifierInfo()->isStr("forall") &&
+          NextToken().is(tok::l_paren))
+        return ParseContractForallExpr();
+
       // Turn a potentially qualified name into a annot_typename or
       // annot_cxxscope if it would be valid.  This handles things like x::y,
       // etc.

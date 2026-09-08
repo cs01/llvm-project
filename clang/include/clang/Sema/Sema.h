@@ -7923,6 +7923,14 @@ public:
   /// use: an always_inline carrier, a missing frame, an un-annotated loop.
   void DiagnoseContractVerifiability(const FunctionDecl *FD);
 
+  /// Declares the bound variable of a 'forall' clause in the current scope.
+  VarDecl *ActOnContractForallVar(Scope *S, IdentifierInfo *II,
+                                  SourceLocation Loc);
+  ExprResult BuildContractForallExpr(SourceLocation ForallLoc,
+                                     SourceLocation LParenLoc,
+                                     SourceLocation RParenLoc, VarDecl *Var,
+                                     Expr *Lower, Expr *Upper, Expr *Pred);
+
   /// Under -fcontract-emit-cprover-unit, the clause text to splice over each
   /// original clause, keyed by the source range it replaces.
   ///

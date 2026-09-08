@@ -7824,6 +7824,65 @@ void Parser::ParseLoopContractClauses(
   }
 }
 
+/// forall-expression:
+///     'forall' '(' identifier ':' assignment-expression ','
+///                  assignment-expression ')' predicate
+///
+/// The bound variable is a size_t over the half-open range [lower, upper).
+/// Fixing the type keeps the syntax to one line: every use so far indexes a
+/// buffer or a table, and a general type would have to be parsed and then
+/// constrained anyway.
+ExprResult Parser::ParseContractForallExpr() {
+  assert(ContractPredicateKind && "not in a contract predicate");
+  SourceLocation ForallLoc = ConsumeToken();
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.consumeOpen())
+    return ExprError();
+
+  if (Tok.isNot(tok::identifier)) {
+    Diag(Tok, diag::err_contract_forall_expected_identifier);
+    T.skipToEnd();
+    return ExprError();
+  }
+  IdentifierInfo *VarII = Tok.getIdentifierInfo();
+  SourceLocation VarLoc = ConsumeToken();
+
+  if (ExpectAndConsume(tok::colon)) {
+    T.skipToEnd();
+    return ExprError();
+  }
+
+  ExprResult Lower = ParseAssignmentExpression();
+  if (Lower.isInvalid() || ExpectAndConsume(tok::comma)) {
+    T.skipToEnd();
+    return ExprError();
+  }
+  ExprResult Upper = ParseAssignmentExpression();
+  if (Upper.isInvalid()) {
+    T.skipToEnd();
+    return ExprError();
+  }
+  if (T.consumeClose())
+    return ExprError();
+
+  // The bound variable is in scope only for the predicate, so the scope is
+  // opened after the bounds have been parsed -- `forall (i : 0, i)` must not
+  // resolve its own bound.
+  ParseScope ForallScope(this, Scope::DeclScope);
+  VarDecl *Var = Actions.ActOnContractForallVar(getCurScope(), VarII, VarLoc);
+  if (!Var)
+    return ExprError();
+
+  ExprResult Pred = ParseAssignmentExpression();
+  if (Pred.isInvalid())
+    return ExprError();
+
+  return Actions.BuildContractForallExpr(ForallLoc, T.getOpenLocation(),
+                                         T.getCloseLocation(), Var, Lower.get(),
+                                         Upper.get(), Pred.get());
+}
+
 ExprResult Parser::ParseContractOldExpr() {
   assert(ContractPredicateKind && "not in a contract predicate");
   SourceLocation OldLoc = ConsumeToken();

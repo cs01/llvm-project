@@ -154,7 +154,7 @@ missing clause. We should warn at lowering time: a function contract that will
 be enforced, carrying no `assigns` and whose body writes through a parameter,
 is almost always incomplete rather than intentionally empty.
 
-## 8. A function that mutates each node of a linked list has no expressible frame
+## 8. PARTLY ADDRESSED -- collections had no expressible property (`forall` added)
 
 `storeRawNames` walks `parser->m_tagStack` and rewrites four fields of every
 `TAG` it visits. The natural frame names the loop variable:
@@ -172,6 +172,20 @@ scope at the declarator, and `tag` is a local. But the set the function actually
 writes is *one field-group per node of an unbounded list*, and there is no way
 to say that with the clause we have. `assigns(parser->m_tagStack)` covers the
 head pointer, not the nodes.
+
+**Update.** The *predicate* half of this is now expressible: `forall (i : lo,
+hi) P` quantifies over a range and lowers to `__CPROVER_forall`, which is what
+[the HPACK ring buffer](../generalize/nghttp2/FINDING-hpack-ringbuf-unstated-invariant.md)
+needed. The *frame* half is not: `assigns` still cannot name one field-group per
+node of a list. A quantified frame is a separate design question from a
+quantified predicate, and only the second is done.
+
+One limitation found immediately, and worth recording next to the feature: CBMC
+does not automatically instantiate the quantifier at the index a function
+actually uses. `hd_ringbuf_get`'s `post(readable(result))` still does not
+discharge from `pre(forall (i : 0, len) readable(buffer[...]))`, because
+connecting the two needs the quantifier instantiated at `idx`. The caller side
+proves; the callee's own postcondition does not.
 
 This is an expressiveness gap, not a bug, and it is worth knowing early because
 list-walking mutators are ordinary C. CBMC has `__CPROVER_object_upto` for

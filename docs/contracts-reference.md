@@ -50,6 +50,47 @@ loop-clause:
         'decreases'      '(' expression ')'
 ```
 
+and `forall` is an expression form, legal anywhere in a predicate:
+
+```
+forall-expression:
+        'forall' '(' identifier ':' expression ',' expression ')' predicate
+```
+
+`forall (i : lo, hi) P` means P holds for every `i` in the half-open range
+`[lo, hi)`. The bound variable is a `size_t`, in scope only for the predicate
+and not for the bounds, so `forall (i : 0, i)` is an error rather than a
+self-reference.
+
+It exists because every other clause names a *place* -- a scalar, a member, a
+contiguous slice -- and some facts are about every element of a collection
+instead:
+
+```c
+struct entry *ring_get(struct ring *r, size_t idx)
+  pre (idx < r->len)
+  pre (forall (i : 0, r->len)
+         readable(r->buffer[(r->first + i) & r->mask], sizeof(struct entry)))
+  post (e: readable(e, sizeof(struct entry)));
+```
+
+That precondition is the one nghttp2's HPACK accessor needs from its caller and
+that nothing in its source states; see
+[the finding](../proofs/generalize/nghttp2/FINDING-hpack-ringbuf-unstated-invariant.md).
+
+It lowers to CBMC's quantifier, as an implication rather than a conjunction --
+`__CPROVER_forall` ranges over every value of the bound variable, so a
+conjunction would claim the predicate outside the range and make the clause
+unprovable:
+
+```c
+__CPROVER_forall { unsigned long i; (i < r->len) ==> (__CPROVER_r_ok(...)) }
+```
+
+A zero lower bound is omitted rather than emitted as `i >= 0`: the extra
+conjunct is always true for an unsigned variable, and CBMC carries clause text
+into the formula it solves.
+
 and `old` is an expression form, legal only inside a `post`:
 
 ```

@@ -750,6 +750,17 @@ void ASTStmtReader::VisitContractOldExpr(ContractOldExpr *E) {
   E->setSubExpr(Record.readSubExpr());
 }
 
+void ASTStmtReader::VisitContractForallExpr(ContractForallExpr *E) {
+  VisitExpr(E);
+  E->setForallLoc(readSourceLocation());
+  E->setLParenLoc(readSourceLocation());
+  E->setRParenLoc(readSourceLocation());
+  E->setVar(readDeclAs<VarDecl>());
+  E->setLower(Record.readSubExpr());
+  E->setUpper(Record.readSubExpr());
+  E->setPredicate(Record.readSubExpr());
+}
+
 void ASTStmtReader::VisitParenListExpr(ParenListExpr *E) {
   VisitExpr(E);
   unsigned NumExprs = Record.readInt();
@@ -3359,6 +3370,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
 
     case EXPR_CONTRACT_OLD:
       S = new (Context) ContractOldExpr(Empty);
+      break;
+
+    case EXPR_CONTRACT_FORALL:
+      S = new (Context) ContractForallExpr(Empty);
       break;
 
     case EXPR_PAREN_LIST:

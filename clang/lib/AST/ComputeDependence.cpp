@@ -41,6 +41,11 @@ ExprDependence clang::computeDependence(ContractOldExpr *E) {
   return E->getSubExpr()->getDependence();
 }
 
+ExprDependence clang::computeDependence(ContractForallExpr *E) {
+  return E->getLower()->getDependence() | E->getUpper()->getDependence() |
+         E->getPredicate()->getDependence();
+}
+
 ExprDependence clang::computeDependence(UnaryOperator *E,
                                         const ASTContext &Ctx) {
   ExprDependence Dep =

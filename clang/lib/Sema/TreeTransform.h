@@ -13786,6 +13786,14 @@ TreeTransform<Derived>::TransformContractOldExpr(ContractOldExpr *E) {
                                         E->getRParenLoc(), SubExpr.get());
 }
 
+template <typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformContractForallExpr(ContractForallExpr *E) {
+  // C has no templates, so this node is never actually transformed; the hook
+  // exists because TreeTransform must cover every StmtNode.
+  return E;
+}
+
 /// The operand of a unary address-of operator has special rules: it's
 /// allowed to refer to a non-static member of a class even if there's no 'this'
 /// object available.

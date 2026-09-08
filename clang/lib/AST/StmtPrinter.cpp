@@ -1645,6 +1645,15 @@ void StmtPrinter::VisitContractOldExpr(ContractOldExpr *Node) {
   OS << ")";
 }
 
+void StmtPrinter::VisitContractForallExpr(ContractForallExpr *Node) {
+  OS << "forall (" << Node->getVar()->getName() << " : ";
+  PrintExpr(Node->getLower());
+  OS << ", ";
+  PrintExpr(Node->getUpper());
+  OS << ") ";
+  PrintExpr(Node->getPredicate());
+}
+
 void StmtPrinter::VisitUnaryOperator(UnaryOperator *Node) {
   if (!Node->isPostfix()) {
     OS << UnaryOperator::getOpcodeStr(Node->getOpcode());

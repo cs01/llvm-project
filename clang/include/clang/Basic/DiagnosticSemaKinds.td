@@ -14409,6 +14409,8 @@ def warn_contract_missing_assigns : Warning<
   InGroup<CContracts>;
 def note_contract_missing_assigns_write : Note<
   "this write is outside the empty frame">;
+def err_contract_forall_bound_not_integer : Error<
+  "'forall' bound must have integer type, not %0">;
 def note_contract_use_intrinsic : Note<
   "use the contract intrinsic '%0' rather than CBMC's '%1'">;
 def note_contract_intrinsics_available : Note<

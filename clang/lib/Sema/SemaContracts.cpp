@@ -179,6 +179,32 @@ namespace {
 class CProverPrinter : public PrinterHelper {
 public:
   bool handledStmt(Stmt *S, raw_ostream &OS) override {
+    // `forall (i : lo, hi) P` becomes CBMC's quantifier. The guard is emitted
+    // as an implication rather than a conjunction: __CPROVER_forall ranges over
+    // every value of the bound variable, so a conjunction would claim P for
+    // indices outside the range and make the clause unprovable.
+    if (auto *FA = dyn_cast<ContractForallExpr>(S)) {
+      std::string Ty = FA->getVar()->getType().getCanonicalType().getAsString(
+          Policy);
+      StringRef Name = FA->getVar()->getName();
+
+      std::string Lo;
+      llvm::raw_string_ostream LoS(Lo);
+      FA->getLower()->printPretty(LoS, this, Policy);
+
+      OS << "__CPROVER_forall { " << Ty << " " << Name << "; (";
+      // A zero lower bound is implied by the type, and a redundant conjunct is
+      // not free: CBMC carries it into the formula.
+      if (Lo != "0")
+        OS << Name << " >= " << Lo << " && ";
+      OS << Name << " < ";
+      FA->getUpper()->printPretty(OS, this, Policy);
+      OS << ") ==> (";
+      FA->getPredicate()->printPretty(OS, this, Policy);
+      OS << ") }";
+      return true;
+    }
+
     auto *CE = dyn_cast<CallExpr>(S);
     if (!CE)
       return false;
@@ -815,6 +841,50 @@ void Sema::EmitCProverLoopContracts(const Decl *D) {
               Diag(DS->getBeginLoc(), diag::warn_contract_do_needs_braces);
           }
         });
+}
+
+VarDecl *Sema::ActOnContractForallVar(Scope *S, IdentifierInfo *II,
+                                      SourceLocation Loc) {
+  // size_t, because every use indexes a buffer or a table. A signed variable
+  // would need a `>= 0` clause the author did not write.
+  QualType T = Context.getSizeType();
+  VarDecl *Var = VarDecl::Create(Context, CurContext, Loc, Loc, II, T,
+                                 Context.getTrivialTypeSourceInfo(T), SC_None);
+  Var->setImplicit();
+  PushOnScopeChains(Var, S, /*AddToContext=*/false);
+  return Var;
+}
+
+ExprResult Sema::BuildContractForallExpr(SourceLocation ForallLoc,
+                                         SourceLocation LParenLoc,
+                                         SourceLocation RParenLoc,
+                                         VarDecl *Var, Expr *Lower,
+                                         Expr *Upper, Expr *Pred) {
+  if (!Lower || !Upper || !Pred || !Var)
+    return ExprError();
+
+  // The bounds index a range, so they have to be integers; saying so here
+  // beats a confusing failure inside the emitted __CPROVER_forall.
+  for (Expr *Bound : {Lower, Upper}) {
+    ExprResult R = DefaultLvalueConversion(Bound);
+    if (R.isInvalid())
+      return ExprError();
+    if (!R.get()->getType()->isIntegerType()) {
+      Diag(Bound->getExprLoc(), diag::err_contract_forall_bound_not_integer)
+          << R.get()->getType() << Bound->getSourceRange();
+      return ExprError();
+    }
+    (Bound == Lower ? Lower : Upper) = R.get();
+  }
+
+  // The body is a condition, like every other contract predicate.
+  ExprResult Cond = CheckBooleanCondition(ForallLoc, Pred);
+  if (Cond.isInvalid())
+    return ExprError();
+
+  return new (Context) ContractForallExpr(Context, ForallLoc, LParenLoc,
+                                          RParenLoc, Var, Lower, Upper,
+                                          Cond.get());
 }
 
 ExprResult Sema::BuildContractOldExpr(SourceLocation OldLoc,

@@ -495,6 +495,7 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
     // may be taken of its address or assigned to it, and saying so here is what
     // turns `post (r: &old(n) != 0)` into a diagnostic rather than a crash.
   case Expr::ContractOldExprClass:
+  case Expr::ContractForallExprClass:
     return Cl::CL_PRValue;
 
   case Expr::CXXParenListInitExprClass:

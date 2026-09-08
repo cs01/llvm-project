@@ -3805,6 +3805,14 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
     return cast<ContractOldExpr>(this)->getSubExpr()->HasSideEffects(
         Ctx, IncludePossibleEffects);
 
+  case ContractForallExprClass: {
+    // Quantification itself is pure; the bounds and the body may not be.
+    const auto *FA = cast<ContractForallExpr>(this);
+    return FA->getLower()->HasSideEffects(Ctx, IncludePossibleEffects) ||
+           FA->getUpper()->HasSideEffects(Ctx, IncludePossibleEffects) ||
+           FA->getPredicate()->HasSideEffects(Ctx, IncludePossibleEffects);
+  }
+
   case CallExprClass:
   case CXXOperatorCallExprClass:
   case CXXMemberCallExprClass:
@@ -5808,4 +5816,18 @@ const Expr *clang::findStructFieldAccess(const Expr *E,
   if (OutArrayElementTy)
     *OutArrayElementTy = V.ArrayElementTy;
   return Result;
+}
+
+ContractForallExpr::ContractForallExpr(const ASTContext &Ctx,
+                                       SourceLocation ForallLoc,
+                                       SourceLocation LParenLoc,
+                                       SourceLocation RParenLoc, VarDecl *Var,
+                                       Expr *Lower, Expr *Upper, Expr *Pred)
+    : Expr(ContractForallExprClass, Ctx.IntTy, VK_PRValue, OK_Ordinary),
+      Var(Var), ForallLoc(ForallLoc), LParenLoc(LParenLoc),
+      RParenLoc(RParenLoc) {
+  SubExprs[LOWER] = Lower;
+  SubExprs[UPPER] = Upper;
+  SubExprs[PRED] = Pred;
+  setDependence(computeDependence(this));
 }

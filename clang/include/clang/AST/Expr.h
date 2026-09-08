@@ -2270,6 +2270,61 @@ public:
   }
 };
 
+/// A quantified contract predicate: `forall (i : lo, hi) P`, meaning P holds
+/// for every `i` in the half-open range [lo, hi).
+///
+/// Contract clauses can otherwise name only scalars, members and contiguous
+/// slices, which cannot say anything about every element of a collection --
+/// the fact a ring buffer's accessor needs from its caller, and the fact an
+/// array's contents need from an initialiser. Lowers to __CPROVER_forall.
+class ContractForallExpr : public Expr {
+  enum { LOWER, UPPER, PRED, END_EXPR };
+  Stmt *SubExprs[END_EXPR];
+  VarDecl *Var;
+  SourceLocation ForallLoc, LParenLoc, RParenLoc;
+
+public:
+  ContractForallExpr(const ASTContext &Ctx, SourceLocation ForallLoc,
+                     SourceLocation LParenLoc, SourceLocation RParenLoc,
+                     VarDecl *Var, Expr *Lower, Expr *Upper, Expr *Pred);
+
+  explicit ContractForallExpr(EmptyShell Empty)
+      : Expr(ContractForallExprClass, Empty) {}
+
+  VarDecl *getVar() const { return Var; }
+  void setVar(VarDecl *V) { Var = V; }
+
+  Expr *getLower() const { return cast<Expr>(SubExprs[LOWER]); }
+  Expr *getUpper() const { return cast<Expr>(SubExprs[UPPER]); }
+  Expr *getPredicate() const { return cast<Expr>(SubExprs[PRED]); }
+  void setLower(Expr *E) { SubExprs[LOWER] = E; }
+  void setUpper(Expr *E) { SubExprs[UPPER] = E; }
+  void setPredicate(Expr *E) { SubExprs[PRED] = E; }
+
+  SourceLocation getForallLoc() const { return ForallLoc; }
+  void setForallLoc(SourceLocation L) { ForallLoc = L; }
+  SourceLocation getLParenLoc() const { return LParenLoc; }
+  void setLParenLoc(SourceLocation L) { LParenLoc = L; }
+  SourceLocation getRParenLoc() const { return RParenLoc; }
+  void setRParenLoc(SourceLocation L) { RParenLoc = L; }
+
+  SourceLocation getBeginLoc() const LLVM_READONLY { return ForallLoc; }
+  SourceLocation getEndLoc() const LLVM_READONLY {
+    return getPredicate()->getEndLoc();
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == ContractForallExprClass;
+  }
+
+  child_range children() {
+    return child_range(SubExprs, SubExprs + END_EXPR);
+  }
+  const_child_range children() const {
+    return const_child_range(SubExprs, SubExprs + END_EXPR);
+  }
+};
+
 class ParenExpr : public Expr {
   SourceLocation L, R;
   Stmt *Val;

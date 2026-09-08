@@ -1773,4 +1773,6 @@ def warn_contract_keyword_macro : Warning<
   "macro named %0 hides the contract clause keyword of the same name">,
   InGroup<CContracts>;
 
+def err_contract_forall_expected_identifier : Error<
+  "expected the name of the bound variable in a 'forall' clause">;
 } // end of Parser diagnostics
