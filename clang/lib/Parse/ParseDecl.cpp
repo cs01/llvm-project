@@ -7576,11 +7576,39 @@ void Parser::RegisterContractKeywordMacroWarning() {
   PP.addPPCallbacks(std::make_unique<ContractKeywordMacroWarner>(PP));
 }
 
-bool Parser::isFunctionContractClauseKeyword(
-    const Token &Tok, ContractClause::ClauseKind &Kind) const {
-  // Function keywords only. A loop keyword in a declarator is not a clause,
-  // and must stay whatever identifier it already was.
-  return isFunctionContractKeywordName(Tok.getIdentifierInfo(), Kind);
+bool Parser::ParseContractAssignsTargets(
+    SmallVectorImpl<AssignsTarget> &Targets) {
+  // A frame condition is a comma-separated list of locations, not a predicate,
+  // so the commas are separators and each target is parsed as an
+  // assignment-expression rather than letting ParseExpression fold the whole
+  // thing into one comma operator.
+  if (Tok.is(tok::r_paren))
+    return false;
+
+  bool Bad = false;
+  for (;;) {
+    ContractAssignsSliceRAII SliceWindow(*this);
+    ExprResult Target = ParseAssignmentExpression();
+    if (Target.isInvalid())
+      return true;
+
+    AssignsTarget T = Actions.ActOnContractAssignsTarget(
+        Target.get(), ContractSliceLower, ContractSliceUpper);
+    if (T.Base)
+      Targets.push_back(T);
+    else
+      Bad = true;
+
+    if (Tok.isNot(tok::comma))
+      return Bad;
+    ConsumeToken();
+  }
+}
+
+ExprResult Parser::ParseContractPredicate(ContractClause::ClauseKind Kind) {
+  llvm::SaveAndRestore<std::optional<ContractClause::ClauseKind>> PredicateKind(
+      ContractPredicateKind, Kind);
+  return ParseExpression();
 }
 
 void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
@@ -7591,7 +7619,9 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
 
   SmallVector<ContractClause, 2> Clauses;
   ContractClause::ClauseKind Kind;
-  while (isFunctionContractClauseKeyword(Tok, Kind)) {
+  // Function keywords only. A loop keyword in a declarator is not a clause, and
+  // must stay whatever identifier it already was.
+  while (isFunctionContractKeywordName(Tok.getIdentifierInfo(), Kind)) {
     // A clause keyword not followed by '(' is not a clause. Backing out here
     // rather than erroring keeps unrelated constructs that happen to end in an
     // identifier from being captured by the contract grammar.
@@ -7607,32 +7637,8 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
     T.consumeOpen();
 
     if (Kind == ContractClause::CK_Assigns) {
-      // A frame condition is a comma-separated list of locations, not a
-      // predicate, so the commas are separators and each target is parsed as an
-      // assignment-expression rather than letting ParseExpression fold the
-      // whole thing into one comma operator.
       SmallVector<AssignsTarget, 4> Targets;
-      bool Bad = false;
-      if (Tok.isNot(tok::r_paren)) {
-        for (;;) {
-          ContractAssignsSliceRAII SliceWindow(*this);
-          ExprResult Target = ParseAssignmentExpression();
-          if (Target.isInvalid()) {
-            Bad = true;
-            break;
-          }
-          AssignsTarget T = Actions.ActOnContractAssignsTarget(
-              Target.get(), ContractSliceLower, ContractSliceUpper);
-          if (T.Base)
-            Targets.push_back(T);
-          else
-            Bad = true;
-          if (Tok.isNot(tok::comma))
-            break;
-          ConsumeToken();
-        }
-      }
-      if (Bad) {
+      if (ParseContractAssignsTargets(Targets)) {
         T.skipToEnd();
         continue;
       }
@@ -7682,12 +7688,7 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
       continue;
     }
 
-    ExprResult Predicate;
-    {
-      llvm::SaveAndRestore<std::optional<ContractClause::ClauseKind>>
-          PredicateKind(ContractPredicateKind, Kind);
-      Predicate = ParseExpression();
-    }
+    ExprResult Predicate = ParseContractPredicate(Kind);
     if (Predicate.isInvalid()) {
       T.skipToEnd();
       continue;
@@ -7710,16 +7711,13 @@ void Parser::ParseContractClauses(Declarator &D, SourceLocation &EndLoc) {
 
 void Parser::ParseLoopContractClauses(
     SmallVectorImpl<ContractClause> &Clauses) {
-  Sema::ContractPredicateRAII IntrinsicWindow(Actions);
-
   assert(getLangOpts().CContracts && "contracts are off");
 
-  auto IsLoopClause = [](const Token &Tok, ContractClause::ClauseKind &Kind) {
-    return isLoopContractKeywordName(Tok.getIdentifierInfo(), Kind);
-  };
-
+  // Runs before the body of every loop in the translation unit, so it bails out
+  // before doing anything more expensive than two token comparisons.
   ContractClause::ClauseKind Kind;
-  if (!IsLoopClause(Tok, Kind) || NextToken().isNot(tok::l_paren))
+  if (!isLoopContractKeywordName(Tok.getIdentifierInfo(), Kind) ||
+      NextToken().isNot(tok::l_paren))
     return;
 
   // Decide before parsing anything. `while (x) invariant(x);` is a call
@@ -7729,9 +7727,9 @@ void Parser::ParseLoopContractClauses(
   {
     unsigned I = 0;
     for (;;) {
-      const Token &T0 = GetLookAheadToken(I);
       ContractClause::ClauseKind Ignored;
-      if (!IsLoopClause(T0, Ignored) ||
+      if (!isLoopContractKeywordName(GetLookAheadToken(I).getIdentifierInfo(),
+                                     Ignored) ||
           GetLookAheadToken(I + 1).isNot(tok::l_paren))
         break;
       unsigned Depth = 0;
@@ -7756,7 +7754,12 @@ void Parser::ParseLoopContractClauses(
       return; // not a contract: leave it to be parsed as whatever it is
   }
 
-  while (IsLoopClause(Tok, Kind) && NextToken().is(tok::l_paren)) {
+  // The clauses are real, so the intrinsics come into scope for their
+  // predicates.
+  Sema::ContractPredicateRAII IntrinsicWindow(Actions);
+
+  while (isLoopContractKeywordName(Tok.getIdentifierInfo(), Kind) &&
+         NextToken().is(tok::l_paren)) {
     SourceLocation KeywordLoc = ConsumeToken();
 
     BalancedDelimiterTracker T(*this, tok::l_paren);
@@ -7765,27 +7768,7 @@ void Parser::ParseLoopContractClauses(
     // A loop frame is a list of locations, exactly as on a function.
     if (Kind == ContractClause::CK_Assigns) {
       SmallVector<AssignsTarget, 4> Targets;
-      bool Bad = false;
-      if (Tok.isNot(tok::r_paren)) {
-        for (;;) {
-          ContractAssignsSliceRAII SliceWindow(*this);
-          ExprResult Target = ParseAssignmentExpression();
-          if (Target.isInvalid()) {
-            Bad = true;
-            break;
-          }
-          AssignsTarget T = Actions.ActOnContractAssignsTarget(
-              Target.get(), ContractSliceLower, ContractSliceUpper);
-          if (T.Base)
-            Targets.push_back(T);
-          else
-            Bad = true;
-          if (Tok.isNot(tok::comma))
-            break;
-          ConsumeToken();
-        }
-      }
-      if (Bad) {
+      if (ParseContractAssignsTargets(Targets)) {
         T.skipToEnd();
         continue;
       }
@@ -7797,12 +7780,7 @@ void Parser::ParseLoopContractClauses(
       continue;
     }
 
-    ExprResult Predicate;
-    {
-      llvm::SaveAndRestore<std::optional<ContractClause::ClauseKind>>
-          PredicateKind(ContractPredicateKind, Kind);
-      Predicate = ParseExpression();
-    }
+    ExprResult Predicate = ParseContractPredicate(Kind);
     if (Predicate.isInvalid()) {
       T.skipToEnd();
       continue;
@@ -7962,12 +7940,7 @@ void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
                         /*IsReinject=*/true);
     ConsumeAnyToken(/*ConsumeCodeCompletionTok=*/true);
 
-    ExprResult Predicate;
-    {
-      llvm::SaveAndRestore<std::optional<ContractClause::ClauseKind>>
-          PredicateKind(ContractPredicateKind, Clause.getKind());
-      Predicate = ParseExpression();
-    }
+    ExprResult Predicate = ParseContractPredicate(Clause.getKind());
     if (Predicate.isUsable())
       Predicate = Actions.ActOnContractClausePredicate(
           Clause.getKind(), Clause.getKeywordLoc(), Predicate.get());

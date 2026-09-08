@@ -2764,13 +2764,6 @@ private:
       const Declarator &D, const DeclSpec &DS,
       std::optional<Sema::CXXThisScopeRAII> &ThisScope);
 
-  /// Returns true if \p Tok is a contract clause keyword, and sets \p Kind to
-  /// which one. The keywords are contextual: they are ordinary identifiers
-  /// everywhere except the function declarator suffix, and only when
-  /// -fc-contracts is on.
-  bool isFunctionContractClauseKeyword(const Token &Tok,
-                               ContractClause::ClauseKind &Kind) const;
-
   /// Parses the contract clauses in a function declarator suffix and records
   /// them on \p D.
   ///
@@ -2796,6 +2789,15 @@ private:
   /// Replays the saved predicates of any 'post' clauses on \p D once
   /// \p TheDecl exists, with the parameters and the result binding in scope.
   void ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D);
+
+  /// Parses the comma-separated target list of an 'assigns' clause into
+  /// \p Targets, with the opening '(' already consumed. Returns true if a
+  /// target was rejected, in which case the caller skips to the ')'.
+  bool ParseContractAssignsTargets(SmallVectorImpl<AssignsTarget> &Targets);
+
+  /// Parses a contract predicate, with \p Kind current so that 'old' and
+  /// 'forall' are recognized inside it.
+  ExprResult ParseContractPredicate(ContractClause::ClauseKind Kind);
 
   /// Parses `invariant (expr)` / `variant (expr)` between a loop header and its
   /// body, returning them in \p Clauses.

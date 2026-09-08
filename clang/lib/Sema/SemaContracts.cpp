@@ -232,6 +232,19 @@ public:
 };
 } // namespace
 
+/// Prints \p E with the contract nodes rendered as CBMC spells them.
+///
+/// Every consumer goes through here, so a frame bound, a predicate and the
+/// harness cannot end up printing the same expression three different ways.
+static std::string printContractExpr(const Expr *E, const ASTContext &Ctx) {
+  std::string Text;
+  llvm::raw_string_ostream OS(Text);
+  CProverPrinter Helper;
+  Helper.Policy = Ctx.getPrintingPolicy();
+  E->printPretty(OS, &Helper, Ctx.getPrintingPolicy());
+  return Text;
+}
+
 /// Renders one clause as the CBMC text for it, without a trailing newline.
 ///
 /// Returns the empty string for a clause with nothing to say. Both consumers go
@@ -244,12 +257,7 @@ static std::string formatCProverClause(const ContractClause &Clause,
     return {};
 
   if (Clause.getKind() == ContractClause::CK_Assigns) {
-    auto Print = [&](const Expr *E) {
-      std::string T;
-      llvm::raw_string_ostream TS(T);
-      E->printPretty(TS, nullptr, Ctx.getPrintingPolicy());
-      return T;
-    };
+    auto Print = [&](const Expr *E) { return printContractExpr(E, Ctx); };
 
     std::string Out = "__CPROVER_assigns(";
     bool First = true;
@@ -316,15 +324,7 @@ static std::string formatCProverClause(const ContractClause &Clause,
   const Expr *P = Clause.getPredicate();
   if (!P)
     return {};
-  std::string Text;
-  {
-    CProverPrinter Helper;
-    Helper.Policy = Ctx.getPrintingPolicy();
-    llvm::raw_string_ostream OS(Text);
-    // The helper renders the intrinsics as CBMC's builtins on the way out, so
-    // the decision is made from the callee that was actually resolved.
-    P->printPretty(OS, &Helper, Ctx.getPrintingPolicy());
-  }
+  std::string Text = printContractExpr(P, Ctx);
 
   switch (Clause.getKind()) {
   case ContractClause::CK_Pre:
@@ -510,14 +510,7 @@ static void emitContractHarness(const FunctionDecl *FD, Sema &S,
   if (!CS)
     return;
 
-  auto Print = [&](const Expr *E) {
-    std::string T;
-    llvm::raw_string_ostream SS(T);
-    CProverPrinter Helper;
-    Helper.Policy = Ctx.getPrintingPolicy();
-    E->printPretty(SS, &Helper, Ctx.getPrintingPolicy());
-    return T;
-  };
+  auto Print = [&](const Expr *E) { return printContractExpr(E, Ctx); };
 
   // A `fresh(L, N)` precondition allocates rather than assumes: it is the
   // clause that says how big the object is, and CBMC cannot conjure that from
