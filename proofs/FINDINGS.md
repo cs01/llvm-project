@@ -20,6 +20,9 @@ The *shapes* behind these findings, and the detectors built from them, are in
 | 5 | sqlite `fts3_unicode.c` +1 more | same shape as 4 | real UB (indeterminate value) | [`03`](repro/03-realloc-aliasing-scan.sh) |
 | 8 | CPython `PyImport_ExtendInittab` | compares a pointer `realloc` freed; the guarded branch **dereferences** the stale one | real UB, worst path of the family | [finding](generalize/cpython/FINDING-import-inittab-freed-compare.md) |
 | 9 | CPython `Modules/expat/xmlparse.c` | vendored copy of finding 4: the expat defect ships in every CPython | real UB (indeterminate value) | [finding](generalize/expat/FINDING-storerawnames-freed-pointer.md) |
+| 10 | nghttp2 `nghttp2_buf_reserve` | re-bases 3 interior pointers by subtracting the base `realloc` just freed; 6 indeterminate reads in 3 lines | real UB (indeterminate value) | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |
+| 11 | libarchive `lafe_line_reader` | same idiom, two subtractions | real UB (indeterminate value) | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |
+| 12 | curl `docs/examples/log_failed_transfers.c` | same idiom; example code, so it gets copied | real UB, no direct impact | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |
 | 6 | zstd `BIT_lookBits` | documents a bound 26 wider than its callee accepts | doc defect, not reachable | [ledger](zstd/EXPERIMENT-annotation-yield.md) |
 | 7 | zstd `ZSTD_execSequence` | preconditions live in asserts that `-DNDEBUG` removes | doc defect | [finding](zstd/findings/FINDING-execsequence-implicit-preconditions.md) |
 
@@ -113,7 +116,13 @@ boundary, on sizes an attacker controls.**
   false above). Not yet annotated: refcounted values with pointer tagging are
   the interesting part and are untouched.
 - **zlib `inflate.c` `updatewindow`** — window wrapping, `put - state->wsize`.
-- **libpng, brotli, lz4** — same family as zstd, not cloned.
+- ~~**libpng, brotli, lz4**~~ — cloned and swept, all clean for this pattern.
+  libpng and brotli have no `realloc` at all (`png_malloc`/`png_free`; a pool
+  allocator). **lz4 is the interesting negative**: predicted to carry the zstd
+  idioms on authorship grounds, and it does not carry this one.
+- **libgit2, libjpeg-turbo, mbedtls, pcre2** — swept clean for this pattern
+  (see the coverage table in the [sweep-2 finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md)).
+  None has been read by hand or annotated.
 
 ## How to add to this
 
