@@ -14370,7 +14370,8 @@ def note_contract_pre_declared : Note<
 def err_contracts_on_non_function : Error<
   "contract clause is only allowed on a function declaration">;
 def err_contracts_on_redeclaration : Error<
-  "contract clauses cannot be restated on a redeclaration">;
+  "contract clauses on this redeclaration do not match the previous "
+  "declaration">;
 def err_contract_predicate_not_pure : Error<
   "contract predicate must be free of side effects">;
 def note_contract_predicate_pure_call : Note<
@@ -14395,7 +14396,7 @@ def err_contract_do_continue_cprover : Error<
 def warn_contract_clause_not_runtime_checked : Warning<
   "'%0' contract clauses are not checked at run time; this clause requires "
   "static analysis or proof">,
-  InGroup<CContracts>;
+  InGroup<ContractRuntimeCoverage>, DefaultIgnore;
 // Traps that make a contract silently useless to the prover rather than wrong
 // to the compiler. Each of these was hit annotating real code; see
 // proofs/contracts-eval/ISSUES.md.
@@ -14421,6 +14422,9 @@ def note_contract_missing_assigns_write : Note<
   "this write is outside the empty frame">;
 def err_contract_forall_bound_not_integer : Error<
   "'forall' bound must have integer type, not %0">;
+def err_contract_forall_signed_bound : Error<
+  "'forall' bound has signed type %0 and may become negative when compared "
+  "with the size_t index; use size_t or an explicit unsigned cast">;
 def note_contract_use_intrinsic : Note<
   "use the contract intrinsic '%0' rather than CBMC's '%1'">;
 def note_contract_intrinsics_available : Note<

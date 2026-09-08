@@ -25,5 +25,5 @@ git clone --depth 1 https://github.com/libexpat/libexpat ~/expat
 
 Needs `cbmc` **6 or newer** (Ubuntu's apt ships 5.95 and results are not
 comparable) and a built `clang` from this tree for the scripts that use the
-contract grammar. See [../../CLAUDE.md](../../CLAUDE.md) before changing any of
-this — it records the mistakes that produced wrong results here.
+contract grammar. The proof assumptions, controls, and known limitations are
+recorded beside each reproduction and in [`../FINDINGS.md`](../FINDINGS.md).

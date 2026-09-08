@@ -46,13 +46,13 @@ real translation unit. See [the write-up](expat/RESULT-grammar-end-to-end.md),
 including the two things it does *not* show: the clauses are not what detects
 the defect, and `--enforce-contract` still crashes on this TU.
 
-## And the finding generalises into a detector
+## The finding also led to a standalone detector
 
 The expat defect has a shape a script can look for: the argument a
 `realloc`-shaped call later repairs from its own result, read in between.
-[`scan-realloc-aliasing.py`](../scan-realloc-aliasing.py) does that, and is
-validated by pointing it at libexpat, where it reports `storeRawNames` and
-nothing else in 9436 lines.
+A retired standalone Python detector encoded that shape and was validated by
+pointing it at libexpat, where it reported `storeRawNames` and nothing else in
+9436 lines. It was separate from the contracts compiler feature.
 
 Swept over redis, jq, sqlite and quickjs it found
 [two more in sqlite](sqlite/FINDING-realloc-freed-pointer-reads.md): a pointer
@@ -62,7 +62,7 @@ most-tested C in existence, which is the useful part of the result: neither site
 dereferences the stale pointer, so there is nothing for ASan to trap and nothing
 for a fuzzer corpus to distinguish.
 
-Everything else the sweep reported was sqlite's deliberate
+Everything else that historical sweep reported was sqlite's deliberate
 `if( pNew==0 ){ free_the_old_one(); }` idiom, which is correct, since a failed
 `realloc` leaves the old block alone. The detector does not model that guard;
 its hits are triage, not verdicts.

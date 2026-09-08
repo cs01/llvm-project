@@ -756,6 +756,7 @@ void ContractChecker::run() {
   };
 
   const unsigned MaxIterations = 64;
+  bool Converged = false;
   for (unsigned Iter = 0; Iter != MaxIterations; ++Iter) {
     bool Changed = false;
     for (const CFGBlock *B : RPO) {
@@ -767,9 +768,14 @@ void ContractChecker::run() {
           (SeenAfter && !sameState(Before, BlockEntry.find(B)->second)))
         Changed = true;
     }
-    if (!Changed)
+    if (!Changed) {
+      Converged = true;
       break;
+    }
   }
+
+  if (!Converged)
+    return;
 
   // One more sweep, this time reporting, so every call is judged against the
   // converged state and reported exactly once.

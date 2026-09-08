@@ -16,7 +16,7 @@ echo "== zlib inflate_table: 2^bits is not the contract =="
 echo "   contract under test, on inflate_table in $ZLIB/inftrees.c:"
 sed -n '/^int ZLIB_INTERNAL inflate_table/,/^{$/p' "$ZLIB/inftrees.c" |
   grep -E "^\s+(pre|post|assigns) " | sed 's/^/     /'
-[ -n "$(grep -c 'pre (fresh(\*table' "$ZLIB/inftrees.c" 2>/dev/null)" ] || {
+grep -q 'pre (fresh(\*table' "$ZLIB/inftrees.c" 2>/dev/null || {
   echo "   inftrees.c is not annotated; apply ../generalize/zlib/annotate-inflate-table.patch"
   exit 0; }
 
@@ -25,16 +25,15 @@ sed -n '/^int ZLIB_INTERNAL inflate_table/,/^{$/p' "$ZLIB/inftrees.c" |
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 cp "$ZLIB/inftrees.c" "$W/orig.c"
 for N in "1u << 3" "16u"; do
-  cp "$W/orig.c" "$ZLIB/inftrees.c"
+  cp "$W/orig.c" "$W/inftrees.c"
   perl -0pi -e "s/pre \(fresh\(\*table, \(.*?\) \* sizeof\(code\)\)\)/pre (fresh(*table, ($N) * sizeof(code)))/s" \
-      "$ZLIB/inftrees.c"
+      "$W/inftrees.c"
   printf '   table entries = %-8s ' "$N"
   UNWIND=20 DEADLINE=${DEADLINE:-1800} "$HERE/../verify-contract.sh" \
-      inflate_table "$ZLIB/inftrees.c" -I "$ZLIB" 2>&1 |
+      inflate_table "$W/inftrees.c" -I "$ZLIB" 2>&1 |
     grep -E "^\*\* [0-9]+ of|solved by" | tr '\n' ' '
   echo
 done
-cp "$W/orig.c" "$ZLIB/inftrees.c"
 
 cat <<'NOTE'
    2^bits sizes the ROOT table only; a code longer than bits needs a sub-table

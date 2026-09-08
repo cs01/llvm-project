@@ -7911,7 +7911,7 @@ public:
   void ActOnFunctionContracts(Declarator &D, FunctionDecl *FD);
 
   /// Prints \p FD's contracts as CBMC clauses under -fcontract-emit-cprover.
-  void EmitCProverContracts(const FunctionDecl *FD);
+  void EmitCProverContracts(FunctionDecl *FD);
 
   /// Prints the loop contracts in \p D's body as CBMC clauses under
   /// -fcontract-emit-cprover. Separate from EmitCProverContracts because the

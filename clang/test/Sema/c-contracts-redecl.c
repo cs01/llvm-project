@@ -7,14 +7,24 @@ int decl_then_def(int *p) { return *p; }
 // Contracts on the definition alone are fine too.
 int def_only(int n) pre (n > 0) { return n; }
 
-// Restating is rejected rather than silently resolved, so a caller cannot get
-// a different contract depending on which declaration it saw.
-int restated(int *p) pre (p != 0); // expected-note {{previous declaration is here}}
-int restated(int *p) pre (p != 0) { return *p; } // expected-error {{contract clauses cannot be restated on a redeclaration}}
+// An equivalent restatement is accepted, including when parameter names differ.
+int restated(int *p) pre (p != 0);
+int restated(int *p) pre (p != 0) { return *p; }
 
-// Same rule between two prototypes.
+int renamed(int *p) pre (p != 0);
+int renamed(int *q) pre (q != 0) { return *q; }
+
+int post_restated(int n) post (r: r >= old(n));
+int post_restated(int value) post (answer: answer >= old(value)) {
+  return value;
+}
+
+void assigns_restated(int *p, int n) assigns (p[0 : n]);
+void assigns_restated(int *q, int count) assigns (q[0 : count]) {}
+
+// A different restatement is rejected.
 int two_protos(int n) pre (n > 0); // expected-note {{previous declaration is here}}
-int two_protos(int n) pre (n < 9); // expected-error {{contract clauses cannot be restated on a redeclaration}}
+int two_protos(int n) pre (n < 9); // expected-error {{contract clauses on this redeclaration do not match the previous declaration}}
 
 // A plain redeclaration with no contracts is untouched.
 int decl_then_def(int *p);

@@ -131,13 +131,16 @@ contracts and still compile with a stock clang.
 
 It compiles a precondition into a branch at the callee's entry that calls
 `__contract_violation()`. That symbol is weak and traps by default, so a program
-with its own non-returning fault handler can define it and win. Its declaration
-is:
+with its own fault handler can define it and win. Its declaration is:
 
 ```c
-_Noreturn void __contract_violation(const char *predicate, const char *file,
-                                    unsigned line, const char *function);
+void __contract_violation(const char *predicate, const char *file,
+                          unsigned line, const char *function);
 ```
+
+A replacement may return after recording the violation; execution then
+continues into the function. A handler that wants enforcing behavior should
+terminate, trap, or otherwise not return.
 
 The flag is opt-in, and covers less of a contract than its name suggests:
 
@@ -149,9 +152,13 @@ The flag is opt-in, and covers less of a contract than its name suggests:
 | `pre (forall ...)` | declined: the range is not known until the call |
 | `assigns` | not checkable without shadow memory |
 
-Every clause that runtime mode cannot enforce produces a warning naming the
-reason, because a check that silently passed would look like coverage while
-providing none.
+A declined precondition produces a warning naming the reason, because a check
+that silently passed would look like coverage while providing none.
+
+The optional `-Wcontract-runtime-coverage` diagnostic lists proof-only clause
+kinds such as `post`, `assigns`, `loop_invariant`, and `decreases`. It is off by
+default so enabling runtime checks on an annotated library does not produce an
+unfixable warning for every deliberate proof-only clause.
 
 To run some examples, build clang, then try:
 
@@ -290,6 +297,9 @@ struct entry *ring_get(struct ring *r, size_t idx)
 ```
 
 Like the rest, `forall` is contextual: `int forall = 3;` still compiles.
+Bounds must be unsigned or non-negative integer constants. A signed variable is
+rejected because C would convert a negative value to `size_t`, silently making
+the quantified range empty or unexpectedly enormous.
 
 ### `assigns`: what a function leaves alone
 

@@ -27,12 +27,17 @@ about; [`verify-contract.sh`](verify-contract.sh) then discharges it.
 | 6 | zstd `BIT_lookBits` | documents a bound 26 wider than its callee accepts | doc defect, not reachable | [ledger](zstd/EXPERIMENT-annotation-yield.md) |
 | 7 | zstd `ZSTD_execSequence` | preconditions live in asserts that `-DNDEBUG` removes | doc defect | [finding](zstd/findings/FINDING-execsequence-implicit-preconditions.md) |
 
-**They are all one shape: a pointer that is formed, compared or subtracted, but
-never dereferenced.** ASan instruments loads and stores and walks straight past
-every one; no fuzzer input distinguishes the case that matters (whether
-`realloc` moved the block, whether a stream sits at a buffer's end). That is why
-they are still in shipped code, and it is the argument for a prover rather than
-another sanitizer.
+Findings 4, 5, 8, 9, 10, 11, and 12 came from a retired standalone Python
+detector for realloc offset-fixup patterns, not from the contracts compiler
+feature. The contract work accounts for findings 1, 2, 3, 6, 7, and 13; among
+those, 3 and 13 are the clearest cases where stating and checking a contract
+exposed the problem.
+
+The seven realloc-family findings share one shape: a pointer that is compared
+or subtracted after `realloc`, but never dereferenced. ASan instruments loads
+and stores and walks straight past them; no fuzzer input controls whether
+`realloc` moves the block. That explains their longevity, but is separate
+evidence from the contracts feature.
 
 ## Checked, nothing found — do not redo these
 
@@ -42,57 +47,6 @@ another sanitizer.
 | zstd `FSE_readNCount` | bounds-heavy header parsing of untrusted input | Clean. [audit](zstd/findings/AUDIT-fse-readncount.md) |
 | zstd `ZSTD_wildcopy` | the unbounded proof target | Memory-safe for every length, `0 of 205`, no `--unwind`. [UNBOUNDED.md](zstd/UNBOUNDED.md) |
 | zstd `ZSTD_safecopy` | second loop-bearing function in the decode path | Unproved, and the recorded reason (FORCE_INLINE) was **wrong** — see the note in UNBOUNDED.md. Its actual blocker is unestablished. |
-
-## The detector's false positives, and why there are none left
-
-The realloc detector reported 6 hits with 1 real when it was written. It now
-reports **4 across six source trees, and all 4 are real.** Each false positive
-was a distinct confusion, each is now ruled out mechanically, and the taxonomy
-is in [PATTERNS.md](PATTERNS.md#shape-b--a-pointer-read-after-realloc-freed-it).
-
-Previously-reported hits that are **not** defects, kept here so they are not
-re-triaged if a rule ever regresses:
-
-| Hit | Why it is fine |
-|---|---|
-| `zlib contrib/puff/pufftest.c:81` | `buf = NULL;` is a *write*, not a read of the freed value |
-| `zlib examples/enough.c:335` | reads `.len`, a `size_t`. The freed pointer is `.vec` |
-| `redis src/zmalloc.c:563` | reads `size`, an integer argument |
-| `redis src/rdb.c:2572` | inside `if (nv == NULL)` — the failure path, where the old block is still live and must be freed. Correct code |
-| `jq src/jv.c:455` | reads `values.values_num`, the integer count |
-| `sqlite src/printf.c:1233` | `p->nAlloc` is the size argument, not the pointer |
-| `jq vendor/oniguruma/src/regexec.c:1770` | inside `if (IS_NULL(new_alloc_base))` — the failure path. The guard is a *macro*, which the detector did not recognise until it was taught to; see the blind-spot table |
-| `quickjs quickjs-libc.c:470` | `p = realloc(buf,...)` is the opposite arm of `if (ctx) p = js_realloc(ctx,buf,...)`. Two alternative allocations, only one runs; not a read of a freed value |
-| `cpython Modules/_elementtree.c:515` | the `memcpy` is in the `else` branch, reached only when no `realloc` happened. The detector's window crosses the branch; it does not model control flow |
-
-The lesson generalises past this detector: **a filter that silences a finding is
-worse than the noise it removes.** Tightening these rules once eliminated every
-false positive *and* the real expat defect, because expat's guard returns and
-everything after it is the success path. Every rule here was re-checked against
-the known-real sites before it was kept.
-
-## The detector's *blind* spots, which are worse than its false positives
-
-A false positive costs a few minutes of reading. A blind spot prints nothing and
-is recorded as a clean tree. Two were found by auditing the detector rather than
-its output, and both had already put wrong entries in this file:
-
-| Blind spot | How it showed up | Fixed by |
-|---|---|---|
-| Trees with no C in them | `~/git/postgres` is a TypeScript client. It was swept and reported clean; there was nothing to sweep | the `[coverage]` line, which names files scanned and calls seen |
-| Allocation-failure guards written as macros | oniguruma writes `if (IS_NULL(p))`, not `if (!p)`. The failure path — where the old block is still live and the read is *correct* — was being reported as a finding | matching any null-testing call `\w*NULL\w*(p)` as a guard |
-| Reallocators reached through a struct field | cJSON calls `p->hooks.reallocate(...)`; expat's own `REALLOC` expands to `parser->m_mem.realloc_fcn(...)`. The regex required the name to start the callee, so it counted **zero calls in files that have them** | an optional member prefix in the call pattern |
-
-Every run now ends with, on stderr:
-
-```
-[coverage] <tree>: N C files, M realloc-shaped calls, K repaired-pointer sites, H hits
-```
-
-and says so loudly when `N` or `M` is zero. **A zero-hit sweep means nothing
-until that line says the detector examined something.** This is the gate-audit
-rule applied to our own tooling: a check that silently examines nothing reports
-success forever.
 
 ## The weak tail of the realloc family
 

@@ -9184,15 +9184,7 @@ llvm::FunctionCallee CodeGenModule::getContractViolationFn() {
   llvm::Type *Params[] = {CharPtr, CharPtr, Int32Ty, CharPtr};
   llvm::FunctionType *FTy =
       llvm::FunctionType::get(VoidTy, Params, /*isVarArg=*/false);
-  llvm::AttrBuilder Attrs(getLLVMContext());
-  Attrs.addAttribute(llvm::Attribute::NoReturn)
-      .addAttribute(llvm::Attribute::NoUnwind);
-  llvm::FunctionCallee C = CreateRuntimeFunction(
-      FTy, "__contract_violation",
-      llvm::AttributeList::get(getLLVMContext(),
-                               llvm::AttributeList::FunctionIndex, Attrs));
-
-  return C;
+  return CreateRuntimeFunction(FTy, "__contract_violation");
 }
 
 void CodeGenModule::emitContractViolationFallback() {

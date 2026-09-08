@@ -20,6 +20,9 @@ int tail_zero(const char *p, size_t lo, size_t n)
 // CHECK:      /* tail_zero */
 // CHECK-NEXT: __CPROVER_requires(__CPROVER_forall { unsigned long i; (i >= lo && i < n) ==> (p[i] == 0) })
 
+int explicit_signed_bound(const char *p, int lo, size_t n)
+  pre (forall (i : (size_t)lo, n) p[i] == 0);
+
 // The motivating case: nghttp2's HPACK ring buffer, where every live slot must
 // hold a readable entry and nothing in the source says so.
 struct entry { int v; };

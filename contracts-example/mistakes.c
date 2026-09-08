@@ -15,9 +15,9 @@ int c(struct Big s) post (r: old(s).a[0] == 0);
 // 4. an impure predicate
 int d(int n) pre (impure(n) > 0);
 
-// 5. contracts restated on a redeclaration
+// 5. mismatched contracts on a redeclaration
 int e(int n) pre (n > 0);
-int e(int n) pre (n > 0) { return n; }
+int e(int n) pre (n >= 0) { return n; }
 
 // 6. a contract on something that isn't a function
 int (*fp)(int n) pre (n > 0);

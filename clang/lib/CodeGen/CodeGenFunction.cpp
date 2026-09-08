@@ -3652,7 +3652,7 @@ void CodeGenFunction::EmitContractPreconditionChecks(const FunctionDecl *FD) {
               .getPointer(),
       };
       EmitNounwindRuntimeCall(CGM.getContractViolationFn(), Args);
-      Builder.CreateUnreachable();
+      Builder.CreateBr(Ok);
     }
     EmitBlock(Ok);
   }

@@ -10,13 +10,11 @@
 #define __C_CONTRACTS_H
 
 #ifdef __cplusplus
-extern "C" __attribute__((__noreturn__)) void
-__contract_violation(const char *predicate, const char *file, unsigned line,
-                     const char *function);
+extern "C" void __contract_violation(const char *predicate, const char *file,
+                                     unsigned line, const char *function);
 #else
-__attribute__((__noreturn__)) void
-__contract_violation(const char *predicate, const char *file, unsigned line,
-                     const char *function);
+void __contract_violation(const char *predicate, const char *file,
+                          unsigned line, const char *function);
 #endif
 
 #endif

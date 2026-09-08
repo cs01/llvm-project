@@ -2469,8 +2469,8 @@ public:
   /// Contracts belong to the entity, not to the declaration that spells them:
   /// they are normally written on the prototype in a header and the definition
   /// restates nothing. A call site must therefore search the redeclaration
-  /// chain rather than look only at the declaration it resolved to. At most one
-  /// declaration in a chain carries contracts, which Sema enforces.
+  /// chain rather than look only at the declaration it resolved to. Matching
+  /// restatements are checked and then canonicalized onto the first carrier.
   const FunctionDecl *getContractDecl() const {
     for (const FunctionDecl *FD : redecls())
       if (FD->Contracts)

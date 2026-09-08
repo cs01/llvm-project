@@ -1,4 +1,12 @@
-// RUN: %clang_cc1 -fsyntax-only -fc-contracts -fcontract-runtime-checks -verify %s
+// RUN: %clang_cc1 -fsyntax-only -fc-contracts -fcontract-runtime-checks \
+// RUN:   -Wcontract-runtime-coverage -verify %s
+// RUN: %clang_cc1 -fsyntax-only -fc-contracts -fcontract-runtime-checks \
+// RUN:   -Wc-contracts -verify %s
+// RUN: %clang_cc1 -fsyntax-only -fc-contracts -fcontract-runtime-checks \
+// RUN:   -verify=quiet %s
+// RUN: %clang_cc1 -fsyntax-only -fc-contracts -fcontract-runtime-checks \
+// RUN:   -Wc-contracts -Wno-contract-runtime-coverage -verify=quiet %s
+// quiet-no-diagnostics
 
 int result(int n)
   pre (n > 0)

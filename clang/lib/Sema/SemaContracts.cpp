@@ -934,22 +934,6 @@ void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
   if (!D.hasContractClauses() || !FD)
     return;
 
-  // Restating contracts on a redeclaration would mean comparing two predicates
-  // written against different ParmVarDecls for equivalence. That is not
-  // implemented, and silently keeping one of the two would make which
-  // declaration a caller happened to see change what gets checked. Reject it
-  // instead, which also lets getContractDecl assume at most one carrier.
-  for (const FunctionDecl *Prev : FD->redecls()) {
-    if (Prev == FD || !Prev->hasContracts())
-      continue;
-    Diag(D.getContractClauses().front().getKeywordLoc(),
-         diag::err_contracts_on_redeclaration)
-        << D.getContractClauses().front().getSourceRange();
-    Diag(Prev->getContracts()->clauses().front().getKeywordLoc(),
-         diag::note_previous_declaration);
-    return;
-  }
-
   FD->setContracts(ContractSpecifier::Create(Context, D.getContractClauses()));
   if (getLangOpts().CContractsRuntimeChecks)
     for (const ContractClause &Clause : D.getContractClauses())
@@ -959,11 +943,82 @@ void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
             << Clause.getKindSpelling();
 }
 
-void Sema::EmitCProverContracts(const FunctionDecl *FD) {
+static std::string canonicalContractExpr(const Expr *E, const FunctionDecl *FD,
+                                         const VarDecl *ResultVar,
+                                         const ASTContext &Ctx) {
+  if (!E)
+    return {};
+  llvm::DenseMap<const ValueDecl *, std::string> Names;
+  for (unsigned I = 0; I != FD->getNumParams(); ++I)
+    Names[FD->getParamDecl(I)] = "__contract_parameter_" + std::to_string(I);
+  return printContractExpr(E, Ctx, ResultVar, &Names);
+}
+
+static bool equivalentContractClause(const ContractClause &A,
+                                     const FunctionDecl *AFD,
+                                     const ContractClause &B,
+                                     const FunctionDecl *BFD,
+                                     const ASTContext &Ctx) {
+  if (A.getKind() != B.getKind())
+    return false;
+  if (A.isInvalid() || B.isInvalid())
+    return true;
+  if (A.getKind() != ContractClause::CK_Assigns)
+    return canonicalContractExpr(A.getPredicate(), AFD, A.getResultVar(),
+                                 Ctx) ==
+           canonicalContractExpr(B.getPredicate(), BFD, B.getResultVar(), Ctx);
+
+  ArrayRef<AssignsTarget> AT = A.getTargets();
+  ArrayRef<AssignsTarget> BT = B.getTargets();
+  if (AT.size() != BT.size())
+    return false;
+  for (auto [L, R] : llvm::zip(AT, BT)) {
+    if (L.isRange() != R.isRange() ||
+        canonicalContractExpr(L.Base, AFD, nullptr, Ctx) !=
+            canonicalContractExpr(R.Base, BFD, nullptr, Ctx) ||
+        canonicalContractExpr(L.Lower, AFD, nullptr, Ctx) !=
+            canonicalContractExpr(R.Lower, BFD, nullptr, Ctx) ||
+        canonicalContractExpr(L.Upper, AFD, nullptr, Ctx) !=
+            canonicalContractExpr(R.Upper, BFD, nullptr, Ctx))
+      return false;
+  }
+  return true;
+}
+
+static bool equivalentContracts(const FunctionDecl *A, const FunctionDecl *B,
+                                const ASTContext &Ctx) {
+  const ContractSpecifier *ACS = A->getContracts();
+  const ContractSpecifier *BCS = B->getContracts();
+  if (!ACS || !BCS || ACS->size() != BCS->size())
+    return false;
+  for (auto [AC, BC] : llvm::zip(*ACS, *BCS))
+    if (!equivalentContractClause(AC, A, BC, B, Ctx))
+      return false;
+  return true;
+}
+
+void Sema::EmitCProverContracts(FunctionDecl *FD) {
   // Called after the delayed 'post' predicates have been replayed, since until
   // then those clauses have no predicate to print.
   if (!FD)
     return;
+  for (const FunctionDecl *Prev : FD->redecls()) {
+    if (Prev == FD || !Prev->hasContracts())
+      continue;
+    ContractSpecifier *Restated = FD->getContracts();
+    if (getLangOpts().CContractsEmitCProverUnit && Restated)
+      recordCProverRewrites(*Restated, Context, CProverUnitRewrites,
+                            NumInvalidContractClauses);
+    if (!equivalentContracts(FD, Prev, Context)) {
+      Diag(Restated->clauses().front().getKeywordLoc(),
+           diag::err_contracts_on_redeclaration)
+          << Restated->getSourceRange();
+      Diag(Prev->getContracts()->clauses().front().getKeywordLoc(),
+           diag::note_previous_declaration);
+    }
+    FD->setContracts(nullptr);
+    return;
+  }
   if (getLangOpts().CContractsEmitCProver)
     printCProverContracts(FD, Context);
   if (getLangOpts().CContractsEmitCProverUnit)
@@ -1170,6 +1225,13 @@ ExprResult Sema::BuildContractForallExpr(SourceLocation ForallLoc,
       return ExprError();
     if (!R.get()->getType()->isIntegerType()) {
       Diag(Bound->getExprLoc(), diag::err_contract_forall_bound_not_integer)
+          << R.get()->getType() << Bound->getSourceRange();
+      return ExprError();
+    }
+    if (R.get()->getType()->isSignedIntegerOrEnumerationType() &&
+        (!R.get()->isIntegerConstantExpr(Context) ||
+         R.get()->EvaluateKnownConstInt(Context).isNegative())) {
+      Diag(Bound->getExprLoc(), diag::err_contract_forall_signed_bound)
           << R.get()->getType() << Bound->getSourceRange();
       return ExprError();
     }

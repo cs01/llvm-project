@@ -17,3 +17,16 @@ int bad_scope(const char *p, size_t n)
 int leaked(const char *p, size_t n)
   pre (forall (i : 0, n) p[i] == 0)
   pre (i == 0); // expected-error {{use of undeclared identifier 'i'}}
+
+int signed_lower(const char *p, int lo, size_t n)
+  pre (forall (i : lo, n) p[i] == 0); // expected-error {{'forall' bound has signed type 'int' and may become negative}}
+
+int signed_upper(const char *p, size_t lo, int hi)
+  pre (forall (i : lo, hi) p[i] == 0); // expected-error {{'forall' bound has signed type 'int' and may become negative}}
+
+int negative_lower(const char *p, size_t n)
+  pre (forall (i : -1, n) p[i] == 0); // expected-error {{'forall' bound has signed type 'int' and may become negative}}
+
+enum signed_bound { negative_bound = -1, positive_bound = 1 };
+int signed_enum_bound(const char *p, enum signed_bound lo, size_t n)
+  pre (forall (i : lo, n) p[i] == 0); // expected-error {{'forall' bound has signed type 'enum signed_bound' and may become negative}}

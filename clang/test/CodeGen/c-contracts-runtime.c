@@ -13,11 +13,11 @@ int half(int n) pre (n > 0) { return n / 2; }
 // CHECK: br i1 {{.*}}, label %contract.ok, label %contract.broken
 // CHECK: contract.broken:
 // CHECK: call void @__contract_violation(
+// CHECK-NEXT: br label %contract.ok
 
 // The handler is weak, so nothing has to be linked in and any strong
 // definition in the program wins.
-// CHECK: Function Attrs: noreturn nounwind
-// CHECK-NEXT: define weak void @__contract_violation(
+// CHECK: define weak void @__contract_violation(
 // CHECK: call void @llvm.trap()
 
 // Without the flag there is no check at all: contracts stay declaration-level.

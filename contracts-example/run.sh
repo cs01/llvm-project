@@ -2,7 +2,7 @@
 # Everything -fc-contracts does today. Point CLANG at a build of this branch.
 set -e
 
-CLANG=${CLANG:-$(dirname "$0")/../build-arm/bin/clang}
+CLANG=${CLANG:-$(dirname "$0")/../build/bin/clang}
 if [ ! -x "$CLANG" ]; then
   echo "$0: no clang at '$CLANG'. Build this branch, then set CLANG to its bin/clang." >&2
   exit 1

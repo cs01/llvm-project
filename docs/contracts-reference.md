@@ -62,6 +62,11 @@ forall-expression:
 and not for the bounds, so `forall (i : 0, i)` is an error rather than a
 self-reference.
 
+Bounds must be unsigned or non-negative integer constants. Signed variables
+are rejected because their usual conversion against the `size_t` index can
+turn a negative lower bound into a vacuously true range. An explicit unsigned
+cast is accepted when an earlier obligation establishes non-negativity.
+
 It exists because every other clause names a *place* -- a scalar, a member, a
 contiguous slice -- and some facts are about every element of a collection
 instead:
@@ -199,10 +204,10 @@ give up and assume nothing. With one, `ZSTD_wildcopy` is proved memory-safe for
    than once, so a predicate with a side effect is a predicate that means
    different things to different tiers. Those two existing GCC/clang attributes
    serve as the "usable in a spec" marker rather than a new one being invented.
-3. **Contracts cannot be restated on a redeclaration.** Comparing two predicates
-   written against two different sets of `ParmVarDecl`s for equivalence is not
-   implemented, and silently keeping one of them would make *which declaration a
-   caller happened to include* change what gets checked.
+3. **A redeclaration may restate an equivalent contract.** Sema compares clause
+   order, kinds, predicates, result bindings, and frame targets after mapping
+   parameters by position. A mismatched restatement is an error, so callers
+   cannot get different contracts depending on which declaration they saw.
 4. **A macro named `pre`, `post`, `assigns`, `loop_invariant`, `decreases`,
    `old` or `forall` shadows the keyword**, and warns (`-Wc-contracts`) rather
    than erroring, because a project may have an unrelated `pre` macro and never
@@ -217,6 +222,7 @@ give up and assume nothing. With one, `ZSTD_wildcopy` is proved memory-safe for
 | `-fcontract-emit-cprover-unit` | rewrite the whole translation unit into CBMC form, ready for `goto-cc` |
 | `-fcontract-emit-harness` | append CBMC entry points to a rewritten unit; requires `-fcontract-emit-cprover-unit` |
 | `-Wcontract-violation` | the call-site violation warning (on by default, inside `-Wc-contracts`) |
+| `-Wcontract-runtime-coverage` | list proof-only clauses omitted by runtime mode (off by default) |
 | `-fcontract-runtime-checks` | check `pre` clauses at run time, calling `__contract_violation()` when one breaks |
 
 `__has_feature(c_contracts)` is true under the flag, so a header can carry
@@ -227,11 +233,13 @@ contracts and still compile with a stock clang.
 `-fcontract-runtime-checks` evaluates each `pre` at function entry and calls
 
 ```c
-_Noreturn void __contract_violation(const char *predicate, const char *file,
-                                    unsigned line, const char *function);
+void __contract_violation(const char *predicate, const char *file,
+                          unsigned line, const char *function);
 ```
 
-when one is false. The signature is deliberately `__assert_fail`-shaped, and a
+when one is false. A replacement handler may return to observe violations and
+continue execution, or terminate to enforce them. The signature is deliberately
+`__assert_fail`-shaped, and a
 **weak** definition that traps is emitted with it: nothing has to be linked in
 for this to work, and any strong definition in the program replaces it. That is
 the point — a project with its own fault handler routes contract violations
@@ -382,8 +390,9 @@ Being precise about this matters more than the feature list:
   A wrong `post` is proved happily. It proves the code matches the spec, never
   that the spec is right.
 - **Runtime checks cover scalar preconditions.** `post`, `assigns`, quantified
-  predicates and allocation predicates remain proof-only; enabling runtime
-  checks diagnoses each clause it cannot enforce.
+  predicates and allocation predicates remain proof-only. Runtime mode warns
+  about declined `pre` predicates; `-Wcontract-runtime-coverage` additionally
+  reports the proof-only clause kinds.
 
 See [`contracts-design.md`](../contracts-design.md) for the full design, the
 rejected alternatives, and why the SMT-solver route inside clang was cut.

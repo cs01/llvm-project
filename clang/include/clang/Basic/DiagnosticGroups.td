@@ -1618,7 +1618,9 @@ def C11 : DiagGroup<"c11-extensions">;
 // A warning group for warnings about using C99 features as extensions.
 def C99 : DiagGroup<"c99-extensions", [C99Designator]>;
 def ContractViolation : DiagGroup<"contract-violation">;
-def CContracts : DiagGroup<"c-contracts", [ContractViolation]>;
+def ContractRuntimeCoverage : DiagGroup<"contract-runtime-coverage">;
+def CContracts :
+    DiagGroup<"c-contracts", [ContractViolation, ContractRuntimeCoverage]>;
 
 // A warning group for warnings about using C23 features as extensions.
 def C23 : DiagGroup<"c23-extensions", [VariadicMacroArgumentsOmitted]>;

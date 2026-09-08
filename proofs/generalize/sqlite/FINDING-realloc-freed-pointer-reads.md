@@ -73,10 +73,10 @@ VERIFICATION FAILED
 ```
 
 **Not yet proved by CBMC against sqlite itself.** Both sites above were found by
-[`scan-realloc-aliasing.py`](../../scan-realloc-aliasing.py) and confirmed by
-reading the guards by hand. A harness over the real functions is the honest next
-step and is not written; until it is, these are hand-verified reports, not
-proofs, and they are recorded here at that strength.
+a retired standalone Python detector, not by the contracts feature, and
+confirmed by reading the guards by hand. A harness over the real functions is
+the honest next step and is not written; until it is, these are hand-verified
+reports, not proofs, and they are recorded here at that strength.
 
 Not reported upstream.
 
@@ -88,11 +88,11 @@ malloc and nothing was freed; when it was not null, this reads a freed value to
 compare it against a constant it cannot equal. Same class, no way to get a wrong
 answer out of it. Recorded for completeness, not worth a patch on its own.
 
-## What the detector found and did not find
+## What the retired detector found and did not find
 
-`scan-realloc-aliasing.py` reports the argument a `realloc`-shaped call later
-repairs from its own result, then flags reads of that argument in between. Using
-the repair line to identify which argument was the pointer is what keeps the
+The retired detector reported the argument a `realloc`-shaped call later
+repairs from its own result, then flagged reads of that argument in between.
+Using the repair line to identify which argument was the pointer kept the
 allocator handle and the size expression out of the results.
 
 Its dominant false positive is the allocation-failure branch:
