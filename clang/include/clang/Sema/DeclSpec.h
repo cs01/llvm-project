@@ -2711,8 +2711,6 @@ public:
     return TrailingRequiresClause;
   }
 
-  /// \brief Determine whether a trailing requires clause was written in this
-  /// declarator.
   /// The contract clauses written in this declarator's function suffix.
   ArrayRef<ContractClause> getContractClauses() const {
     return ContractClauses;
@@ -2733,6 +2731,8 @@ public:
         {ClauseIndex, ResultName, ResultNameLoc, std::move(Tokens)});
   }
 
+  /// \brief Determine whether a trailing requires clause was written in this
+  /// declarator.
   bool hasTrailingRequiresClause() const {
     return TrailingRequiresClause != nullptr;
   }

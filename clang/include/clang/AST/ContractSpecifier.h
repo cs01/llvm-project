@@ -7,8 +7,9 @@
 //===----------------------------------------------------------------------===//
 //
 /// \file
-/// Defines the contract clauses ('pre', 'post', 'writes') that -fc-contracts
-/// attaches to a function declaration.
+/// Defines the contract clauses ('pre', 'post', 'assigns') that -fc-contracts
+/// attaches to a function declaration, and the loop clauses ('loop_invariant',
+/// 'decreases') it attaches to a loop.
 ///
 /// Contracts hang off the FunctionDecl, not off its type. Two declarations of
 /// the same function type may carry different contracts, and a contract must
@@ -29,18 +30,6 @@ class ASTContext;
 class Expr;
 class VarDecl;
 
-/// One location named by an 'assigns' clause.
-///
-/// Either a single lvalue — `assigns (n)`, `assigns (*p)`, `assigns (s->f)` —
-/// or a half-open range of elements, `assigns (buf[lo : hi])`, covering
-/// `buf[lo]` through `buf[hi - 1]`.
-///
-/// Half-open, and counted in *elements* rather than bytes. Half-open so the
-/// bound written in the frame is the same one written in the loop header, with
-/// no `- 1` to get wrong in a project whose subject is off-by-one errors.
-/// Elements because CBMC's `__CPROVER_object_upto` counts bytes, and a `sizeof`
-/// multiply the author writes by hand is one they can write wrongly: too small
-/// a frame does not fail, it silently proves less.
 /// A contract intrinsic: the spelling an author writes, the CBMC builtin it
 /// lowers to, and its shape.
 ///
@@ -77,6 +66,18 @@ findContractIntrinsic(llvm::StringRef Name) {
   return nullptr;
 }
 
+/// One location named by an 'assigns' clause.
+///
+/// Either a single lvalue -- `assigns (n)`, `assigns (*p)`, `assigns (s->f)` --
+/// or a half-open range of elements, `assigns (buf[lo : hi])`, covering
+/// `buf[lo]` through `buf[hi - 1]`.
+///
+/// Half-open, and counted in *elements* rather than bytes. Half-open so the
+/// bound written in the frame is the same one written in the loop header, with
+/// no `- 1` to get wrong in a project whose subject is off-by-one errors.
+/// Elements because CBMC's `__CPROVER_object_upto` counts bytes, and a `sizeof`
+/// multiply the author writes by hand is one they can write wrongly: too small
+/// a frame does not fail, it silently proves less.
 struct AssignsTarget {
   /// The lvalue, or the base of the range.
   Expr *Base = nullptr;
@@ -96,7 +97,7 @@ public:
     CK_Pre,
     /// A postcondition, checked at every return.
     CK_Post,
-    /// A frame condition. Not yet parsed.
+    /// A frame condition: the set of locations that may be modified.
     CK_Assigns,
     /// A loop invariant: holds at every iteration of the loop it is attached
     /// to.

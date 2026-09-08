@@ -697,7 +697,7 @@ void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
   // written against different ParmVarDecls for equivalence. That is not
   // implemented, and silently keeping one of the two would make which
   // declaration a caller happened to see change what gets checked. Reject it
-  // instead, which also lets getContractsForCall assume at most one carrier.
+  // instead, which also lets getContractDecl assume at most one carrier.
   for (const FunctionDecl *Prev : FD->redecls()) {
     if (Prev == FD || !Prev->hasContracts())
       continue;
@@ -746,9 +746,10 @@ static const Stmt *findUncontractedLoop(const Stmt *S, const ASTContext &Ctx) {
 /// parameter, so that writing to it escapes the function.
 static bool rootsAtPointerParam(const Expr *E) {
   E = E->IgnoreParenImpCasts();
+  // Both `s->f` and `s.f` recurse on the base: a `.` on a by-value parameter
+  // bottoms out at a non-pointer DeclRefExpr below and answers false anyway.
   if (const auto *ME = dyn_cast<MemberExpr>(E))
-    return ME->isArrow() ? rootsAtPointerParam(ME->getBase())
-                         : rootsAtPointerParam(ME->getBase());
+    return rootsAtPointerParam(ME->getBase());
   if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
     return rootsAtPointerParam(ASE->getBase());
   if (const auto *UO = dyn_cast<UnaryOperator>(E))

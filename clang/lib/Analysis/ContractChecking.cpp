@@ -285,8 +285,7 @@ public:
 
 private:
   bool tracked(const VarDecl *VD) const {
-    return VD && VD->isLocalVarDeclOrParm() &&
-           !VD->getType()->isReferenceType() && !AddressTaken.count(VD);
+    return VD && VD->isLocalVarDeclOrParm() && !AddressTaken.count(VD);
   }
 
   /// Narrows \p S using \p Cond known to have evaluated to \p TrueBranch.
@@ -459,6 +458,9 @@ AbstractValue ContractChecker::valueFromPost(const Expr *E) const {
 }
 
 void ContractChecker::checkCall(const State &S, const CallExpr *Call) {
+  // Nothing but reporting happens here, so the convergence sweeps can skip it.
+  if (!Reporting)
+    return;
   const FunctionDecl *Callee = Call->getDirectCallee();
   if (!Callee)
     return;
@@ -482,8 +484,7 @@ void ContractChecker::checkCall(const State &S, const CallExpr *Call) {
     if (Clause.getKind() != ContractClause::CK_Pre || !Clause.getPredicate())
       continue;
     if (PredEval.eval(Clause.getPredicate()).isKnownFalse())
-      if (Reporting)
-        Reporter.reportPreconditionViolated(Call, Callee, Clause);
+      Reporter.reportPreconditionViolated(Call, Callee, Clause);
   }
 }
 
@@ -500,8 +501,8 @@ void ContractChecker::run() {
   // The function's own preconditions hold on entry, which is what lets a call
   // inside the body be discharged by a guarantee its caller already made.
   State Entry;
-  if (const ContractSpecifier *Own = FD->getContractsForCall())
-    for (const ContractClause &Clause : *Own)
+  if (const FunctionDecl *Own = FD->getContractDecl())
+    for (const ContractClause &Clause : *Own->getContracts())
       if (Clause.getKind() == ContractClause::CK_Pre && Clause.getPredicate())
         refine(Entry, Clause.getPredicate(), /*TrueBranch=*/true);
 
@@ -559,54 +560,52 @@ void ContractChecker::run() {
 void ContractChecker::analyzeBlock(
     const CFGBlock *B, CFG *Cfg,
     llvm::DenseMap<const CFGBlock *, State> &BlockEntry) {
-  {
-    State Cur;
-    bool First = true;
-    for (const CFGBlock *Pred : B->preds()) {
-      if (!Pred)
-        continue;
-      auto It = BlockEntry.find(Pred);
-      if (It == BlockEntry.end())
-        continue; // Not reached forwards yet: a back edge.
+  State Cur;
+  bool First = true;
+  for (const CFGBlock *Pred : B->preds()) {
+    if (!Pred)
+      continue;
+    auto It = BlockEntry.find(Pred);
+    if (It == BlockEntry.end())
+      continue; // Not reached forwards yet: a back edge.
 
-      State Edge = It->second;
-      if (const Stmt *Cond = Pred->getTerminatorCondition()) {
-        if (const auto *CondE = dyn_cast<Expr>(Cond)) {
-          bool IsTrueEdge = Pred->succ_size() > 0 && *Pred->succ_begin() == B;
-          bool IsFalseEdge =
-              Pred->succ_size() > 1 && *(Pred->succ_begin() + 1) == B;
-          // Only a two-way branch says anything; a switch edge does not.
-          if (IsTrueEdge != IsFalseEdge)
-            refine(Edge, CondE, IsTrueEdge);
-        }
+    State Edge = It->second;
+    if (const Stmt *Cond = Pred->getTerminatorCondition()) {
+      if (const auto *CondE = dyn_cast<Expr>(Cond)) {
+        bool IsTrueEdge = Pred->succ_size() > 0 && *Pred->succ_begin() == B;
+        bool IsFalseEdge =
+            Pred->succ_size() > 1 && *(Pred->succ_begin() + 1) == B;
+        // Only a two-way branch says anything; a switch edge does not.
+        if (IsTrueEdge != IsFalseEdge)
+          refine(Edge, CondE, IsTrueEdge);
       }
-
-      if (First) {
-        Cur = std::move(Edge);
-        First = false;
-        continue;
-      }
-      // Merge: keep only what every predecessor agrees on. Disagreement means
-      // the pass does not know, and not knowing must never produce a report.
-      llvm::SmallVector<const VarDecl *, 8> Disagreed;
-      for (const auto &KV : Cur) {
-        auto Found = Edge.find(KV.first);
-        if (Found == Edge.end() || !(Found->second == KV.second))
-          Disagreed.push_back(KV.first);
-      }
-      for (const VarDecl *VD : Disagreed)
-        Cur.erase(VD);
     }
 
-    if (B == &Cfg->getEntry())
-      Cur = BlockEntry[B];
-
-    for (const CFGElement &Elem : *B)
-      if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
-        transfer(Cur, CS->getStmt());
-
-    BlockEntry[B] = std::move(Cur);
+    if (First) {
+      Cur = std::move(Edge);
+      First = false;
+      continue;
+    }
+    // Merge: keep only what every predecessor agrees on. Disagreement means
+    // the pass does not know, and not knowing must never produce a report.
+    llvm::SmallVector<const VarDecl *, 8> Disagreed;
+    for (const auto &KV : Cur) {
+      auto Found = Edge.find(KV.first);
+      if (Found == Edge.end() || !(Found->second == KV.second))
+        Disagreed.push_back(KV.first);
+    }
+    for (const VarDecl *VD : Disagreed)
+      Cur.erase(VD);
   }
+
+  if (B == &Cfg->getEntry())
+    Cur = BlockEntry[B];
+
+  for (const CFGElement &Elem : *B)
+    if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
+      transfer(Cur, CS->getStmt());
+
+  BlockEntry[B] = std::move(Cur);
 }
 
 } // namespace

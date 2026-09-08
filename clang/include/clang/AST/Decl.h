@@ -2478,11 +2478,6 @@ public:
     return nullptr;
   }
 
-  const ContractSpecifier *getContractsForCall() const {
-    const FunctionDecl *FD = getContractDecl();
-    return FD ? FD->Contracts : nullptr;
-  }
-
   /// Determine the kind of defaulting that would be done for a given function.
   ///
   /// If the function is both a default constructor and a copy / move

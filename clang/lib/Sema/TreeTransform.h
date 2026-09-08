@@ -13772,25 +13772,18 @@ TreeTransform<Derived>::TransformParenExpr(ParenExpr *E) {
                                        E->getRParen());
 }
 
+// Contract nodes exist only under -fc-contracts, which is rejected on C++
+// input, and C has no templates: neither node is ever transformed. The hooks
+// exist because TreeTransform must cover every StmtNode.
 template <typename Derived>
 ExprResult
 TreeTransform<Derived>::TransformContractOldExpr(ContractOldExpr *E) {
-  ExprResult SubExpr = getDerived().TransformExpr(E->getSubExpr());
-  if (SubExpr.isInvalid())
-    return ExprError();
-
-  if (!getDerived().AlwaysRebuild() && SubExpr.get() == E->getSubExpr())
-    return E;
-
-  return getSema().BuildContractOldExpr(E->getOldLoc(), E->getLParenLoc(),
-                                        E->getRParenLoc(), SubExpr.get());
+  return E;
 }
 
 template <typename Derived>
 ExprResult
 TreeTransform<Derived>::TransformContractForallExpr(ContractForallExpr *E) {
-  // C has no templates, so this node is never actually transformed; the hook
-  // exists because TreeTransform must cover every StmtNode.
   return E;
 }
 

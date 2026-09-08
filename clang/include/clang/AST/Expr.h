@@ -2221,8 +2221,6 @@ public:
   static std::string ComputeName(ASTContext &Context, QualType Ty);
 };
 
-/// ParenExpr - This represents a parenthesized expression, e.g. "(1)".  This
-/// AST node is only formed if full location information is requested.
 /// The value an expression had at function entry, written `old (e)` inside a
 /// 'post' contract clause.
 ///
@@ -2325,6 +2323,8 @@ public:
   }
 };
 
+/// ParenExpr - This represents a parenthesized expression, e.g. "(1)".  This
+/// AST node is only formed if full location information is requested.
 class ParenExpr : public Expr {
   SourceLocation L, R;
   Stmt *Val;

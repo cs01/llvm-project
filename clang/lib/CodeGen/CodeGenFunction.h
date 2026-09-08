@@ -2616,9 +2616,6 @@ public:
   /// -fsanitize=function.
   llvm::ConstantInt *getUBSanFunctionTypeHash(QualType T) const;
 
-  /// EmitFunctionProlog - Emit the target specific LLVM code to load the
-  /// arguments for the given function. This is also responsible for naming the
-  /// LLVM function arguments.
   /// Emits a runtime check for each checkable 'pre' clause of \p FD, under
   /// -fcontract-runtime-checks.
   void EmitContractPreconditionChecks(const FunctionDecl *FD);
@@ -2628,6 +2625,9 @@ public:
   /// way to recover from a pointer parameter.
   static bool isContractRuntimeCheckable(const Stmt *E);
 
+  /// EmitFunctionProlog - Emit the target specific LLVM code to load the
+  /// arguments for the given function. This is also responsible for naming the
+  /// LLVM function arguments.
   void EmitFunctionProlog(const CGFunctionInfo &FI, llvm::Function *Fn,
                           const FunctionArgList &Args);
 
