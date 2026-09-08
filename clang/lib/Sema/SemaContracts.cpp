@@ -16,6 +16,7 @@
 #include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Sema/DeclSpec.h"
@@ -476,8 +477,9 @@ recordCProverRewrites(const ContractSpecifier &CS, const ASTContext &Ctx,
 /// Uninitialised locals are nondeterministic in CBMC, so a parameter no clause
 /// mentions is simply unconstrained -- which is the honest default: the
 /// contract said nothing about it.
-static void emitContractHarness(const FunctionDecl *FD, const ASTContext &Ctx,
+static void emitContractHarness(const FunctionDecl *FD, Sema &S,
                                 llvm::raw_ostream &OS) {
+  const ASTContext &Ctx = S.Context;
   const ContractSpecifier *CS = FD->getContracts();
   if (!CS)
     return;
@@ -491,48 +493,92 @@ static void emitContractHarness(const FunctionDecl *FD, const ASTContext &Ctx,
     return T;
   };
 
-  // A `fresh(p, n)` precondition allocates rather than assumes: it is the
+  // A `fresh(L, N)` precondition allocates rather than assumes: it is the
   // clause that says how big the object is, and CBMC cannot conjure that from
-  // an assumption over an unconstrained pointer.
-  llvm::StringMap<std::string> Allocated;
-  SmallVector<std::string, 4> Assumes;
+  // an assumption over an unconstrained pointer. L is any lvalue, not just a
+  // parameter, so a caller-allocated buffer reached through an out-parameter --
+  // zlib's `code **table` -- is expressible as `fresh(*table, n)`.
+  struct Step {
+    bool IsAlloc;
+    std::string Text; // predicate, or allocation target
+    std::string Size; // allocation only
+  };
+  SmallVector<Step, 8> Steps;
+
+  // Clauses are emitted in source order, so an ordering mistake is silent
+  // otherwise: a size read before the clause bounding it makes the entry point
+  // allocate an unbounded object, and every property downstream then holds
+  // vacuously or fails for the wrong reason. Track which parameters an earlier
+  // *assumption* has constrained -- allocating a pointer says nothing about the
+  // value stored through it, so `fresh(bits, ...)` does not constrain `*bits`.
+  llvm::SmallPtrSet<const ParmVarDecl *, 8> Constrained;
+  auto ParmsIn = [](const Expr *E,
+                    llvm::SmallVectorImpl<const ParmVarDecl *> &Out) {
+    struct V : RecursiveASTVisitor<V> {
+      llvm::SmallVectorImpl<const ParmVarDecl *> &Out;
+      V(llvm::SmallVectorImpl<const ParmVarDecl *> &Out) : Out(Out) {}
+      bool VisitDeclRefExpr(DeclRefExpr *DRE) {
+        if (const auto *P = dyn_cast<ParmVarDecl>(DRE->getDecl()))
+          Out.push_back(P);
+        return true;
+      }
+    } Vis(Out);
+    Vis.TraverseStmt(const_cast<Expr *>(E));
+  };
+
   for (const ContractClause &C : *CS) {
     if (C.getKind() != ContractClause::CK_Pre || C.isInvalid())
       continue;
-    const auto *Call =
-        dyn_cast<CallExpr>(C.getPredicate()->IgnoreParenImpCasts());
+    const Expr *Pred = C.getPredicate();
+    const auto *Call = dyn_cast<CallExpr>(Pred->IgnoreParenImpCasts());
     const FunctionDecl *Callee = Call ? Call->getDirectCallee() : nullptr;
-    if (Callee && Callee->isImplicit() && Callee->getName() == "fresh" &&
-        Call->getNumArgs() == 2) {
-      const auto *Arg =
-          dyn_cast<DeclRefExpr>(Call->getArg(0)->IgnoreParenImpCasts());
-      if (Arg && isa<ParmVarDecl>(Arg->getDecl())) {
-        Allocated[Arg->getDecl()->getName()] = Print(Call->getArg(1));
-        continue;
+    const Expr *Target =
+        (Callee && Callee->isImplicit() && Callee->getName() == "fresh" &&
+         Call->getNumArgs() == 2)
+            ? Call->getArg(0)->IgnoreParenImpCasts()
+            : nullptr;
+    // Only an lvalue can be allocated into. `fresh(p + 1, n)` is a legitimate
+    // thing to assume and a meaningless thing to assign to, so it stays an
+    // assumption.
+    if (Target && Target->isLValue()) {
+      const Expr *Size = Call->getArg(1);
+      llvm::SmallVector<const ParmVarDecl *, 4> Used;
+      ParmsIn(Size, Used);
+      for (const ParmVarDecl *P : Used) {
+        if (Constrained.count(P))
+          continue;
+        S.Diag(Size->getExprLoc(), diag::warn_contract_harness_unbounded_alloc)
+            << Print(Target) << P;
+        S.Diag(Size->getExprLoc(), diag::note_contract_harness_order) << P;
+        break;
       }
+      Steps.push_back({true, Print(Target), Print(Size)});
+      continue;
     }
-    Assumes.push_back(Print(C.getPredicate()));
+    llvm::SmallVector<const ParmVarDecl *, 4> Used;
+    ParmsIn(Pred, Used);
+    Constrained.insert(Used.begin(), Used.end());
+    Steps.push_back({false, Print(Pred), ""});
   }
 
   OS << "\n/* entry point generated from " << FD->getNameAsString()
      << "'s contract; do not write one by hand */\n";
   OS << "void __contract_harness_" << FD->getNameAsString() << "(void) {\n";
 
+  // A parameter no clause mentions is left uninitialised, which is
+  // nondeterministic in CBMC: the contract said nothing about it, so neither
+  // does the entry point.
   for (const ParmVarDecl *P : FD->parameters()) {
     if (P->getName().empty())
       continue;
     OS << "  " << P->getType().getAsString(Ctx.getPrintingPolicy()) << " "
        << P->getName() << ";\n";
   }
-  // Assumptions first: an allocation size is usually a parameter the other
-  // clauses constrain, and allocating before constraining it wastes the bound.
-  for (const std::string &A : Assumes)
-    OS << "  __CPROVER_assume(" << A << ");\n";
-  for (const ParmVarDecl *P : FD->parameters()) {
-    auto It = Allocated.find(P->getName());
-    if (It != Allocated.end())
-      OS << "  " << P->getName() << " = __CPROVER_allocate(" << It->second
-         << ", 0);\n";
+  for (const Step &St : Steps) {
+    if (St.IsAlloc)
+      OS << "  " << St.Text << " = __CPROVER_allocate(" << St.Size << ", 0);\n";
+    else
+      OS << "  __CPROVER_assume(" << St.Text << ");\n";
   }
 
   OS << "  " << FD->getNameAsString() << "(";
@@ -614,7 +660,7 @@ void Sema::EmitCProverUnit() {
     for (Decl *D : Context.getTranslationUnitDecl()->decls())
       if (const auto *FD = dyn_cast<FunctionDecl>(D))
         if (FD->getContracts() && FD->doesThisDeclarationHaveABody())
-          emitContractHarness(FD, Context, llvm::outs());
+          emitContractHarness(FD, *this, llvm::outs());
 }
 
 void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {

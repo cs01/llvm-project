@@ -14414,6 +14414,13 @@ def note_contract_use_intrinsic : Note<
 def note_contract_intrinsics_available : Note<
   "contract intrinsics are 'readable', 'writable', 'fresh', 'same_object' and "
   "'pointer_offset'">;
+def warn_contract_harness_unbounded_alloc : Warning<
+  "size of the object allocated for %0 depends on %1, which no earlier 'pre' "
+  "constrains; the generated entry point will allocate an unbounded object">,
+  InGroup<CContracts>;
+def note_contract_harness_order : Note<
+  "'pre' clauses become entry-point statements in order; move the clause "
+  "bounding %0 above this one">;
 def err_contract_cprover_unit_invalid_clause : Error<
   "refusing to rewrite this translation unit: %0 contract clause%s0 did not "
   "type-check, and the output would be part contract syntax and part CBMC">;
