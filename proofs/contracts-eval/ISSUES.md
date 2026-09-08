@@ -132,6 +132,28 @@ Not `_FORTIFY_SOURCE`; verified by rewriting the `__builtin___*_chk`
 expansions away and reproducing. See
 [the write-up](../generalize/expat/RESULT-grammar-end-to-end.md).
 
+## 7. A function contract with `pre` but no `assigns` is enforced with an empty frame
+
+Hit on the first annotation of `nghttp2_buf_reserve`, which had five `pre`
+clauses and no frame:
+
+```
+[nghttp2_buf_reserve.assigns.3] line 75 Check that buf->pos is assignable: FAILURE
+[nghttp2_buf_reserve.assigns.4] line 76 Check that buf->last is assignable: FAILURE
+... one per field the function writes
+```
+
+Every write becomes a violation, and none of the five failures has anything to
+do with the function. Adding `assigns(buf->begin, buf->end, buf->pos, buf->last,
+buf->mark)` replaces all five with the six real ones.
+
+**What this means for us.** This is the first thing a new user will hit, because
+`pre` is the clause people reach for first and a frame is not obviously
+required. The diagnostics point at their function body rather than at the
+missing clause. We should warn at lowering time: a function contract that will
+be enforced, carrying no `assigns` and whose body writes through a parameter,
+is almost always incomplete rather than intentionally empty.
+
 ## Where this leaves the pipeline
 
 The two halves have very different maturity, and the split is clean:
@@ -141,7 +163,7 @@ The two halves have very different maturity, and the split is clean:
 | Parse and check clauses in clang | works: expat 11k lines, zstd decode path |
 | Lower to `__CPROVER_*` | works: 9 requires + 21 loop clauses on the zstd TU |
 | `goto-cc` the rewritten unit | works, once the platform types are filtered (5) |
-| `goto-instrument` contract instrumentation | **fragile: issues 1, 2, 3, 6** |
+| `goto-instrument` contract instrumentation | **fragile: issues 1, 2, 3, 6**; works on a loop-free function ([nghttp2](../generalize/nghttp2/RESULT-proved-through-the-grammar.md)) |
 | `cbmc` discharge | works where instrumentation succeeded |
 
 Nothing here is a defect in the grammar or the emitter. Every one is in the step
