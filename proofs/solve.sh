@@ -48,15 +48,18 @@ while [ $(( $(date +%s) - START )) -lt "$TIMEOUT" ]; do
     NAME=${C%%:*}
     [ -f "$WORK/$NAME.rc" ] || continue
     R=$(cat "$WORK/$NAME.rc")
-    # A solver that left properties UNKNOWN has not answered, and can still
-    # exit 10. Taking that for a verdict is the worst failure this script could
-    # have -- a homemade bitwuzla wrapper produced exactly it, twice -- so an
-    # undecided run loses the race like any other.
-    if grep -q ': UNKNOWN' "$WORK/$NAME.log" 2>/dev/null; then
-      continue
-    fi
     case "$R" in
-      0|10) WINNER=$NAME; RC=$R; break ;;
+      # A counterexample is definitive however much else was left undecided:
+      # the trace exists. Take it.
+      10) WINNER=$NAME; RC=$R; break ;;
+      # "Proved" is only a proof if every property was decided. A run that
+      # reports SUCCESSFUL with UNKNOWN properties has not verified them, and
+      # taking that for success is the worst failure this script could have --
+      # a homemade bitwuzla wrapper produced exactly it, twice.
+      0)  if grep -q ': UNKNOWN' "$WORK/$NAME.log" 2>/dev/null; then
+            continue
+          fi
+          WINNER=$NAME; RC=$R; break ;;
       *) ;;   # front-end or solver error: let the others keep running
     esac
   done
