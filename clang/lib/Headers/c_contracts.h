@@ -32,6 +32,19 @@
 #ifndef __C_CONTRACTS_H
 #define __C_CONTRACTS_H
 
+/* Marks a declaration that exists only to be named by an annotation. Such a
+ * variable is genuinely unused once the annotations vanish, so without this
+ * every annotated loop that needs a starting-value witness costs the project a
+ * -Wunused-variable warning, and a -Werror build refuses to compile:
+ *
+ *   BYTE* const opStart c_ghost = op;
+ */
+#if defined(__GNUC__) || defined(__clang__)
+#define c_ghost __attribute__((unused))
+#else
+#define c_ghost
+#endif
+
 #ifdef __has_feature
 #if __has_feature(c_contracts)
 #define C_CONTRACTS 1
@@ -93,6 +106,7 @@
 #define c_pointer_offset(P) __CPROVER_POINTER_OFFSET(P)
 #define c_old(E) __CPROVER_old(E)
 #define c_result __CPROVER_return_value
+#define c_ssize_t __CPROVER_ssize_t
 #define c_range(P, LO, HI)                                                     \
   __CPROVER_object_upto((P) + (LO), ((HI) - (LO)) * sizeof(*(P)))
 #define c_forall(I, LO, HI, P)                                                 \
@@ -142,6 +156,7 @@
 #define c_pointer_offset(P) pointer_offset(P)
 #define c_old(E) old(E)
 #define c_result result
+#define c_ssize_t long
 #define c_range(P, LO, HI) (P)[(LO) : (HI)]
 #define c_forall(I, LO, HI, P) forall(I : LO, HI)(P)
 
@@ -172,19 +187,58 @@
 
 #endif
 
-/* Unprefixed spelling, opt-in. Under a contract-aware front end the keywords
- * already exist, so nothing is defined and no macro shadows them; elsewhere the
- * same five names discard their argument. Off by default because a project may
- * already use one of these identifiers.
+/* Unprefixed spelling, opt-in with C_CONTRACTS_NO_PREFIX.
+ *
+ * Each alias forwards to its c_ form, so this works the same under every
+ * target: expanding pre(P) yields c_pre(P), which yields the right thing for
+ * the target, and the rescan leaves the inner `pre` alone because a macro is
+ * not replaced inside its own expansion.
+ *
+ * Only function-like names appear here, and that is the whole rule. A
+ * function-like macro expands only where the name is followed by `(`, so a
+ * project keeps `int pre;`, `s.post`, and a field called `range`. The four
+ * object-like names -- c_result, c_ssize_t, c_ghost, c_writes_nothing -- would
+ * rewrite every bare occurrence of a very common word, so they are never
+ * unprefixed. Check a candidate project first: grep for `name(` rather than for
+ * the bare word.
  */
 #ifdef C_CONTRACTS_NO_PREFIX
+
+/* These six are real grammar under a contract-aware front end, so aliasing them
+ * there would only shadow the keyword and earn a -Wc-contracts warning per
+ * translation unit. Elsewhere they have to be macros.
+ */
 #if !C_CONTRACTS
-#define pre(P)
-#define post(P)
+#define pre(P) c_pre(P)
+#define post(P) c_post(P)
+#ifdef C_CONTRACTS_CPROVER
+#define assigns(L) __CPROVER_assigns(L)
+#else
 #define assigns(L)
-#define loop_invariant(P)
-#define decreases(M)
 #endif
+#define loop_invariant(P) c_invariant(P)
+#define decreases(M) c_decreases(M)
+#define old(E) c_old(E)
+#endif
+
+/* The rest are macros under every target, so they alias unconditionally. */
+#define locations(A, B) A, B
+#define returns(P) c_returns(P)
+#define reads(P, N) c_reads(P, N)
+#define writes(P, N) c_writes(P, N)
+#define reads_n(P, N) c_reads_n(P, N)
+#define writes_n(P, N) c_writes_n(P, N)
+#define readable(P, N) c_readable(P, N)
+#define writable(P, N) c_writable(P, N)
+#define fresh(P, N) c_fresh(P, N)
+#define same_object(P, Q) c_same_object(P, Q)
+#define pointer_offset(P) c_pointer_offset(P)
+#define range(P, LO, HI) c_range(P, LO, HI)
+
+/* No unprefixed forall. The keyword binds its variable with its own syntax,
+ * forall (i : lo, hi) P, and the portable spelling takes four arguments, so one
+ * name cannot serve both. Write c_forall.
+ */
 #endif
 
 #ifdef __cplusplus
