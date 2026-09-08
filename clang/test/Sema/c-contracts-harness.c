@@ -103,7 +103,7 @@ void combined(char *p, size_t n)
 // CHECK-NEXT: }
 
 void duplicate_fresh(char *p, size_t n)
-  pre (n < 8)
+  pre (n > 0 && n < 8)
   pre (fresh(p, n))
   pre (fresh(p, n))
   assigns (p[0 : n])
