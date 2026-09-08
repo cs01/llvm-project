@@ -563,7 +563,7 @@ def err_dyndbg_no_instrumentation : Error<
     "'-fdynamic-debugging' unsupported with instrumentation (PGO/code coverage)">;
 
 def warn_contract_not_runtime_checkable : Warning<
-  "this clause asks about an allocation, which cannot be checked at run time; "
-  "it is proved rather than checked">,
+  "this clause %select{asks about an allocation|quantifies over a range}0, "
+  "which cannot be checked at run time; it is proved rather than checked">,
   InGroup<CContracts>;
 }

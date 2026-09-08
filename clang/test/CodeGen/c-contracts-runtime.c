@@ -38,3 +38,10 @@ void takes(const void *p, size_t n) pre (readable(p, n)) {}
 // expected-warning@-1 {{cannot be checked at run time}}
 // CHECK-LABEL: define {{.*}}@takes
 // CHECK-NOT: contract.broken
+
+// Nor can a quantifier, which is a loop over a range the caller picks. It is
+// declined for that reason rather than reaching codegen and failing there.
+void every(const char *p, size_t n) pre (forall (i : 0, n) p[i] == 0) {}
+// expected-warning@-1 {{quantifies over a range, which cannot be checked at run time}}
+// CHECK-LABEL: define {{.*}}@every
+// CHECK-NOT: contract.broken

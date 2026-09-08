@@ -3619,9 +3619,12 @@ void CodeGenFunction::EmitContractPreconditionChecks(const FunctionDecl *FD) {
     if (Clause.getKind() != ContractClause::CK_Pre || Clause.isInvalid())
       continue;
     const Expr *Pred = Clause.getPredicate();
-    if (!Pred || !CodeGenFunction::isContractRuntimeCheckable(Pred)) {
+    std::optional<ContractCheckObstacle> Obstacle =
+        Pred ? findContractCheckObstacle(Pred) : CCO_Allocation;
+    if (Obstacle) {
       CGM.getDiags().Report(Clause.getKeywordLoc(),
-                            diag::warn_contract_not_runtime_checkable);
+                            diag::warn_contract_not_runtime_checkable)
+          << static_cast<unsigned>(*Obstacle);
       continue;
     }
 
@@ -3655,19 +3658,27 @@ void CodeGenFunction::EmitContractPreconditionChecks(const FunctionDecl *FD) {
   }
 }
 
-/// Whether \p E can be evaluated by generated code at function entry.
+/// What stops \p E from being evaluated by generated code at function entry,
+/// or nothing if it can be.
 ///
 /// The contract intrinsics cannot: they ask about an allocation, and C offers
-/// no way to recover one from a pointer parameter.
-bool CodeGenFunction::isContractRuntimeCheckable(const Stmt *E) {
+/// no way to recover one from a pointer parameter. Neither can a quantifier.
+std::optional<CodeGenFunction::ContractCheckObstacle>
+CodeGenFunction::findContractCheckObstacle(const Stmt *E) {
   if (const auto *CE = dyn_cast<CallExpr>(E))
     if (const FunctionDecl *Callee = CE->getDirectCallee())
       if (Callee->isImplicit() && findContractIntrinsic(Callee->getName()))
-        return false;
+        return CCO_Allocation;
+
+  // A quantifier is a loop over a range that is not known until the call, so
+  // there is nothing to branch on at entry. It belongs to the proof tier.
+  if (isa<ContractForallExpr>(E))
+    return CCO_Quantifier;
 
   for (const Stmt *Child : E->children())
-    if (Child && !isContractRuntimeCheckable(Child))
-      return false;
+    if (Child)
+      if (std::optional<ContractCheckObstacle> O = findContractCheckObstacle(Child))
+        return O;
 
-  return true;
+  return std::nullopt;
 }

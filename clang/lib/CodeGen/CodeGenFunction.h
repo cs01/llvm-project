@@ -2623,7 +2623,11 @@ public:
   /// Whether \p E can be evaluated by generated code at function entry. The
   /// contract intrinsics cannot: they ask about an allocation, which C gives no
   /// way to recover from a pointer parameter.
-  static bool isContractRuntimeCheckable(const Stmt *E);
+  /// Why a predicate cannot be checked at function entry, matching the
+  /// selector of warn_contract_not_runtime_checkable.
+  enum ContractCheckObstacle { CCO_Allocation = 0, CCO_Quantifier = 1 };
+  static std::optional<ContractCheckObstacle>
+  findContractCheckObstacle(const Stmt *E);
 
   /// EmitFunctionProlog - Emit the target specific LLVM code to load the
   /// arguments for the given function. This is also responsible for naming the
