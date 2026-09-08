@@ -335,7 +335,8 @@ The pass distinguishes three useful results. A definitely false precondition is
 reported as violated. A simple caller interval that overlaps both valid and
 invalid values is reported as not guaranteeing the callee's precondition. Other
 unknowns remain silent, avoiding the noise of warning on every condition the
-small analysis cannot prove.
+small analysis cannot prove. Branches that contradict a known pointer fact or
+integer interval are unreachable and do not produce call-site warnings.
 
 **4. Emitted for CBMC.** `-fcontract-emit-cprover` prints the same clauses as
 [CBMC](https://github.com/diffblue/cbmc) contracts, close to one for one, which
@@ -440,8 +441,9 @@ not just literals.
 put(b, n, k, 1);        // symbolic: it cannot relate n and k, so it says nothing
 ```
 
-- **Anything symbolic.** The abstract domain is four values — known integer,
-  null, non-null, unknown. Two unknowns have no relationship.
+- **Anything symbolic.** The abstract domain records known integers, integer
+  intervals, null, non-null and unknown. It does not relate two symbolic
+  values, so two unknowns have no relationship.
 - **Anything two paths disagree about.** The dataflow runs to a fixpoint and
   merges by keeping only what every predecessor agrees on, so a variable that is
   null on one edge and unknown on another comes out unknown rather than wrong.

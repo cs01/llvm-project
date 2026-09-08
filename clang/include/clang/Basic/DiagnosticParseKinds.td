@@ -1763,15 +1763,13 @@ def err_hlsl_rootsig_non_zero_flag : Error<"flag value is neither a literal 0 no
 
 
 // C contracts (-fc-contracts)
-def err_contract_clause_unsupported : Error<
-  "'%0' contract clauses are not supported yet">;
 def err_contract_clause_expected_lparen : Error<
   "expected '(' after '%0'">;
-def err_contract_loop_clause_needs_compound : Error<
-  "loop contract clauses must be followed by a compound statement">;
 def warn_contract_keyword_macro : Warning<
   "macro named %0 hides the contract clause keyword of the same name">,
   InGroup<CContracts>;
+def err_contract_post_trailing_tokens : Error<
+  "unexpected tokens at end of 'post' predicate">;
 
 def err_contract_forall_expected_identifier : Error<
   "expected the name of the bound variable in a 'forall' clause">;

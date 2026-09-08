@@ -252,6 +252,10 @@ The harness assumes the size bound first, allocates `n` bytes for `p`, and then
 calls `zero`. Clause order matters: put bounds on `n` before `fresh(p, n)` so
 the harness does not attempt an unbounded allocation.
 
+Repeating the same `fresh` constraint does not allocate the target twice. If
+two `fresh` constraints give the same target different sizes, harness emission
+stops with an error instead of generating an infeasible proof.
+
 `fresh` belongs to the proof tier. Ordinary C cannot recover an allocation's
 extent or uniqueness from a pointer at function entry, so runtime checking
 diagnoses the clause instead of pretending to enforce it.

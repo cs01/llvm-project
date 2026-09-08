@@ -2386,13 +2386,20 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
         const_cast<Expr *>(TrailingRequiresClause.ConstraintExpr)));
   }
 
-  // Visit the contract clause predicates, if any. Analyses that walk function
-  // bodies must see these too: a predicate names the parameters and is real
-  // code as far as the AST is concerned.
+  // Visit the contract clauses, if any.
   if (ContractSpecifier *CS = D->getContracts()) {
     for (ContractClause &Clause : *CS) {
+      if (Clause.getResultVar())
+        TRY_TO(TraverseDecl(Clause.getResultVar()));
       if (Clause.getPredicate())
         TRY_TO(TraverseStmt(Clause.getPredicate()));
+      for (const AssignsTarget &Target : Clause.getTargets()) {
+        TRY_TO(TraverseStmt(Target.Base));
+        if (Target.Lower)
+          TRY_TO(TraverseStmt(Target.Lower));
+        if (Target.Upper)
+          TRY_TO(TraverseStmt(Target.Upper));
+      }
     }
   }
 
@@ -2420,6 +2427,28 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
   }
 
   if (VisitBody) {
+    auto TraverseLoopContracts = [&](auto &&Self, Stmt *S) -> bool {
+      if (!S)
+        return true;
+      if (ContractSpecifier *CS = D->getASTContext().getLoopContracts(S))
+        for (ContractClause &Clause : *CS) {
+          if (Clause.getPredicate() &&
+              !getDerived().TraverseStmt(Clause.getPredicate()))
+            return false;
+          for (const AssignsTarget &Target : Clause.getTargets()) {
+            if (!getDerived().TraverseStmt(Target.Base) ||
+                (Target.Lower && !getDerived().TraverseStmt(Target.Lower)) ||
+                (Target.Upper && !getDerived().TraverseStmt(Target.Upper)))
+              return false;
+          }
+        }
+      for (Stmt *Child : S->children())
+        if (!Self(Self, Child))
+          return false;
+      return true;
+    };
+    if (!TraverseLoopContracts(TraverseLoopContracts, D->getBody()))
+      return false;
     TRY_TO(TraverseStmt(D->getBody()));
     // Body may contain using declarations whose shadows are parented to the
     // FunctionDecl itself.

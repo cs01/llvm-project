@@ -71,6 +71,16 @@ void caller_narrows(unsigned n) pre (n <= 56) {
     below_32(n); // expected-warning {{precondition n < 32 of 'below_32' is violated by this call}}
 }
 
+void infeasible_paths(int *p, unsigned n)
+  pre (p != 0)
+  pre (n < 32)
+{
+  if (!p)
+    use(0);
+  if (n >= 32)
+    allocate(0);
+}
+
 // A variable whose address is taken can be written through a pointer the pass
 // cannot follow, so it is not tracked at all.
 void address_taken(void) {

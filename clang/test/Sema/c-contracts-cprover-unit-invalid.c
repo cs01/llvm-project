@@ -10,9 +10,12 @@ int impure(void);
 
 int good(int n) pre (n > 0);
 int bad(int n) pre (impure() > 0);
+int *next(void);
+void bad_frame(unsigned n) assigns (next()[0 : n]);
 
 // CHECK: error: contract predicate must be free of side effects
 // CHECK: error: refusing to rewrite this translation unit: 1 contract clause did not type-check
 
 // And nothing of the rewritten unit is printed.
 // CHECK-NOT: __CPROVER_requires
+// CHECK-NOT: int good

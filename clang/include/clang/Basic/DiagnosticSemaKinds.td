@@ -14436,6 +14436,9 @@ def err_contract_harness_nested_fresh : Error<
 def err_contract_harness_unsatisfiable_pre : Error<
   "cannot generate a proof harness because this precondition contradicts an "
   "earlier precondition">;
+def err_contract_harness_conflicting_fresh : Error<
+  "cannot generate a proof harness because 'fresh' constraints for %0 use "
+  "different sizes">;
 def note_contract_harness_order : Note<
   "'pre' clauses become entry-point statements in order; move the clause "
   "bounding %0 above this one">;

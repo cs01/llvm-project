@@ -18,6 +18,7 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/ASTStructuralEquivalence.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclAccessPair.h"
 #include "clang/AST/DeclBase.h"
@@ -507,6 +508,8 @@ namespace clang {
     ImportExprRequirement(concepts::ExprRequirement *From);
     Expected<concepts::Requirement *>
     ImportNestedRequirement(concepts::NestedRequirement *From);
+    Expected<ContractSpecifier *>
+    ImportContractSpecifier(const ContractSpecifier *From);
 
     template <typename T>
     bool hasSameVisibilityContextAndLinkage(T *Found, T *From);
@@ -651,6 +654,8 @@ namespace clang {
     ExpectedStmt VisitAddrLabelExpr(AddrLabelExpr *E);
     ExpectedStmt VisitConstantExpr(ConstantExpr *E);
     ExpectedStmt VisitParenExpr(ParenExpr *E);
+    ExpectedStmt VisitContractOldExpr(ContractOldExpr *E);
+    ExpectedStmt VisitContractForallExpr(ContractForallExpr *E);
     ExpectedStmt VisitParenListExpr(ParenListExpr *E);
     ExpectedStmt VisitStmtExpr(StmtExpr *E);
     ExpectedStmt VisitUnaryOperator(UnaryOperator *E);
@@ -3799,6 +3804,42 @@ ASTNodeImporter::importExplicitSpecifier(Error &Err, ExplicitSpecifier ESpec) {
   return ExplicitSpecifier(ExplicitExpr, ESpec.getKind());
 }
 
+Expected<ContractSpecifier *>
+ASTNodeImporter::ImportContractSpecifier(const ContractSpecifier *From) {
+  SmallVector<ContractClause, 4> Clauses;
+  for (const ContractClause &Clause : *From) {
+    Error Err = Error::success();
+    auto KeywordLoc = importChecked(Err, Clause.getKeywordLoc());
+    auto LParenLoc = importChecked(Err, Clause.getLParenLoc());
+    auto RParenLoc = importChecked(Err, Clause.getRParenLoc());
+    auto ResultVar = importChecked(Err, Clause.getResultVar());
+    auto Predicate = importChecked(Err, Clause.getPredicate());
+    if (Err)
+      return std::move(Err);
+
+    Clauses.emplace_back(Clause.getKind(), KeywordLoc, LParenLoc, RParenLoc,
+                         Predicate);
+    Clauses.back().setResultVar(ResultVar);
+    if (Clause.getKind() != ContractClause::CK_Assigns || Clause.isInvalid())
+      continue;
+
+    SmallVector<AssignsTarget, 4> Targets;
+    for (const AssignsTarget &Target : Clause.getTargets()) {
+      auto Base = importChecked(Err, Target.Base);
+      auto Lower = importChecked(Err, Target.Lower);
+      auto Upper = importChecked(Err, Target.Upper);
+      if (Err)
+        return std::move(Err);
+      Targets.push_back({Base, Lower, Upper});
+    }
+    AssignsTarget *Stored =
+        new (Importer.getToContext()) AssignsTarget[Targets.size() + 1];
+    llvm::copy(Targets, Stored);
+    Clauses.back().setTargets(Stored, Targets.size());
+  }
+  return ContractSpecifier::Create(Importer.getToContext(), Clauses);
+}
+
 ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
 
   SmallVector<Decl *, 2> Redecls = getCanonicalForwardRedeclChain(D);
@@ -4131,6 +4172,13 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
       LT->update(Param, Importer.getToContext().getTranslationUnitDecl());
   }
   ToFunction->setParams(Parameters);
+
+  if (const ContractSpecifier *Contracts = D->getContracts()) {
+    Expected<ContractSpecifier *> Imported = ImportContractSpecifier(Contracts);
+    if (!Imported)
+      return Imported.takeError();
+    ToFunction->setContracts(*Imported);
+  }
 
   // We need to complete creation of FunctionProtoTypeLoc manually with setting
   // params it refers to.
@@ -7259,8 +7307,17 @@ ExpectedStmt ASTNodeImporter::VisitWhileStmt(WhileStmt *S) {
   if (Err)
     return std::move(Err);
 
-  return WhileStmt::Create(Importer.getToContext(), ToConditionVariable, ToCond,
-                           ToBody, ToWhileLoc, ToLParenLoc, ToRParenLoc);
+  WhileStmt *To =
+      WhileStmt::Create(Importer.getToContext(), ToConditionVariable, ToCond,
+                        ToBody, ToWhileLoc, ToLParenLoc, ToRParenLoc);
+  if (const ContractSpecifier *Contracts =
+          Importer.getFromContext().getLoopContracts(S)) {
+    Expected<ContractSpecifier *> Imported = ImportContractSpecifier(Contracts);
+    if (!Imported)
+      return Imported.takeError();
+    Importer.getToContext().setLoopContracts(To, *Imported);
+  }
+  return To;
 }
 
 ExpectedStmt ASTNodeImporter::VisitDoStmt(DoStmt *S) {
@@ -7274,8 +7331,16 @@ ExpectedStmt ASTNodeImporter::VisitDoStmt(DoStmt *S) {
   if (Err)
     return std::move(Err);
 
-  return new (Importer.getToContext()) DoStmt(
-      ToBody, ToCond, ToDoLoc, ToWhileLoc, ToRParenLoc);
+  auto *To = new (Importer.getToContext())
+      DoStmt(ToBody, ToCond, ToDoLoc, ToWhileLoc, ToRParenLoc);
+  if (const ContractSpecifier *Contracts =
+          Importer.getFromContext().getLoopContracts(S)) {
+    Expected<ContractSpecifier *> Imported = ImportContractSpecifier(Contracts);
+    if (!Imported)
+      return Imported.takeError();
+    Importer.getToContext().setLoopContracts(To, *Imported);
+  }
+  return To;
 }
 
 ExpectedStmt ASTNodeImporter::VisitForStmt(ForStmt *S) {
@@ -7292,10 +7357,17 @@ ExpectedStmt ASTNodeImporter::VisitForStmt(ForStmt *S) {
   if (Err)
     return std::move(Err);
 
-  return new (Importer.getToContext()) ForStmt(
-      Importer.getToContext(),
-      ToInit, ToCond, ToConditionVariable, ToInc, ToBody, ToForLoc, ToLParenLoc,
-      ToRParenLoc);
+  auto *To = new (Importer.getToContext())
+      ForStmt(Importer.getToContext(), ToInit, ToCond, ToConditionVariable,
+              ToInc, ToBody, ToForLoc, ToLParenLoc, ToRParenLoc);
+  if (const ContractSpecifier *Contracts =
+          Importer.getFromContext().getLoopContracts(S)) {
+    Expected<ContractSpecifier *> Imported = ImportContractSpecifier(Contracts);
+    if (!Imported)
+      return Imported.takeError();
+    Importer.getToContext().setLoopContracts(To, *Imported);
+  }
+  return To;
 }
 
 ExpectedStmt ASTNodeImporter::VisitGotoStmt(GotoStmt *S) {
@@ -8013,6 +8085,34 @@ ExpectedStmt ASTNodeImporter::VisitParenExpr(ParenExpr *E) {
 
   return new (Importer.getToContext())
       ParenExpr(ToLParen, ToRParen, ToSubExpr);
+}
+
+ExpectedStmt ASTNodeImporter::VisitContractOldExpr(ContractOldExpr *E) {
+  Error Err = Error::success();
+  auto OldLoc = importChecked(Err, E->getOldLoc());
+  auto LParenLoc = importChecked(Err, E->getLParenLoc());
+  auto RParenLoc = importChecked(Err, E->getRParenLoc());
+  auto SubExpr = importChecked(Err, E->getSubExpr());
+  if (Err)
+    return std::move(Err);
+  return new (Importer.getToContext())
+      ContractOldExpr(OldLoc, LParenLoc, RParenLoc, SubExpr);
+}
+
+ExpectedStmt ASTNodeImporter::VisitContractForallExpr(ContractForallExpr *E) {
+  Error Err = Error::success();
+  auto ForallLoc = importChecked(Err, E->getForallLoc());
+  auto LParenLoc = importChecked(Err, E->getLParenLoc());
+  auto RParenLoc = importChecked(Err, E->getRParenLoc());
+  auto Var = importChecked(Err, E->getVar());
+  auto Lower = importChecked(Err, E->getLower());
+  auto Upper = importChecked(Err, E->getUpper());
+  auto Predicate = importChecked(Err, E->getPredicate());
+  if (Err)
+    return std::move(Err);
+  return new (Importer.getToContext())
+      ContractForallExpr(Importer.getToContext(), ForallLoc, LParenLoc,
+                         RParenLoc, Var, Lower, Upper, Predicate);
 }
 
 ExpectedStmt ASTNodeImporter::VisitParenListExpr(ParenListExpr *E) {

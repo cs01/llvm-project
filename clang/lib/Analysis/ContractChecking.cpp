@@ -61,6 +61,7 @@ struct AbstractValue {
   }
 
   bool isKnownFalse() const { return K == Int && IntVal == 0; }
+  bool isKnownTrue() const { return (K == Int && IntVal != 0) || K == NonNull; }
 
   bool operator==(const AbstractValue &O) const {
     if (K != O.K)
@@ -386,7 +387,7 @@ private:
   }
 
   /// Narrows \p S using \p Cond known to have evaluated to \p TrueBranch.
-  void refine(State &S, const Expr *Cond, bool TrueBranch);
+  bool refine(State &S, const Expr *Cond, bool TrueBranch);
 
   void transfer(State &S, const Stmt *St);
   void checkCall(const State &S, const CallExpr *Call);
@@ -414,22 +415,26 @@ private:
   }
 };
 
-void ContractChecker::refine(State &S, const Expr *Cond, bool TrueBranch) {
+bool ContractChecker::refine(State &S, const Expr *Cond, bool TrueBranch) {
   if (!Cond)
-    return;
+    return true;
+  AbstractValue Known = Evaluator(Ctx, S, nullptr).eval(Cond);
+  if ((TrueBranch && Known.isKnownFalse()) ||
+      (!TrueBranch && Known.isKnownTrue()))
+    return false;
   const Expr *X = Cond->IgnoreParenImpCasts();
 
   if (const auto *UO = dyn_cast<UnaryOperator>(X)) {
     if (UO->getOpcode() == UO_LNot)
-      refine(S, UO->getSubExpr(), !TrueBranch);
-    return;
+      return refine(S, UO->getSubExpr(), !TrueBranch);
+    return true;
   }
 
   if (const auto *DRE = dyn_cast<DeclRefExpr>(X)) {
     const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
     if (tracked(VD) && VD->getType()->isPointerType())
       S[VD] = TrueBranch ? AbstractValue::nonNull() : AbstractValue::null();
-    return;
+    return true;
   }
 
   if (const auto *BO = dyn_cast<BinaryOperator>(X)) {
@@ -437,9 +442,8 @@ void ContractChecker::refine(State &S, const Expr *Cond, bool TrueBranch) {
     // on the false edge. The other two directions say nothing.
     if ((BO->getOpcode() == BO_LAnd && TrueBranch) ||
         (BO->getOpcode() == BO_LOr && !TrueBranch)) {
-      refine(S, BO->getLHS(), TrueBranch);
-      refine(S, BO->getRHS(), TrueBranch);
-      return;
+      return refine(S, BO->getLHS(), TrueBranch) &&
+             refine(S, BO->getRHS(), TrueBranch);
     }
     if (BO->isComparisonOp()) {
       const Expr *L = BO->getLHS()->IgnoreParenImpCasts();
@@ -506,16 +510,18 @@ void ContractChecker::refine(State &S, const Expr *Cond, bool TrueBranch) {
             Lower = V;
           } else if (Op == BO_LE) {
             Upper = V;
-          } else if (Op == BO_GT &&
-                     !llvm::APSInt::isSameValue(
-                         V, llvm::APSInt::getMaxValue(V.getBitWidth(),
-                                                      V.isUnsigned()))) {
+          } else if (Op == BO_GT) {
+            if (llvm::APSInt::isSameValue(
+                    V,
+                    llvm::APSInt::getMaxValue(V.getBitWidth(), V.isUnsigned())))
+              return false;
             ++V;
             Lower = V;
-          } else if (Op == BO_LT &&
-                     !llvm::APSInt::isSameValue(
-                         V, llvm::APSInt::getMinValue(V.getBitWidth(),
-                                                      V.isUnsigned()))) {
+          } else if (Op == BO_LT) {
+            if (llvm::APSInt::isSameValue(
+                    V,
+                    llvm::APSInt::getMinValue(V.getBitWidth(), V.isUnsigned())))
+              return false;
             --V;
             Upper = V;
           }
@@ -534,13 +540,16 @@ void ContractChecker::refine(State &S, const Expr *Cond, bool TrueBranch) {
           if (Lower || Upper)
             S[VD] =
                 AbstractValue::makeRange(std::move(Lower), std::move(Upper));
-          return;
+          if (S[VD].Lower && S[VD].Upper &&
+              llvm::APSInt::compareValues(*S[VD].Lower, *S[VD].Upper) > 0)
+            return false;
+          return true;
         }
       }
     }
 
     if (BO->getOpcode() != BO_EQ && BO->getOpcode() != BO_NE)
-      return;
+      return true;
 
     const Expr *L = BO->getLHS()->IgnoreParenImpCasts();
     const Expr *R = BO->getRHS()->IgnoreParenImpCasts();
@@ -551,17 +560,18 @@ void ContractChecker::refine(State &S, const Expr *Cond, bool TrueBranch) {
       Other = L;
     }
     if (!DRE)
-      return;
+      return true;
     const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
     if (!tracked(VD) || !VD->getType()->isPointerType())
-      return;
+      return true;
     if (!Other->isNullPointerConstant(const_cast<ASTContext &>(Ctx),
                                       Expr::NPC_ValueDependentIsNotNull))
-      return;
+      return true;
 
     bool IsNull = (BO->getOpcode() == BO_EQ) == TrueBranch;
     S[VD] = IsNull ? AbstractValue::null() : AbstractValue::nonNull();
   }
+  return true;
 }
 
 void ContractChecker::transfer(State &S, const Stmt *St) {
@@ -714,13 +724,16 @@ void ContractChecker::run() {
   // The function's own preconditions hold on entry, which is what lets a call
   // inside the body be discharged by a guarantee its caller already made.
   State Entry;
+  bool EntryReachable = true;
   if (const FunctionDecl *Own = FD->getContractDecl())
     for (const ContractClause &Clause : *Own->getContracts())
       if (Clause.getKind() == ContractClause::CK_Pre && Clause.getPredicate())
-        refine(Entry, Clause.getPredicate(), /*TrueBranch=*/true);
+        if (!refine(Entry, Clause.getPredicate(), /*TrueBranch=*/true))
+          EntryReachable = false;
 
   llvm::DenseMap<const CFGBlock *, State> BlockEntry;
-  BlockEntry[&Cfg->getEntry()] = std::move(Entry);
+  if (EntryReachable)
+    BlockEntry[&Cfg->getEntry()] = std::move(Entry);
 
   // Iterate the sweep to a fixpoint, then report from the converged state.
   //
@@ -749,7 +762,9 @@ void ContractChecker::run() {
       State Before = BlockEntry.count(B) ? BlockEntry[B] : State();
       bool Seen = BlockEntry.count(B);
       analyzeBlock(B, Cfg, BlockEntry);
-      if (!Seen || !sameState(Before, BlockEntry[B]))
+      bool SeenAfter = BlockEntry.count(B);
+      if (Seen != SeenAfter ||
+          (SeenAfter && !sameState(Before, BlockEntry.find(B)->second)))
         Changed = true;
     }
     if (!Changed)
@@ -768,7 +783,16 @@ void ContractChecker::analyzeBlock(
     llvm::DenseMap<const CFGBlock *, State> &BlockEntry) {
   State Cur;
   bool First = true;
+  if (B == &Cfg->getEntry()) {
+    auto It = BlockEntry.find(B);
+    if (It == BlockEntry.end())
+      return;
+    Cur = It->second;
+    First = false;
+  }
   for (const CFGBlock *Pred : B->preds()) {
+    if (B == &Cfg->getEntry())
+      break;
     if (!Pred)
       continue;
     auto It = BlockEntry.find(Pred);
@@ -782,8 +806,8 @@ void ContractChecker::analyzeBlock(
         bool IsFalseEdge =
             Pred->succ_size() > 1 && *(Pred->succ_begin() + 1) == B;
         // Only a two-way branch says anything; a switch edge does not.
-        if (IsTrueEdge != IsFalseEdge)
-          refine(Edge, CondE, IsTrueEdge);
+        if (IsTrueEdge != IsFalseEdge && !refine(Edge, CondE, IsTrueEdge))
+          continue;
       }
     }
 
@@ -804,8 +828,10 @@ void ContractChecker::analyzeBlock(
       Cur.erase(VD);
   }
 
-  if (B == &Cfg->getEntry())
-    Cur = BlockEntry[B];
+  if (First) {
+    BlockEntry.erase(B);
+    return;
+  }
 
   for (const CFGElement &Elem : *B)
     if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())

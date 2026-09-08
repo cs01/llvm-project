@@ -24,8 +24,14 @@ int names_param(int n) post (r: r <= n); // expected-error {{'post' predicate ca
 int no_result_name(void) post (1 == 1);
 
 // The result name is scoped to its own clause.
-int r;
-int result_is_scoped(void) post (q: q > 0) post (r > -1);
+int result_is_scoped(void) post (q: q > 0) post (q > -1); // expected-error {{use of undeclared identifier 'q'}}
+
+int trailing_tokens(void)
+  post (r: r > 0 r); // expected-error {{unexpected tokens at end of 'post' predicate}}
+
+int first_binding(void) post (previous: previous >= 0);
+int later_binding(void)
+  post (previous >= 0); // expected-error {{use of undeclared identifier 'previous'}}
 
 // 'pre' and 'post' coexist and keep source order.
 int both(int *p) pre (p != 0) post (r: r > 0);

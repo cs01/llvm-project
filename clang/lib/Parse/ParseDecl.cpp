@@ -7908,14 +7908,19 @@ void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
   // Reopen a scope holding the parameters so a predicate can name them. The
   // prototype scope this declarator was parsed in is long closed, and the
   // ParmVarDecls now belong to FD.
-  ParseScope PredicateScope(this,
-                            Scope::DeclScope | Scope::FunctionPrototypeScope);
-  for (ParmVarDecl *Param : FD->parameters())
-    if (Param->getIdentifier())
-      Actions.PushOnScopeChains(Param, getCurScope(), /*AddToContext=*/false);
+  ParseScope PredicateScope(this, Scope::FnScope | Scope::DeclScope |
+                                      Scope::FunctionPrototypeScope);
+  bool ReenteredFunction = Actions.CurContext != FD;
+  if (ReenteredFunction)
+    Actions.ActOnReenterFunctionContext(getCurScope(), FD);
+  llvm::scope_exit ExitFunctionContext([&] {
+    if (ReenteredFunction)
+      Actions.ActOnExitFunctionContext();
+  });
 
   for (auto &Delayed : D.getDelayedContracts()) {
     ContractClause &Clause = CS->clauses()[Delayed.ClauseIndex];
+    ParseScope ResultScope(this, Scope::DeclScope);
 
     if (Delayed.ResultName) {
       VarDecl *ResultVar = VarDecl::Create(
@@ -7946,6 +7951,10 @@ void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
     ConsumeAnyToken(/*ConsumeCodeCompletionTok=*/true);
 
     ExprResult Predicate = ParseContractPredicate(Clause.getKind());
+    if (Predicate.isUsable() && Tok.isNot(tok::eof)) {
+      Diag(Tok, diag::err_contract_post_trailing_tokens);
+      Predicate = ExprError();
+    }
     if (Predicate.isUsable())
       Predicate = Actions.ActOnContractClausePredicate(
           Clause.getKind(), Clause.getKeywordLoc(), Predicate.get());
@@ -7953,7 +7962,6 @@ void Parser::ParseDelayedContractPredicates(Decl *TheDecl, Declarator &D) {
       Predicate = Actions.CheckContractPostPredicate(Predicate.get());
     Clause.setPredicate(Predicate.isUsable() ? Predicate.get() : nullptr);
 
-    // Drain anything the predicate did not consume, then the eof marker.
     while (Tok.isNot(tok::eof))
       ConsumeAnyToken();
     if (Tok.getEofData() == FD)

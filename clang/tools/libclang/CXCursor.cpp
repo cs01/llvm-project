@@ -348,6 +348,8 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
   case Stmt::HLSLOutArgExprClass:
   case Stmt::OpenACCAsteriskSizeExprClass:
   case Stmt::CXXExpansionSelectExprClass:
+  case Stmt::ContractOldExprClass:
+  case Stmt::ContractForallExprClass:
     K = CXCursor_UnexposedExpr;
     break;
 

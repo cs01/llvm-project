@@ -1168,6 +1168,7 @@ void CodeGenModule::Release() {
   emitMultiVersionFunctions();
   emitPFPFieldsWithEvaluatedOffset();
   emitGlobalDeleteForwardingBodies();
+  emitContractViolationFallback();
 
   if (Context.getLangOpts().IncrementalExtensions &&
       GlobalTopLevelStmtBlockInFlight.first) {
@@ -9191,20 +9192,19 @@ llvm::FunctionCallee CodeGenModule::getContractViolationFn() {
       llvm::AttributeList::get(getLLVMContext(),
                                llvm::AttributeList::FunctionIndex, Attrs));
 
-  // Give it a weak definition that traps, so a program with no handler still
-  // links and still stops at the violation rather than continuing. A strong
-  // definition anywhere replaces this one, which is the whole point: a project
-  // with its own fault handler routes contract violations into it.
-  auto *Fn = dyn_cast<llvm::Function>(C.getCallee());
-  if (Fn && Fn->isDeclaration()) {
-    Fn->setLinkage(llvm::GlobalValue::WeakAnyLinkage);
-    Fn->setDoesNotThrow();
-    llvm::BasicBlock *BB =
-        llvm::BasicBlock::Create(getLLVMContext(), "entry", Fn);
-    llvm::IRBuilder<> B(BB);
-    B.CreateCall(llvm::Intrinsic::getOrInsertDeclaration(
-        &getModule(), llvm::Intrinsic::trap));
-    B.CreateUnreachable();
-  }
   return C;
+}
+
+void CodeGenModule::emitContractViolationFallback() {
+  llvm::Function *Fn = getModule().getFunction("__contract_violation");
+  if (!Fn || !Fn->isDeclaration())
+    return;
+  Fn->setLinkage(llvm::GlobalValue::WeakAnyLinkage);
+  Fn->setDoesNotThrow();
+  llvm::BasicBlock *BB =
+      llvm::BasicBlock::Create(getLLVMContext(), "entry", Fn);
+  llvm::IRBuilder<> B(BB);
+  B.CreateCall(llvm::Intrinsic::getOrInsertDeclaration(&getModule(),
+                                                       llvm::Intrinsic::trap));
+  B.CreateUnreachable();
 }

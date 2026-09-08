@@ -10,8 +10,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/AST/ContractSpecifier.h"
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/RecordLayout.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/Testing/CommandLineArgs.h"
 #include "llvm/Support/SmallVectorMemoryBuffer.h"
@@ -2206,6 +2208,74 @@ TEST_P(ASTImporterOptionSpecificTestBase, ReimportWithUsedFlag) {
 }
 
 struct ImportFunctions : ASTImporterOptionSpecificTestBase {};
+
+struct ImportContracts : ASTImporterTestBase {
+  std::vector<std::string> getExtraArgs() const override {
+    return {"-fc-contracts"};
+  }
+};
+
+TEST_F(ImportContracts, ImportFunctionAndLoopContracts) {
+  StringRef Code = R"(
+    typedef unsigned long size_t;
+    int frame_only;
+    int bounded(int *p, size_t n)
+      pre (n > 0)
+      pre (forall (i : 0, n) p[i] >= 0)
+      post (r: r <= old(n))
+      assigns (frame_only, p[0 : n]) {
+      size_t i = 0;
+      while (i < n)
+        assigns (i, p[0 : n])
+        loop_invariant (i <= n)
+        decreases (n - i) { ++i; }
+      return 0;
+    }
+  )";
+  Decl *From;
+  Decl *To;
+  std::tie(From, To) = getImportedDecl(Code, Lang_C99, "", Lang_C99, "bounded");
+  auto *ToFunction = cast<FunctionDecl>(To);
+  ASSERT_NE(ToFunction->getContracts(), nullptr);
+  EXPECT_EQ(ToFunction->getContracts()->clauses().size(), 4u);
+  EXPECT_NE(ToFunction->getContracts()->clauses()[2].getResultVar(), nullptr);
+  EXPECT_EQ(ToFunction->getContracts()->clauses()[3].getTargets().size(), 2u);
+
+  class Visitor : public RecursiveASTVisitor<Visitor> {
+  public:
+    WhileStmt *Loop = nullptr;
+    unsigned OldExpressions = 0;
+    unsigned ForallExpressions = 0;
+    unsigned FrameOnlyReferences = 0;
+
+    bool VisitWhileStmt(WhileStmt *S) {
+      Loop = S;
+      return true;
+    }
+    bool VisitContractOldExpr(ContractOldExpr *) {
+      ++OldExpressions;
+      return true;
+    }
+    bool VisitContractForallExpr(ContractForallExpr *) {
+      ++ForallExpressions;
+      return true;
+    }
+    bool VisitDeclRefExpr(DeclRefExpr *E) {
+      if (E->getDecl()->getName() == "frame_only")
+        ++FrameOnlyReferences;
+      return true;
+    }
+  } V;
+  ASSERT_TRUE(V.TraverseDecl(ToFunction));
+  EXPECT_EQ(V.OldExpressions, 1u);
+  EXPECT_EQ(V.ForallExpressions, 1u);
+  EXPECT_EQ(V.FrameOnlyReferences, 1u);
+  ASSERT_NE(V.Loop, nullptr);
+  const ContractSpecifier *LoopContracts =
+      ToFunction->getASTContext().getLoopContracts(V.Loop);
+  ASSERT_NE(LoopContracts, nullptr);
+  EXPECT_EQ(LoopContracts->clauses().size(), 3u);
+}
 
 TEST_P(ImportFunctions, ImportPrototypeOfRecursiveFunction) {
   Decl *FromTU = getTuDecl("void f(); void f() { f(); }", Lang_CXX03);

@@ -21,6 +21,7 @@
 #include "clang/Lex/Lexer.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Sema.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -153,6 +154,7 @@ namespace {
 class CProverPrinter : public PrinterHelper {
 public:
   const VarDecl *ResultVar = nullptr;
+  const llvm::DenseMap<const ValueDecl *, std::string> *RenamedDecls = nullptr;
 
   bool handledStmt(Stmt *S, raw_ostream &OS) override {
     if (auto *Old = dyn_cast<ContractOldExpr>(S)) {
@@ -166,6 +168,13 @@ public:
       if (DRE->getDecl() == ResultVar) {
         OS << "__CPROVER_return_value";
         return true;
+      }
+      if (RenamedDecls) {
+        auto It = RenamedDecls->find(DRE->getDecl());
+        if (It != RenamedDecls->end()) {
+          OS << It->second;
+          return true;
+        }
       }
     }
 
@@ -226,13 +235,16 @@ public:
 ///
 /// Every consumer goes through here, so a frame bound, a predicate and the
 /// harness cannot end up printing the same expression three different ways.
-static std::string printContractExpr(const Expr *E, const ASTContext &Ctx,
-                                     const VarDecl *ResultVar = nullptr) {
+static std::string printContractExpr(
+    const Expr *E, const ASTContext &Ctx, const VarDecl *ResultVar = nullptr,
+    const llvm::DenseMap<const ValueDecl *, std::string> *RenamedDecls =
+        nullptr) {
   std::string Text;
   llvm::raw_string_ostream OS(Text);
   CProverPrinter Helper;
   Helper.Policy = Ctx.getPrintingPolicy();
   Helper.ResultVar = ResultVar;
+  Helper.RenamedDecls = RenamedDecls;
   E->printPretty(OS, &Helper, Ctx.getPrintingPolicy());
   return Text;
 }
@@ -604,6 +616,30 @@ static const Expr *findContradictoryPrecondition(const ContractSpecifier &CS,
   return nullptr;
 }
 
+static const CallExpr *findConflictingHarnessFresh(const ContractSpecifier &CS,
+                                                   const ASTContext &Ctx) {
+  llvm::StringMap<std::string> FreshSizes;
+  for (const ContractClause &Clause : CS) {
+    if (Clause.getKind() != ContractClause::CK_Pre || Clause.isInvalid())
+      continue;
+    SmallVector<const Expr *, 4> Conjuncts;
+    collectHarnessConjuncts(Clause.getPredicate(), Conjuncts);
+    for (const Expr *Pred : Conjuncts) {
+      const CallExpr *Call = asHarnessFresh(Pred);
+      const Expr *Target =
+          Call ? Call->getArg(0)->IgnoreParenImpCasts() : nullptr;
+      if (!Target || !Target->isLValue())
+        continue;
+      std::string TargetText = printContractExpr(Target, Ctx);
+      std::string SizeText = printContractExpr(Call->getArg(1), Ctx);
+      auto [It, Inserted] = FreshSizes.try_emplace(TargetText, SizeText);
+      if (!Inserted && It->second != SizeText)
+        return Call;
+    }
+  }
+  return nullptr;
+}
+
 /// Emits a CBMC entry point for \p FD, built from its preconditions.
 ///
 /// This is what makes a contract usable on a function with loops.
@@ -630,13 +666,23 @@ static const Expr *findContradictoryPrecondition(const ContractSpecifier &CS,
 /// contract said nothing about it.
 static void emitContractHarness(const FunctionDecl *FD,
                                 const FunctionDecl *ContractDecl, Sema &S,
-                                llvm::raw_ostream &OS) {
+                                StringRef HarnessName, llvm::raw_ostream &OS) {
   const ASTContext &Ctx = S.Context;
   const ContractSpecifier *CS = ContractDecl->getContracts();
   if (!CS)
     return;
 
-  auto Print = [&](const Expr *E) { return printContractExpr(E, Ctx); };
+  SmallVector<std::string, 8> ParamNames;
+  llvm::DenseMap<const ValueDecl *, std::string> RenamedDecls;
+  for (unsigned I = 0; I != ContractDecl->getNumParams(); ++I) {
+    std::string Name = "__contract_arg_" + std::to_string(I);
+    ParamNames.push_back(Name);
+    RenamedDecls[ContractDecl->getParamDecl(I)] = Name;
+  }
+  auto Print = [&](const Expr *E) {
+    return printContractExpr(E, Ctx, nullptr, &RenamedDecls);
+  };
+  auto SourcePrint = [&](const Expr *E) { return printContractExpr(E, Ctx); };
 
   // A `fresh(L, N)` precondition allocates rather than assumes: it is the
   // clause that says how big the object is, and CBMC cannot conjure that from
@@ -649,6 +695,7 @@ static void emitContractHarness(const FunctionDecl *FD,
     std::string Size; // allocation only
   };
   SmallVector<Step, 8> Steps;
+  llvm::StringSet<> EmittedFresh;
 
   // Clauses are emitted in source order, so an ordering mistake is silent
   // otherwise: a size read before the clause bounding it makes the entry point
@@ -708,11 +755,13 @@ static void emitContractHarness(const FunctionDecl *FD,
             continue;
           S.Diag(Size->getExprLoc(),
                  diag::warn_contract_harness_unbounded_alloc)
-              << Print(Target) << P;
+              << SourcePrint(Target) << P;
           S.Diag(Size->getExprLoc(), diag::note_contract_harness_order) << P;
           break;
         }
-        Steps.push_back({true, Print(Target), Print(Size)});
+        std::string TargetText = Print(Target);
+        if (EmittedFresh.insert(TargetText).second)
+          Steps.push_back({true, std::move(TargetText), Print(Size)});
         continue;
       }
       RecordBounds(Pred);
@@ -722,20 +771,15 @@ static void emitContractHarness(const FunctionDecl *FD,
 
   OS << "\n/* entry point generated from " << FD->getNameAsString()
      << "'s contract; do not write one by hand */\n";
-  OS << "void __contract_harness_" << FD->getNameAsString() << "(void) {\n";
+  OS << "void " << HarnessName << "(void) {\n";
 
   // A parameter no clause mentions is left uninitialised, which is
   // nondeterministic in CBMC: the contract said nothing about it, so neither
   // does the entry point.
-  SmallVector<std::string, 8> ParamNames;
   for (unsigned I = 0; I != ContractDecl->getNumParams(); ++I) {
     const ParmVarDecl *P = ContractDecl->getParamDecl(I);
-    std::string Name = P->getNameAsString();
-    if (Name.empty())
-      Name = "__contract_arg_" + std::to_string(I);
-    ParamNames.push_back(Name);
     OS << "  ";
-    P->getType().print(OS, Ctx.getPrintingPolicy(), Name);
+    P->getType().print(OS, Ctx.getPrintingPolicy(), ParamNames[I]);
     OS << ";\n";
   }
   for (const Step &St : Steps) {
@@ -790,6 +834,19 @@ void Sema::EmitCProverUnit() {
                   << Contradiction->getSourceRange();
               return;
             }
+  if (getLangOpts().CContractsEmitHarness)
+    for (Decl *D : Context.getTranslationUnitDecl()->decls())
+      if (const auto *FD = dyn_cast<FunctionDecl>(D))
+        if (FD->doesThisDeclarationHaveABody())
+          if (const FunctionDecl *ContractDecl = FD->getContractDecl())
+            if (const CallExpr *Conflict = findConflictingHarnessFresh(
+                    *ContractDecl->getContracts(), Context)) {
+              Diag(Conflict->getExprLoc(),
+                   diag::err_contract_harness_conflicting_fresh)
+                  << printContractExpr(Conflict->getArg(0), Context)
+                  << Conflict->getSourceRange();
+              return;
+            }
 
   // A clause that did not type-check has no rewrite, so its original text
   // would survive into the output next to the clauses that were rewritten.
@@ -803,6 +860,8 @@ void Sema::EmitCProverUnit() {
         << NumInvalidContractClauses;
     return;
   }
+  if (getDiagnostics().hasErrorOccurred())
+    return;
 
   FileID Main = SM.getMainFileID();
   StringRef Buf = SM.getBufferData(Main);
@@ -851,12 +910,24 @@ void Sema::EmitCProverUnit() {
 
   // The harness goes last: it calls the function, so the definition has to
   // precede it in the emitted unit.
-  if (getLangOpts().CContractsEmitHarness)
+  if (getLangOpts().CContractsEmitHarness) {
+    llvm::StringSet<> UsedNames;
+    for (Decl *D : Context.getTranslationUnitDecl()->decls())
+      if (const auto *ND = dyn_cast<NamedDecl>(D))
+        if (!ND->getName().empty())
+          UsedNames.insert(ND->getName());
     for (Decl *D : Context.getTranslationUnitDecl()->decls())
       if (const auto *FD = dyn_cast<FunctionDecl>(D))
         if (FD->doesThisDeclarationHaveABody())
-          if (const FunctionDecl *ContractDecl = FD->getContractDecl())
-            emitContractHarness(FD, ContractDecl, *this, llvm::outs());
+          if (const FunctionDecl *ContractDecl = FD->getContractDecl()) {
+            std::string Base = "__contract_harness_" + FD->getNameAsString();
+            std::string Name = Base;
+            for (unsigned Suffix = 1; UsedNames.contains(Name); ++Suffix)
+              Name = Base + "_" + std::to_string(Suffix);
+            UsedNames.insert(Name);
+            emitContractHarness(FD, ContractDecl, *this, Name, llvm::outs());
+          }
+  }
 }
 
 void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
@@ -1231,6 +1302,11 @@ AssignsTarget Sema::ActOnContractAssignsTarget(Expr *Target, Expr *Lower,
             << B->getSourceRange();
         return Failed;
       }
+    }
+    if (Target->HasSideEffects(Context)) {
+      Diag(Target->getExprLoc(), diag::err_contract_predicate_not_pure)
+          << Target->getSourceRange();
+      return Failed;
     }
     return AssignsTarget{Target, Lower, Upper};
   }

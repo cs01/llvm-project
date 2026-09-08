@@ -79,3 +79,7 @@ void bad_bound(int *buf, double d) assigns (buf[0 : d]); // expected-error {{'as
 // And they cannot move the state they describe.
 int tick(void);
 void impure_bound(int *buf) assigns (buf[0 : tick()]); // expected-error {{contract predicate must be free of side effects}}
+
+int *next(void);
+void impure_base(unsigned n)
+  assigns (next()[0 : n]); // expected-error {{contract predicate must be free of side effects}}

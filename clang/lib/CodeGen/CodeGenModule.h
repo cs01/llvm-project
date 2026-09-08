@@ -1443,6 +1443,7 @@ public:
   /// fault handler. A weak trapping definition is emitted with it, so nothing
   /// need be linked in and any strong definition in the program wins.
   llvm::FunctionCallee getContractViolationFn();
+  void emitContractViolationFallback();
 
   llvm::Function *getLLVMLifetimeStartFn();
   llvm::Function *getLLVMLifetimeEndFn();

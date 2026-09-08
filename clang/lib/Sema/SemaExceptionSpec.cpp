@@ -1304,6 +1304,8 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
   case Expr::VAArgExprClass:
   case Expr::CXXParenListInitExprClass:
   case Expr::CXXExpansionSelectExprClass:
+  case Expr::ContractOldExprClass:
+  case Expr::ContractForallExprClass:
     return canSubStmtsThrow(*this, S);
 
   case Expr::CompoundLiteralExprClass:
