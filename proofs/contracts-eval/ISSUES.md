@@ -154,6 +154,70 @@ missing clause. We should warn at lowering time: a function contract that will
 be enforced, carrying no `assigns` and whose body writes through a parameter,
 is almost always incomplete rather than intentionally empty.
 
+## 8. A function that mutates each node of a linked list has no expressible frame
+
+`storeRawNames` walks `parser->m_tagStack` and rewrites four fields of every
+`TAG` it visits. The natural frame names the loop variable:
+
+```c
+assigns(tag, parser->m_tagStack)
+```
+
+```
+error: use of undeclared identifier 'tag'
+```
+
+**The rejection is correct** -- a function's frame can only name what is in
+scope at the declarator, and `tag` is a local. But the set the function actually
+writes is *one field-group per node of an unbounded list*, and there is no way
+to say that with the clause we have. `assigns(parser->m_tagStack)` covers the
+head pointer, not the nodes.
+
+This is an expressiveness gap, not a bug, and it is worth knowing early because
+list-walking mutators are ordinary C. CBMC has `__CPROVER_object_upto` for
+contiguous regions; a linked structure needs something closer to a separation
+logic or an explicitly quantified frame. Until then, functions of this shape can
+be given `pre` clauses and loop contracts but cannot be `--enforce-contract`ed
+at all, because issue 7 means the empty frame rejects every write.
+
+## 9. Reaching for `__CPROVER_*` in a clause gives a diagnostic about side effects
+
+Writing what a CBMC user would write:
+
+```c
+loop_invariant (tag == NULL || __CPROVER_r_ok(tag, sizeof(TAG)))
+```
+
+```
+error: call to undeclared function '__CPROVER_r_ok'
+error: contract predicate must be free of side effects
+```
+
+The second message is the one that will be read, and it is misleading: the
+predicate has no side effects, the identifier is simply not a contract
+intrinsic. The right spelling is `readable(tag, sizeof(TAG))`, which works.
+
+**What this means for us.** Anyone arriving from CBMC will type `__CPROVER_*`
+first. An unknown call in a contract predicate should say so, and should suggest
+the intrinsic when one matches: `writable`, `readable`, `same_object`,
+`pointer_offset`, `old`, `result`. Note also that `pointer_offset` is the only
+one of those that appears by name in `SemaContracts.cpp`, which is worth a check
+of its own.
+
+## 6b. The recursion in issue 6 blocks *every* instrumentation pass, not just enforcement
+
+Re-tested with only `--apply-loop-contracts`, no `--enforce-contract`:
+
+```
+recursion is ignored on call to 'callUnknownEncodingConvert'
+Recursive call to 'callUnknownEncodingConvert' during inlining
+Numeric exception : 0
+```
+
+So on expat the entire `goto-instrument` stage is unavailable, and loop
+contracts cannot be applied either. The earlier write-up attributed this to
+`--enforce-contract` specifically; that was too narrow.
+
 ## Where this leaves the pipeline
 
 The two halves have very different maturity, and the split is clean:
