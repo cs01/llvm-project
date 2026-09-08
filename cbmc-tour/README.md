@@ -794,10 +794,14 @@ cbmc-tour/
 │   ├── 07_contract.c                requires/ensures, enforce and replace
 │   ├── 07b_contract_violated.c      body that breaks its own ensures
 │   └── 07c_unbounded_loop.c         contract replacement beats the bound
-└── api/
-    ├── drive_json.py                driving cbmc via --json-ui (runnable)
-    ├── example.cpp                  libcprover-cpp embedding (needs a source build)
-    └── CMakeLists.txt               how to link example.cpp against CBMC
+├── api/
+│   ├── drive_json.py                driving cbmc via --json-ui (runnable)
+│   ├── example.cpp                  libcprover-cpp embedding (needs a source build)
+│   └── CMakeLists.txt               how to link example.cpp against CBMC
+└── rust/
+    ├── demo.rs                      the midpoint proof, in Rust, for Kani
+    └── README.md                    Rust -> MIR -> GOTO -> CBMC, with the
+                                     actual GOTO program Kani generates
 ```
 
 ## 14. Where this came from, and who else speaks GOTO
@@ -832,6 +836,38 @@ AWS) also wrote JBMC for Java and EBMC for SystemVerilog on the same core.
 Kroening and Schrammel received the Rance Cleaveland Test-of-Time Tool Award at
 ETAPS 2025 for CBMC.
 
+### CBMC and GOTO: which came first
+
+GOTO did not exist before CBMC and get adopted by it. It is CBMC's *own*
+internal IR, which later got promoted into a shared, on-disk format.
+
+The evidence for that reading:
+
+- `cbmc` does goto conversion itself. `cbmc file.c` needs no `goto-cc` — the
+  binary contains the front end and the converter, and `goto-cc` is the same
+  pipeline stopped one stage early and written to disk. `cbmc file.c` and
+  `goto-cc -o f.goto file.c && cbmc f.goto` give identical results (§9).
+- The serialised form exists for *build-system integration*, not for language
+  independence: `goto-cc` ships as `goto-gcc`, `goto-cl`, `goto-armcc`,
+  `goto-cw` — drop-in replacements for gcc, MSVC, ARM RVDS and Freescale
+  CodeWarrior, so you can run `make CC=goto-cc` on a real project.
+- By TACAS 2005, SATABS (SAT-based predicate abstraction, Clarke, Kroening,
+  Sharygina & Yorav) was consuming the same goto binaries — that is the point
+  where the IR stopped being one tool's implementation detail.
+- CBMC's own architecture docs frame it as a framework-level decision, not an
+  inherited format: *"the CPROVER framework takes a different route, opting to
+  convert to intermediate representation known as GOTO programs instead"*
+  (of SSA over a CFG).
+
+One caveat on dates: the public git history begins with a 2011 SVN import in
+which `src/goto-programs`, `src/goto-cc`, `src/goto-symex` and `src/cbmc` are
+all already present, so it cannot date the split itself. The 2003–2005 papers
+are the primary record.
+
+Worth noting that language independence was latent from day one anyway: the
+first CBMC paper (DAC 2003) was about checking a **C program against a Verilog
+circuit**, which already required reasoning about two languages in one formula.
+
 ### Success stories
 
 - **AWS `aws-c-common`.** Memory-safety unit proofs for the core C99 library
@@ -865,7 +901,7 @@ front ends can feed it (it compiles a JSON symbol table into a goto binary).
 | **CBMC** | C, C++, PLC Statement List, JSON symtab | The reference implementation. `src/` has `ansi-c`, `cpp`, `statement-list`, `json-symtab-language`. |
 | **JBMC** | Java bytecode | Same core, own repo. `janalyzer`, `jdiff` mirror the C tools. |
 | **EBMC** | SystemVerilog / Verilog | Hardware side of the family. |
-| **Kani** | Rust (via MIR) | AWS. Emits GOTO directly now; it used to go through `symtab2gb`'s JSON, which turned out to be the pipeline bottleneck. |
+| **Kani** | Rust (via MIR) | AWS. Emits GOTO directly now; it used to go through `symtab2gb`'s JSON, which turned out to be the pipeline bottleneck. **Worked example with real GOTO output: [`rust/README.md`](rust/README.md).** |
 | **ESBMC** | C, C++, CUDA, Solidity, Python | Forked from CBMC's front end, then diverged: SMT-based encoding, k-induction, incremental SMT. All its front ends still produce GOTO programs. |
 | **2LS** | C | CPROVER framework, but abstract interpretation + k-induction over the same GOTO IR rather than plain BMC. |
 | **goto-transcoder** | GOTO → GOTO | Converts CBMC-format goto binaries into ESBMC's format, so a Kani-produced GOTO program can be checked by a different engine entirely. |
