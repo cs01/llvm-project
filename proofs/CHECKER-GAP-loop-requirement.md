@@ -13,7 +13,7 @@ all of them.
 |---|---|---|---|
 | zstd `BIT_initDStream` | 45 | 0 | 4 — **verified, 2 s** |
 | zstd `ZSTD_wildcopy` | 30 | 3 | 5 + 9 — **verified, 475 s** |
-| zlib `inflate_table` | 120 | **11** | 7 + ~33 — **cannot run** |
+| zlib `inflate_table` | 120 | **11** | 7 + ~33 — **refused** by `--enforce-contract`; **verified in 38 s** from the generated entry point |
 
 `ZSTD_wildcopy`'s three include a `do { } while (0)` **macro**, which is not a
 loop in the source, and one in a branch the contract's own
@@ -26,11 +26,11 @@ those invariants describe canonical Huffman code construction — real
 mathematics, not boilerplate. No maintainer will do that to verify one
 precondition.
 
-## Why it is damning
+## Why it was damning
 
-A hand-written CBMC harness verifies `inflate_table` **in 32 seconds** and finds
-a real defect in it. The contract route cannot run. The thing we built is
-strictly worse than the thing it replaces, on the function where it matters
+A hand-written CBMC harness verified `inflate_table` **in 32 seconds** and found
+a real defect in it. The contract route could not run at all. The thing we built
+was strictly worse than the thing it replaced, on the function where it mattered
 most.
 
 ## The fix, and it is ours to make
@@ -67,3 +67,40 @@ opt-in for the functions where it is worth the invariants.
 
 That is one emitter mode, and it is the difference between a grammar that
 verifies two functions and one that verifies a codebase.
+
+## Resolved
+
+`-fcontract-emit-harness` shipped. `inflate_table` now verifies **from its
+contract alone, in 38 seconds**, and reproduces the defect the hand-written
+harness found:
+
+```
+line 267  pointer outside object bounds in next[(huff >> drop) + fill]   FAILURE  <- a write
+line 267  pointer arithmetic, same expression                            FAILURE
+line 332  pointer arithmetic: *table + used                              FAILURE
+** 3 of 353 failed
+```
+
+**The control was run, and it is what makes the red mean something.** Widening
+the one clause under test flips it:
+
+| `fresh(*table, N)` | result |
+|---|---|
+| `(1u << 3) * sizeof(code)` — what the doc-comment promises | 3 of 353 failed, 51 s |
+| `16 * sizeof(code)` | **0 of 353 failed**, 1340 s |
+
+The failing run is 26x cheaper than the clean one, which is the usual asymmetry:
+a counterexample needs one path, a proof needs all of them.
+
+Two things this did **not** fix, stated plainly because the first was
+mis-recorded once already:
+
+1. **Loop contracts are not the missing feature — writing them is the cost.**
+   `loop_invariant` and `decreases` work, and `ZSTD_wildcopy` is verified
+   *through* `--enforce-contract` with its frame checked (5 function clauses +
+   9 loop clauses, 475 s). `inflate_table`'s frame still needs eleven triples
+   that nobody has written. That is labour, not a capability gap, and calling it
+   a wall was wrong.
+2. **The grammar has no quantifier.** `lens[]` wants "every element is at most
+   MAXBITS" and there is no way to say it; the proof above pins `codes == 5` and
+   spells out five indices. That is a workaround and it does not scale.

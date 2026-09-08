@@ -445,6 +445,10 @@ whether verifying a codec is a quarter or a research program.
 - **[docs/contracts-reference.md](docs/contracts-reference.md)** — full grammar,
   semantics, how the parser, AST, CFG pass and CBMC emitter actually work, what
   each level catches and misses, and how CBMC fits.
+- **[docs/contracts-vs-cpp26.md](docs/contracts-vs-cpp26.md)** — how this
+  compares to C++26 contracts (P2900): what the four extra clauses buy, and why
+  the assumption question has a different answer when a predicate is proved
+  rather than checked.
 - **[contracts-design.md](contracts-design.md)** — the design argument: what was
   rejected and why, including why this is a compiler feature and not a header of
   five macros, and the SMT-in-clang route that was cut.
