@@ -122,13 +122,24 @@ def scan(path, window=20):
             # Reads on the failure path are correct by realloc's contract: when
             # it returns NULL the old block is untouched and still has to be
             # freed. redis rdb.c does exactly this.
-            failguard = re.compile(r'\bif\s*\(\s*(!\s*' + re.escape(new) +
-                                   r'|' + re.escape(new) + r'\s*==\s*(NULL|0)\b)')
+            # Allocation-failure guards are not always spelled `!p`. oniguruma
+            # writes IS_NULL(p), and a wrapper macro of any name that tests for
+            # null is common. Missing one turns the failure path -- where the
+            # old block is still live and the read is correct -- into an
+            # apparent finding.
+            failguard = re.compile(r'\bif\s*\([^)]*?(?:!\s*' + re.escape(new) +
+                                   r'\b|' + re.escape(new) + r'\s*==\s*(?:NULL|0)\b'
+                                   r'|\w*(?:NULL|null|Null)\w*\s*\(\s*' + re.escape(new) + r'\s*\))')
             for k in range(j+1, repair):
                 t = lines[k]
                 if t.strip().startswith(('*','//','/*')): continue
                 if 'free' in t: continue
                 if on_failure_path(lines, failguard, j + 1, k):
+                    continue
+                # A second allocation of the same pointer is an alternative,
+                # not a read of a freed value: quickjs picks js_realloc(ctx,buf)
+                # or realloc(buf) in opposite arms of an if. Only one runs.
+                if CALL.search(t) and re.search(r'(?<![\w>])' + re.escape(stem) + r'(?![\w])', t):
                     continue
                 mu = use.search(t)
                 if not mu: continue

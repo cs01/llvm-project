@@ -57,6 +57,8 @@ re-triaged if a rule ever regresses:
 | `redis src/rdb.c:2572` | inside `if (nv == NULL)` — the failure path, where the old block is still live and must be freed. Correct code |
 | `jq src/jv.c:455` | reads `values.values_num`, the integer count |
 | `sqlite src/printf.c:1233` | `p->nAlloc` is the size argument, not the pointer |
+| `jq vendor/oniguruma/src/regexec.c:1770` | inside `if (IS_NULL(new_alloc_base))` — the failure path. The guard is a *macro*, which the detector did not recognise until it was taught to; see the blind-spot table |
+| `quickjs quickjs-libc.c:470` | `p = realloc(buf,...)` is the opposite arm of `if (ctx) p = js_realloc(ctx,buf,...)`. Two alternative allocations, only one runs; not a read of a freed value |
 | `cpython Modules/_elementtree.c:515` | the `memcpy` is in the `else` branch, reached only when no `realloc` happened. The detector's window crosses the branch; it does not model control flow |
 
 The lesson generalises past this detector: **a filter that silences a finding is
@@ -74,6 +76,7 @@ its output, and both had already put wrong entries in this file:
 | Blind spot | How it showed up | Fixed by |
 |---|---|---|
 | Trees with no C in them | `~/git/postgres` is a TypeScript client. It was swept and reported clean; there was nothing to sweep | the `[coverage]` line, which names files scanned and calls seen |
+| Allocation-failure guards written as macros | oniguruma writes `if (IS_NULL(p))`, not `if (!p)`. The failure path — where the old block is still live and the read is *correct* — was being reported as a finding | matching any null-testing call `\w*NULL\w*(p)` as a guard |
 | Reallocators reached through a struct field | cJSON calls `p->hooks.reallocate(...)`; expat's own `REALLOC` expands to `parser->m_mem.realloc_fcn(...)`. The regex required the name to start the callee, so it counted **zero calls in files that have them** | an optional member prefix in the call pattern |
 
 Every run now ends with, on stderr:
@@ -86,6 +89,16 @@ and says so loudly when `N` or `M` is zero. **A zero-hit sweep means nothing
 until that line says the detector examined something.** This is the gate-audit
 rule applied to our own tooling: a check that silently examines nothing reports
 success forever.
+
+## The weak tail of the realloc family
+
+Three sites read a freed pointer only to compare it against a null constant it
+cannot equal: `sqlite src/util.c:2215` (`if( pIn==0 ) pOut[1] = 2;`),
+`sqlite ext/fts5/fts5_expr.c:1780`, and their amalgamation copies. When the old
+pointer was null the call was a malloc and nothing was freed; when it was not,
+this reads an indeterminate value to answer a question whose answer is already
+known. Same class as findings 4, 5 and 8, no way to get a wrong result out of
+it, not worth a patch on its own. Recorded so they are not re-triaged as new.
 
 ## Not looked at yet
 
