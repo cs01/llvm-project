@@ -1,6 +1,6 @@
 # Three more: nghttp2, libarchive, curl's example
 
-Found by [`realloc-aliasing.py`](../../detectors/realloc-aliasing.py) over ten
+Found by a text-level scanner (since removed, see ../../PATTERNS.md) over ten
 freshly cloned trees. All three are the same shape as
 [expat `storeRawNames`](../expat/FINDING-storerawnames-freed-pointer.md), all
 three are past the allocation-failure guard, none is reported upstream.

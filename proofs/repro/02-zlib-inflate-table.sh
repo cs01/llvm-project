@@ -1,29 +1,43 @@
 #!/bin/sh
-# FINDING: inflate_table's doc-comment says callers need 2^bits entries. Size an
-# array that way and the body writes past it.
+# FINDING: inflate_table's doc-comment says callers need 2^bits entries. State
+# that as a contract, and the body writes past it.
+#
+# The contract is the whole reproduction. There is no harness here and no
+# __CPROVER_assume: the clauses below are read off the doc-comment, clang lowers
+# them and generates the entry point, CBMC discharges it.
+#
 # Full write-up: ../generalize/zlib/FINDING-inflate-table-doc.md
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 ZLIB=${ZLIB:-$HOME/zlib}
 [ -d "$ZLIB" ] || { echo "SKIP 02-zlib-inflate-table: no zlib tree at $ZLIB"; exit 0; }
 
-W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 echo "== zlib inflate_table: 2^bits is not the contract =="
+echo "   contract under test, on inflate_table in $ZLIB/inftrees.c:"
+sed -n '/^int ZLIB_INTERNAL inflate_table/,/^{$/p' "$ZLIB/inftrees.c" |
+  grep -E "^\s+(pre|post|assigns) " | sed 's/^/     /'
+[ -n "$(grep -c 'pre (fresh(\*table' "$ZLIB/inftrees.c" 2>/dev/null)" ] || {
+  echo "   inftrees.c is not annotated; apply ../generalize/zlib/annotate-inflate-table.patch"
+  exit 0; }
 
-build() { # $1 = table size expression
-  sed "s/static code table\[1u << ROOT_BITS\];/static code table[$1];/" \
-      "$HERE/../generalize/zlib/harness_inflate_table.c" > "$W/t.c"
-  cc -E -DNDEBUG -I "$ZLIB" "$W/t.c" -o "$W/t.i" 2>/dev/null
-  { echo 'void __CPROVER_assume(int);'; cat "$W/t.i"; } > "$W/t2.i"
-  goto-cc "$W/t2.i" -o "$W/t.goto" 2>/dev/null
-}
-
-for N in "1u << ROOT_BITS" 16 32; do
-  build "$N"
-  R=$(timeout 600 cbmc "$W/t.goto" --function harness --bounds-check \
-        --pointer-check --pointer-overflow-check --unwind 20 \
-        --no-unwinding-assertions 2>&1)
-  printf '  table[%-14s] %s\n' "$N" "$(printf '%s' "$R" | grep -oE '\*\* [0-9]+ of [0-9]+ failed')"
-  printf '%s' "$R" | grep -E "dereference failure.*next\[" | sed 's/^/      /'
+# The control matters more than the red. A finding that does not go away when
+# the clause under test is widened is not a finding about that clause.
+W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+cp "$ZLIB/inftrees.c" "$W/orig.c"
+for N in "1u << 3" "16u"; do
+  cp "$W/orig.c" "$ZLIB/inftrees.c"
+  perl -0pi -e "s/pre \(fresh\(\*table, \(.*?\) \* sizeof\(code\)\)\)/pre (fresh(*table, ($N) * sizeof(code)))/s" \
+      "$ZLIB/inftrees.c"
+  printf '   table entries = %-8s ' "$N"
+  UNWIND=20 DEADLINE=${DEADLINE:-1800} "$HERE/../verify-contract.sh" \
+      inflate_table "$ZLIB/inftrees.c" -I "$ZLIB" 2>&1 |
+    grep -E "^\*\* [0-9]+ of|solved by" | tr '\n' ' '
+  echo
 done
-echo "  (2^bits sizes the ROOT table only; a code longer than bits needs a sub-table past it)"
+cp "$W/orig.c" "$ZLIB/inftrees.c"
+
+cat <<'NOTE'
+   2^bits sizes the ROOT table only; a code longer than bits needs a sub-table
+   past it. Widening the clause turns the proof green, which is what makes the
+   red a statement about that clause and not about the rest of the contract.
+NOTE

@@ -2,19 +2,26 @@
 
 A finding is worth one bug. The **shape** behind it is worth every instance of
 that shape in every codebase, which is the difference between auditing and
-tooling. This file is the catalogue: each shape, why the usual tools miss it, a
-detector where one is mechanizable, and what it has found so far.
+tooling. This file is the catalogue: each shape, why the usual tools miss it, and
+what it has found so far.
 
 The loop that produced this file: `expat storeRawNames` was found by reading,
-turned into [`detectors/realloc-aliasing.py`](detectors/realloc-aliasing.py),
-and the detector immediately found two more instances in sqlite. **Every new
-finding should be pushed through that loop before it is filed.** A finding you
-cannot generalise is a bug report; a finding you can is a tool.
+turned into a text-level scanner, and the scanner immediately found two more
+instances in sqlite.
 
-Run every detector over a new tree with:
+**That scanner has been removed, deliberately.** It found real defects and it
+sidestepped the entire point: it matched source text and never once used a
+contract, so nothing it reported was proved and nothing it reported exercised
+the checker this project exists to build. The shapes below are kept because
+they tell you *what to write a contract about*. Turning a shape into a
+mechanical search is not the goal; turning it into a `pre` clause that a solver
+discharges is.
+
+The route for a new tree is [`verify-contract.sh`](verify-contract.sh):
+annotate the function, then
 
 ```sh
-./hunt.sh ~/redis
+./verify-contract.sh <function> <tu.c> -I <dir>
 ```
 
 ---
@@ -61,7 +68,7 @@ numerically correct on every real target, which is why it survives.
 `realloc` moves the block is the allocator's choice, so no input reliably
 reaches the bad case.
 
-*Detector:* [`detectors/realloc-aliasing.py`](detectors/realloc-aliasing.py).
+*Was mechanized as a text-level scanner, now removed; see the note at the top.*
 Text-level, but no longer noisy: **4 hits across six trees, 4 real.** It started
 at 1-in-6 and every false positive turned out to be a distinct, mechanizable
 confusion rather than an inherent limit of grepping:

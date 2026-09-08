@@ -1,0 +1,35 @@
+diff --git a/inftrees.c b/inftrees.c
+index 99d8d77..94f76ac 100644
+--- a/inftrees.c
++++ b/inftrees.c
+@@ -45,7 +45,29 @@ const char inflate_copyright[] =
+  */
+ int ZLIB_INTERNAL inflate_table(codetype type, unsigned short FAR *lens,
+                                 unsigned codes, code FAR * FAR *table,
+-                                unsigned FAR *bits, unsigned short FAR *work) {
++                                unsigned FAR *bits, unsigned short FAR *work)
++#ifdef CONTRACTS
++    /* What the doc-comment above entitles a caller to provide, written as a
++       contract rather than as a harness. `codes` is bounded and the root fixed
++       at 3 bits to keep the symbolic state tractable; the loops run to MAXBITS
++       whatever `codes` is, so the shape of the proof does not depend on it. */
++    pre (type == LENS)
++    pre (codes >= 1 && codes <= 5)
++    pre (fresh(lens, codes * sizeof(unsigned short)))
++    /* MAXBITS is 15; a longer code is a caller error, and zlib's own callers
++       cannot produce one. This is the clause that needed a quantifier -- it was
++       five hand-written indices before 'forall' landed. */
++    pre (forall (i : 0, codes) lens[i] <= 15)
++    pre (fresh(work, codes * sizeof(unsigned short)))
++    pre (fresh(bits, sizeof(unsigned)))
++    pre (*bits == 3)
++    pre (fresh(table, sizeof(code FAR *)))
++    /* The line under test. The doc-comment says indices 0..2^bits-1, so this
++       is exactly what a caller reading it would allocate. Widen it and the
++       proof goes green -- that is the control. */
++    pre (fresh(*table, (1u << 3) * sizeof(code)))
++#endif
++{
+     unsigned len;               /* a code's length in bits */
+     unsigned sym;               /* index of code symbols */
+     unsigned min, max;          /* minimum and maximum code lengths */

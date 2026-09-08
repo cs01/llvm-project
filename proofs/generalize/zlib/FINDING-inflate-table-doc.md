@@ -19,28 +19,46 @@ allocates immediately after the root and indexes through the same pointer.
 
 ## The proof
 
-[`harness_inflate_table.c`](harness_inflate_table.c) gives `table` exactly the
-`2^bits` entries the comment promises, with `lens` fully symbolic and bounded
-only by `MAXBITS`, which is all a caller decoding an untrusted stream can
-assume. With `codes <= 5` and `bits = 3`:
+The reproduction is the contract itself —
+[`annotate-inflate-table.patch`](annotate-inflate-table.patch), zero `__CPROVER`
+tokens — which gives `table` exactly the `2^bits` entries the comment promises,
+with `lens` symbolic and bounded only by `MAXBITS`, all a caller decoding an
+untrusted stream can assume:
 
-| `table` size | result |
-|---|---|
-| 8 (`2^bits`, what the comment promises) | **3 of 330 failed** |
-| 16 | 0 of 330 |
-| 32 | 0 of 330 |
-| 64 | 0 of 330 |
-
-and the failures are not merely pointer formation:
-
-```
-line 243  dereference failure: pointer outside object bounds
-          in next[(huff >> drop) + fill]
-line 308  pointer arithmetic:  pointer outside object bounds in *table + used
+```c
+pre (codes >= 1 && codes <= 5)
+pre (fresh(lens, codes * sizeof(unsigned short)))
+pre (forall (i : 0, codes) lens[i] <= 15)
+pre (*bits == 3)
+pre (fresh(*table, (1u << 3) * sizeof(code)))    /* the line under test */
 ```
 
-Line 243 is a **write**. A caller who sized their array from the comment would
-be corrupting memory past it.
+Run it with [`../../repro/02-zlib-inflate-table.sh`](../../repro/02-zlib-inflate-table.sh),
+which also runs the control. With `codes` pinned at 5 and `bits = 3`:
+
+| `table` size | result | solver time |
+|---|---|---|
+| 8 (`2^bits`, what the comment promises) | **3 of 353 failed** | 51 s |
+| 16 | 0 of 353 | 1340 s |
+| 64 | 0 of 353 | 832 s |
+
+The counterexample is 26x cheaper than either proof, which is the usual
+asymmetry: a counterexample needs one path, a proof needs all of them. The
+64-entry proof is *faster* than the 16-entry one — slack removes boundary cases
+rather than adding state.
+
+The failures are not merely pointer formation:
+
+```
+inftrees.c:267  dereference failure: pointer outside object bounds
+                in next[(huff >> drop) + fill]
+inftrees.c:267  pointer arithmetic:  same expression
+inftrees.c:332  pointer arithmetic:  pointer outside object bounds in *table + used
+```
+
+Line 267 is a **write**. A caller who sized their array from the comment would
+be corrupting memory past it — and because the pointer is formed and stored
+rather than read back through a guard, ASan and a fuzzer both miss it.
 
 ## Why zlib is fine
 
@@ -58,13 +76,11 @@ and it is recorded as bucket 2.
 ## What the contract should say
 
 ```c
-int inflate_table(codetype type, unsigned short *lens, unsigned codes,
-                  code **table, unsigned *bits, unsigned short *work)
-  pre (readable(lens, codes * sizeof(unsigned short)))
-  pre (writable(work, codes * sizeof(unsigned short)))
   pre (writable(*table, ENOUGH * sizeof(code)))   /* not 2^bits */
-  ...
 ```
 
-The third line is the finding. It is one line, it is checkable, and it is the
-line the comment does not say.
+That line is the finding. It is one line, it is checkable, and it is the line
+the comment does not say. Note `writable` rather than `fresh`: a caller is
+entitled to pass a bigger buffer, and `writable` is a lower bound where `fresh`
+fixes the size exactly. The proof above uses `fresh` precisely because pinning
+the size is what makes the defect visible.

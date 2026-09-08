@@ -5,9 +5,9 @@ been looked at. **Read this before starting a new codebase** — the negatives a
 here precisely so nobody spends a day re-deriving them.
 
 Reproduce any of it with [`repro/`](repro/): `cd repro && ./run-all.sh`.
-The *shapes* behind these findings, and the detectors built from them, are in
-[`PATTERNS.md`](PATTERNS.md) — start there if you are opening a new codebase:
-`./hunt.sh ~/your-tree`.
+The *shapes* behind these findings are in [`PATTERNS.md`](PATTERNS.md) — start
+there if you are opening a new codebase. It tells you what to write a contract
+about; [`verify-contract.sh`](verify-contract.sh) then discharges it.
 
 ## Findings
 
@@ -16,8 +16,8 @@ The *shapes* behind these findings, and the detectors built from them, are in
 | 1 | zstd `ZSTD_overlapCopy8` | forms a pointer up to 8 bytes **before** the output buffer | real, reachable UB | [finding](zstd/findings/FINDING-overlapcopy8-oob-pointer.md) |
 | 2 | zstd `BIT_initDStream` | forms `start + 8` past the caller's object; reachable from public `ZSTD_decompressBlock` | real, reachable UB | [`01`](repro/01-zstd-initdstream.sh) |
 | 3 | zlib `inflate_table` | doc says size the array `2^bits`; do that and the body **writes past it** | doc defect, proven | [`02`](repro/02-zlib-inflate-table.sh) |
-| 4 | expat `storeRawNames` | compares and subtracts a pointer `realloc` already freed | real UB (indeterminate value) | [`03`](repro/03-realloc-aliasing-scan.sh) |
-| 5 | sqlite `fts3_unicode.c` +1 more | same shape as 4 | real UB (indeterminate value) | [`03`](repro/03-realloc-aliasing-scan.sh) |
+| 4 | expat `storeRawNames` | compares and subtracts a pointer `realloc` already freed | real UB (indeterminate value) | [finding](generalize/expat/FINDING-storerawnames-freed-pointer.md) |
+| 5 | sqlite `fts3_unicode.c` +1 more | same shape as 4 | real UB (indeterminate value) | [finding](generalize/expat/FINDING-storerawnames-freed-pointer.md) |
 | 8 | CPython `PyImport_ExtendInittab` | compares a pointer `realloc` freed; the guarded branch **dereferences** the stale one | real UB, worst path of the family | [finding](generalize/cpython/FINDING-import-inittab-freed-compare.md) |
 | 9 | CPython `Modules/expat/xmlparse.c` | vendored copy of finding 4: the expat defect ships in every CPython | real UB (indeterminate value) | [finding](generalize/expat/FINDING-storerawnames-freed-pointer.md) |
 | 10 | nghttp2 `nghttp2_buf_reserve` | re-bases 3 interior pointers by subtracting the base `realloc` just freed; 6 indeterminate reads in 3 lines | real UB (indeterminate value) | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |

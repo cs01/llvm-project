@@ -107,7 +107,7 @@ zlib's own callers pass `state->codes`, an array of `ENOUGH` entries — 852 for
 If the body can write past `2^bits`, then that sentence is not the contract the
 code needs, and someone implementing against the comment would be wrong.
 
-[`zlib/harness_inflate_table.c`](zlib/harness_inflate_table.c) gives `table`
+The contract in [`zlib/annotate-inflate-table.patch`](zlib/annotate-inflate-table.patch) gives `table`
 exactly the `2^bits` entries the comment promises and nothing more, with `lens`
 fully symbolic.
 
