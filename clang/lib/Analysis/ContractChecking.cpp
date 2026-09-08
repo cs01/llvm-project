@@ -23,13 +23,13 @@ namespace {
 
 /// What the pass knows about one value.
 ///
-/// Deliberately tiny. The pass reports only violations it can demonstrate, so
-/// the lattice needs to represent "definitely this" and "no idea", and nothing
-/// in between earns its complexity yet.
+/// Deliberately tiny: exact scalars, simple integer intervals and unknown.
 struct AbstractValue {
-  enum Kind { Unknown, Int, Null, NonNull };
+  enum Kind { Unknown, Int, Range, Null, NonNull };
   Kind K = Unknown;
   llvm::APSInt IntVal;
+  std::optional<llvm::APSInt> Lower;
+  std::optional<llvm::APSInt> Upper;
 
   static AbstractValue unknown() { return AbstractValue(); }
   static AbstractValue makeInt(llvm::APSInt V) {
@@ -40,6 +40,14 @@ struct AbstractValue {
   }
   static AbstractValue makeBool(bool B) {
     return makeInt(llvm::APSInt::get(B ? 1 : 0));
+  }
+  static AbstractValue makeRange(std::optional<llvm::APSInt> Lower,
+                                 std::optional<llvm::APSInt> Upper) {
+    AbstractValue A;
+    A.K = Range;
+    A.Lower = std::move(Lower);
+    A.Upper = std::move(Upper);
+    return A;
   }
   static AbstractValue null() {
     AbstractValue A;
@@ -59,6 +67,15 @@ struct AbstractValue {
       return false;
     if (K == Int)
       return llvm::APSInt::isSameValue(IntVal, O.IntVal);
+    if (K == Range) {
+      if (Lower.has_value() != O.Lower.has_value() ||
+          Upper.has_value() != O.Upper.has_value())
+        return false;
+      if (Lower && !llvm::APSInt::isSameValue(*Lower, *O.Lower))
+        return false;
+      if (Upper && !llvm::APSInt::isSameValue(*Upper, *O.Upper))
+        return false;
+    }
     return true;
   }
 };
@@ -236,6 +253,29 @@ private:
       return AbstractValue::unknown();
     }
 
+    if (L.K == AbstractValue::Range && R.K == AbstractValue::Int)
+      return evalRangeComparison(L, R.IntVal, BO->getOpcode());
+    if (L.K == AbstractValue::Int && R.K == AbstractValue::Range) {
+      BinaryOperatorKind Op = BO->getOpcode();
+      switch (Op) {
+      case BO_LT:
+        Op = BO_GT;
+        break;
+      case BO_LE:
+        Op = BO_GE;
+        break;
+      case BO_GT:
+        Op = BO_LT;
+        break;
+      case BO_GE:
+        Op = BO_LE;
+        break;
+      default:
+        break;
+      }
+      return evalRangeComparison(R, L.IntVal, Op);
+    }
+
     if (L.K != AbstractValue::Int || R.K != AbstractValue::Int)
       return AbstractValue::unknown();
 
@@ -256,6 +296,64 @@ private:
     default:
       return AbstractValue::unknown();
     }
+  }
+
+  static AbstractValue evalRangeComparison(const AbstractValue &Range,
+                                           const llvm::APSInt &Value,
+                                           BinaryOperatorKind Op) {
+    auto LowerCmp = [&]() -> std::optional<int> {
+      if (!Range.Lower)
+        return std::nullopt;
+      return llvm::APSInt::compareValues(*Range.Lower, Value);
+    };
+    auto UpperCmp = [&]() -> std::optional<int> {
+      if (!Range.Upper)
+        return std::nullopt;
+      return llvm::APSInt::compareValues(*Range.Upper, Value);
+    };
+    std::optional<int> L = LowerCmp();
+    std::optional<int> U = UpperCmp();
+    switch (Op) {
+    case BO_LT:
+      if (U && *U < 0)
+        return AbstractValue::makeBool(true);
+      if (L && *L >= 0)
+        return AbstractValue::makeBool(false);
+      break;
+    case BO_LE:
+      if (U && *U <= 0)
+        return AbstractValue::makeBool(true);
+      if (L && *L > 0)
+        return AbstractValue::makeBool(false);
+      break;
+    case BO_GT:
+      if (L && *L > 0)
+        return AbstractValue::makeBool(true);
+      if (U && *U <= 0)
+        return AbstractValue::makeBool(false);
+      break;
+    case BO_GE:
+      if (L && *L >= 0)
+        return AbstractValue::makeBool(true);
+      if (U && *U < 0)
+        return AbstractValue::makeBool(false);
+      break;
+    case BO_EQ:
+      if (L && U && *L == 0 && *U == 0)
+        return AbstractValue::makeBool(true);
+      if ((L && *L > 0) || (U && *U < 0))
+        return AbstractValue::makeBool(false);
+      break;
+    case BO_NE:
+      if ((L && *L > 0) || (U && *U < 0))
+        return AbstractValue::makeBool(true);
+      if (L && U && *L == 0 && *U == 0)
+        return AbstractValue::makeBool(false);
+      break;
+    default:
+      break;
+    }
+    return AbstractValue::unknown();
   }
 
   static bool isKnownTrue(const AbstractValue &V) {
@@ -343,6 +441,104 @@ void ContractChecker::refine(State &S, const Expr *Cond, bool TrueBranch) {
       refine(S, BO->getRHS(), TrueBranch);
       return;
     }
+    if (BO->isComparisonOp()) {
+      const Expr *L = BO->getLHS()->IgnoreParenImpCasts();
+      const Expr *R = BO->getRHS()->IgnoreParenImpCasts();
+      const DeclRefExpr *IntDRE = dyn_cast<DeclRefExpr>(L);
+      const Expr *Constant = R;
+      BinaryOperatorKind Op = BO->getOpcode();
+      if (!IntDRE) {
+        IntDRE = dyn_cast<DeclRefExpr>(R);
+        Constant = L;
+        switch (Op) {
+        case BO_LT:
+          Op = BO_GT;
+          break;
+        case BO_LE:
+          Op = BO_GE;
+          break;
+        case BO_GT:
+          Op = BO_LT;
+          break;
+        case BO_GE:
+          Op = BO_LE;
+          break;
+        default:
+          break;
+        }
+      }
+      const auto *VD = IntDRE ? dyn_cast<VarDecl>(IntDRE->getDecl()) : nullptr;
+      AbstractValue Bound = Evaluator(Ctx, S, nullptr).eval(Constant);
+      if (tracked(VD) && VD->getType()->isIntegerType() &&
+          Bound.K == AbstractValue::Int) {
+        if (!TrueBranch) {
+          switch (Op) {
+          case BO_LT:
+            Op = BO_GE;
+            break;
+          case BO_LE:
+            Op = BO_GT;
+            break;
+          case BO_GT:
+            Op = BO_LE;
+            break;
+          case BO_GE:
+            Op = BO_LT;
+            break;
+          case BO_EQ:
+            Op = BO_NE;
+            break;
+          case BO_NE:
+            Op = BO_EQ;
+            break;
+          default:
+            break;
+          }
+        }
+        if (Op != BO_NE) {
+          std::optional<llvm::APSInt> Lower;
+          std::optional<llvm::APSInt> Upper;
+          llvm::APSInt V = Bound.IntVal;
+          if (Op == BO_EQ) {
+            Lower = V;
+            Upper = V;
+          } else if (Op == BO_GE) {
+            Lower = V;
+          } else if (Op == BO_LE) {
+            Upper = V;
+          } else if (Op == BO_GT &&
+                     !llvm::APSInt::isSameValue(
+                         V, llvm::APSInt::getMaxValue(V.getBitWidth(),
+                                                      V.isUnsigned()))) {
+            ++V;
+            Lower = V;
+          } else if (Op == BO_LT &&
+                     !llvm::APSInt::isSameValue(
+                         V, llvm::APSInt::getMinValue(V.getBitWidth(),
+                                                      V.isUnsigned()))) {
+            --V;
+            Upper = V;
+          }
+          AbstractValue Current = S.lookup(VD);
+          if (Current.K == AbstractValue::Int) {
+            Lower = Current.IntVal;
+            Upper = Current.IntVal;
+          } else if (Current.K == AbstractValue::Range) {
+            if (!Lower || (Current.Lower && llvm::APSInt::compareValues(
+                                                *Current.Lower, *Lower) > 0))
+              Lower = Current.Lower;
+            if (!Upper || (Current.Upper && llvm::APSInt::compareValues(
+                                                *Current.Upper, *Upper) < 0))
+              Upper = Current.Upper;
+          }
+          if (Lower || Upper)
+            S[VD] =
+                AbstractValue::makeRange(std::move(Lower), std::move(Upper));
+          return;
+        }
+      }
+    }
+
     if (BO->getOpcode() != BO_EQ && BO->getOpcode() != BO_NE)
       return;
 
@@ -456,6 +652,21 @@ AbstractValue ContractChecker::valueFromPost(const Expr *E) const {
   return AbstractValue::unknown();
 }
 
+static bool rangeDoesNotGuarantee(const Expr *E, const Evaluator &Eval) {
+  const auto *BO = dyn_cast<BinaryOperator>(E->IgnoreParenImpCasts());
+  if (!BO)
+    return false;
+  if (BO->getOpcode() == BO_LAnd)
+    return rangeDoesNotGuarantee(BO->getLHS(), Eval) ||
+           rangeDoesNotGuarantee(BO->getRHS(), Eval);
+  if (!BO->isComparisonOp() || Eval.eval(E).K != AbstractValue::Unknown)
+    return false;
+  AbstractValue L = Eval.eval(BO->getLHS());
+  AbstractValue R = Eval.eval(BO->getRHS());
+  return (L.K == AbstractValue::Range && R.K == AbstractValue::Int) ||
+         (R.K == AbstractValue::Range && L.K == AbstractValue::Int);
+}
+
 void ContractChecker::checkCall(const State &S, const CallExpr *Call) {
   // Nothing but reporting happens here, so the convergence sweeps can skip it.
   if (!Reporting)
@@ -482,8 +693,11 @@ void ContractChecker::checkCall(const State &S, const CallExpr *Call) {
   for (const ContractClause &Clause : *CS) {
     if (Clause.getKind() != ContractClause::CK_Pre || !Clause.getPredicate())
       continue;
-    if (PredEval.eval(Clause.getPredicate()).isKnownFalse())
+    AbstractValue Result = PredEval.eval(Clause.getPredicate());
+    if (Result.isKnownFalse())
       Reporter.reportPreconditionViolated(Call, Callee, Clause);
+    else if (rangeDoesNotGuarantee(Clause.getPredicate(), PredEval))
+      Reporter.reportPreconditionNotGuaranteed(Call, Callee, Clause);
   }
 }
 
@@ -514,10 +728,8 @@ void ContractChecker::run() {
   // predecessors leaves a loop header holding the pre-loop state, which is
   // strictly stronger than the truth, so a fact the body kills survives to the
   // exit edge and the pass invents reports for `int n = 0; for (...) n = i + 1;
-  // f(n);`. The lattice has height two -- a variable is a known value or it is
-  // not -- and the merge only ever discards facts, so the iteration is monotone
-  // and converges. The bound is a backstop against a lattice change, not a real
-  // limit.
+  // f(n);`. The merge only keeps identical facts from every predecessor. The
+  // bound is a backstop against a lattice change, not a practical limit.
   llvm::ReversePostOrderTraversal<CFG *> RPO(Cfg);
   auto sameState = [](const State &A, const State &B) {
     if (A.size() != B.size())

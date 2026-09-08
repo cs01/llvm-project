@@ -46,6 +46,32 @@ void clear_ok(char *p, unsigned long n)
   { p[--n] = 0; }
 }
 
+void declared_zero(int *p) pre(p != 0);
+void declared_zero(int *p) // expected-warning@-1 {{'declared_zero' has a contract but no 'assigns' clause}}
+{
+  *p = 0; // expected-note {{this write is outside the empty frame}}
+}
+
+int global;
+void writes_global(void) pre(global >= 0) // expected-warning {{'writes_global' has a contract but no 'assigns' clause}}
+{
+  global = 1; // expected-note {{this write is outside the empty frame}}
+}
+
+void writes_through_alias(int *p) pre(p != 0) // expected-warning {{'writes_through_alias' has a contract but no 'assigns' clause}}
+{
+  int *alias = p;
+  *alias = 1; // expected-note {{this write is outside the empty frame}}
+}
+
+void writes_local_only(int *p) pre(p != 0)
+{
+  int local;
+  int *alias = &local;
+  *alias = 1;
+  p = &local;
+}
+
 // A contract on a function that writes nothing through a parameter needs no
 // frame, so the missing-assigns warning must not fire.
 int is_positive(int v)

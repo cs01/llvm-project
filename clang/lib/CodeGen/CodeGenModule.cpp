@@ -9183,7 +9183,13 @@ llvm::FunctionCallee CodeGenModule::getContractViolationFn() {
   llvm::Type *Params[] = {CharPtr, CharPtr, Int32Ty, CharPtr};
   llvm::FunctionType *FTy =
       llvm::FunctionType::get(VoidTy, Params, /*isVarArg=*/false);
-  llvm::FunctionCallee C = CreateRuntimeFunction(FTy, "__contract_violation");
+  llvm::AttrBuilder Attrs(getLLVMContext());
+  Attrs.addAttribute(llvm::Attribute::NoReturn)
+      .addAttribute(llvm::Attribute::NoUnwind);
+  llvm::FunctionCallee C = CreateRuntimeFunction(
+      FTy, "__contract_violation",
+      llvm::AttributeList::get(getLLVMContext(),
+                               llvm::AttributeList::FunctionIndex, Attrs));
 
   // Give it a weak definition that traps, so a program with no handler still
   // links and still stops at the violation rather than continuing. A strong

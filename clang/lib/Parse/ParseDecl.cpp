@@ -7549,6 +7549,12 @@ static bool isContractClauseKeywordName(const IdentifierInfo *II,
          isLoopContractKeywordName(II, Kind);
 }
 
+static bool isContractKeywordName(const IdentifierInfo *II) {
+  ContractClause::ClauseKind Kind;
+  return isContractClauseKeywordName(II, Kind) ||
+         (II && (II->isStr("old") || II->isStr("forall")));
+}
+
 namespace {
 /// Warns when a macro is defined whose name hides a contract clause keyword.
 ///
@@ -7563,8 +7569,7 @@ public:
 
   void MacroDefined(const Token &MacroNameTok,
                     const MacroDirective *MD) override {
-    ContractClause::ClauseKind Kind;
-    if (!isContractClauseKeywordName(MacroNameTok.getIdentifierInfo(), Kind))
+    if (!isContractKeywordName(MacroNameTok.getIdentifierInfo()))
       return;
     PP.Diag(MacroNameTok, diag::warn_contract_keyword_macro)
         << MacroNameTok.getIdentifierInfo();

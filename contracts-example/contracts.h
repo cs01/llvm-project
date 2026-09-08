@@ -18,7 +18,8 @@ int *allocate(unsigned long n)
 
 void put(int *buf, unsigned long len, unsigned long i, int v)
   pre  (buf != 0)
-  pre  (i < len);
+  pre  (i < len)
+  assigns (buf[i]);
 
 void buf_free_if_needed(void);
 

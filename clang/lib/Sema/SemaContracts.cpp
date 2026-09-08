@@ -22,7 +22,6 @@
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Sema.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstring>
 
 using namespace clang;
 
@@ -142,30 +141,6 @@ FunctionDecl *Sema::LookupContractIntrinsic(const IdentifierInfo &II,
   return FD;
 }
 
-/// Replaces whole-token occurrences of \p From with \p To in \p S.
-///
-/// Substring replacement would corrupt an identifier that merely contains the
-/// result name, so both neighbours have to be checked for identifier-ness.
-static std::string replaceToken(StringRef S, StringRef From, StringRef To) {
-  auto IsIdentChar = [](char C) { return isAlphanumeric(C) || C == '_'; };
-  std::string Out;
-  size_t Pos = 0;
-  while (Pos < S.size()) {
-    size_t Found = S.find(From, Pos);
-    if (Found == StringRef::npos) {
-      Out += S.substr(Pos).str();
-      break;
-    }
-    bool LeftOK = Found == 0 || !IsIdentChar(S[Found - 1]);
-    size_t End = Found + From.size();
-    bool RightOK = End >= S.size() || !IsIdentChar(S[End]);
-    Out += S.substr(Pos, Found - Pos).str();
-    Out += (LeftOK && RightOK) ? To.str() : From.str();
-    Pos = End;
-  }
-  return Out;
-}
-
 namespace {
 /// Prints contract nodes the way CBMC spells them, instead of patching the
 /// printed text afterwards.
@@ -177,7 +152,23 @@ namespace {
 /// the resolved callee is the only way to get that right.
 class CProverPrinter : public PrinterHelper {
 public:
+  const VarDecl *ResultVar = nullptr;
+
   bool handledStmt(Stmt *S, raw_ostream &OS) override {
+    if (auto *Old = dyn_cast<ContractOldExpr>(S)) {
+      OS << "__CPROVER_old(";
+      Old->getSubExpr()->printPretty(OS, this, Policy);
+      OS << ")";
+      return true;
+    }
+
+    if (auto *DRE = dyn_cast<DeclRefExpr>(S)) {
+      if (DRE->getDecl() == ResultVar) {
+        OS << "__CPROVER_return_value";
+        return true;
+      }
+    }
+
     // `forall (i : lo, hi) P` becomes CBMC's quantifier. The guard is emitted
     // as an implication rather than a conjunction: __CPROVER_forall ranges over
     // every value of the bound variable, so a conjunction would claim P for
@@ -235,11 +226,13 @@ public:
 ///
 /// Every consumer goes through here, so a frame bound, a predicate and the
 /// harness cannot end up printing the same expression three different ways.
-static std::string printContractExpr(const Expr *E, const ASTContext &Ctx) {
+static std::string printContractExpr(const Expr *E, const ASTContext &Ctx,
+                                     const VarDecl *ResultVar = nullptr) {
   std::string Text;
   llvm::raw_string_ostream OS(Text);
   CProverPrinter Helper;
   Helper.Policy = Ctx.getPrintingPolicy();
+  Helper.ResultVar = ResultVar;
   E->printPretty(OS, &Helper, Ctx.getPrintingPolicy());
   return Text;
 }
@@ -319,7 +312,7 @@ static std::string formatCProverClause(const ContractClause &Clause,
   const Expr *P = Clause.getPredicate();
   if (!P)
     return {};
-  std::string Text = printContractExpr(P, Ctx);
+  std::string Text = printContractExpr(P, Ctx, Clause.getResultVar());
 
   switch (Clause.getKind()) {
   case ContractClause::CK_Pre:
@@ -330,15 +323,6 @@ static std::string formatCProverClause(const ContractClause &Clause,
     // error.
     return "__CPROVER_requires(" + Text + ")";
   case ContractClause::CK_Post:
-    // Our StmtPrinter spells the node `old(...)`; CBMC spells it
-    // `__CPROVER_old(...)`. Only a 'post' can contain one.
-    //
-    // FIXME: still token substitution, so a parameter named 'old' referenced as
-    // `old(old)` is rewritten on both sides. Printing the ContractOldExpr node
-    // via a printing policy is the real fix.
-    Text = replaceToken(Text, "old", "__CPROVER_old");
-    if (const VarDecl *R = Clause.getResultVar())
-      Text = replaceToken(Text, R->getName(), "__CPROVER_return_value");
     return "__CPROVER_ensures(" + Text + ")";
   case ContractClause::CK_LoopInvariant:
     // No 'old' rewrite on loop clauses either, for the same reason.
@@ -424,6 +408,19 @@ static void recordDoWhileRewrite(
   Out.emplace_back(SourceRange(DS->getWhileLoc(), DS->getRParenLoc()), "");
 }
 
+static const ContinueStmt *findContinueTargetingLoop(const Stmt *S) {
+  if (!S)
+    return nullptr;
+  if (const auto *Continue = dyn_cast<ContinueStmt>(S))
+    return Continue;
+  if (isa<WhileStmt>(S) || isa<ForStmt>(S) || isa<DoStmt>(S))
+    return nullptr;
+  for (const Stmt *Child : S->children())
+    if (const ContinueStmt *Found = findContinueTargetingLoop(Child))
+      return Found;
+  return nullptr;
+}
+
 /// Prints the loop contracts reachable from \p S as CBMC loop-contract clauses.
 static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
                                       const ASTContext &Ctx) {
@@ -467,6 +464,146 @@ recordCProverRewrites(const ContractSpecifier &CS, const ASTContext &Ctx,
   }
 }
 
+static const CallExpr *asHarnessFresh(const Expr *E) {
+  const auto *Call = dyn_cast<CallExpr>(E->IgnoreParenImpCasts());
+  const FunctionDecl *Callee = Call ? Call->getDirectCallee() : nullptr;
+  if (Callee && Callee->isImplicit() && Callee->getName() == "fresh" &&
+      Call->getNumArgs() == 2)
+    return Call;
+  return nullptr;
+}
+
+static void collectHarnessConjuncts(const Expr *E,
+                                    SmallVectorImpl<const Expr *> &Out) {
+  const Expr *X = E->IgnoreParenImpCasts();
+  if (const auto *BO = dyn_cast<BinaryOperator>(X)) {
+    if (BO->getOpcode() == BO_LAnd) {
+      collectHarnessConjuncts(BO->getLHS(), Out);
+      collectHarnessConjuncts(BO->getRHS(), Out);
+      return;
+    }
+  }
+  Out.push_back(E);
+}
+
+static const CallExpr *findNestedHarnessFresh(const Expr *E) {
+  SmallVector<const Expr *, 4> Conjuncts;
+  collectHarnessConjuncts(E, Conjuncts);
+  for (const Expr *Conjunct : Conjuncts) {
+    if (asHarnessFresh(Conjunct))
+      continue;
+    struct V : RecursiveASTVisitor<V> {
+      const CallExpr *Found = nullptr;
+      bool VisitCallExpr(CallExpr *Call) {
+        if (asHarnessFresh(Call)) {
+          Found = Call;
+          return false;
+        }
+        return true;
+      }
+    } Visitor;
+    Visitor.TraverseStmt(const_cast<Expr *>(Conjunct));
+    if (Visitor.Found)
+      return Visitor.Found;
+  }
+  return nullptr;
+}
+
+struct HarnessRange {
+  std::optional<llvm::APSInt> Lower;
+  std::optional<llvm::APSInt> Upper;
+};
+
+static const Expr *findContradictoryPrecondition(const ContractSpecifier &CS,
+                                                 const ASTContext &Ctx) {
+  llvm::DenseMap<const ParmVarDecl *, HarnessRange> Ranges;
+  for (const ContractClause &Clause : CS) {
+    if (Clause.getKind() != ContractClause::CK_Pre || Clause.isInvalid())
+      continue;
+    SmallVector<const Expr *, 4> Conjuncts;
+    collectHarnessConjuncts(Clause.getPredicate(), Conjuncts);
+    for (const Expr *Conjunct : Conjuncts) {
+      Expr::EvalResult Folded;
+      if (Conjunct->EvaluateAsInt(Folded, Ctx, Expr::SE_NoSideEffects) &&
+          Folded.Val.isInt() && Folded.Val.getInt() == 0)
+        return Conjunct;
+
+      const auto *BO =
+          dyn_cast<BinaryOperator>(Conjunct->IgnoreParenImpCasts());
+      if (!BO || !BO->isComparisonOp())
+        continue;
+      BinaryOperatorKind Op = BO->getOpcode();
+      const auto *DRE =
+          dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParenImpCasts());
+      const Expr *Constant = BO->getRHS();
+      if (!DRE) {
+        DRE = dyn_cast<DeclRefExpr>(BO->getRHS()->IgnoreParenImpCasts());
+        Constant = BO->getLHS();
+        switch (Op) {
+        case BO_LT:
+          Op = BO_GT;
+          break;
+        case BO_LE:
+          Op = BO_GE;
+          break;
+        case BO_GT:
+          Op = BO_LT;
+          break;
+        case BO_GE:
+          Op = BO_LE;
+          break;
+        default:
+          break;
+        }
+      }
+      const auto *Param = DRE ? dyn_cast<ParmVarDecl>(DRE->getDecl()) : nullptr;
+      if (!Param || !Param->getType()->isIntegerType() ||
+          !Constant->isIntegerConstantExpr(Ctx))
+        continue;
+
+      llvm::APSInt Value = Constant->EvaluateKnownConstInt(Ctx);
+      std::optional<llvm::APSInt> Lower;
+      std::optional<llvm::APSInt> Upper;
+      if (Op == BO_EQ) {
+        Lower = Value;
+        Upper = Value;
+      } else if (Op == BO_GE) {
+        Lower = Value;
+      } else if (Op == BO_LE) {
+        Upper = Value;
+      } else if (Op == BO_GT) {
+        if (llvm::APSInt::isSameValue(
+                Value, llvm::APSInt::getMaxValue(Value.getBitWidth(),
+                                                 Value.isUnsigned())))
+          return Conjunct;
+        ++Value;
+        Lower = Value;
+      } else if (Op == BO_LT) {
+        if (llvm::APSInt::isSameValue(
+                Value, llvm::APSInt::getMinValue(Value.getBitWidth(),
+                                                 Value.isUnsigned())))
+          return Conjunct;
+        --Value;
+        Upper = Value;
+      } else {
+        continue;
+      }
+
+      HarnessRange &Range = Ranges[Param];
+      if (Lower && (!Range.Lower ||
+                    llvm::APSInt::compareValues(*Lower, *Range.Lower) > 0))
+        Range.Lower = *Lower;
+      if (Upper && (!Range.Upper ||
+                    llvm::APSInt::compareValues(*Upper, *Range.Upper) < 0))
+        Range.Upper = *Upper;
+      if (Range.Lower && Range.Upper &&
+          llvm::APSInt::compareValues(*Range.Lower, *Range.Upper) > 0)
+        return Conjunct;
+    }
+  }
+  return nullptr;
+}
+
 /// Emits a CBMC entry point for \p FD, built from its preconditions.
 ///
 /// This is what makes a contract usable on a function with loops.
@@ -491,10 +628,11 @@ recordCProverRewrites(const ContractSpecifier &CS, const ASTContext &Ctx,
 /// Uninitialised locals are nondeterministic in CBMC, so a parameter no clause
 /// mentions is simply unconstrained -- which is the honest default: the
 /// contract said nothing about it.
-static void emitContractHarness(const FunctionDecl *FD, Sema &S,
+static void emitContractHarness(const FunctionDecl *FD,
+                                const FunctionDecl *ContractDecl, Sema &S,
                                 llvm::raw_ostream &OS) {
   const ASTContext &Ctx = S.Context;
-  const ContractSpecifier *CS = FD->getContracts();
+  const ContractSpecifier *CS = ContractDecl->getContracts();
   if (!CS)
     return;
 
@@ -518,7 +656,7 @@ static void emitContractHarness(const FunctionDecl *FD, Sema &S,
   // vacuously or fails for the wrong reason. Track which parameters an earlier
   // *assumption* has constrained -- allocating a pointer says nothing about the
   // value stored through it, so `fresh(bits, ...)` does not constrain `*bits`.
-  llvm::SmallPtrSet<const ParmVarDecl *, 8> Constrained;
+  llvm::SmallPtrSet<const ParmVarDecl *, 8> Bounded;
   auto ParmsIn = [](const Expr *E,
                     llvm::SmallVectorImpl<const ParmVarDecl *> &Out) {
     struct V : RecursiveASTVisitor<V> {
@@ -532,40 +670,54 @@ static void emitContractHarness(const FunctionDecl *FD, Sema &S,
     } Vis(Out);
     Vis.TraverseStmt(const_cast<Expr *>(E));
   };
+  auto RecordBounds = [&](const Expr *E) {
+    const auto *BO = dyn_cast<BinaryOperator>(E->IgnoreParenImpCasts());
+    if (!BO)
+      return;
+    const Expr *BoundedExpr = nullptr;
+    if ((BO->getOpcode() == BO_LT || BO->getOpcode() == BO_LE ||
+         BO->getOpcode() == BO_EQ) &&
+        BO->getRHS()->isIntegerConstantExpr(Ctx))
+      BoundedExpr = BO->getLHS();
+    else if ((BO->getOpcode() == BO_GT || BO->getOpcode() == BO_GE ||
+              BO->getOpcode() == BO_EQ) &&
+             BO->getLHS()->isIntegerConstantExpr(Ctx))
+      BoundedExpr = BO->getRHS();
+    if (!BoundedExpr)
+      return;
+    SmallVector<const ParmVarDecl *, 4> Params;
+    ParmsIn(BoundedExpr, Params);
+    Bounded.insert(Params.begin(), Params.end());
+  };
 
   for (const ContractClause &C : *CS) {
     if (C.getKind() != ContractClause::CK_Pre || C.isInvalid())
       continue;
-    const Expr *Pred = C.getPredicate();
-    const auto *Call = dyn_cast<CallExpr>(Pred->IgnoreParenImpCasts());
-    const FunctionDecl *Callee = Call ? Call->getDirectCallee() : nullptr;
-    const Expr *Target =
-        (Callee && Callee->isImplicit() && Callee->getName() == "fresh" &&
-         Call->getNumArgs() == 2)
-            ? Call->getArg(0)->IgnoreParenImpCasts()
-            : nullptr;
-    // Only an lvalue can be allocated into. `fresh(p + 1, n)` is a legitimate
-    // thing to assume and a meaningless thing to assign to, so it stays an
-    // assumption.
-    if (Target && Target->isLValue()) {
-      const Expr *Size = Call->getArg(1);
-      llvm::SmallVector<const ParmVarDecl *, 4> Used;
-      ParmsIn(Size, Used);
-      for (const ParmVarDecl *P : Used) {
-        if (Constrained.count(P))
-          continue;
-        S.Diag(Size->getExprLoc(), diag::warn_contract_harness_unbounded_alloc)
-            << Print(Target) << P;
-        S.Diag(Size->getExprLoc(), diag::note_contract_harness_order) << P;
-        break;
+    SmallVector<const Expr *, 4> Conjuncts;
+    collectHarnessConjuncts(C.getPredicate(), Conjuncts);
+    for (const Expr *Pred : Conjuncts) {
+      const CallExpr *Call = asHarnessFresh(Pred);
+      const Expr *Target =
+          Call ? Call->getArg(0)->IgnoreParenImpCasts() : nullptr;
+      if (Target && Target->isLValue()) {
+        const Expr *Size = Call->getArg(1);
+        llvm::SmallVector<const ParmVarDecl *, 4> Used;
+        ParmsIn(Size, Used);
+        for (const ParmVarDecl *P : Used) {
+          if (Bounded.count(P))
+            continue;
+          S.Diag(Size->getExprLoc(),
+                 diag::warn_contract_harness_unbounded_alloc)
+              << Print(Target) << P;
+          S.Diag(Size->getExprLoc(), diag::note_contract_harness_order) << P;
+          break;
+        }
+        Steps.push_back({true, Print(Target), Print(Size)});
+        continue;
       }
-      Steps.push_back({true, Print(Target), Print(Size)});
-      continue;
+      RecordBounds(Pred);
+      Steps.push_back({false, Print(Pred), ""});
     }
-    llvm::SmallVector<const ParmVarDecl *, 4> Used;
-    ParmsIn(Pred, Used);
-    Constrained.insert(Used.begin(), Used.end());
-    Steps.push_back({false, Print(Pred), ""});
   }
 
   OS << "\n/* entry point generated from " << FD->getNameAsString()
@@ -575,11 +727,16 @@ static void emitContractHarness(const FunctionDecl *FD, Sema &S,
   // A parameter no clause mentions is left uninitialised, which is
   // nondeterministic in CBMC: the contract said nothing about it, so neither
   // does the entry point.
-  for (const ParmVarDecl *P : FD->parameters()) {
-    if (P->getName().empty())
-      continue;
-    OS << "  " << P->getType().getAsString(Ctx.getPrintingPolicy()) << " "
-       << P->getName() << ";\n";
+  SmallVector<std::string, 8> ParamNames;
+  for (unsigned I = 0; I != ContractDecl->getNumParams(); ++I) {
+    const ParmVarDecl *P = ContractDecl->getParamDecl(I);
+    std::string Name = P->getNameAsString();
+    if (Name.empty())
+      Name = "__contract_arg_" + std::to_string(I);
+    ParamNames.push_back(Name);
+    OS << "  ";
+    P->getType().print(OS, Ctx.getPrintingPolicy(), Name);
+    OS << ";\n";
   }
   for (const Step &St : Steps) {
     if (St.IsAlloc)
@@ -590,11 +747,11 @@ static void emitContractHarness(const FunctionDecl *FD, Sema &S,
 
   OS << "  " << FD->getNameAsString() << "(";
   bool First = true;
-  for (const ParmVarDecl *P : FD->parameters()) {
+  for (StringRef Name : ParamNames) {
     if (!First)
       OS << ", ";
     First = false;
-    OS << (P->getName().empty() ? "0" : P->getName());
+    OS << Name;
   }
   OS << ");\n}\n";
 }
@@ -602,6 +759,37 @@ static void emitContractHarness(const FunctionDecl *FD, Sema &S,
 void Sema::EmitCProverUnit() {
   if (!getLangOpts().CContractsEmitCProverUnit)
     return;
+
+  if (CProverUnitUnemittable)
+    return;
+
+  if (getLangOpts().CContractsEmitHarness)
+    for (Decl *D : Context.getTranslationUnitDecl()->decls())
+      if (const auto *FD = dyn_cast<FunctionDecl>(D))
+        if (FD->doesThisDeclarationHaveABody())
+          if (const FunctionDecl *ContractDecl = FD->getContractDecl())
+            for (const ContractClause &Clause : *ContractDecl->getContracts())
+              if (Clause.getKind() == ContractClause::CK_Pre &&
+                  !Clause.isInvalid())
+                if (const CallExpr *Fresh =
+                        findNestedHarnessFresh(Clause.getPredicate())) {
+                  Diag(Fresh->getExprLoc(),
+                       diag::err_contract_harness_nested_fresh)
+                      << Fresh->getSourceRange();
+                  return;
+                }
+  if (getLangOpts().CContractsEmitHarness)
+    for (Decl *D : Context.getTranslationUnitDecl()->decls())
+      if (const auto *FD = dyn_cast<FunctionDecl>(D))
+        if (FD->doesThisDeclarationHaveABody())
+          if (const FunctionDecl *ContractDecl = FD->getContractDecl())
+            if (const Expr *Contradiction = findContradictoryPrecondition(
+                    *ContractDecl->getContracts(), Context)) {
+              Diag(Contradiction->getExprLoc(),
+                   diag::err_contract_harness_unsatisfiable_pre)
+                  << Contradiction->getSourceRange();
+              return;
+            }
 
   // A clause that did not type-check has no rewrite, so its original text
   // would survive into the output next to the clauses that were rewritten.
@@ -666,8 +854,9 @@ void Sema::EmitCProverUnit() {
   if (getLangOpts().CContractsEmitHarness)
     for (Decl *D : Context.getTranslationUnitDecl()->decls())
       if (const auto *FD = dyn_cast<FunctionDecl>(D))
-        if (FD->getContracts() && FD->doesThisDeclarationHaveABody())
-          emitContractHarness(FD, *this, llvm::outs());
+        if (FD->doesThisDeclarationHaveABody())
+          if (const FunctionDecl *ContractDecl = FD->getContractDecl())
+            emitContractHarness(FD, ContractDecl, *this, llvm::outs());
 }
 
 void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
@@ -691,6 +880,12 @@ void Sema::ActOnFunctionContracts(Declarator &D, FunctionDecl *FD) {
   }
 
   FD->setContracts(ContractSpecifier::Create(Context, D.getContractClauses()));
+  if (getLangOpts().CContractsRuntimeChecks)
+    for (const ContractClause &Clause : D.getContractClauses())
+      if (Clause.getKind() != ContractClause::CK_Pre)
+        Diag(Clause.getKeywordLoc(),
+             diag::warn_contract_clause_not_runtime_checked)
+            << Clause.getKindSpelling();
 }
 
 void Sema::EmitCProverContracts(const FunctionDecl *FD) {
@@ -723,45 +918,91 @@ static const Stmt *findUncontractedLoop(const Stmt *S, const ASTContext &Ctx) {
   return nullptr;
 }
 
-/// Whether \p E ultimately addresses storage reached through a pointer
-/// parameter, so that writing to it escapes the function.
-static bool rootsAtPointerParam(const Expr *E) {
+static bool rootsAtExternalStorage(
+    const Expr *E, llvm::SmallPtrSetImpl<const VarDecl *> &Visiting);
+
+static bool pointerMayReachExternal(
+    const Expr *E, llvm::SmallPtrSetImpl<const VarDecl *> &Visiting) {
   E = E->IgnoreParenImpCasts();
-  // Both `s->f` and `s.f` recurse on the base: a `.` on a by-value parameter
-  // bottoms out at a non-pointer DeclRefExpr below and answers false anyway.
+  if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_AddrOf)
+      return rootsAtExternalStorage(UO->getSubExpr(), Visiting);
+    return true;
+  }
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+    if (!VD)
+      return true;
+    if (!VD->isLocalVarDeclOrParm() || isa<ParmVarDecl>(VD))
+      return true;
+    if (VD->getType()->isArrayType())
+      return false;
+    if (!Visiting.insert(VD).second)
+      return true;
+    return !VD->getInit() ||
+           pointerMayReachExternal(VD->getInit(), Visiting);
+  }
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getLHS()->getType()->isPointerType())
+      return pointerMayReachExternal(BO->getLHS(), Visiting);
+    if (BO->getRHS()->getType()->isPointerType())
+      return pointerMayReachExternal(BO->getRHS(), Visiting);
+  }
+  if (const auto *CO = dyn_cast<ConditionalOperator>(E))
+    return pointerMayReachExternal(CO->getTrueExpr(), Visiting) ||
+           pointerMayReachExternal(CO->getFalseExpr(), Visiting);
+  return true;
+}
+
+static bool rootsAtExternalStorage(
+    const Expr *E, llvm::SmallPtrSetImpl<const VarDecl *> &Visiting) {
+  E = E->IgnoreParenImpCasts();
   if (const auto *ME = dyn_cast<MemberExpr>(E))
-    return rootsAtPointerParam(ME->getBase());
+    return ME->isArrow()
+               ? pointerMayReachExternal(ME->getBase(), Visiting)
+               : rootsAtExternalStorage(ME->getBase(), Visiting);
   if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
-    return rootsAtPointerParam(ASE->getBase());
-  if (const auto *UO = dyn_cast<UnaryOperator>(E))
+    return pointerMayReachExternal(ASE->getBase(), Visiting);
+  if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_Deref)
-      return rootsAtPointerParam(UO->getSubExpr());
+      return pointerMayReachExternal(UO->getSubExpr(), Visiting);
+    return false;
+  }
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
-    if (const auto *PVD = dyn_cast<ParmVarDecl>(DRE->getDecl()))
-      return PVD->getType()->isPointerType();
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      return !VD->isLocalVarDeclOrParm();
   return false;
 }
 
-/// The first write through a pointer parameter under \p S, or null.
-static const Expr *findWriteThroughParam(const Stmt *S) {
+static bool rootsAtExternalStorage(const Expr *E) {
+  llvm::SmallPtrSet<const VarDecl *, 4> Visiting;
+  return rootsAtExternalStorage(E, Visiting);
+}
+
+/// The first write to externally visible storage under \p S, or null.
+static const Expr *findExternallyVisibleWrite(const Stmt *S) {
   if (!S)
     return nullptr;
   if (const auto *BO = dyn_cast<BinaryOperator>(S))
-    if (BO->isAssignmentOp() && rootsAtPointerParam(BO->getLHS()))
+    if (BO->isAssignmentOp() && rootsAtExternalStorage(BO->getLHS()))
       return BO;
   if (const auto *UO = dyn_cast<UnaryOperator>(S))
-    if (UO->isIncrementDecrementOp() && rootsAtPointerParam(UO->getSubExpr()))
+    if (UO->isIncrementDecrementOp() &&
+        rootsAtExternalStorage(UO->getSubExpr()))
       return UO;
   for (const Stmt *Child : S->children())
-    if (const Expr *Found = findWriteThroughParam(Child))
+    if (const Expr *Found = findExternallyVisibleWrite(Child))
       return Found;
   return nullptr;
 }
 
 void Sema::DiagnoseContractVerifiability(const FunctionDecl *FD) {
-  if (!FD || !FD->hasContracts() || !FD->hasBody())
+  if (!FD || !FD->hasBody())
     return;
-  const ContractSpecifier *CS = FD->getContracts();
+  const FunctionDecl *ContractDecl = FD->getContractDecl();
+  if (!ContractDecl)
+    return;
+  const ContractSpecifier *CS = ContractDecl->getContracts();
   const Stmt *Body = FD->getBody();
 
   // An always_inline callee is pasted into its caller before contracts are
@@ -774,15 +1015,15 @@ void Sema::DiagnoseContractVerifiability(const FunctionDecl *FD) {
     Diag(AI->getLocation(), diag::note_contract_always_inline_here);
   }
 
-  // A contract with no frame is checked against an empty one, so every write
-  // the function makes is a violation -- five diagnostics about the body when
-  // the fault is a missing clause in the header.
+  // A contract with no frame is checked against an empty one, so every
+  // externally visible write is a violation -- five diagnostics about the body
+  // when the fault is a missing clause in the header.
   bool HasAssigns = false;
   for (const ContractClause &C : CS->clauses())
     if (C.getKind() == ContractClause::CK_Assigns)
       HasAssigns = true;
   if (!HasAssigns)
-    if (const Expr *W = findWriteThroughParam(Body)) {
+    if (const Expr *W = findExternallyVisibleWrite(Body)) {
       Diag(CS->clauses().front().getKeywordLoc(),
            diag::warn_contract_missing_assigns)
           << FD;
@@ -817,7 +1058,12 @@ void Sema::EmitCProverLoopContracts(const Decl *D) {
           // one. The author keeps their loop; the emitted unit gets the shape
           // the prover accepts.
           if (const auto *DS = dyn_cast<DoStmt>(L)) {
-            if (isa<CompoundStmt>(DS->getBody()))
+            if (const ContinueStmt *Continue =
+                    findContinueTargetingLoop(DS->getBody())) {
+              Diag(Continue->getBeginLoc(),
+                   diag::err_contract_do_continue_cprover);
+              CProverUnitUnemittable = true;
+            } else if (isa<CompoundStmt>(DS->getBody()))
               recordDoWhileRewrite(DS, Context, CProverUnitRewrites);
             else
               Diag(DS->getBeginLoc(), diag::warn_contract_do_needs_braces);
@@ -1046,6 +1292,11 @@ void Sema::ActOnLoopContracts(Stmt *S, ArrayRef<ContractClause> Clauses) {
   if (!S || Clauses.empty())
     return;
   Context.setLoopContracts(S, ContractSpecifier::Create(Context, Clauses));
+  if (getLangOpts().CContractsRuntimeChecks)
+    for (const ContractClause &Clause : Clauses)
+      Diag(Clause.getKeywordLoc(),
+           diag::warn_contract_clause_not_runtime_checked)
+          << Clause.getKindSpelling();
 }
 
 void Sema::DiagnoseContractsOnNonFunction(Declarator &D) {

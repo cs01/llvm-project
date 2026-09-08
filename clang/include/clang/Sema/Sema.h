@@ -7944,6 +7944,8 @@ public:
   /// splice a file that is half this grammar and half CBMC's.
   unsigned NumInvalidContractClauses = 0;
 
+  bool CProverUnitUnemittable = false;
+
   /// Writes the translation unit with every contract clause replaced by its
   /// CBMC spelling, so the result can be handed to goto-cc.
   void EmitCProverUnit();

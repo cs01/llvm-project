@@ -2145,7 +2145,7 @@ defm contract_runtime_checks : BoolFOption<
   PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable">,
   NegFlag<SetFalse, [], [ClangOption, CC1Option], "Disable">,
   BothFlags<[], [],
-          " checking contract clauses at run time, calling"
+          " checking supported preconditions at run time, calling"
           " __contract_violation() when one is broken">>;
 
 defm c_contracts : BoolFOption<

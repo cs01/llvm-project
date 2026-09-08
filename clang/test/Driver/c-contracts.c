@@ -22,3 +22,10 @@
 // RUN: not %clang -c -fc-contracts -x c++ %s -o /dev/null 2>&1 \
 // RUN:   | FileCheck -check-prefix=CXX %s
 // CXX: error: invalid argument '-fc-contracts' not allowed with 'C++'
+
+// RUN: not %clang -fsyntax-only -fcontract-runtime-checks %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=NEEDS-FLAG %s
+// RUN: not %clang -fsyntax-only -fc-contracts -fcontract-emit-harness %s 2>&1 \
+// RUN:   | FileCheck -check-prefix=NEEDS-UNIT %s
+// NEEDS-FLAG: error: invalid argument '-fcontract-runtime-checks' only allowed with '-fc-contracts'
+// NEEDS-UNIT: error: invalid argument '-fcontract-emit-harness' only allowed with '-fcontract-emit-cprover-unit'

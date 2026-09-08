@@ -54,6 +54,23 @@ void discharged_by_own_pre(int *b) pre (b != 0) {
   use(b); // no warning
 }
 
+void below_32(unsigned n) pre (n < 32); // expected-note 2 {{precondition declared here}}
+
+void caller_too_wide(unsigned n) pre (n <= 56) {
+  below_32(n); // expected-warning {{precondition n < 32 of 'below_32' is not guaranteed by the constraints at this call}}
+}
+
+void caller_strong_enough(unsigned n) pre (n < 32) {
+  below_32(n);
+}
+
+void caller_narrows(unsigned n) pre (n <= 56) {
+  if (n < 32)
+    below_32(n);
+  if (n >= 32)
+    below_32(n); // expected-warning {{precondition n < 32 of 'below_32' is violated by this call}}
+}
+
 // A variable whose address is taken can be written through a pointer the pass
 // cannot follow, so it is not tracked at all.
 void address_taken(void) {

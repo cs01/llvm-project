@@ -131,8 +131,15 @@ contracts and still compile with a stock clang.
 
 It compiles a precondition into a branch at the callee's entry that calls
 `__contract_violation()`. That symbol is weak and traps by default, so a program
-with its own fault handler can define it and win. The flag is opt-in, and covers
-less of a contract than its name suggests:
+with its own non-returning fault handler can define it and win. Its declaration
+is:
+
+```c
+_Noreturn void __contract_violation(const char *predicate, const char *file,
+                                    unsigned line, const char *function);
+```
+
+The flag is opt-in, and covers less of a contract than its name suggests:
 
 | Clause | At run time |
 |---|---|
@@ -142,8 +149,8 @@ less of a contract than its name suggests:
 | `pre (forall ...)` | declined: the range is not known until the call |
 | `assigns` | not checkable without shadow memory |
 
-A declined clause produces a warning naming the reason. Nothing is quietly
-skipped, because a check that silently passed would look like coverage while
+Every clause that runtime mode cannot enforce produces a warning naming the
+reason, because a check that silently passed would look like coverage while
 providing none.
 
 To run some examples, build clang, then try:
@@ -224,6 +231,31 @@ size_t decode(void *dst, size_t dstSize, const void *src, size_t srcSize)
 It says the write would be *legal*, not that it happens. What actually changes
 is `assigns`, below.
 
+### `fresh`: an exact, distinct object for a proof
+
+`fresh(p, n)` says `p` points to a newly allocated object of exactly `n` bytes,
+distinct from every other object in the proof. This is stronger than
+`readable(p, n)` or `writable(p, n)`: those predicates establish access to at
+least `n` bytes, while `fresh` gives the object an exact boundary, allowing the
+prover to detect an access past byte `n` and reason about aliasing.
+
+It also tells the generated CBMC harness what storage to create:
+
+```c
+void zero(char *p, size_t n)
+  pre (n > 0 && n < 64)
+  pre (fresh(p, n))
+  assigns (p[0 : n]);
+```
+
+The harness assumes the size bound first, allocates `n` bytes for `p`, and then
+calls `zero`. Clause order matters: put bounds on `n` before `fresh(p, n)` so
+the harness does not attempt an unbounded allocation.
+
+`fresh` belongs to the proof tier. Ordinary C cannot recover an allocation's
+extent or uniqueness from a pointer at function entry, so runtime checking
+diagnoses the clause instead of pretending to enforce it.
+
 ### `forall`: every element of a range
 
 The clauses so far can name a scalar, a member, or a slice. None of them can say
@@ -241,7 +273,8 @@ Read the second clause as: for every `i` starting at 0 and stopping before `n`,
 so the number you write is the one already in your loop header. `i` takes its
 type from the bounds.
 
-`forall` goes inside a predicate, so it works in a `pre` or a `post`, and it can
+The bound variable has type `size_t`. `forall` goes inside a predicate, so it
+works in a `pre` or a `post`, and it can
 call the buffer predicates. This says every live slot of a ring buffer holds a
 readable entry, which nothing in the C source could otherwise state:
 

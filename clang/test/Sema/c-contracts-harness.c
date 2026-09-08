@@ -61,3 +61,42 @@ void declared_only(char *p, size_t n) pre (fresh(p, n));
 // The rewriter echoes this file, so any literal spelling of the name matches
 // the directive's own text. {{ }} is a regex, which breaks the literal.
 // CHECK-NOT: void __contract_harness_dec{{l}}ared_only
+
+void declared_then_defined(char *p, size_t n)
+  pre (n < 16)
+  pre (fresh(p, n))
+  assigns (p[0 : n]);
+void declared_then_defined(char *p, size_t n) { *p = 1; }
+
+// CHECK:      void __contract_harness_declared_then_defined(void) {
+// CHECK-NEXT:   char * p;
+// CHECK-NEXT:   size_t n;
+// CHECK-NEXT:   __CPROVER_assume(n < 16);
+// CHECK-NEXT:   p = __CPROVER_allocate(n, 0);
+// CHECK-NEXT:   declared_then_defined(p, n);
+// CHECK-NEXT: }
+
+void callback(void (*cb)(int), int value)
+  pre (value == 1)
+  assigns ();
+void callback(void (*cb)(int), int value) { cb(value); }
+
+// CHECK:      void __contract_harness_callback(void) {
+// CHECK-NEXT:   void (*cb)(int);
+// CHECK-NEXT:   int value;
+// CHECK-NEXT:   __CPROVER_assume(value == 1);
+// CHECK-NEXT:   callback(cb, value);
+// CHECK-NEXT: }
+
+void combined(char *p, size_t n)
+  pre (n < 8 && fresh(p, n))
+  assigns (p[0 : n])
+{ *p = 0; }
+
+// CHECK:      void __contract_harness_combined(void) {
+// CHECK-NEXT:   char * p;
+// CHECK-NEXT:   size_t n;
+// CHECK-NEXT:   __CPROVER_assume(n < 8);
+// CHECK-NEXT:   p = __CPROVER_allocate(n, 0);
+// CHECK-NEXT:   combined(p, n);
+// CHECK-NEXT: }

@@ -627,6 +627,25 @@ static bool FixupInvocation(CompilerInvocation &Invocation,
     Diags.Report(diag::err_drv_argument_not_allowed_with)
         << "-fc-contracts" << GetInputKindName(IK);
 
+  if (!LangOpts.CContracts) {
+    if (LangOpts.CContractsEmitCProver)
+      Diags.Report(diag::err_drv_argument_only_allowed_with)
+          << "-fcontract-emit-cprover" << "-fc-contracts";
+    if (LangOpts.CContractsEmitCProverUnit)
+      Diags.Report(diag::err_drv_argument_only_allowed_with)
+          << "-fcontract-emit-cprover-unit" << "-fc-contracts";
+    if (LangOpts.CContractsRuntimeChecks)
+      Diags.Report(diag::err_drv_argument_only_allowed_with)
+          << "-fcontract-runtime-checks" << "-fc-contracts";
+    if (LangOpts.CContractsEmitHarness)
+      Diags.Report(diag::err_drv_argument_only_allowed_with)
+          << "-fcontract-emit-harness" << "-fc-contracts";
+  }
+  if (LangOpts.CContractsEmitHarness &&
+      !LangOpts.CContractsEmitCProverUnit)
+    Diags.Report(diag::err_drv_argument_only_allowed_with)
+        << "-fcontract-emit-harness" << "-fcontract-emit-cprover-unit";
+
   if (Args.hasArg(OPT_fgnu89_inline) && LangOpts.CPlusPlus)
     Diags.Report(diag::err_drv_argument_not_allowed_with)
         << "-fgnu89-inline" << GetInputKindName(IK);

@@ -14361,6 +14361,9 @@ def err_cuda_device_kernel_launch_require_rdc
 def warn_contract_pre_violated : Warning<
   "precondition %0 of %1 is violated by this call">,
   InGroup<ContractViolation>;
+def warn_contract_pre_not_guaranteed : Warning<
+  "precondition %0 of %1 is not guaranteed by the constraints at this call">,
+  InGroup<ContractViolation>;
 def note_contract_pre_declared : Note<
   "precondition declared here">;
 
@@ -14386,6 +14389,13 @@ def warn_contract_do_needs_braces : Warning<
   "a 'do' loop with contracts needs a braced body to be rewritten for the "
   "prover; its contracts are emitted but will be rejected">,
   InGroup<CContracts>;
+def err_contract_do_continue_cprover : Error<
+  "cannot emit this contracted 'do' loop for the prover because 'continue' "
+  "would change meaning during rewriting">;
+def warn_contract_clause_not_runtime_checked : Warning<
+  "'%0' contract clauses are not checked at run time; this clause requires "
+  "static analysis or proof">,
+  InGroup<CContracts>;
 // Traps that make a contract silently useless to the prover rather than wrong
 // to the compiler. Each of these was hit annotating real code; see
 // proofs/contracts-eval/ISSUES.md.
@@ -14405,7 +14415,7 @@ def note_contract_uncontracted_loop_here : Note<
   "function's contract cannot be checked">;
 def warn_contract_missing_assigns : Warning<
   "%0 has a contract but no 'assigns' clause, so its frame is empty; every "
-  "write it makes through a parameter will be reported as a violation">,
+  "write visible outside the function will be reported as a violation">,
   InGroup<CContracts>;
 def note_contract_missing_assigns_write : Note<
   "this write is outside the empty frame">;
@@ -14420,6 +14430,12 @@ def warn_contract_harness_unbounded_alloc : Warning<
   "size of the object allocated for %0 depends on %1, which no earlier 'pre' "
   "constrains; the generated entry point will allocate an unbounded object">,
   InGroup<CContracts>;
+def err_contract_harness_nested_fresh : Error<
+  "cannot generate a proof harness for 'fresh' in this expression; write it as a "
+  "separate 'pre' clause or a top-level conjunction">;
+def err_contract_harness_unsatisfiable_pre : Error<
+  "cannot generate a proof harness because this precondition contradicts an "
+  "earlier precondition">;
 def note_contract_harness_order : Note<
   "'pre' clauses become entry-point statements in order; move the clause "
   "bounding %0 above this one">;

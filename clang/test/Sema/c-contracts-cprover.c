@@ -27,6 +27,12 @@ int rates(int n) pre (n > 0) post (r: r > 0);
 // CHECK-NEXT: __CPROVER_requires(n > 0)
 // CHECK-NEXT: __CPROVER_ensures(__CPROVER_return_value > 0)
 
+struct result_collision { int r; };
+int collisions(struct result_collision *s, int old)
+  post (r: r == s->r + old(old));
+// CHECK:      /* collisions */
+// CHECK-NEXT: __CPROVER_ensures(__CPROVER_return_value == s->r + __CPROVER_old(old))
+
 // A frame condition prints from its target list, comma separated, and composes
 // with the clauses either side of it.
 void repack(int *buf, unsigned long cap)

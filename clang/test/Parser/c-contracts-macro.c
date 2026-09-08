@@ -7,6 +7,8 @@
 // and the rewrite is invisible because the parser only ever sees the expansion.
 #define pre(x) // expected-warning {{macro named 'pre' hides the contract clause keyword of the same name}}
 #define assigns // expected-warning {{macro named 'assigns' hides the contract clause keyword of the same name}}
+#define old(x) (x) // expected-warning {{macro named 'old' hides the contract clause keyword of the same name}}
+#define forall(x) (x) // expected-warning {{macro named 'forall' hides the contract clause keyword of the same name}}
 
 // An unrelated macro whose name merely starts the same is not a collision.
 #define requires_review(x) x

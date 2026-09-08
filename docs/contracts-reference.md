@@ -203,9 +203,10 @@ give up and assume nothing. With one, `ZSTD_wildcopy` is proved memory-safe for
    written against two different sets of `ParmVarDecl`s for equivalence is not
    implemented, and silently keeping one of them would make *which declaration a
    caller happened to include* change what gets checked.
-4. **A macro named `pre`, `post`, `loop_invariant`, `decreases` or `old` shadows the
-   keyword**, and warns (`-Wc-contracts`) rather than erroring, because a
-   project may have an unrelated `pre` macro and never write a contract.
+4. **A macro named `pre`, `post`, `assigns`, `loop_invariant`, `decreases`,
+   `old` or `forall` shadows the keyword**, and warns (`-Wc-contracts`) rather
+   than erroring, because a project may have an unrelated `pre` macro and never
+   write a contract.
 
 ## Flags
 
@@ -214,6 +215,7 @@ give up and assume nothing. With one, `ZSTD_wildcopy` is proved memory-safe for
 | `-fc-contracts` | turn the keywords on. Without it they are ordinary identifiers |
 | `-fcontract-emit-cprover` | print the contracts as CBMC clauses on stdout |
 | `-fcontract-emit-cprover-unit` | rewrite the whole translation unit into CBMC form, ready for `goto-cc` |
+| `-fcontract-emit-harness` | append CBMC entry points to a rewritten unit; requires `-fcontract-emit-cprover-unit` |
 | `-Wcontract-violation` | the call-site violation warning (on by default, inside `-Wc-contracts`) |
 | `-fcontract-runtime-checks` | check `pre` clauses at run time, calling `__contract_violation()` when one breaks |
 
@@ -225,8 +227,8 @@ contracts and still compile with a stock clang.
 `-fcontract-runtime-checks` evaluates each `pre` at function entry and calls
 
 ```c
-void __contract_violation(const char *predicate, const char *file,
-                          unsigned line, const char *function);
+_Noreturn void __contract_violation(const char *predicate, const char *file,
+                                    unsigned line, const char *function);
 ```
 
 when one is false. The signature is deliberately `__assert_fail`-shaped, and a
@@ -304,11 +306,10 @@ demo.c:16:12: warning: precondition cap > 0 of 'buf_new' is violated by this cal
 demo.c:3:3:   note: precondition declared here
 ```
 
-The lattice is deliberately tiny — a variable is a known integer, known null,
-known non-null, or unknown. It walks blocks in reverse post-order, refines state
-along each branch edge by the condition that got there, and **merges by keeping
-only what every predecessor agrees on**: disagreement means the pass does not
-know, and not knowing must never produce a report.
+The lattice is deliberately tiny — a variable is a known integer, a simple
+integer interval, known null, known non-null, or unknown. It walks blocks in
+reverse post-order, refines state along each branch edge by the condition that
+got there, and **merges by keeping only what every predecessor agrees on**.
 
 The sweep is iterated to a fixpoint, then a final pass reports from the
 converged state. A single sweep was not merely imprecise, it was wrong: skipping
@@ -322,9 +323,6 @@ for (int i = 0; i < 10; i++) n = i + 1;
 f(n);      // n is 10; this was reported as violating pre (n > 0)
 ```
 
-The lattice has height two and the merge only ever discards facts, so the
-iteration is monotone and converges.
-
 Constant arguments go through `Expr::EvaluateAsInt` rather than a hand-rolled
 subset, so enum constants, casts, `sizeof`, arithmetic and file-scope
 `static const` all fold. Variables whose address is taken are never tracked at
@@ -333,9 +331,11 @@ all, which is the cheap defence against the out-parameter false positive
 so a call inside the body can be discharged by a guarantee the caller already
 made, and a callee's `post` is assumed after a call.
 
-The pass reports only preconditions it can show are **violated** — never ones it
-merely cannot prove. That is the difference between a warning developers leave
-on and one they turn off.
+The pass distinguishes three useful results. A definitely false precondition is
+reported as violated. A simple caller interval that overlaps both valid and
+invalid values is reported as not guaranteeing the callee's precondition. Other
+unknowns remain silent, avoiding the noise of warning on every condition the
+small analysis cannot prove.
 
 **4. Emitted for CBMC.** `-fcontract-emit-cprover` prints the same clauses as
 [CBMC](https://github.com/diffblue/cbmc) contracts, close to one for one, which
@@ -364,10 +364,10 @@ effect is that a function's `pre` and `post` print ahead of the loops
 they scope. `goto-instrument --enforce-contract` and `cbmc` then discharge them.
 
 One back-end wart worth knowing: **goto-instrument rejects loop contracts on
-`do` outright.** The grammar here deliberately keeps no such restriction, so the
-emitter prints the clauses with a note that the loop needs the mechanical
-`do { B } while (C)` → `while (1) { B; if (!C) break; }` rewrite first. It does
-not perform the rewrite, because this mode emits clauses, not source.
+`do` outright.** Unit emission mechanically rewrites
+`do { B } while (C)` as `while (1) { B; if (!C) break; }`. A `continue` that
+targets the `do` loop would change meaning under that rewrite, so the compiler
+rejects unit emission for that case instead of producing a misleading proof.
 
 ### What each tier actually proves
 
@@ -380,12 +380,9 @@ Being precise about this matters more than the feature list:
   preconditions, the postconditions hold and there is no UB, in this function."
   A wrong `post` is proved happily. It proves the code matches the spec, never
   that the spec is right.
-- **There is no runtime-trap tier yet.** Nothing lowers a contract to a branch
-  in codegen today. And note that the interesting clauses could not be traps
-  anyway: `p != NULL` or `n > 0` compile to a branch fine, but "p points to at
-  least n readable bytes" cannot, because there is no way to recover the
-  allocation behind a `void *` at function entry. Buffer and frame clauses are
-  documentation that the static tiers consume, not runtime checks.
+- **Runtime checks cover scalar preconditions.** `post`, `assigns`, quantified
+  predicates and allocation predicates remain proof-only; enabling runtime
+  checks diagnoses each clause it cannot enforce.
 
 See [`contracts-design.md`](../contracts-design.md) for the full design, the
 rejected alternatives, and why the SMT-solver route inside clang was cut.
@@ -553,8 +550,9 @@ replace the bound with induction outright — which is exactly what
 is trusted is the *specification* and the *harness*: a wrong `post` is proved
 happily, and an over-strong `__CPROVER_assume` silently narrows what was proved
 without saying so. The call-site checker contributes nothing to credit either —
-it reports only violations it can demonstrate and misses others by design, so
-the absence of a warning is not evidence of absence.
+it reports definite violations and some unproved interval implications, but
+misses other cases by design, so the absence of a warning is not evidence of
+absence.
 
 Where it could genuinely help today is **development-time**: finding real defects
 early and producing evidence that informs a formal-methods argument, not one that

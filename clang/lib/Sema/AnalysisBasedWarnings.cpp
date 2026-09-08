@@ -2987,12 +2987,24 @@ public:
   void reportPreconditionViolated(const CallExpr *Call,
                                   const FunctionDecl *Callee,
                                   const ContractClause &Clause) override {
+    report(Call, Callee, Clause, diag::warn_contract_pre_violated);
+  }
+
+  void reportPreconditionNotGuaranteed(
+      const CallExpr *Call, const FunctionDecl *Callee,
+      const ContractClause &Clause) override {
+    report(Call, Callee, Clause, diag::warn_contract_pre_not_guaranteed);
+  }
+
+private:
+  void report(const CallExpr *Call, const FunctionDecl *Callee,
+              const ContractClause &Clause, unsigned DiagID) {
     const SourceManager &SM = S.getSourceManager();
     CharSourceRange R =
         CharSourceRange::getTokenRange(Clause.getPredicate()->getSourceRange());
     StringRef Text = Lexer::getSourceText(R, SM, S.getLangOpts());
 
-    S.Diag(Call->getBeginLoc(), diag::warn_contract_pre_violated)
+    S.Diag(Call->getBeginLoc(), DiagID)
         << (Text.empty() ? StringRef("<predicate>") : Text) << Callee
         << Call->getSourceRange();
     S.Diag(Clause.getKeywordLoc(), diag::note_contract_pre_declared)

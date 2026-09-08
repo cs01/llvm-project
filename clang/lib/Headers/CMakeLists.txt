@@ -3,6 +3,7 @@
 # to platform specific lists below.
 set(core_files
   builtins.h
+  c_contracts.h
   endian.h
   float.h
   __float_float.h
