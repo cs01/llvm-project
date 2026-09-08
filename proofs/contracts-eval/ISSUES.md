@@ -30,24 +30,40 @@ detect this at the point the user can act on it: when `-fcontract-emit-cprover-u
 emits a function contract for a function whose body (after the inlining the
 verification build will do) contains an un-annotated loop, say so.
 
-**Addendum: annotating the loop is necessary but not sufficient — split the
-passes.** A fully annotated loop still produces this crash when
-`--apply-loop-contracts` and `--enforce-contract` are given to *one*
-`goto-instrument` invocation, which is how the command in
-`RESULT-execsequence-from-grammar.md` is written. Two invocations succeed:
+**Addendum: splitting the passes helps, but only for a loop in the enforced
+function's own body.** Giving `--apply-loop-contracts` and `--enforce-contract`
+to *one* `goto-instrument` invocation — which is how the command above is
+written — crashes even when the loop is fully annotated. Two invocations
+succeed:
 
 ```sh
 goto-instrument --apply-loop-contracts f.goto f-a.goto
 goto-instrument --enforce-contract fill f-a.goto f-b.goto
 ```
 
-Measured on a `fill(int *buf, unsigned len)` whose loop carries `c_assigns`,
+Measured on a `fill(int *buf, unsigned len)` whose own loop carries `c_assigns`,
 `c_invariant` and `c_decreases`: single pass crashes, two passes report
 VERIFICATION SUCCESSFUL, and the `i <= len` variant fails on invariant
-preservation, the decreases clause, and assignability of `buf[i]`. So part of
-what reads here as "contracts are gated on loop contracts" is really "the two
-instrumentation passes do not compose in one invocation". The inlining
-transitivity above is still real and still applies to `ZSTD_execSequence`.
+preservation, the decreases clause, and assignability of `buf[i]`.
+
+**It does not rescue the `ZSTD_execSequence` shape.** Modelled as an
+`always_inline` callee carrying the loop, with the caller carrying the frame:
+
+| callee's loop | one pass | two passes |
+|---|---|---|
+| un-annotated | `Loops remain in 'outer'` | `Loops remain in 'outer'` |
+| annotated | `Loops remain in 'outer'` | `no definite size for lvalue target: inner::__in_loop_havoc_block__0` |
+
+`--apply-loop-contracts` introduces that synthetic bool in the callee, and a
+separate `--enforce-contract` then cannot size it as an assigns target
+(`instrument_spec_assigns.cpp:597`). The passes share state, which is why the
+single-invocation form exists at all.
+
+So the entry above stands for the real case. The correction is narrower than it
+first looked: what is really "the two passes do not compose" is limited to a
+self-contained loop, and everything about inlining transitivity is unaffected.
+Not re-run against zstd itself — no checkout was available — so the table is a
+minimal model of the shape, not a measurement of `ZSTD_execSequence`.
 
 ## 2. FIXED (diagnosed) -- `FORCE_INLINE` silently discards a callee's contract
 

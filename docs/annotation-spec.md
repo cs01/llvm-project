@@ -452,6 +452,13 @@ comma past macro-argument parsing so a one-argument `c_assigns` can carry a
 list. CBMC takes one `__CPROVER_assigns` per loop rather than several, so on
 this path the spelling is not optional.
 
+This covers a loop in the enforced function's own body. A loop that arrives by
+inlining from a callee is not reachable this way: un-annotated it still reports
+*Loops remain*, and annotated it fails inside the frame instrumentation on a
+symbol the loop pass introduced in the callee. That is a limit of the verifier's
+pass composition rather than of the annotations, but it is the case real decoder
+code hits most often, and nothing in this language works around it.
+
 For the front end's syntax, flags and internals, see
 [contracts-reference.md](contracts-reference.md). For the design rationale and
 the rejected alternatives, see [contracts-design.md](../contracts-design.md).
