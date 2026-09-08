@@ -88,9 +88,12 @@ the one clause under test flips it:
 |---|---|
 | `(1u << 3) * sizeof(code)` — what the doc-comment promises | 3 of 353 failed, 51 s |
 | `16 * sizeof(code)` | **0 of 353 failed**, 1340 s |
+| `64 * sizeof(code)` | **0 of 353 failed**, 832 s |
 
 The failing run is 26x cheaper than the clean one, which is the usual asymmetry:
-a counterexample needs one path, a proof needs all of them.
+a counterexample needs one path, a proof needs all of them. Note also that the
+64-entry proof is *faster* than the 16-entry one — slack removes boundary cases
+rather than adding state, so a bigger buffer is not a more expensive proof.
 
 Two things this did **not** fix, stated plainly because the first was
 mis-recorded once already:
