@@ -7956,9 +7956,9 @@ public:
   ///
   /// In C every parameter is passed by value, and a body is free to mutate its
   /// own copy (`src += 4`, `dstCap -= n` are ordinary in codec code), so a
-  /// 'post' naming a parameter is ambiguous between its entry and exit value.
-  /// Section 4 of the design resolves this by requiring 'old()'. P2900 forbids
-  /// the same thing for the same reason.
+  /// 'post' naming a parameter is ambiguous between its entry and exit value,
+  /// so it must be written as 'old()'. P2900 forbids the same thing for the
+  /// same reason.
   ExprResult CheckContractPostPredicate(Expr *Predicate);
 
   /// Checks a loop `variant` measure: a scalar that the proof requires to be
@@ -7985,7 +7985,7 @@ public:
 
   /// Builds an `old (e)` expression, which names the value \p SubExpr had at
   /// function entry. Restricted to scalars: snapshotting anything larger has
-  /// no cheap lowering, and section 2 of the design limits it accordingly.
+  /// no cheap lowering.
   ExprResult BuildContractOldExpr(SourceLocation OldLoc,
                                   SourceLocation LParenLoc,
                                   SourceLocation RParenLoc, Expr *SubExpr);

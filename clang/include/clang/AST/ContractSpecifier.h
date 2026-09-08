@@ -125,9 +125,8 @@ private:
   /// Null for every other kind.
   ///
   /// A frame condition is a *set of locations*, not a predicate, which is why
-  /// it cannot reuse Predicate: a set has no truth value and, per section 4 of
-  /// the design, cannot be disjoined either. Allocated in the ASTContext
-  /// alongside the clause array.
+  /// it cannot reuse Predicate: a set has no truth value and cannot be
+  /// disjoined. Allocated in the ASTContext alongside the clause array.
   AssignsTarget *Targets = nullptr;
   unsigned NumTargets = 0;
 

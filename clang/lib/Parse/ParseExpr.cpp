@@ -890,17 +890,17 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
   ParseIdentifier: {    // primary-expression: identifier
                         // unqualified-id: identifier
                         // constant: enumeration-constant
-      // 'old' is a contextual keyword, active only while a contract predicate
-      // is being parsed, so it stays an ordinary identifier everywhere else.
+      // 'old' and 'forall' are contextual keywords, active only while a
+      // contract predicate is being parsed, so they stay ordinary identifiers
+      // everywhere else. ParseIdentifier is also reached by goto, so the token
+      // kind is checked rather than assumed.
       if (ContractPredicateKind && Tok.is(tok::identifier) &&
-          Tok.getIdentifierInfo()->isStr("old") && NextToken().is(tok::l_paren))
-        return ParseContractOldExpr();
-
-      // 'forall' is contextual in exactly the same way.
-      if (ContractPredicateKind && Tok.is(tok::identifier) &&
-          Tok.getIdentifierInfo()->isStr("forall") &&
-          NextToken().is(tok::l_paren))
-        return ParseContractForallExpr();
+          NextToken().is(tok::l_paren)) {
+        if (Tok.getIdentifierInfo()->isStr("old"))
+          return ParseContractOldExpr();
+        if (Tok.getIdentifierInfo()->isStr("forall"))
+          return ParseContractForallExpr();
+      }
 
       // Turn a potentially qualified name into a annot_typename or
       // annot_cxxscope if it would be valid.  This handles things like x::y,
@@ -950,7 +950,7 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
                                        NotCastExpr, CorrectionBehavior,
                                        isVectorLiteral, NotPrimaryExpression);
         }
-    }
+      }
 
     // Consume the identifier so that we can see if it is followed by a '(' or
     // '.'.

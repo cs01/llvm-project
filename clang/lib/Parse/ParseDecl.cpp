@@ -7552,9 +7552,9 @@ static bool isContractClauseKeywordName(const IdentifierInfo *II,
 namespace {
 /// Warns when a macro is defined whose name hides a contract clause keyword.
 ///
-/// Section 5 of the design calls this out: a macro named 'pre' in any earlier
-/// header silently rewrites every contract that follows it, and the rewrite is
-/// invisible because the parser only ever sees the expansion.
+/// A macro named 'pre' in any earlier header silently rewrites every contract
+/// that follows it, and the rewrite is invisible because the parser only ever
+/// sees the expansion.
 class ContractKeywordMacroWarner : public PPCallbacks {
   Preprocessor &PP;
 

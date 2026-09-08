@@ -108,8 +108,7 @@ public:
     // knows about the abstract state, which the constant evaluator cannot see,
     // so it goes first; but everything it does not recognise -- enum constants,
     // casts, sizeof, `7 + 1`, `-1`, a file-scope `static const`, `0 ? 1 : 0` --
-    // is an ordinary constant expression that clang already folds. Without this
-    // the pass caught two of nine literal-argument violations.
+    // is an ordinary constant expression that clang already folds.
     if (E && !E->getType()->isPointerType() && !E->isValueDependent()) {
       Expr::EvalResult R;
       if (E->EvaluateAsInt(R, Ctx, Expr::SE_NoSideEffects) && R.Val.isInt())
@@ -511,18 +510,13 @@ void ContractChecker::run() {
 
   // Iterate the sweep to a fixpoint, then report from the converged state.
   //
-  // A single sweep was wrong, not merely imprecise. Skipping back-edge
+  // A single sweep is wrong, not merely imprecise: skipping back-edge
   // predecessors leaves a loop header holding the pre-loop state, which is
   // strictly stronger than the truth, so a fact the body kills survives to the
-  // exit edge and the pass *invents* reports:
-  //
-  //     int n = 0;
-  //     for (int i = 0; i < 10; i++) n = i + 1;
-  //     f(n);   // n is 10; the old code reported `pre (n > 0)` violated
-  //
-  // The lattice has height two -- a variable is a known value or it is not --
-  // and the merge only ever discards facts, so the iteration is monotone and
-  // converges. The bound is a backstop against a lattice change, not a real
+  // exit edge and the pass invents reports for `int n = 0; for (...) n = i + 1;
+  // f(n);`. The lattice has height two -- a variable is a known value or it is
+  // not -- and the merge only ever discards facts, so the iteration is monotone
+  // and converges. The bound is a backstop against a lattice change, not a real
   // limit.
   llvm::ReversePostOrderTraversal<CFG *> RPO(Cfg);
   auto sameState = [](const State &A, const State &B) {

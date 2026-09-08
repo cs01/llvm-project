@@ -172,10 +172,9 @@ namespace {
 ///
 /// Substitution on the printed string cannot tell `readable(p, n)` resolved to
 /// the intrinsic from one that resolved to a function the project declared
-/// itself: both print the same characters. It rewrote either, so a codebase
-/// with its own `readable` got a proof about CBMC's builtin rather than about
-/// its function, and nothing said so. Deciding from the resolved callee is the
-/// only way to get that right.
+/// itself: both print the same characters, so a codebase with its own
+/// `readable` would get a proof about CBMC's builtin instead. Deciding from
+/// the resolved callee is the only way to get that right.
 class CProverPrinter : public PrinterHelper {
 public:
   bool handledStmt(Stmt *S, raw_ostream &OS) override {
@@ -274,17 +273,13 @@ static std::string formatCProverClause(const ContractClause &Clause,
       // `buf[lo : hi]` is a half-open range of *elements*. CBMC's primitive
       // counts *bytes* from a pointer, so the conversion is this compiler's
       // job: the base advances by lo, and the extent is (hi - lo) elements
-      // scaled by the element size. Doing that multiply by hand is how a frame
-      // ends up smaller than the loop that writes it, which does not fail —
-      // it silently proves less.
+      // scaled by the element size.
       std::string Base = Print(Target.Base);
       std::string Hi = Print(Target.Upper);
 
       // Simplify aggressively. These are identities, but CBMC carries the
       // extent expression symbolically into the formula it solves, so `(p + 0)`
-      // and `* sizeof(char)` are not free: the hand-written frame this was
-      // checked against discharges in one iteration, and the unsimplified form
-      // of the same frame did not finish in fifty minutes.
+      // and `* sizeof(char)` cost solver time rather than nothing.
       llvm::APSInt LowerVal;
       bool LowerIsZero =
           !Target.Lower ||
@@ -403,10 +398,8 @@ static void forEachLoopContract(
 /// clauses stay where CBMC wants them, between the header and the body. The
 /// original `;` is left as an empty statement rather than hunted down.
 ///
-/// This is the compiler doing the transformation instead of asking the author
-/// to restructure shipping code: zstd's hot loops are `do`/`while` by
-/// convention, and proofs/zstd/UNBOUNDED.md records the hand rewrite as the
-/// first obstacle hit when annotating one.
+/// The compiler does this instead of asking the author to restructure shipping
+/// code, whose hot loops are `do`/`while` by convention.
 static void recordDoWhileRewrite(
     const DoStmt *DS, const ASTContext &Ctx,
     SmallVectorImpl<std::pair<SourceRange, std::string>> &Out) {
@@ -443,10 +436,10 @@ static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
                  << " at line " << (PL.isValid() ? PL.getLine() : 0);
 
     // goto-instrument takes loop contracts on 'while' and 'for' only; on a 'do'
-    // it rejects them outright, which proofs/zstd hit by hand. The mechanical
-    // do { B } while (C) => while (1) { B; if (!C) break; } rewrite fixes it,
-    // but this mode emits clauses rather than restructured source. Say so
-    // instead of printing clauses CBMC will refuse without explanation.
+    // it rejects them outright. The mechanical do { B } while (C) =>
+    // while (1) { B; if (!C) break; } rewrite fixes it, but this mode emits
+    // clauses rather than restructured source. Say so instead of printing
+    // clauses CBMC will refuse without explanation.
     if (isa<DoStmt>(L))
       llvm::outs() << "; needs the do => while (1) { B; if (!C) break; }"
                       " rewrite before goto-instrument accepts these";
@@ -478,16 +471,11 @@ recordCProverRewrites(const ContractSpecifier &CS, const ASTContext &Ctx,
 ///
 /// This is what makes a contract usable on a function with loops.
 /// `goto-instrument --enforce-contract` refuses unless *every* loop-shaped
-/// construct in the function already carries a contract -- including
-/// `do { } while (0)` macros and loops in branches the precondition excludes --
-/// which measured out at eleven loops for zlib's `inflate_table`, or roughly
-/// thirty-three clauses before a seven-clause contract could be checked at all.
-/// See proofs/CHECKER-GAP-loop-requirement.md.
-///
-/// A harness needs none of that: CBMC unwinds normally. And the harness is the
-/// one thing an author should never be writing by hand, because a hand-written
-/// `__CPROVER_assume` is an assumption nobody reviews. Generating it from the
-/// contract keeps the reviewable artifact in the source.
+/// construct in the function already carries a contract, `do { } while (0)`
+/// macros and loops in excluded branches included. A harness needs none of
+/// that: CBMC unwinds normally. Generating it from the contract also keeps the
+/// reviewable artifact in the source, where a hand-written
+/// `__CPROVER_assume` would be an assumption nobody reviews.
 ///
 ///   void f(char *p, size_t n) pre (fresh(p, n)) pre (n > 0 && n < 64);
 ///
