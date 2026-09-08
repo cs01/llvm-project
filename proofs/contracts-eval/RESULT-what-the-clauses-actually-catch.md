@@ -25,6 +25,51 @@ FORCE_INLINE_TEMPLATE BitContainerType BIT_lookBits(const BIT_DStream_t* bitD, U
 
 Compiled with `-fc-contracts -DNDEBUG`.
 
+## Result 0: the clause is what makes the CBMC proof go through
+
+This is the one that answers the question. Same source, same harness, same
+flags, `--enforce-contract BIT_getMiddleBits`; the only difference is whether
+the one line of grammar is present.
+
+```
+=== with  pre(nbBits < 32)
+** 0 of 2 failed (1 iterations)
+VERIFICATION SUCCESSFUL
+
+=== without pre(nbBits < 32)
+[BIT_getMiddleBits.array_bounds.1] line 321 array 'BIT_mask' upper bound
+    in BIT_mask[(signed long int)nbBits]: FAILURE
+** 1 of 2 failed (2 iterations)
+VERIFICATION FAILED
+```
+
+The clause lowers to `__CPROVER_requires`, `goto-instrument --enforce-contract`
+turns it into the assumption the body is verified under, and that assumption is
+exactly what bounds the `BIT_mask[nbBits]` index. Remove it and CBMC finds the
+out-of-bounds read that [finding 6](../zstd/EXPERIMENT-annotation-yield.md)
+describes.
+
+**So the contract is doing the work, not decorating it.** The precondition had
+to reach the prover somehow, and this is the path.
+
+The honest qualifier: a `__CPROVER_assume(nbBits < 32)` in the harness would
+produce the same verdict. What the clause buys over that is where the obligation
+*lives*. In the harness it is one experiment's assumption, invisible to the
+compiler and to the next person who writes a different harness. On the function
+it is a property of the function: every harness inherits it, `-Wcontract-violation`
+checks call sites against it, it survives `-DNDEBUG` (result 1), and a reader of
+the header can see it. That is the difference between an assumption and a spec.
+
+### Reproducing it
+
+Two toolchain notes that cost more time than the experiment. `goto-cc` cannot
+parse the arm64 SDK's `__mfp8` / `neon_vector_type` typedefs that zstd's
+`compiler.h` drags in, so preprocess with `-U__ARM_NEON -U__ARM_NEON__` and
+filter those lines -- the same class of problem as the `_Float128` note in
+[`run-wildcopy-from-grammar.sh`](../zstd/run-wildcopy-from-grammar.sh), which is
+about glibc. And the finding lives on the non-x86 path, so `-U__x86_64__` is
+required or the table lookup is compiled out entirely.
+
 ## Result 1: it catches what the release build stopped checking
 
 ```
@@ -88,7 +133,11 @@ documented bounds.
 |---|---|
 | `realloc-aliasing.py` | 7 |
 | Hand-written CBMC harnesses | 5 |
-| Contract clauses | 0 detected; 1 reproduced end to end; 1 release-build violation caught in this experiment |
+| Contract clauses | 0 detected on their own; but they are what carries a precondition into CBMC (result 0), and the only thing that survives `-DNDEBUG` (result 1) |
 
-The scanner is still ahead. But the scanner and CBMC are both available without
-this fork, and neither can express result 1 or the check named above.
+The scanner is still ahead **at finding new defects**, and that is the honest
+headline. But the comparison is not like for like: the scanner finds instances
+of a pattern already known, and cannot say anything about a function it has not
+seen the pattern in. Result 0 is the other job -- taking a function and
+establishing it is correct for every input -- and there the clause is not
+optional, it is the thing that carries the precondition to the prover.
