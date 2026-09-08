@@ -5,7 +5,12 @@ import re, sys, os
 
 # Case-insensitive: projects wrap realloc in an uppercase macro (expat's
 # REALLOC, redis's s_realloc_usable), and the wrapper is where the bugs are.
-CALL = re.compile(r'(\w[\w\->\.\[\]]*)\s*=\s*(?:\(.*?\)\s*)?(\w*realloc\w*)\s*\((.*)', re.I)
+# The reallocator is often reached through a struct field rather than named
+# directly: cJSON calls p->hooks.reallocate(...), expat's REALLOC expands to
+# parser->m_mem.realloc_fcn(...). Without the optional member prefix below this
+# reports zero calls on those trees, which reads exactly like a clean result.
+CALL = re.compile(r'(\w[\w\->\.\[\]]*)\s*=\s*(?:\(.*?\)\s*)?'
+                  r'((?:\w[\w\[\]]*\s*(?:->|\.)\s*)*\w*realloc\w*)\s*\((.*)', re.I)
 
 def args(argstr):
     """Split the call's arguments. A macro wrapper puts the pointer anywhere in
@@ -79,12 +84,16 @@ def union_siblings(lines, a, b):
                 inu = False
     return False
 
+COVERAGE = {'files': 0, 'calls': 0, 'candidates': 0, 'hits': 0}
+
 def scan(path, window=20):
+    COVERAGE['files'] += 1
     try: lines = open(path, errors='replace').read().split('\n')
     except OSError: return
     for i, ln in enumerate(lines):
         m = CALL.search(ln)
         if not m: continue
+        COVERAGE['calls'] += 1
         new, fn, rest = m.group(1), m.group(2), m.group(3)
         j = i
         while ')' not in rest and j + 1 < len(lines):
@@ -106,19 +115,31 @@ def scan(path, window=20):
             for k in range(j+1, min(j+1+window, len(lines))):
                 if fix.search(lines[k]): repair = k; break
             if repair is None: continue
+            COVERAGE['candidates'] += 1
             # Any read of the old pointer before that repair is a read of a value
             # realloc may already have deallocated.
             use = re.compile(r'(?<![\w>])' + re.escape(stem) + r'(?![\w(])')
             # Reads on the failure path are correct by realloc's contract: when
             # it returns NULL the old block is untouched and still has to be
             # freed. redis rdb.c does exactly this.
-            failguard = re.compile(r'\bif\s*\(\s*(!\s*' + re.escape(new) +
-                                   r'|' + re.escape(new) + r'\s*==\s*(NULL|0)\b)')
+            # Allocation-failure guards are not always spelled `!p`. oniguruma
+            # writes IS_NULL(p), and a wrapper macro of any name that tests for
+            # null is common. Missing one turns the failure path -- where the
+            # old block is still live and the read is correct -- into an
+            # apparent finding.
+            failguard = re.compile(r'\bif\s*\([^)]*?(?:!\s*' + re.escape(new) +
+                                   r'\b|' + re.escape(new) + r'\s*==\s*(?:NULL|0)\b'
+                                   r'|\w*(?:NULL|null|Null)\w*\s*\(\s*' + re.escape(new) + r'\s*\))')
             for k in range(j+1, repair):
                 t = lines[k]
                 if t.strip().startswith(('*','//','/*')): continue
                 if 'free' in t: continue
                 if on_failure_path(lines, failguard, j + 1, k):
+                    continue
+                # A second allocation of the same pointer is an alternative,
+                # not a read of a freed value: quickjs picks js_realloc(ctx,buf)
+                # or realloc(buf) in opposite arms of an if. Only one runs.
+                if CALL.search(t) and re.search(r'(?<![\w>])' + re.escape(stem) + r'(?![\w])', t):
                     continue
                 mu = use.search(t)
                 if not mu: continue
@@ -135,6 +156,7 @@ def scan(path, window=20):
                     oldmem = old[len(stem):].lstrip('.')
                     if not union_siblings(lines, oldmem, mem.group(1)):
                         continue
+                COVERAGE['hits'] += 1
                 if True:
                     print(f"{path}:{k+1}: reads {stem!r} after {fn}() (line {i+1}), repaired only at line {repair+1}")
                     print(f"    {i+1}: {lines[i].strip()[:96]}")
@@ -143,8 +165,25 @@ def scan(path, window=20):
                     break
             break
 
+# A detector that examined nothing prints nothing, which is indistinguishable
+# from a clean tree. It is the failure mode that makes a gate useless, and this
+# one hit it for real: ~/git/postgres is a TypeScript client with no C in it,
+# and the sweep recorded it as swept clean. So always report what was looked at.
 for root in sys.argv[1:]:
     for dirpath, dirnames, files in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in ('.git','test','tests','deps','third_party')]
         for f in files:
             if f.endswith(('.c','.h')): scan(os.path.join(dirpath,f))
+
+    c = COVERAGE
+    note = ''
+    if c['files'] == 0:
+        note = '  <-- NO C FILES: this tree was not checked'
+    elif c['calls'] == 0:
+        # Every allocator this knows about has "realloc" in the name. A codebase
+        # that renames it (postgres's repalloc, an in-house arena) reads as clean
+        # and is not. Name the wrapper and re-run before believing a zero.
+        note = '  <-- NO realloc-SHAPED CALLS: check what this tree names its reallocator'
+    print(f"[coverage] {root}: {c['files']} C files, {c['calls']} realloc-shaped calls, "
+          f"{c['candidates']} repaired-pointer sites, {c['hits']} hits{note}", file=sys.stderr)
+    for k in c: c[k] = 0

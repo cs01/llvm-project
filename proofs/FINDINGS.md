@@ -18,6 +18,11 @@ The *shapes* behind these findings, and the detectors built from them, are in
 | 3 | zlib `inflate_table` | doc says size the array `2^bits`; do that and the body **writes past it** | doc defect, proven | [`02`](repro/02-zlib-inflate-table.sh) |
 | 4 | expat `storeRawNames` | compares and subtracts a pointer `realloc` already freed | real UB (indeterminate value) | [`03`](repro/03-realloc-aliasing-scan.sh) |
 | 5 | sqlite `fts3_unicode.c` +1 more | same shape as 4 | real UB (indeterminate value) | [`03`](repro/03-realloc-aliasing-scan.sh) |
+| 8 | CPython `PyImport_ExtendInittab` | compares a pointer `realloc` freed; the guarded branch **dereferences** the stale one | real UB, worst path of the family | [finding](generalize/cpython/FINDING-import-inittab-freed-compare.md) |
+| 9 | CPython `Modules/expat/xmlparse.c` | vendored copy of finding 4: the expat defect ships in every CPython | real UB (indeterminate value) | [finding](generalize/expat/FINDING-storerawnames-freed-pointer.md) |
+| 10 | nghttp2 `nghttp2_buf_reserve` | re-bases 3 interior pointers by subtracting the base `realloc` just freed; 6 indeterminate reads in 3 lines | real UB (indeterminate value) | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |
+| 11 | libarchive `lafe_line_reader` | same idiom, two subtractions | real UB (indeterminate value) | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |
+| 12 | curl `docs/examples/log_failed_transfers.c` | same idiom; example code, so it gets copied | real UB, no direct impact | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |
 | 6 | zstd `BIT_lookBits` | documents a bound 26 wider than its callee accepts | doc defect, not reachable | [ledger](zstd/EXPERIMENT-annotation-yield.md) |
 | 7 | zstd `ZSTD_execSequence` | preconditions live in asserts that `-DNDEBUG` removes | doc defect | [finding](zstd/findings/FINDING-execsequence-implicit-preconditions.md) |
 
@@ -55,12 +60,48 @@ re-triaged if a rule ever regresses:
 | `redis src/rdb.c:2572` | inside `if (nv == NULL)` — the failure path, where the old block is still live and must be freed. Correct code |
 | `jq src/jv.c:455` | reads `values.values_num`, the integer count |
 | `sqlite src/printf.c:1233` | `p->nAlloc` is the size argument, not the pointer |
+| `jq vendor/oniguruma/src/regexec.c:1770` | inside `if (IS_NULL(new_alloc_base))` — the failure path. The guard is a *macro*, which the detector did not recognise until it was taught to; see the blind-spot table |
+| `quickjs quickjs-libc.c:470` | `p = realloc(buf,...)` is the opposite arm of `if (ctx) p = js_realloc(ctx,buf,...)`. Two alternative allocations, only one runs; not a read of a freed value |
+| `cpython Modules/_elementtree.c:515` | the `memcpy` is in the `else` branch, reached only when no `realloc` happened. The detector's window crosses the branch; it does not model control flow |
 
 The lesson generalises past this detector: **a filter that silences a finding is
 worse than the noise it removes.** Tightening these rules once eliminated every
 false positive *and* the real expat defect, because expat's guard returns and
 everything after it is the success path. Every rule here was re-checked against
 the known-real sites before it was kept.
+
+## The detector's *blind* spots, which are worse than its false positives
+
+A false positive costs a few minutes of reading. A blind spot prints nothing and
+is recorded as a clean tree. Two were found by auditing the detector rather than
+its output, and both had already put wrong entries in this file:
+
+| Blind spot | How it showed up | Fixed by |
+|---|---|---|
+| Trees with no C in them | `~/git/postgres` is a TypeScript client. It was swept and reported clean; there was nothing to sweep | the `[coverage]` line, which names files scanned and calls seen |
+| Allocation-failure guards written as macros | oniguruma writes `if (IS_NULL(p))`, not `if (!p)`. The failure path — where the old block is still live and the read is *correct* — was being reported as a finding | matching any null-testing call `\w*NULL\w*(p)` as a guard |
+| Reallocators reached through a struct field | cJSON calls `p->hooks.reallocate(...)`; expat's own `REALLOC` expands to `parser->m_mem.realloc_fcn(...)`. The regex required the name to start the callee, so it counted **zero calls in files that have them** | an optional member prefix in the call pattern |
+
+Every run now ends with, on stderr:
+
+```
+[coverage] <tree>: N C files, M realloc-shaped calls, K repaired-pointer sites, H hits
+```
+
+and says so loudly when `N` or `M` is zero. **A zero-hit sweep means nothing
+until that line says the detector examined something.** This is the gate-audit
+rule applied to our own tooling: a check that silently examines nothing reports
+success forever.
+
+## The weak tail of the realloc family
+
+Three sites read a freed pointer only to compare it against a null constant it
+cannot equal: `sqlite src/util.c:2215` (`if( pIn==0 ) pOut[1] = 2;`),
+`sqlite ext/fts5/fts5_expr.c:1780`, and their amalgamation copies. When the old
+pointer was null the call was a malloc and nothing was freed; when it was not,
+this reads an indeterminate value to answer a question whose answer is already
+known. Same class as findings 4, 5 and 8, no way to get a wrong result out of
+it, not worth a patch on its own. Recorded so they are not re-triaged as new.
 
 ## Not looked at yet
 
@@ -75,7 +116,13 @@ boundary, on sizes an attacker controls.**
   false above). Not yet annotated: refcounted values with pointer tagging are
   the interesting part and are untouched.
 - **zlib `inflate.c` `updatewindow`** — window wrapping, `put - state->wsize`.
-- **libpng, brotli, lz4** — same family as zstd, not cloned.
+- ~~**libpng, brotli, lz4**~~ — cloned and swept, all clean for this pattern.
+  libpng and brotli have no `realloc` at all (`png_malloc`/`png_free`; a pool
+  allocator). **lz4 is the interesting negative**: predicted to carry the zstd
+  idioms on authorship grounds, and it does not carry this one.
+- **libgit2, libjpeg-turbo, mbedtls, pcre2** — swept clean for this pattern
+  (see the coverage table in the [sweep-2 finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md)).
+  None has been read by hand or annotated.
 
 ## How to add to this
 
