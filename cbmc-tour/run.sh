@@ -83,7 +83,34 @@ echo "--- plain BMC on the same code: the bound is the limit ---"
 cbmc "$WORK/07c.goto" --unwind 5 --unwinding-assertions 2>&1 |
   grep -E 'main.assertion|unwind\.|^\*\* [0-9]+ of|VERIFICATION'
 
-hdr "10. Driving CBMC programmatically via --json-ui (README 10a)"
+hdr "10. GOTO is a real program, not a formula (README 3c)"
+echo "--- a goto binary round-trips back to compilable C ---"
+goto-cc -o "$WORK/08.goto" $EX/08_hybrid.c
+goto-instrument --dump-c "$WORK/08.goto" "$WORK/roundtrip.c" >/dev/null 2>&1
+gcc -o "$WORK/roundtrip" "$WORK/roundtrip.c" && "$WORK/roundtrip"
+
+echo "--- goto-gcc makes one file that BOTH runs and verifies ---"
+goto-gcc -o "$WORK/hybrid" $EX/08_hybrid.c 2>/dev/null
+file "$WORK/hybrid" | cut -d: -f2 | cut -c1-60
+"$WORK/hybrid"
+cbmc "$WORK/hybrid" --unsigned-overflow-check 2>&1 | grep -E 'overflow|VERIFICATION'
+readelf -S "$WORK/hybrid" 2>/dev/null | grep goto
+
+echo "--- and goto programs can be concretely executed ---"
+goto-cc -o "$WORK/09.goto" $EX/09_interpreter.c
+printf 'se\nq\n' | goto-instrument --interpreter "$WORK/09.goto" 2>&1 |
+  grep 'assigning main::1::s' | head -6
+
+hdr "11. Where it stops being a program: the CNF (README 3d)"
+cbmc $EX/10_cnf.c --dimacs --outfile "$WORK/add8.cnf" >/dev/null 2>&1
+printf '\n$ head -1 add8.cnf   # two unsigned chars, one addition\n'
+head -1 "$WORK/add8.cnf"
+echo "--- one C variable = 8 SAT literals ---"
+grep '^c main::1::b' "$WORK/add8.cnf" | head -2
+echo "--- the first clauses are a full adder ---"
+sed -n '2,6p' "$WORK/add8.cnf"
+
+hdr "12. Driving CBMC programmatically via --json-ui (README 10a)"
 python3 api/drive_json.py $EX/02_harness.c
 
 echo

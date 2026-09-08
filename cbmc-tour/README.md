@@ -191,6 +191,119 @@ Related switches: `--program-only` (the whole equation, including the CPROVER
 library preamble), `--show-goto-functions`, `--show-symbol-table`,
 `--smt2 --outfile x.smt2` (dump SMT-LIB instead of solving).
 
+### 3c. GOTO is a real program, not a formula
+
+It is tempting to read "intermediate representation for a solver" as "not really
+executable". GOTO is the opposite: it is an ordinary imperative program with
+ordinary semantics, and three separate facilities prove it.
+
+**It round-trips back to C.** `--dump-c` reconstructs compilable source from a
+goto binary:
+
+```
+$ goto-cc -o exec.goto exec.c
+$ goto-instrument --dump-c exec.goto roundtrip.c
+$ gcc -o roundtrip roundtrip.c && ./roundtrip
+mid(10,20) = 15
+```
+
+**It can live inside a real executable.** `goto-gcc` produces a *hybrid* binary:
+a working ELF with the goto program carried in an extra section.
+
+```
+$ goto-gcc -o hybrid exec.c
+$ file hybrid
+hybrid: ELF 64-bit LSB pie executable, x86-64, dynamically linked, ...
+$ ./hybrid                       # the OS runs it
+mid(10,20) = 15
+$ cbmc hybrid --unsigned-overflow-check    # cbmc verifies the same file
+[mid.overflow.1] line 2 arithmetic overflow on unsigned - in hi - lo: SUCCESS
+VERIFICATION SUCCESSFUL
+$ readelf -S hybrid | grep goto
+  [28] goto-cc           PROGBITS  ...
+```
+
+That is one file that both runs and verifies — which is the whole point of
+`make CC=goto-gcc`: your build still produces a working program.
+
+**There is an interpreter.** `goto-instrument --interpreter` concretely executes
+goto programs, with stepping (`s#`, `sa`, `so`, `se`), a memory dump (`m`) and
+JSON trace output (`j`):
+
+```
+$ printf 'se\nm\nq\n' | goto-instrument --interpreter interp.goto
+        ASSIGN main::1::s := 0
+13 ** assigning main::1::s[0]:=0
+        ASSIGN main::1::s := main::1::s + main::1::1::i * main::1::1::i
+17 ** assigning main::1::s[0]:=1
+21 ** assigning main::1::s[0]:=5
+25 ** assigning main::1::s[0]:=14
+29 ** assigning main::1::s[0]:=30
+33 ** assigning main::1::s[0]:=55
+```
+
+That is 1, 1+4, 1+4+9, ... — it really ran the loop.
+
+So the right mental model for GOTO is *three-address code with `assume` and
+`assert` as first-class instructions* — a compiler IR that happens to have
+verification primitives, not a logic encoding.
+
+### 3d. Where it stops being a program
+
+The transition to "just logic" happens one stage later, and it happens twice.
+
+**Symbolic execution kills control flow.** The `symex_target_equationt` of §3b
+has no loops and no branches — loops were unrolled away, branches became guard
+variables, and the merge points became `ite` selects. What is left is a
+*conjunction of constraints*. There is no notion of "next instruction" any more,
+and no order: it is a set of simultaneous equations.
+
+**Bit-blasting kills arithmetic.** `boolbvt` then flattens every bit-vector into
+individual boolean variables and every operator into a circuit. Dump it and you
+can read the mapping directly:
+
+```
+$ cbmc cnf.c --dimacs --outfile add8.cnf     # two unsigned chars, one addition
+$ head -1 add8.cnf
+p cnf 161 115
+$ grep '^c ' add8.cnf | head -2
+c main::1::b!0@1#2  33 34 35 36 37 38 39 40         ← one variable = 8 SAT literals
+c main::$tmp::return_value_nondet_uchar!0@1#1  73 74 ... 104
+$ sed -n '2,5p' add8.cnf
+1 -145 0
+33 -145 0
+-1 -33 145 0
+-1 -33 -146 0
+```
+
+Those clauses are a full adder. `main::1::b` is not a variable holding a number,
+it is *bits 33 through 40*.
+
+And because it is a circuit, the cost follows hardware, not software, intuition:
+
+| Operation | CNF vars | clauses |
+|---|---|---|
+| 8-bit add | 161 | 115 |
+| 16-bit add | 193 | 235 |
+| 32-bit add | 257 | 475 |
+| 8-bit multiply | 237 | 461 |
+| 16-bit multiply | 537 | 2 001 |
+| 32-bit multiply | 1 713 | 8 345 |
+| 32-bit divide | 2 438 | 11 264 |
+
+Addition is linear in the width (a ripple-carry adder, ~15 clauses per bit).
+Multiplication is quadratic — it is an array multiplier, partial products and
+all. Division is worse still.
+
+This is literally logic synthesis, and two practical consequences fall out of
+it. It is why CBMC came out of hardware verification in the first place (§14) —
+the backend *is* a circuit comparator. And it is why nonlinear integer
+arithmetic is where CBMC dies: the `isqrt` example with `r * r <= n` in its
+contract did not finish in 150 seconds, not because the property was hard but
+because two 32-bit multipliers per unrolling is a lot of gates. When that
+happens, reach for `--refine` (CEGAR over the arithmetic) or an SMT backend that
+reasons about integers instead of wires.
+
 ---
 
 ## 4. The modelling API (what you write in C)
@@ -793,7 +906,10 @@ cbmc-tour/
 │   ├── 06_contract.c                advanced: is_fresh + pointer loop invariant
 │   ├── 07_contract.c                requires/ensures, enforce and replace
 │   ├── 07b_contract_violated.c      body that breaks its own ensures
-│   └── 07c_unbounded_loop.c         contract replacement beats the bound
+│   ├── 07c_unbounded_loop.c         contract replacement beats the bound
+│   ├── 08_hybrid.c                  goto-gcc hybrid executable (runs AND verifies)
+│   ├── 09_interpreter.c             concrete execution of a goto program
+│   └── 10_cnf.c                     minimal program for reading the DIMACS output
 ├── api/
 │   ├── drive_json.py                driving cbmc via --json-ui (runnable)
 │   ├── example.cpp                  libcprover-cpp embedding (needs a source build)
