@@ -82,8 +82,9 @@ $ cbmc examples/01_first.c --signed-overflow-check
 ## 3. The pipeline
 
 ```
-   .c / .cpp / .go / .jimple
-            │   ansi-c / cpp / jsil front end   (parse, typecheck)
+   .c / .cpp / PLC Statement List / JSON symbol table
+            │   ansi-c / cpp / statement-list / json-symtab front end
+            │                                   (parse, typecheck)
             ▼
       symbol table                          symbolt: name, type, value
             │   goto-conversion
@@ -799,7 +800,91 @@ cbmc-tour/
     └── CMakeLists.txt               how to link example.cpp against CBMC
 ```
 
-## 14. Where to go next
+## 14. Where this came from, and who else speaks GOTO
+
+### The lineage
+
+**Model checking** (Clarke & Emerson 1981; Queille & Sifakis 1982 — Turing Award
+2007) explored a system's state space exhaustively. **Symbolic model checking**
+(McMillan, 1992) represented state sets as BDDs instead of enumerating them, and
+that carried hardware verification for a decade — until BDD capacity plateaued
+in the mid-90s while SAT solvers were getting dramatically better.
+
+**Bounded model checking** is the response: Biere, Cimatti, Clarke and Zhu,
+*Symbolic Model Checking without BDDs* (TACAS 1999). Unroll the transition
+relation `k` times, conjoin the negated property, hand it to SAT. You give up
+completeness — you only see `k` steps — and in exchange you get counterexamples
+fast and no BDD blow-up. Biere's CAV 2018 award talk tells the story: Clarke
+hired Biere and Zhu as postdocs at CMU specifically because Stålmarck's method
+was succeeding industrially where BDDs were stalling.
+
+**CBMC** is that idea moved from circuits to C. Daniel Kroening was Clarke's
+postdoc at CMU, and the first application was hardware/software *equivalence* —
+Kroening, Clarke & Yorav, *Behavioral Consistency of C and Verilog Programs
+Using Bounded Model Checking* (DAC 2003) — checking that a C reference model and
+its Verilog implementation agree. The general-purpose tool followed: Clarke,
+Kroening & Lerda, *A Tool for Checking ANSI-C Programs* (TACAS 2004). That
+heritage is why CBMC is bit-precise: it was built to compare against RTL, where
+a 32-bit `int` really is 32 wires.
+
+Kroening (later Oxford; co-founded Diffblue in 2016 with Peter Schrammel; now at
+AWS) also wrote JBMC for Java and EBMC for SystemVerilog on the same core.
+Kroening and Schrammel received the Rance Cleaveland Test-of-Time Tool Award at
+ETAPS 2025 for CBMC.
+
+### Success stories
+
+- **AWS `aws-c-common`.** Memory-safety unit proofs for the core C99 library
+  behind the AWS SDKs: 171 unit proofs, built by 3 engineers over 24 weeks, and
+  since then re-run on every pull request. Written up in Chong et al.,
+  *Code-Level Model Checking in the Software Development Workflow*
+  (ICSE-SEIP 2020) — the paper that made "unit proof" a normal phrase.
+- **FreeRTOS.** CBMC proofs live in-tree (`tools/cbmc/`, later per-library
+  `test/cbmc/`) for the TCP/IP stack, coreMQTT, the JSON parser and the IoT
+  Device Shadow library, checked in CI alongside the unit tests.
+- **Kani and the Rust standard library.** Kani (AWS) compiles Rust MIR to GOTO
+  and runs CBMC underneath. The `verify-rust-std` effort has produced ~16.7k
+  automatic proof harnesses, ~12k of them verified against Kani's supported
+  classes of undefined behaviour, plus ~989 contract-verified proofs, with 450+
+  PRs from external contributors.
+- **SV-COMP.** CBMC has competed in the annual software verification
+  competition for well over a decade; it is the standing baseline that
+  newer bounded model checkers are measured against.
+
+The honest shape of the story: CBMC's wins are mostly *unit proofs of
+memory-safety-critical C libraries wired into CI*, not whole-program
+verification. That is the workflow the tooling is built around.
+
+### Other tools that target GOTO
+
+The GOTO IR long outgrew CBMC, and `symtab2gb` exists precisely so external
+front ends can feed it (it compiles a JSON symbol table into a goto binary).
+
+| Producer / consumer | Language in | Notes |
+|---|---|---|
+| **CBMC** | C, C++, PLC Statement List, JSON symtab | The reference implementation. `src/` has `ansi-c`, `cpp`, `statement-list`, `json-symtab-language`. |
+| **JBMC** | Java bytecode | Same core, own repo. `janalyzer`, `jdiff` mirror the C tools. |
+| **EBMC** | SystemVerilog / Verilog | Hardware side of the family. |
+| **Kani** | Rust (via MIR) | AWS. Emits GOTO directly now; it used to go through `symtab2gb`'s JSON, which turned out to be the pipeline bottleneck. |
+| **ESBMC** | C, C++, CUDA, Solidity, Python | Forked from CBMC's front end, then diverged: SMT-based encoding, k-induction, incremental SMT. All its front ends still produce GOTO programs. |
+| **2LS** | C | CPROVER framework, but abstract interpretation + k-induction over the same GOTO IR rather than plain BMC. |
+| **goto-transcoder** | GOTO → GOTO | Converts CBMC-format goto binaries into ESBMC's format, so a Kani-produced GOTO program can be checked by a different engine entirely. |
+
+That last row is the interesting one: GOTO has become an *interchange format*
+between verification tools, which is not a role most compiler IRs ever get. It
+has also been given a formal semantics in its own right (a Manchester PhD
+thesis), which is the usual sign an IR has stopped being an implementation
+detail.
+
+Two things it is *not*: it is unrelated to LLVM IR (no SSA, no types-as-values,
+no optimiser), and unrelated to Java's Jimple. The closest description is
+"three-address code with `assume`/`assert` as first-class instructions" — which
+is exactly what you want if your consumer is a solver rather than a code
+generator.
+
+---
+
+## 15. Where to go next
 
 - CBMC manual: <https://www.cprover.org/cprover-manual/>
 - Source and Doxygen: <https://github.com/diffblue/cbmc>,
