@@ -1,27 +1,40 @@
-# Contracts for C in clang
+# Contracts for C in Clang
 
-This branch makes contracts a first-class feature of clang. You write what a
-function requires and what it guarantees into its declaration; the compiler then
-holds every caller in the codebase to it, however large that codebase is, and a
-formal verifier can prove the function itself honours it for every possible
-input. None of it depends on a convention being followed or a reviewer noticing.
+This branch makes Contracts a first-class feature of clang for C.
 
-The gap it fills shows up in any C prototype. A declaration can say that
-`allocate` takes an `unsigned long` and returns an `int *`; it has no way to add
-that the argument must be non-zero, or that the result is never null.
-Constraints like those end up in a doc comment, which nothing checks, or in an
-`assert`, which fires at run time on whatever inputs you happened to run — after
-the wrong call has already been made.
+* A new Contract syntax for C
+* Expressiveness and ergonomics of contracts and Clang warnings
+* Guarantees of a battle-tested formal verification tool, CBMC, to mathematically guarantee your code matches your contract
 
-A contract states them where the compiler can act on them:
+## What are Contracts?
+
+Contracts let you annotate your code with attributes or properties you want to
+guarantee that it holds. For example, you can guarantee that:
+
+* a function accepts only values within a certain range (`pre`)
+* a function returns only values within a certain range (`post`)
+* a function modifies nothing except a specific buffer you expect to be modified (`assigns`)
+* a while loop always terminates (`decreases`)
+
+A formal verifier can *mathematically prove* the code holds these properties for
+every possible input.
+
+## Simple Example
+
+Let's say you have a memory allocator that accepts bytes to allocate.
+Generally, one might put an `assert(n > 0)` at the top of the
+function since we'd always expect a positive number of bytes to allocate.
+
+This requires a.) someone to write the assert, and b.) someone to run the code to find the error.
+
+Instead, we can define a *precondition*:
 
 ```c
 int *allocate(unsigned long n)
-  pre (n > 0);
+  pre (n > 0);  /* this is the new contract syntax introduced in this branch */
 ```
 
-Under `-fc-contracts`, a caller that gets it wrong a thousand files away is an
-ordinary warning on an ordinary build:
+Now if you call `allocate(0)`, you will get a compile warning about the contract violation:
 
 ```
 demo.c:6:12: warning: precondition n > 0 of 'allocate' is violated by this call [-Wcontract-violation]
@@ -32,17 +45,61 @@ demo.c:2:3: note: precondition declared here
       |   ^~~~~~~~~~~~
 ```
 
-Nothing is needed at the call site, and nothing beyond the compiler: no harness,
-no separate tool. The proving step is [CBMC](https://github.com/diffblue/cbmc),
-a formal verifier for C that is already used in production — AWS runs it in CI
-on s2n-tls and aws-c-common, FreeRTOS's TCP/IP stack is verified with it, and
-Kani, the Rust verifier, is built on it.
+Note that we didn't need to add an assertion, and we got the warning at compile-time, not runtime.
 
-> A branch of [cs01/llvm-project](https://github.com/cs01/llvm-project). The
-> fork's other line of work, flow-sensitive nullability, is independent and lives
-> on [`nullsafe-clang-dev`](https://github.com/cs01/llvm-project/tree/nullsafe-clang-dev).
+## Why would you want to use Contracts?
+
+In short: Contracts let you write and guarantee code correctness and absence of bugs.
+
+Contracts are used for Formal Verification, to mathematically prove properties
+of a program.
+
+Formal Verification has traditionally been somewhat niche since it takes more effort to
+annotate and run provers on code. In the past, only safety- and
+security-critical code would even consider doing formal verification. For example, medical, aerospace,
+nuclear, etc. applications.
+
+But now, with AI, it is not nearly as difficult to generate tedious code like contracts.
+
+And with the sheer volume and speed of AI code generation, code correctness is more
+difficult to prove than ever. Thus, to many developers, having
+strong guarantees that contracts provide are more useful than ever.
+
+Unit tests work for the cases you test. Contracts and formal verification work for *all possible inputs* and provide stronger guarantees than unit tests.
+
+## How does it work?
+
+1. Clang parses the new contract annotations as first-class citizens. The Contract is part of the AST.
+2. Clang verifies the syntax and semantics of the contract. Clang will warn you of any obvious contract violations such as passing literals that violate the contract.
+3. Clang transpiles the code and its contracts to C Bounded Model Checker ([CBMC](https://github.com/diffblue/cbmc)), a formal verifier for C
+4. CBMC formally verifies the code with your contracts. This is a deep verification, over every possible input rather than the ones you thought to test.
+
+CBMC is used in several large scale applications, including
+* AWS, on s2n-tls and aws-c-common
+* FreeRTOS's TCP/IP stack
+* Kani, the Rust verifier, which is built on top of CBMC
+
+Three checkers read the same contract, each catching what the one before it let
+through: the **front end** (is the contract well formed?), the **call-site
+pass** (does any caller break it?), and **CBMC** (is it true for every input?).
+All three work today; the walkthrough with real diagnostics is in
+[the reference](docs/contracts-reference.md#the-three-levels-in-detail).
+
+| The bug | Level 1<br>front end | Level 2<br>call-site | Level 3<br>CBMC |
+|---|:---:|:---:|:---:|
+| **Contract:** `post` names a mutated parameter without `old()` | **caught** | *n/a* | *n/a* |
+| **Contract:** predicate calls an impure function | **caught** | *n/a* | *n/a* |
+| **Code:** `put(b, 8, 8, 1)` — `len` and `i` are both 8, breaking `i < len` | missed | **caught** | caught |
+| **Code:** `put(b, n, k, 1)` — the same bug, but `len` and `i` are variables | missed | missed | **caught** |
+| **Code:** off-by-one in the callee's own loop | missed | missed | **caught** |
+| **Code:** violation only on a loop's second iteration | missed | missed | **caught** |
+| **Contract: well formed, and says the wrong thing** | missed | missed | **missed** |
+
 
 ## Installation
+Install dependencies, [CBMC](https://github.com/diffblue/cbmc) 6.x, with
+`goto-cc` and `goto-instrument`. Ubuntu ships 5.95, whose loop-contract handling
+differs, so take a release `.deb` from the CBMC repository instead.
 
 Build clang from this branch:
 
@@ -55,25 +112,6 @@ cmake -G Ninja -S llvm -B build \
   -DLLVM_OPTIMIZED_TABLEGEN=ON
 ninja -C build clang
 ```
-
-Proving anything also needs [CBMC](https://github.com/diffblue/cbmc) 6.x, with
-`goto-cc` and `goto-instrument`. Ubuntu ships 5.95, whose loop-contract handling
-differs, so take a release `.deb` from the CBMC repository instead.
-
-CBMC is three tools used in sequence, and both of the others come up below:
-
-- **`goto-cc`** stands in for the C compiler. It is command-line compatible with
-  `gcc`, but instead of an object file it emits a *goto program*: the same code
-  with every loop, `break` and `switch` lowered to conditional gotos, so the
-  verifier has one control-flow construct to reason about rather than a dozen.
-- **`goto-instrument`** rewrites that goto program — this is the step that turns
-  a contract into something to prove, by asserting a precondition, havocking
-  what a frame permits, or replacing a call with the callee's contract.
-- **`cbmc`** does the proving.
-
-`goto-cc` is an ordinary C front end and has never heard of `pre` or `assigns`,
-which is what `-fcontract-emit-cprover-unit` below is for: it hands `goto-cc` a
-translation unit in the `__CPROVER_*` spelling it does understand.
 
 ## Usage
 
@@ -88,35 +126,35 @@ translation unit in the `__CPROVER_*` spelling it does understand.
 `__has_feature(c_contracts)` is true under the flag, so a header can carry
 contracts and still compile with a stock clang.
 
-To see everything the extension does, end to end:
+To run some examples, build clang, then try:
 
 ```sh
 CLANG=build/bin/clang ./contracts-example/run.sh
 ```
 
-That runs the examples below, plus
-[`mistakes.c`](contracts-example/mistakes.c), which numbers every rule the front
-end enforces, and the PCH round-trip.
-
-`-fc-contracts` is C only, and rejects a C++ input rather than silently
-ignoring the flag:
-
-```
-error: invalid argument '-fc-contracts' not allowed with 'C++'
-```
-
-`pre` and `post` are contextual keywords in the trailing position of a function
-declarator, which in C++20 is where a `requires`-clause goes — so accepting the
-flag there would change what valid C++ means rather than extend it. A C++
-dialect has to align with P2900, which is why the keywords are already spelled
-its way.
-
 ## Writing contracts
 
-### Preconditions and postconditions
+A clause holds a *predicate*: an ordinary C expression, with the function's
+parameters in scope, that has to be free of side effects. A call inside one is
+allowed only if the callee is marked `const` or `pure`; the compiler rejects the
+rest.
 
-A `pre` is a condition the caller has to satisfy before calling. A `post` is
-what the function guarantees when it returns:
+### `pre`: what the caller must guarantee
+
+A `pre` is a condition the caller has to satisfy before the call:
+
+```c
+int *allocate(unsigned long n)
+  pre (n > 0);
+```
+
+`allocate(0)` is now a mistake the compiler can name, rather than whatever the
+body happens to do with it.
+
+### `post`: what the function guarantees
+
+A `post` is what holds when the function returns. `r:` names the return value,
+for that one clause:
 
 ```c
 int *allocate(unsigned long n)
@@ -124,74 +162,209 @@ int *allocate(unsigned long n)
   post (r: r != 0);
 ```
 
-`r:` names the return value for this clause only. A caller that checks the
-result for null is now re-checking something the callee already promised, and one
-that skips the check is relying on the contract rather than guessing.
+A caller that checks the result for null is now re-checking something the callee
+already promised, and one that skips the check is relying on the contract rather
+than guessing.
 
-### Pointers and buffers
-
-Almost every C function worth specifying takes a pointer and a length, and what
-you need to say about them cannot be written in C itself:
+`old(e)` is the value `e` had when the function was entered, and is legal only
+inside a `post`. You need it because a function is free to modify its own
+parameter copies, so by the time it returns, a bare `n` may no longer be the
+`n` the caller passed:
 
 ```c
-size_t decode(void *dst, size_t dstCap, const void *src, size_t srcSize)
-  pre  (readable(src, srcSize))
-  pre  (writable(dst, dstCap))
-  post (r: r <= old(dstCap) || is_error(r));
+size_t drain(char *buf, size_t n)
+  post (r: r <= old(n));
 ```
 
-`readable(p, n)` and `writable(p, n)` say the pointer is good for that many
-bytes. `old(dstCap)` is the value at entry — required for a by-value parameter,
-because C lets the body reassign it and the reader cannot tell which one you
-meant.
+### `readable`: a buffer the function may read
 
-There is a third one, `fresh`, and it is worth meeting early, because it and
-`readable` both read as "this pointer is good for n bytes" while meaning
-different things — and picking the wrong one decides whether a bug is found.
-
-`readable(p, n)` is a *lower bound on the size of the object*: n bytes are
-readable, and there may be more. Since it says nothing about the size above n, a
-read at `p[n + 3]` verifies clean.
-
-`fresh(p, n)` pins the size instead — a distinct object of exactly n bytes — so
-the same read fails, because there is provably nothing there.
-
-Proving a function safe usually wants `fresh`, since that is what catches the
-function's own over-reads. A contract written for its callers usually wants
-`readable`, since demanding an exact size asks for more than you mean.
-
-### Frame conditions
-
-A prover cannot verify a caller without knowing what a callee leaves alone, so
-a frame condition is the clause that makes everything else composable:
+Almost every interesting, and dangerous, C function takes a pointer and a
+length. `readable(p, n)` says the caller must hand over `n` bytes at `p` that
+are safe to read:
 
 ```c
-size_t decode(void *dst, size_t dstCap, const void *src, size_t srcSize)
+unsigned hash(const void *src, size_t srcSize)
+  pre (readable(src, srcSize));
+```
+
+Pass a shorter buffer than you claimed and the mistake is in the contract, at
+the call, instead of in whatever `hash` reads off the end.
+
+### `writable`: a buffer the function may write
+
+`writable(p, n)` is the same promise for writing, `n` bytes at `p` the function
+is allowed to store into:
+
+```c
+size_t decode(void *dst, size_t dstSize, const void *src, size_t srcSize)
+  pre (readable(src, srcSize))
+  pre (writable(dst, dstSize));
+```
+
+It says the write would be *legal*, not that it happens. What actually changes
+is `assigns`, below.
+
+### `forall`: every element of a range
+
+The clauses so far can name a scalar, a member, or a slice. None of them can say
+something about *every* element of a buffer, which is most of what you want to
+know about one:
+
+```c
+int all_zero(const char *p, size_t n)
+  pre (readable(p, n))
+  pre (forall (i : 0, n) p[i] == 0);
+```
+
+Read the second clause as: for every `i` starting at 0 and stopping before `n`,
+`p[i]` is zero. The upper bound is where it stops, not the last value it takes,
+so the number you write is the one already in your loop header. `i` takes its
+type from the bounds.
+
+`forall` goes inside a predicate, so it works in a `pre` or a `post`, and it can
+call the buffer predicates. This says every live slot of a ring buffer holds a
+readable entry, which nothing in the C source could otherwise state:
+
+```c
+struct entry *ring_get(struct ring *r, size_t idx)
+  pre (idx < r->len)
+  pre (forall (i : 0, r->len)
+         readable(r->buffer[(r->first + i) & r->mask], sizeof(struct entry)));
+```
+
+Like the rest, `forall` is contextual: `int forall = 3;` still compiles.
+
+### `assigns`: what a function leaves alone
+
+`pre` and `post` say what a function needs and what it produces. Neither says
+what it leaves *alone*, and a caller needs to know that. For example:
+
+```c
+int flag = 1;
+decode(dst, dstSize, src, srcSize);
+// is flag still 1?
+```
+
+With only `pre` and `post`, nobody can say. A checker has to assume `decode` may
+have written to every object it could reach: `flag`, every global, everything
+reachable through the pointers it was handed. So every fact the caller had
+established before the call is thrown away, and the only way to recover it is to
+go read the body of `decode`. That is exactly what a contract should spare you.
+
+The `assigns` clause is the fix. It lists the only locations the function is
+*allowed* to write:
+
+```c
+size_t decode(void *dst, size_t dstSize, const void *src, size_t srcSize)
   pre     (readable(src, srcSize))
-  pre     (writable(dst, dstCap))
-  assigns (((char *)dst)[0 : dstCap])
-  post    (r: r <= old(dstCap) || is_error(r));
+  pre     (writable(dst, dstSize))
+  assigns (((char *)dst)[0 : dstSize]);
 ```
 
-`buf[0 : n]` is a half-open range of *elements*; the compiler does the `sizeof`
-multiply. Anything not named is guaranteed untouched — which is what lets a
-proof about a caller use this contract instead of the function body.
+Read that as: this may write those bytes of `dst`, and nothing else in the
+program changes. `flag` is not on the list, so `flag` is still 1. The guarantee
+comes from what is *absent* from the list, not from what is on it. (Verification
+papers and the ACSL and CBMC manuals call this a *frame condition*, and the
+listed locations the function's *frame*. Same idea, older name.)
 
-This needs its own clause because a `post` cannot say it. "Nothing else changed"
-would have to name every global and every object reachable through every
-pointer, and say each one still equals its entry value. `assigns ()` — the empty
-frame, modifying nothing — is the strongest one you can write, not an error.
+The body of `decode` still gets checked, just separately, and that separation is
+the point. There are two jobs. Verifying `decode` checks its body against its
+own contract, once: it really does write nothing outside that range. Verifying a
+*caller* then uses only the contract, and never opens the body. So two hundred
+call sites cost two hundred checks against four lines of contract, not two
+hundred re-analyses of `decode`, and a caller can be checked when all you have
+is the header.
 
-The hazard is that a frame which is too *small* does not fail. It quietly proves
-less: name half the buffer a function writes and the verifier will happily
-discharge a weaker theorem than the one you meant. This is why a range is
-counted in elements and the `sizeof` multiply is the compiler's job.
+In a range, the second number is where it stops, not the last element covered:
 
-### Loops
+```c
+void clear3(int *buf)
+  assigns (buf[0 : 3]);   // buf[0], buf[1], buf[2]. Not buf[3].
+```
 
-A bounded checker unrolls a loop to some `--unwind N` and tells you the code is
-right up to N. An invariant and a termination measure replace the bound with
-induction, and the result holds for every length:
+Same convention as `for (i = 0; i < 3; i++)`, so the number you write is the one
+already in your loop header. It counts elements, not bytes: on an `int *` that
+range is three ints, twelve bytes, and doing the `sizeof` multiply CBMC wants is
+the compiler's job, not yours.
+
+An empty list, `assigns ()`, is legal, and says the function writes nothing at
+all. It is the strongest thing you can claim, not a syntax error.
+
+Note that `assigns` grants permission, it does not impose an obligation. A
+function may write less than its list allows. All of the force is in what the
+list leaves out.
+
+Which is why the direction of a mistake matters. Listing too *much* is merely
+weak: it is still true, callers just learn less than they could. Listing too
+*little* is a false statement about the function. Nothing in the front end can
+catch it, because at a call site the front end sees only the declaration; it is
+caught when the verifier checks the body, which is the first of the two jobs
+above. Skip that job and name half the buffer `decode` actually fills, and every
+caller gets checked against a promise that does not hold.
+
+#### `writable` is not `assigns`
+
+They look alike, but they are asked of different parties. `writable` is an
+obligation on the caller, and says nothing about whether the function writes a
+byte of that memory. `assigns` is a promise by the callee.
+
+| | who owes it | question it answers |
+|---|---|---|
+| `pre (writable(dst, n))` | caller | may it legally write here? |
+| `assigns (dst[0 : n])`   | callee | what could have changed? |
+
+Each can cover ground the other does not:
+
+```c
+// The caller must own the whole buffer, but only the first 8 bytes change.
+// 'writable' covers n; 'assigns' covers 8. A caller keeps everything it knew
+// about bytes 8 through n.
+void set_header(void *buf, size_t n)
+  pre     (writable(buf, n))
+  assigns (((char *)buf)[0 : 8]);
+
+// And the other way: a global, which no 'writable' could mention.
+void bump_counter(void)
+  assigns (g_count);
+```
+
+Where they do meet: anything written through a pointer parameter needs both, an
+`assigns` entry so callers know it changed, and a `writable` precondition so the
+write is legal in the first place. A global needs only the `assigns`, since
+static storage is always there.
+
+`writable` is permission to touch, `assigns` is a bound on what was touched.
+
+### `loop_invariant`: what stays true every time around
+
+A verifier handles a loop by unwinding it a fixed number of times, `--unwind N`,
+which proves the loop correct up to `N` iterations and says nothing past that.
+
+An invariant replaces that bound with induction. Show it holds on entry, and
+that one arbitrary iteration preserves it, and it holds on every iteration, for
+any `N`:
+
+```c
+void zero(int *buf, unsigned len) {
+  unsigned i = 0;
+  while (i < len)
+    assigns        (i, buf[0 : len])
+    loop_invariant (i <= len)
+  {
+    buf[i] = 0;
+    i++;
+  }
+}
+```
+
+A loop declares what it assigns just as a function does, and for the same
+reason: everything outside that list is unchanged by the loop.
+
+### `decreases`: why the loop ends
+
+An invariant proves the loop is right *if* it finishes. `decreases` is what
+proves it finishes: an expression that strictly drops on every iteration and
+never goes negative, so it cannot drop forever.
 
 ```c
 void zero(int *buf, unsigned len) {
@@ -200,22 +373,18 @@ void zero(int *buf, unsigned len) {
     assigns        (i, buf[0 : len])
     loop_invariant (i <= len)
     decreases      (len - i)
-  { buf[i] = 0; i++; }
+  {
+    buf[i] = 0;
+    i++;
+  }
 }
 ```
 
-That is the difference between "tested harder than fuzzing" and "proved".
-
-The loop needs a frame of its own for the same reason a function does: applying
-an invariant means havocking whatever the loop writes and re-establishing the
-invariant on top, so the prover has to be told what that is. Here it is the
-counter and the buffer range.
+Here `len - i` shrinks by one each time around and stops at zero.
 
 ### Keyword reference
 
-There are six keywords. The full syntax and semantics, along with the four rules
-that bite in practice — braced loop bodies, pure predicates, no restating a
-contract on a redeclaration, and macro shadowing — are in
+There are seven keywords. The full syntax and semantics are available in
 **[docs/contracts-reference.md](docs/contracts-reference.md)**.
 
 | Keyword | Goes | Says |
@@ -225,13 +394,12 @@ contract on a redeclaration, and macro shadowing — are in
 | `old` | only inside a `post` | the value an expression had **on entry** |
 | `loop_invariant` | between a loop's header and its body | true on entry and **preserved by every iteration** |
 | `decreases` | between a loop's header and its body | **strictly decreases**, never negative — so the loop terminates |
-| `assigns` | after a function's parameter list | the **only** locations the function may modify |
+| `assigns` | after a function's parameter list, or in a loop header | the **only** locations the function may modify |
+| `forall` | inside any predicate | `forall (i : lo, hi) P` holds `P` for every `i` from `lo` up to, but not including, `hi` |
 
-`assigns` takes a comma-separated list of locations rather than a predicate — a
-frame condition is a *set*, not a condition. A location may be a range:
-`assigns (buf[0 : len])` is half-open and counted in **elements**, so the bound
-is the one already in your loop header and the `sizeof` multiply CBMC needs is
-the compiler's job.
+`assigns` takes a comma-separated list of locations rather than a predicate,
+because a frame is a *set*, not a condition. A location may be a range:
+`buf[0 : len]` counts elements, and stops just before `len`.
 
 These are *contextual* keywords, active only under `-fc-contracts`, so code
 already using `pre` as an identifier keeps compiling.
@@ -239,228 +407,6 @@ already using `pre` as an identifier keeps compiling.
 For why these spellings rather than the verifier's `requires` and `ensures`, see
 [contracts-design.md](contracts-design.md#5-syntax).
 
-## How it works
-
-Three checkers read the same contract, each catching what the one before it let
-through: the **front end** (is the contract well formed?), the **call-site
-pass** (does any caller break it?), and **CBMC** (is it true for every input?).
-All three work today; the walkthrough with real diagnostics is in
-[the reference](docs/contracts-reference.md#the-three-levels-in-detail).
-
-Seven bug shapes, and how far up the ladder each survives. The first two are
-malformed **contracts**; the rest are bugs in **code** carrying a contract like
-this one:
-
-```c
-void put(int *buf, unsigned len, unsigned i, int v)   // does buf[i] = v
-  pre  (buf != 0)
-  pre  (i < len)
-  assigns (buf[i]);
-```
-
-| The bug | Level 1<br>front end | Level 2<br>call-site | Level 3<br>CBMC |
-|---|:---:|:---:|:---:|
-| **Contract:** `post` names a mutated parameter without `old()` | **caught** | *n/a* | *n/a* |
-| **Contract:** predicate calls an impure function | **caught** | *n/a* | *n/a* |
-| **Code:** `put(b, 8, 8, 1)` — `len` and `i` are both 8, breaking `i < len` | missed | **caught** | caught |
-| **Code:** `put(b, n, k, 1)` — the same bug, but `len` and `i` are variables | missed | missed | **caught** |
-| **Code:** off-by-one in the callee's own loop | missed | missed | **caught** |
-| **Code:** violation only on a loop's second iteration | missed | missed | **caught** |
-| **Contract: well formed, and says the wrong thing** | missed | missed | **missed** |
-
-*n/a* is not a miss: a malformed contract is a **hard error**, so the build stops
-at level 1 and the later levels never run on that code.
-
-That last row is the honest floor of the whole approach, and no tool on the
-ladder fixes it: **verification proves the code matches the specification, never
-that the specification is right.** What it buys you is that the specification is
-now written down, in the declaration, where a reviewer can argue with it — which
-is strictly more than a comment nobody checks.
-
-## Limitations
-
-**The call-site warning stays quiet unless it can prove a violation.** Both of
-these are silent:
-
-```c
-void use(int *p) pre (p != 0);
-
-void caller(int c, int *maybe) {
-  int *b = allocate(8);   // allocate's post says non-null ...
-  use(b);                 // ... so this call is discharged
-
-  int *p = maybe;
-  if (c) p = 0;
-  use(p);                 // the two edges disagree, so it says nothing
-}
-```
-
-It reports only violations it can *demonstrate* — the difference between a
-warning people leave on and one they turn off. The second call breaks the
-precondition only when `c` is non-zero, and nothing at this level can decide
-whether it ever is; the dataflow merges by keeping what every path agrees on, so
-`p` becomes unknown rather than wrong.
-
-Two other levels do reach it. CBMC decides it: verifying `caller` with
-`goto-instrument --replace-call-with-contract use` asserts the callee's
-precondition at the call site, and the solver returns the concrete `c` that
-breaks it. `-fcontract-runtime-checks` reaches it at run time, for the inputs an
-execution actually takes — `p != 0` is a scalar predicate, unlike the memory
-clauses that tier declines. Neither is a substitute for the other: the warning is
-free on every build, the solver is exhaustive but costs a harness.
-
-A fuller example, including `old()` and the numbered list of every rule the front
-end enforces, is in [`contracts-example/`](contracts-example/).
-
-**Most proofs today are bounded**: exhaustive over a small domain rather than
-universal. `ZSTD_wildcopy` is the exception and shows the route out.
-[`proofs/zstd/UNBOUNDED.md`](proofs/zstd/UNBOUNDED.md) documents that route and,
-more usefully, the five obstacles hit on the way, none of which is about
-mathematics. That list is the useful scoping input: the hard part of applying
-this to real C is toolchain-versus-codebase fit, not proving things.
-
-**Nine checks a maintainer would demand before annotating their own code** are
-written as an executable suite in [`proofs/zstd/e2e/`](proofs/zstd/e2e/), with
-the failing ones recorded as failing on purpose. The one that decides whether
-anyone can adopt this is the surface syntax: `pre (n > 0)` is a hard error under
-stock gcc and clang, which is why the zstd patch wraps every clause in an
-`#ifdef`.
-
-## Results on real zstd
-
-See **[proofs/zstd/](proofs/zstd/)**. Applied to the actual zstd sources, not a
-transcription.
-
-**Most of these were produced with hand-written CBMC harnesses, before this
-extension could express them** — they are what motivated the grammar, not output
-from it. The unbounded proof is the exception, and the one that matters: it now
-runs from contracts written in this syntax.
-
-### An unbounded proof, written in this grammar
-
-`ZSTD_wildcopy`, in upstream zstd at `d9c0c7e2`, is memory-safe for **every**
-length — `length` symbolic to 1 GiB, both buffers symbolically allocated, no
-`--unwind` at all:
-
-```
-** 0 of 205 failed (1 iterations)
-VERIFICATION SUCCESSFUL
-```
-
-Proof by induction over the loop: 15 seconds, reproducible with
-`./proofs/zstd/run-wildcopy-from-grammar.sh`. The frame the compiler generated is
-byte-identical to the one a human wrote by hand after hitting five separate
-obstacles. The earlier hand-written run also proves the fix for the
-pointer-subtraction defect below: with it, zero failures; without it, exactly
-one.
-
-Two limits on that sentence, because "proved" should mean what it says:
-
-- **It covers the `ZSTD_no_overlap` path.** That is the branch the harness
-  exercises and the one the annotated loop is in. The short-offset
-  `ZSTD_overlap_src_before_dst` path has its own `do { COPY8 } while` loop,
-  which carries no contract — `goto-instrument` rejects loop contracts on a `do`
-  loop — so nothing above says anything about it.
-- **The source is rewritten, not just annotated.** The proof runs against a
-  proof-only edit: the hot loop restructured from `do`/`while` to `while (1)`,
-  `COPY16` inlined because `do { } while (0)` counts as a loop, and the `diff`
-  computation moved inside the overlap branch where it is defined. Behaviour is
-  identical and the patch says so at each point, but it is not upstream's text
-  character for character.
-
-### What else was found
-
-- **An undefined-behaviour finding, reproduced on upstream HEAD.**
-  `ZSTD_overlapCopy8` forms a pointer up to 8 bytes before the start of the
-  output buffer, reachable with a legal stream. Verified against `d9c0c7e2`:
-  `2 of 1601` properties fail before the three-line fix, `0 of 1601` after, same
-  harness and flags. Not exploitable on conventional hardware — nothing
-  misbehaves at runtime, which is why years of OSS-Fuzz have not surfaced it —
-  but it is a freedom a provenance-exploiting optimiser may take.
-- **A second, less confirmed one.** `ZSTD_wildcopy` and `ZSTD_safecopy` subtract
-  pointers their own doc-comments say are in different objects. The subtraction
-  is unconditional in HEAD, but it did **not** reproduce in the Linux/x86 run
-  above, so treat it as likely rather than established.
-- **An exhaustive correctness result for the LZ reconstruction.**
-  `ZSTD_execSequence` emits the *right bytes*, including for matches that
-  overlap their own output — but over a bounded domain (dst 48 bytes,
-  `matchLength <= 16`), so this is exhaustive checking, not an unbounded proof.
-  `findings/RESULT-lz-correctness.md` states the scope.
-- **Three contract defects** where the real precondition is stronger than the
-  documented one, or absent from where it is needed entirely. The newest is the
-  one that came out of *writing a contract* rather than reading code:
-  `BIT_initDStream` computes `start + 8` before comparing `srcSize` against that
-  same 8, on a path whose whole purpose is to serve `srcSize` of 1 through 7.
-  With the buffer at exactly `srcSize` it is `1 of 248 failed`; at
-  `max(srcSize, 8)`, `0 of 248`. One variable, so the missing precondition is
-  isolated exactly.
-
-None of them is a crash, and **fuzzing cannot find any of them**, because
-nothing misbehaves at runtime. That, rather than the count, is the argument.
-One more check — the `FSE_readNCount` bounds audit — came back clean, and the
-negative result is recorded too.
-
-Whether any of this actually makes C safer is tracked as a falsifiable
-experiment with the bar written down, in
-[`EXPERIMENT-annotation-yield.md`](proofs/zstd/EXPERIMENT-annotation-yield.md).
-Findings that are real-but-unreachable, or that are really about the prover, are
-logged as such. The count of new *reachable* UB findings the grammar has
-produced is **one**: `BIT_initDStream` forms a pointer up to seven bytes past
-the end of the caller's buffer, reachable from the public `ZSTD_decompressBlock`
-with a Huffman literals section that ends where the buffer ends -- which
-`ZSTD_decodeLiteralsBlock` permits because its guard is `>` where it wants
-`>=`. It began as a contract written on the function, not as a bug hunt.
-
-Read **[proofs/zstd/COST.md](proofs/zstd/COST.md)** before estimating anything:
-solve time is driven by symbolic state size, not obligation count, and it decides
-whether verifying a codec is a quarter or a research program.
-
-## Roadmap
-
-- **`when` guards on `assigns`.** A frame condition is a set of locations and a
-  set cannot be disjoined, so `assigns (dst) when (r: !is_error(r))` is the only
-  way to say "writes the output buffer on success, nothing on error".
-  §4 item 5 of the design has the grammar.
-- **Dogfood the grammar.** One proof now runs end to end from this syntax; the
-  rest of `proofs/zstd/harnesses/` is still hand-written `__CPROVER_*` macros.
-  The remaining gap is the harnesses themselves — `__CPROVER_assume`, symbolic
-  allocation, the entry point — which this grammar does not try to express and
-  probably should not: a contract belongs on the function, a harness is a proof
-  driver.
-- **Runtime checking at the call site.** `-fcontract-runtime-checks` already
-  turns a `pre` into a check at function entry, calling a weak
-  `__contract_violation(predicate, file, line, function)` that a project can
-  replace with its own fault handler. What remains is the clauses about memory:
-  those cannot be checked at entry, because C gives no way to recover an
-  allocation from a pointer parameter, so the compiler declines them rather than
-  emitting a check that would silently pass. The answer is to check them at the
-  call site, where the caller still has the allocation in view — the same reason
-  `_FORTIFY_SOURCE` checks at the call to `memcpy` rather than inside it, and the
-  same place `-Wcontract-violation` already runs.
-- **Contract inference**, so the first annotation on a large codebase is not
-  hand-written from nothing.
-
-## Documentation
-
-- **[docs/contracts-reference.md](docs/contracts-reference.md)** — full grammar,
-  semantics, how the parser, AST, CFG pass and CBMC emitter actually work, what
-  each level catches and misses, and how CBMC fits.
-- **[docs/contracts-vs-cpp26.md](docs/contracts-vs-cpp26.md)** — how this
-  compares to C++26 contracts (P2900): what the four extra clauses buy, and why
-  the assumption question has a different answer when a predicate is proved
-  rather than checked.
-- **[contracts-design.md](contracts-design.md)** — the design argument: what was
-  rejected and why, including why this is a compiler feature and not a header of
-  five macros, and the SMT-in-clang route that was cut.
-- **[proofs/zstd/](proofs/zstd/)** — the proofs, sorted into `findings/`,
-  `harnesses/` and `patches/`.
-- **[contracts-example/](contracts-example/)** — runnable demos.
-
-Whether any of this can carry weight in certified avionics — DO-178C, the
-DO-333 formal-methods supplement, DO-330 tool qualification — is answered in
-[the reference](docs/contracts-reference.md#does-this-apply-to-do-178c--do-333-formal-methods).
-Short version: the shape fits, the stack is not qualified, and qualification is
-the blocker rather than the mathematics.
 
 ## License
 
