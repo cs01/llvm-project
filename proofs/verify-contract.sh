@@ -59,8 +59,12 @@ goto-cc "$W/out2.c" -o "$W/a.goto" 2>/dev/null || {
   echo "goto-cc failed; see $W" >&2; trap - EXIT; exit 3; }
 
 # 4. The harness comes from the contract. Nothing is hand-written.
-OUT=$(goto-instrument --apply-loop-contracts --enforce-contract "$FN" \
-        "$W/a.goto" "$W/e.goto" 2>&1) || true
+# Two passes, and the order is not optional: --apply-loop-contracts must run
+# first and alone, or --enforce-contract refuses with "Loops remain in
+# function" even when every loop is annotated.
+goto-instrument --apply-loop-contracts "$W/a.goto" "$W/l.goto" >/dev/null 2>&1 ||
+  cp "$W/a.goto" "$W/l.goto"
+OUT=$(goto-instrument --enforce-contract "$FN" "$W/l.goto" "$W/e.goto" 2>&1) || true
 printf '%s' "$OUT" | grep -qi "not found" && {
   echo "goto-instrument could not find $FN" >&2; exit 4; }
 if printf '%s' "$OUT" | grep -qi "reason"; then

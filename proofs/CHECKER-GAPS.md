@@ -26,6 +26,42 @@ grammar, and nothing in our documentation mentioned it.
 *Open:* whether the frame check can be skipped for loops that provably do not
 write outside it, so a `pre`-only contract does not drag in the whole body.
 
+## 1b. `--apply-loop-contracts` must be its own earlier pass
+
+`goto-instrument --apply-loop-contracts --enforce-contract F` in one invocation
+reports **"Loops remain in function F"** even when every loop in `F` carries a
+contract. Two passes, loop contracts first, works.
+
+The error is indistinguishable from gap 1 above, so it sent me annotating loops
+that were already annotated. Worse, this exact lesson was already recorded for
+`e2e` case 4 and I wrote `verify-contract.sh` with both flags in one call
+anyway. If a rule is worth writing down it is worth putting in the script rather
+than the prose; `verify-contract.sh` now does the two passes so nobody meets
+this again.
+
+## 1c. Every loop-shaped construct counts, including macros and dead branches
+
+`ZSTD_wildcopy` reports three loops. One is the `while (1)` anyone would expect;
+one is a `do { } while (0)` **macro** that is not a loop in the source; and one
+is in a branch the contract's own `pre (ovtype == ZSTD_no_overlap)` excludes.
+All three need contracts before any contract on the function can be checked.
+
+The annotation burden is therefore not proportional to the code a maintainer
+cares about. It is proportional to every loop-shaped construct the preprocessor
+leaves behind.
+
+## 1d. A missing frame surfaces somewhere unrecognisable
+
+Verifying `ZSTD_wildcopy` without its function-level `assigns` fails at
+
+```
+[_mm_storeu_si128.assigns.1] line 742 Check that *__P is assignable: FAILURE
+```
+
+an SSE intrinsic in a header, with nothing pointing back at the function being
+verified or at the clause that is missing. Restoring the `assigns` gives
+`0 of 354`. Anyone meeting that message cold would look in the wrong place.
+
 ## 2. `static inline` functions vanish before instrumentation
 
 `goto-cc` drops a `MEM_STATIC`/`static inline` function nobody calls, and
