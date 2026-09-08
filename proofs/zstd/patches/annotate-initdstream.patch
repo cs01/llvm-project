@@ -1,0 +1,24 @@
+diff --git a/lib/common/bitstream.h b/lib/common/bitstream.h
+index 6ff482a..670ed9a 100644
+--- a/lib/common/bitstream.h
++++ b/lib/common/bitstream.h
+@@ -252,6 +252,19 @@ MEM_STATIC size_t BIT_closeCStream(BIT_CStream_t* bitC)
+  * @return : size of stream (== srcSize), or an errorCode if a problem is detected
+  */
+ MEM_STATIC size_t BIT_initDStream(BIT_DStream_t* bitD, const void* srcBuffer, size_t srcSize)
++#ifdef CONTRACTS
++    /* The documented contract, written as a contract. srcSize is pinned at 4
++       rather than left as a range because the finding is about one concrete
++       shape -- a buffer shorter than a bitContainer -- and a pinned bound keeps
++       the run cheap. srcSize == 8 is the control: it should verify clean.
++
++       fresh() rather than readable(): readable is a lower bound and would let
++       CBMC give the object slack past srcSize, which is exactly the slack that
++       hides this defect. */
++    pre (srcSize == 4)
++    pre (fresh(srcBuffer, srcSize))
++    pre (fresh(bitD, sizeof(BIT_DStream_t)))
++#endif
+ {
+     if (srcSize < 1) { ZSTD_memset(bitD, 0, sizeof(*bitD)); return ERROR(srcSize_wrong); }
+ 

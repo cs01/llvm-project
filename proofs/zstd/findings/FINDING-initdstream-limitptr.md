@@ -43,29 +43,44 @@ same shape as [the `ZSTD_overlapCopy8` finding](FINDING-overlapcopy8-oob-pointer
 
 ## The proof
 
-[`harnesses/harness_initdstream.c`](../harnesses/harness_initdstream.c) allocates
-the buffer at **exactly** `srcSize` bytes — what the doc-comment entitles a
-caller to pass — and assumes nothing beyond `1 <= srcSize <= 8`.
+The reproduction is a contract on the function
+([`patches/annotate-initdstream.patch`](../patches/annotate-initdstream.patch),
+zero `__CPROVER` tokens), which gives the buffer **exactly** `srcSize` bytes —
+what the doc-comment entitles a caller to pass:
 
-```sh
-cbmc harness_initdstream.i --function harness \
-     --bounds-check --pointer-check --pointer-overflow-check --undefined-shift-check
+```c
+pre (srcSize == 4)
+pre (fresh(srcBuffer, srcSize))
+pre (fresh(bitD, sizeof(BIT_DStream_t)))
 ```
 
+`fresh` rather than `readable` is the load-bearing choice: `readable(p, n)` is a
+*lower* bound, so CBMC may give the object slack past `n`, and that slack is
+exactly what hides a pointer formed four bytes past the end.
+
+Run it with [`../../repro/01-zstd-initdstream.sh`](../../repro/01-zstd-initdstream.sh),
+which runs the control too:
+
 ```
-[BIT_initDStream.pointer_arithmetic.5] pointer arithmetic:
+[BIT_initDStream.pointer_arithmetic.5] line 272 pointer arithmetic:
     pointer outside object bounds in bitD->start + (signed long int)sizeof(BitContainerType)
     : FAILURE
-** 1 of 248 failed (2 iterations)
+** 1 of 27907 failed (2 iterations)          solved by sat in 6 s
 ```
 
-Allocating the same buffer at `max(srcSize, 8)` — the precondition the body
-actually needs — and changing nothing else:
+Changing one clause to `pre (srcSize == 8)` — a buffer as long as the
+bitContainer, which makes `start + 8` a legal one-past-the-end pointer — and
+nothing else:
 
 ```
-** 0 of 248 failed (1 iterations)
-VERIFICATION SUCCESSFUL
+** 0 of 27907 failed (1 iterations)
+VERIFICATION SUCCESSFUL                      solved by sat in 4 s
 ```
+
+One property out of 27907, one clause changed, four seconds. An earlier
+hand-written harness gave the same verdict over 248 properties; the contract
+isolates it more sharply because the entry point is generated from the clauses
+rather than written alongside them.
 
 One property, one variable, and it isolates the requirement exactly: **the body
 needs eight readable bytes from `srcBuffer`, whatever `srcSize` says.**
