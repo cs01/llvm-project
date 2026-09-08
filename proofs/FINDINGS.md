@@ -23,6 +23,7 @@ The *shapes* behind these findings, and the detectors built from them, are in
 | 10 | nghttp2 `nghttp2_buf_reserve` | re-bases 3 interior pointers by subtracting the base `realloc` just freed; 6 indeterminate reads in 3 lines | real UB (indeterminate value) | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |
 | 11 | libarchive `lafe_line_reader` | same idiom, two subtractions | real UB (indeterminate value) | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |
 | 12 | curl `docs/examples/log_failed_transfers.c` | same idiom; example code, so it gets copied | real UB, no direct impact | [finding](generalize/sweep-2/FINDING-three-more-realloc-offset-fixups.md) |
+| 13 | nghttp2 HPACK `hd_ringbuf_get` | no postcondition, so no caller can be verified without inlining; the "every live slot is readable" invariant is written nowhere | bad spec, found *with the contract API* | [finding](generalize/nghttp2/FINDING-hpack-ringbuf-unstated-invariant.md) |
 | 6 | zstd `BIT_lookBits` | documents a bound 26 wider than its callee accepts | doc defect, not reachable | [ledger](zstd/EXPERIMENT-annotation-yield.md) |
 | 7 | zstd `ZSTD_execSequence` | preconditions live in asserts that `-DNDEBUG` removes | doc defect | [finding](zstd/findings/FINDING-execsequence-implicit-preconditions.md) |
 
