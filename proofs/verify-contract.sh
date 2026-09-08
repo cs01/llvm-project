@@ -31,12 +31,14 @@ done
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 CLANG=${CLANG:-$HERE/../build/bin/clang}
+CONTRACT_HEADERS=$HERE/../clang/lib/Headers
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 
 # 1. Preprocess with the system compiler. goto-cc cannot parse what clang's
 #    glibc expansion leaves behind, and contract keywords survive cpp untouched.
 # shellcheck disable=SC2086
-cc -E -DNDEBUG -DZSTD_CONTRACTS -DCONTRACTS $INCS "$TU" -o "$W/tu.i" 2>/dev/null
+cc -E -DNDEBUG -DZSTD_CONTRACTS -DCONTRACTS -DC_CONTRACTS=1 \
+    -I "$CONTRACT_HEADERS" $INCS "$TU" -o "$W/tu.i" 2>/dev/null
 sed -e 's/__builtin_memcpy/memcpy/g' -e 's/__builtin_memmove/memmove/g' \
     "$W/tu.i" > "$W/tu2.i"
 
@@ -99,7 +101,7 @@ if printf '%s' "$OUT" | grep -qi "reason"; then
     goto-instrument --show-loops "$W/a.goto" 2>/dev/null |
       grep -i "^Loop $FN\.\|$FN\." | sed 's/^/    /' >&2
     echo "" >&2
-    echo "  add to each:  assigns (...) loop_invariant (...) decreases (...)" >&2
+    echo "  add to each:  c_assigns (...) c_invariant (...) c_decreases (...)" >&2
   fi
   exit 5
 fi

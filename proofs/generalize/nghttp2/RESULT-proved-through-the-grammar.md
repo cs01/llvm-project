@@ -16,15 +16,19 @@ Transcribed onto the function:
 
 ```c
 int nghttp2_buf_reserve(nghttp2_buf *buf, size_t new_cap, nghttp2_mem *mem)
-    pre(buf != NULL)
-    pre(buf->begin <= buf->end)
-    pre(buf->begin <= buf->pos && buf->pos <= buf->last)
-    pre(buf->last <= buf->end)
-    pre(buf->mark == NULL || (buf->begin <= buf->mark && buf->mark <= buf->end))
-    assigns(buf->begin, buf->end, buf->pos, buf->last, buf->mark)
+    c_pre (buf != NULL)
+    c_pre (buf->begin <= buf->end)
+    c_pre (buf->begin <= buf->pos && buf->pos <= buf->last)
+    c_pre (buf->last <= buf->end)
+    c_pre (buf->mark == NULL || (buf->begin <= buf->mark && buf->mark <= buf->end))
+    c_assigns (buf->begin)
+    c_assigns (buf->end)
+    c_assigns (buf->pos)
+    c_assigns (buf->last)
+    c_assigns (buf->mark)
 ```
 
-Five `pre` and one `assigns`, all lowered by
+Five `c_pre` and five `c_assigns` clauses, all lowered by
 `-fc-contracts -fcontract-emit-cprover-unit`, `goto-cc` clean.
 
 ## Result
@@ -59,9 +63,9 @@ after the tooling was written.** `--enforce-contract` succeeded here because
 [ISSUES.md#1](../../contracts-eval/ISSUES.md) says the zstd and expat attempts
 failed on. Picking a loop-free function was deliberate.
 
-## Issue found on the way: `pre` without `assigns` enforces an empty frame
+## Issue found on the way: `c_pre` without `c_assigns` enforces an empty frame
 
-The first run, with the five `pre` clauses and no `assigns`:
+The first run, with the five `c_pre` clauses and no `c_assigns`:
 
 ```
 [nghttp2_buf_reserve.assigns.3] line 75 Check that buf->pos is assignable: FAILURE
@@ -71,10 +75,10 @@ The first run, with the five `pre` clauses and no `assigns`:
 [nghttp2_buf_reserve.assigns.7] line 79 Check that buf->end is assignable: FAILURE
 ```
 
-A function contract with no `assigns` is enforced with an **empty** frame, so
+A function contract with no `c_assigns` is enforced with an **empty** frame, so
 every write the function makes is a violation. The five failures are not about
 the defect at all -- they are the absence of a clause. A user annotating their
-first function will write `pre` and hit this immediately, and the message points
+first function will write `c_pre` and hit this immediately, and the message points
 at their code rather than at the missing clause.
 
 See [ISSUES.md#7](../../contracts-eval/ISSUES.md).

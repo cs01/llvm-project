@@ -12,13 +12,13 @@ size_t ZSTD_execSequence(BYTE* op,
     BYTE* const oend, seq_t sequence,
     const BYTE** litPtr, const BYTE* const litLimit,
     const BYTE* const prefixStart, const BYTE* const virtualStart, const BYTE* const dictEnd)
-    pre(op != NULL)
-    pre(oend - op >= WILDCOPY_OVERLENGTH)
-    pre(sequence.matchLength >= 1)
-    pre(sequence.offset >= 1)
-    pre(sequence.offset <= (size_t)(op - prefixStart) + sequence.litLength)
-    pre(*litPtr + sequence.litLength <= litLimit)
-    pre(sequence.litLength + sequence.matchLength <= (size_t)(oend - op))
+    c_pre (op != NULL)
+    c_pre (oend - op >= WILDCOPY_OVERLENGTH)
+    c_pre (sequence.matchLength >= 1)
+    c_pre (sequence.offset >= 1)
+    c_pre (sequence.offset <= (size_t)(op - prefixStart) + sequence.litLength)
+    c_pre (*litPtr + sequence.litLength <= litLimit)
+    c_pre (sequence.litLength + sequence.matchLength <= (size_t)(oend - op))
 ```
 
 Full text in [`patches/execsequence-preconditions.txt`](../zstd/patches/execsequence-preconditions.txt).
@@ -88,5 +88,5 @@ pipeline.** Both are bucket 3 in the annotation-yield taxonomy -- they make the
 tool better, not the code.
 
 Where enforcement does work, the clause is decisive: on `BIT_getMiddleBits` the
-proof passes with `pre(nbBits < 32)` and finds an out-of-bounds table read
+proof passes with `c_pre (nbBits < 32)` and finds an out-of-bounds table read
 without it ([result 0](RESULT-what-the-clauses-actually-catch.md)).

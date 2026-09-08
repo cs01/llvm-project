@@ -17,10 +17,10 @@ written in the grammar, on unmodified zstd:
 
 ```c
 FORCE_INLINE_TEMPLATE BitContainerType BIT_getMiddleBits(..., U32 const nbBits)
-    pre(nbBits < 32)
+    c_pre (nbBits < 32)
 
 FORCE_INLINE_TEMPLATE BitContainerType BIT_lookBits(const BIT_DStream_t* bitD, U32 nbBits)
-    pre(nbBits <= 56)
+    c_pre (nbBits <= 56)
 ```
 
 Compiled with `-fc-contracts -DNDEBUG`.
@@ -32,11 +32,11 @@ flags, `--enforce-contract BIT_getMiddleBits`; the only difference is whether
 the one line of grammar is present.
 
 ```
-=== with  pre(nbBits < 32)
+=== with  c_pre (nbBits < 32)
 ** 0 of 2 failed (1 iterations)
 VERIFICATION SUCCESSFUL
 
-=== without pre(nbBits < 32)
+=== without c_pre (nbBits < 32)
 [BIT_getMiddleBits.array_bounds.1] line 321 array 'BIT_mask' upper bound
     in BIT_mask[(signed long int)nbBits]: FAILURE
 ** 1 of 2 failed (2 iterations)
@@ -80,11 +80,11 @@ tu2.c:3:61: warning: precondition nbBits < 32 of 'BIT_getMiddleBits' is
 ```
 
 **`-DNDEBUG` is on.** zstd's own `assert(nbBits < BIT_MASK_SIZE)` is compiled
-out of this build; nothing in a shipped zstd checks that bound. The `pre` clause
+out of this build; nothing in a shipped zstd checks that bound. The `c_pre` clause
 caught the violation anyway, at compile time, with no prover and no harness.
 
 That is the extension doing something neither an assert nor a scanner does, and
-it is the concrete answer to "is the syntax pulling its weight". A `pre` is a
+it is the concrete answer to "is the syntax pulling its weight". A `c_pre` is a
 release-build obligation; an `assert` is a debug-build one.
 [Finding 7](../zstd/findings/FINDING-execsequence-implicit-preconditions.md) is
 the same disease -- `ZSTD_execSequence`'s preconditions live entirely in asserts
@@ -93,7 +93,7 @@ that `-DNDEBUG` deletes -- so this is not a one-off.
 ## Result 2: it does *not* catch the finding it was pointed at
 
 `BIT_lookBits(bitD, 40)` produces no diagnostic. 40 satisfies the caller's own
-`pre(nbBits <= 56)`, and the call it makes,
+`c_pre (nbBits <= 56)`, and the call it makes,
 
 ```c
 return BIT_getMiddleBits(bitD->bitContainer, ..., nbBits);

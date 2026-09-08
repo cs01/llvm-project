@@ -22,11 +22,13 @@ CBMC_MAJOR=$(cbmc --version | cut -d. -f1)
 
 CLANG=${CLANG:-clang}
 HERE=$(cd "$(dirname "$0")" && pwd)
+CONTRACT_HEADERS=$(cd "$HERE/../../clang/lib/Headers" && pwd)
 WORK=$(mktemp -d)
 
 # 1. Preprocess with the SYSTEM compiler, not clang. goto-cc cannot parse the
 #    _Float128 declarations clang's glibc expansion leaves behind.
-cc -E -DNDEBUG -DZSTD_CONTRACTS -I "$ZSTD/lib/common" -I "$ZSTD/lib" \
+cc -E -DNDEBUG -DZSTD_CONTRACTS -DC_CONTRACTS=1 \
+   -I "$CONTRACT_HEADERS" -I "$ZSTD/lib/common" -I "$ZSTD/lib" \
    "$HERE/harnesses/harness_wildcopy.c" -o "$WORK/h.i"
 
 # 2. CBMC models the plain names, not the builtins Apple/glibc route through.

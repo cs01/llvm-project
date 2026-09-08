@@ -49,12 +49,12 @@ zero `__CPROVER` tokens), which gives the buffer **exactly** `srcSize` bytes —
 what the doc-comment entitles a caller to pass:
 
 ```c
-pre (srcSize == 4)
-pre (fresh(srcBuffer, srcSize))
-pre (fresh(bitD, sizeof(BIT_DStream_t)))
+c_pre (srcSize == 4)
+c_pre (c_fresh(srcBuffer, srcSize))
+c_pre (c_fresh(bitD, sizeof(BIT_DStream_t)))
 ```
 
-`fresh` rather than `readable` is the load-bearing choice: `readable(p, n)` is a
+`fresh` rather than `readable` is the load-bearing choice: `c_readable(p, n)` is a
 *lower* bound, so CBMC may give the object slack past `n`, and that slack is
 exactly what hides a pointer formed four bytes past the end.
 
@@ -68,7 +68,7 @@ which runs the control too:
 ** 1 of 27907 failed (2 iterations)          solved by sat in 6 s
 ```
 
-Changing one clause to `pre (srcSize == 8)` — a buffer as long as the
+Changing one clause to `c_pre (srcSize == 8)` — a buffer as long as the
 bitContainer, which makes `start + 8` a legal one-past-the-end pointer — and
 nothing else:
 
@@ -98,10 +98,10 @@ line:
 
 ```c
 size_t BIT_initDStream(BIT_DStream_t* bitD, const void* srcBuffer, size_t srcSize)
-  pre     (bitD != 0)
-  pre     (__CPROVER_r_ok(srcBuffer, sizeof(size_t)))
-  assigns (bitD[0 : 1])
-  post    (r: r == old(srcSize) || ERR_isError(r));
+  c_pre (bitD != 0)
+  c_pre (__CPROVER_r_ok(srcBuffer, sizeof(size_t)))
+  c_assigns (c_range(bitD, 0, 1))
+  c_returns (c_result == c_old(srcSize) || ERR_isError(c_result));
 ```
 
 which `-fcontract-emit-cprover` turns into
@@ -114,12 +114,12 @@ __CPROVER_ensures(__CPROVER_return_value == __CPROVER_old(srcSize)
                   || ERR_isError(__CPROVER_return_value))
 ```
 
-Worth recording that the first draft of that `post` was written `r == srcSize`,
+Worth recording that the first draft of that `c_post` was written `r == srcSize`,
 and the front end rejected it:
 
 ```
 error: 'post' predicate cannot name parameter 'srcSize' directly; a by-value
-       parameter may be named in 'post' only through 'old()'
+       parameter may be named in 'post' only through 'c_old()'
 ```
 
 `srcSize` is a by-value copy the body may mutate, so a bare mention is ambiguous
@@ -127,7 +127,7 @@ between its entry and exit value. That is level 1 of the ladder catching a
 specification error in a document about specification errors, which is the
 argument for type-checking these in the compiler rather than in a comment.
 
-The second `pre` is the whole finding. It is not derivable from the first, it is
+The second `c_pre` is the whole finding. It is not derivable from the first, it is
 not what the doc-comment says, and writing it in the declaration is what made
 the gap visible — the code reads as though the `else` branch handles short
 buffers, and it does handle short *streams*; it does not handle short *objects*.

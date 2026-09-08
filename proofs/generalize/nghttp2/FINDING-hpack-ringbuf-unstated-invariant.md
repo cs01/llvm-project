@@ -29,12 +29,12 @@ Promoted to contracts:
 
 ```c
 static nghttp2_hd_entry *hd_ringbuf_get(nghttp2_hd_ringbuf *ringbuf, size_t idx)
-    pre(idx < ringbuf->len)
-    pre(ringbuf->len <= ringbuf->mask + 1)
+    c_pre (idx < ringbuf->len)
+    c_pre (ringbuf->len <= ringbuf->mask + 1)
 
 nghttp2_hd_nv nghttp2_hd_table_get(nghttp2_hd_context *context, size_t idx)
-    pre(idx < context->hd_table.len + NGHTTP2_STATIC_TABLE_LENGTH)
-    pre(context->hd_table.len <= context->hd_table.mask + 1)
+    c_pre (idx < context->hd_table.len + NGHTTP2_STATIC_TABLE_LENGTH)
+    c_pre (context->hd_table.len <= context->hd_table.mask + 1)
 ```
 
 ## Result 1: the two preconditions agree
@@ -59,7 +59,7 @@ With the call replaced by its contract, six obligations fail at the caller:
 dereferences the result has nothing to lean on. Adding the missing clause:
 
 ```c
-    post(r: readable(r, sizeof(nghttp2_hd_entry)))
+    c_returns (c_readable(c_result, sizeof(nghttp2_hd_entry)))
 ```
 
 takes the caller's six failures to **zero**, and leaves two on `hd_ringbuf_get`:
@@ -76,7 +76,7 @@ the contract alone, and the obligation has moved to the function that owes it.
 entry.** It is true -- `hd_ringbuf_push_front` only ever stores a real entry and
 `hd_ringbuf_reserve` copies the live ones forward -- but it is written down
 nowhere, and it is what every dereference of `nghttp2_hd_table_get`'s result
-depends on. `post(r: r != 0)` is not enough: it rules out NULL and leaves
+depends on. `c_returns (c_result != 0)` is not enough: it rules out NULL and leaves
 liveness and bounds, which is why `readable` exists.
 
 ## Why this is not a bug, and is still the point

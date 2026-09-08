@@ -9,6 +9,7 @@ set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 CLANG=${CLANG:-clang}
 ZSTD=${ZSTD:-$HOME/facebook/zstd}
+CONTRACT_HEADERS=$(cd "$HERE/../../../clang/lib/Headers" && pwd)
 WORK=$(mktemp -d)
 FAILED=0
 
@@ -32,19 +33,12 @@ echo "== what a maintainer would require =="
 # Contracts are declaration-level, so a build without -fc-contracts must be
 # byte-identical: nobody adopts a spec language that changes their binary.
 cat > "$WORK/c1.c" <<'EOF'
-#if defined(__has_feature)
-#  if __has_feature(c_contracts)
-#    define PRE(x) pre (x)
-#  endif
-#endif
-#ifndef PRE
-#  define PRE(x)
-#endif
-int add(int a, int b) PRE(a > 0);
+#include <c_contracts.h>
+int add(int a, int b) c_pre(a > 0);
 int add(int a, int b) { return a + b; }
 EOF
-$CLANG -fc-contracts -c "$WORK/c1.c" -o "$WORK/c1_on.o" 2>/dev/null
-$CLANG                -c "$WORK/c1.c" -o "$WORK/c1_off.o" 2>/dev/null
+$CLANG -I "$CONTRACT_HEADERS" -fc-contracts -c "$WORK/c1.c" -o "$WORK/c1_on.o" 2>/dev/null
+$CLANG -I "$CONTRACT_HEADERS"                -c "$WORK/c1.c" -o "$WORK/c1_off.o" 2>/dev/null
 if cmp -s "$WORK/c1_on.o" "$WORK/c1_off.o"; then A=PASS; else A=FAIL; fi
 report "1 contracts cost nothing in a normal build" PASS "$A" "object code identical"
 
@@ -65,14 +59,15 @@ report "2 no prover vocabulary in annotated source" PASS "$A" "$N __CPROVER toke
 #
 #   do CLAUSES { B } while (C);  ->  while (1) CLAUSES { B if (!(C)) break; } ;
 cat > "$WORK/c3.c" <<'EOF'
+#include <c_contracts.h>
 void *__CPROVER_allocate(unsigned long, int);
 void __CPROVER_assume(int);
-void zero_do(unsigned char *b, unsigned n) pre (writable(b, n)) {
+void zero_do(unsigned char *b, unsigned n) c_pre (c_writable(b, n)) {
   unsigned i = 0;
   do
-    assigns        (i, b[0 : n])
-    loop_invariant (i < n)
-    decreases      (n - i)
+    c_assigns   (c_locations(i, c_range(b, 0, n)))
+    c_invariant (i < n)
+    c_decreases (n - i)
   { b[i] = 0; i++; } while (i < n);
 }
 void harness(void) {
@@ -81,8 +76,9 @@ void harness(void) {
 }
 EOF
 A=FAIL; D="lowering produced no output"
-$CLANG -cc1 -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit \
-    "$WORK/c3.c" > "$WORK/c3out.c" 2>/dev/null
+cc -E -P -DC_CONTRACTS=1 -I "$CONTRACT_HEADERS" "$WORK/c3.c" -o "$WORK/c3.i"
+$CLANG -cc1 -internal-isystem "$CONTRACT_HEADERS" -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit \
+    "$WORK/c3.i" > "$WORK/c3out.c" 2>/dev/null
 if [ -s "$WORK/c3out.c" ] && goto-cc "$WORK/c3out.c" -o "$WORK/c3.goto" 2>/dev/null; then
   if goto-instrument --apply-loop-contracts "$WORK/c3.goto" "$WORK/c3i.goto" 2>&1 |
        grep -q "unsupported on do/while"; then
@@ -103,8 +99,10 @@ report "3 a loop verifies without restructuring" PASS "$A" "$D"
 #
 # Order matters and is not obvious: --apply-loop-contracts has to run in its own
 # earlier pass, or --enforce-contract refuses with "Loops remain in function".
+cc -E -P -DC_CONTRACTS=1 -I "$CONTRACT_HEADERS" \
+    "$HERE/case4_modular.c" -o "$WORK/c4.i"
 $CLANG -cc1 -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit \
-    "$HERE/case4_modular.c" > "$WORK/c4.c" 2>/dev/null
+    "$WORK/c4.i" > "$WORK/c4.c" 2>/dev/null
 A4a=FAIL; D4a="lowering or instrumentation failed"
 A4b=FAIL; D4b="lowering or instrumentation failed"
 if [ -s "$WORK/c4.c" ] && goto-cc "$WORK/c4.c" -o "$WORK/c4.goto" 2>/dev/null &&
@@ -140,15 +138,16 @@ report "4b callee's postcondition holds at the site" FAIL "$A4b" "$D4b"
 # case called the function directly with an unconstrained pointer and failed for
 # that reason rather than for anything to do with inlining.
 cat > "$WORK/c5.c" <<'EOF'
+#include <c_contracts.h>
 void *__CPROVER_allocate(unsigned long, int);
 void __CPROVER_assume(int);
 static inline __attribute__((always_inline))
 void inner(unsigned char *b, unsigned n) {
   unsigned i = 0;
   while (i < n)
-    assigns        (i, b[0 : n])
-    loop_invariant (i <= n)
-    decreases      (n - i)
+    c_assigns   (c_locations(i, c_range(b, 0, n)))
+    c_invariant (i <= n)
+    c_decreases (n - i)
   { b[i] = 0; i++; }
 }
 void outer(unsigned char *b, unsigned n) { inner(b, n); }
@@ -158,8 +157,9 @@ void harness(void) {
 }
 EOF
 A=FAIL; D="lowering produced no output"
-$CLANG -cc1 -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit \
-    "$WORK/c5.c" > "$WORK/c5out.c" 2>/dev/null
+cc -E -P -DC_CONTRACTS=1 -I "$CONTRACT_HEADERS" "$WORK/c5.c" -o "$WORK/c5.i"
+$CLANG -cc1 -internal-isystem "$CONTRACT_HEADERS" -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit \
+    "$WORK/c5.i" > "$WORK/c5out.c" 2>/dev/null
 if [ -s "$WORK/c5out.c" ] && goto-cc "$WORK/c5out.c" -o "$WORK/c5.goto" 2>/dev/null &&
    goto-instrument --apply-loop-contracts "$WORK/c5.goto" "$WORK/c5i.goto" >/dev/null 2>&1; then
   # No --unwind: if the contract did not reach the inlined copy, this unwinds
@@ -205,15 +205,15 @@ report "7 a proof fits in a CI step (<= 60s)" PASS "$A" "$D"
 # ---------------------------------------------------------------- case 8
 # The annotations have to be able to live in the upstream source tree. A
 # maintainer will not carry a syntax that breaks every build that is not this
-# fork -- and today's contextual keywords are exactly that, which is why the
-# zstd patch is wrapped in #ifdef. Measured against the stock toolchains a
-# contributor actually has.
+# fork. The portable annotation header makes the same source valid for a
+# contract-aware compiler and for the stock toolchains a contributor has.
 cat > "$WORK/c8.c" <<'EOF'
-int f(int n) pre (n > 0);
+#include <c_contracts.h>
+int f(int n) c_pre (n > 0);
 EOF
 A=FAIL; D="stock compilers reject the annotation"
-if cc -fsyntax-only "$WORK/c8.c" >/dev/null 2>&1; then A=PASS; D="stock cc accepts it"; fi
-report "8 annotations can live in upstream source" FAIL "$A" "$D"
+if cc -I "$CONTRACT_HEADERS" -fsyntax-only "$WORK/c8.c" >/dev/null 2>&1; then A=PASS; D="stock cc accepts it"; fi
+report "8 annotations can live in upstream source" PASS "$A" "$D"
 
 # ---------------------------------------------------------------- case 9
 # A violated precondition should be able to trap, for the people who cannot run
@@ -221,11 +221,12 @@ report "8 annotations can live in upstream source" FAIL "$A" "$D"
 # see e2e/README.md for why the memory clauses have to be checked at the call
 # site rather than in the prologue.
 cat > "$WORK/c9.c" <<'EOF'
-int half(int n) pre (n > 0) { return n / 2; }
+#include <c_contracts.h>
+int half(int n) c_pre (n > 0) { return n / 2; }
 int main(void) { return half(0); }
 EOF
 A=FAIL; D="no runtime checking tier yet"
-if $CLANG -fc-contracts -fcontract-runtime-checks "$WORK/c9.c" -o "$WORK/c9" 2>/dev/null; then
+if $CLANG -I "$CONTRACT_HEADERS" -fc-contracts -fcontract-runtime-checks "$WORK/c9.c" -o "$WORK/c9" 2>/dev/null; then
   "$WORK/c9" 2>/dev/null; RC=$?
   [ "$RC" -ne 0 ] && { A=PASS; D="violated precondition trapped (exit $RC)"; }
 fi

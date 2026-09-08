@@ -104,8 +104,8 @@ believed:
 
 ```c
 BitContainerType BIT_lookBits(const BIT_DStream_t *bitD, U32 nbBits)
-  pre (nbBits < 32)
-  pre (bitD->bitsConsumed + nbBits <= 64);
+  c_pre (nbBits < 32)
+  c_pre (bitD->bitsConsumed + nbBits <= 64);
 ```
 
 ## Result 2: ZSTD_execSequence stays in bounds

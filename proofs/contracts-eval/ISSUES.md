@@ -23,7 +23,7 @@ Reason: Loops remain in function 'ZSTD_execSequence', assigns clause checking
 by inlining `ZSTD_safecopy`, which inlines `ZSTD_wildcopy`. So annotating a
 function requires annotating every loop reachable through its inlined callees.
 
-**What this means for us.** A user who writes `pre`/`assigns` on a leaf-looking
+**What this means for us.** A user who writes `c_pre`/`c_assigns` on a leaf-looking
 function gets an internal-invariant crash from `goto-instrument`, with no
 indication that the fix is loop contracts several functions away. We should
 detect this at the point the user can act on it: when `-fcontract-emit-cprover-unit`
@@ -49,7 +49,7 @@ visible in `--show-loops`: `ZSTD_wildcopy`'s three loops move out of
 
 **What this means for us.** This is a silent wrong answer, not an error: the
 contract is accepted, lowered, and then quietly has no effect. Either the
-compiler should refuse `assigns`/`pre` on an `always_inline` function under
+compiler should refuse `c_assigns`/`c_pre` on an `always_inline` function under
 `-fcontract-emit-cprover-unit`, or it should drop the attribute itself in that
 mode. Doing nothing is the one option that misleads.
 
@@ -76,12 +76,12 @@ second. `run-wildcopy-from-grammar.sh` does not hit this because it never drops.
 Worth a line in the recipe, because the failure mode is a clean-looking `** 0 of
 345 failed` next to a status nobody reads.
 
-## 4. An `assigns` frame with over-copy slack needs a `pre` that nothing forces you to write
+## 4. An `c_assigns` frame with over-copy slack needs a `c_pre` that nothing forces you to write
 
 Our frame for `ZSTD_wildcopy`, which matches what the function actually writes:
 
 ```c
-assigns (((BYTE*)dst)[0 : length + WILDCOPY_OVERLENGTH])
+c_assigns (c_range((BYTE*)dst, 0, length + WILDCOPY_OVERLENGTH))
 ```
 
 ```
@@ -98,8 +98,8 @@ written down nowhere.
 
 **This one is the checker working.** It refused a frame whose validity depends
 on an unstated precondition, which is the whole thesis of the branch. The
-missing clause is `pre(writable(dst, length + WILDCOPY_OVERLENGTH))`. Worth
-keeping as the worked example of an `assigns` that forces a `pre` into
+missing clause is `c_pre (c_writable(dst, length + WILDCOPY_OVERLENGTH))`. Worth
+keeping as the worked example of an `c_assigns` that forces a `c_pre` into
 existence.
 
 ## 5. `goto-cc` cannot parse the arm64 SDK types clang's headers pull in
@@ -132,9 +132,9 @@ Not `_FORTIFY_SOURCE`; verified by rewriting the `__builtin___*_chk`
 expansions away and reproducing. See
 [the write-up](../generalize/expat/RESULT-grammar-end-to-end.md).
 
-## 7. FIXED (diagnosed) -- a function contract with `pre` but no `assigns` is enforced with an empty frame
+## 7. FIXED (diagnosed) -- a function contract with `c_pre` but no `c_assigns` is enforced with an empty frame
 
-Hit on the first annotation of `nghttp2_buf_reserve`, which had five `pre`
+Hit on the first annotation of `nghttp2_buf_reserve`, which had five `c_pre`
 clauses and no frame:
 
 ```
@@ -144,14 +144,15 @@ clauses and no frame:
 ```
 
 Every write becomes a violation, and none of the five failures has anything to
-do with the function. Adding `assigns(buf->begin, buf->end, buf->pos, buf->last,
-buf->mark)` replaces all five with the six real ones.
+do with the function. Adding one `c_assigns` clause for each of `buf->begin`,
+`buf->end`, `buf->pos`, `buf->last`, and `buf->mark` replaces all five with the
+six real ones.
 
 **What this means for us.** This is the first thing a new user will hit, because
-`pre` is the clause people reach for first and a frame is not obviously
+`c_pre` is the clause people reach for first and a frame is not obviously
 required. The diagnostics point at their function body rather than at the
 missing clause. We should warn at lowering time: a function contract that will
-be enforced, carrying no `assigns` and whose body writes through a parameter,
+be enforced, carrying no `c_assigns` and whose body writes through a parameter,
 is almost always incomplete rather than intentionally empty.
 
 ## 8. PARTLY ADDRESSED -- collections had no expressible property (`forall` added)
@@ -160,7 +161,8 @@ is almost always incomplete rather than intentionally empty.
 `TAG` it visits. The natural frame names the loop variable:
 
 ```c
-assigns(tag, parser->m_tagStack)
+c_assigns (tag)
+c_assigns (parser->m_tagStack)
 ```
 
 ```
@@ -170,20 +172,21 @@ error: use of undeclared identifier 'tag'
 **The rejection is correct** -- a function's frame can only name what is in
 scope at the declarator, and `tag` is a local. But the set the function actually
 writes is *one field-group per node of an unbounded list*, and there is no way
-to say that with the clause we have. `assigns(parser->m_tagStack)` covers the
+to say that with the clause we have. `c_assigns (parser->m_tagStack)` covers the
 head pointer, not the nodes.
 
-**Update.** The *predicate* half of this is now expressible: `forall (i : lo,
-hi) P` quantifies over a range and lowers to `__CPROVER_forall`, which is what
+**Update.** The *predicate* half of this is now expressible:
+`c_forall(i, lo, hi, P)` quantifies over a range and lowers to
+`__CPROVER_forall`, which is what
 [the HPACK ring buffer](../generalize/nghttp2/FINDING-hpack-ringbuf-unstated-invariant.md)
-needed. The *frame* half is not: `assigns` still cannot name one field-group per
+needed. The *frame* half is not: `c_assigns` still cannot name one field-group per
 node of a list. A quantified frame is a separate design question from a
 quantified predicate, and only the second is done.
 
 One limitation found immediately, and worth recording next to the feature: CBMC
 does not automatically instantiate the quantifier at the index a function
-actually uses. `hd_ringbuf_get`'s `post(readable(result))` still does not
-discharge from `pre(forall (i : 0, len) readable(buffer[...]))`, because
+actually uses. `hd_ringbuf_get`'s `c_returns (c_readable(c_result, ...))` still does not
+discharge from `c_pre (c_forall(i, 0, len, c_readable(buffer[...])))`, because
 connecting the two needs the quantifier instantiated at `idx`. The caller side
 proves; the callee's own postcondition does not.
 
@@ -191,7 +194,7 @@ This is an expressiveness gap, not a bug, and it is worth knowing early because
 list-walking mutators are ordinary C. CBMC has `__CPROVER_object_upto` for
 contiguous regions; a linked structure needs something closer to a separation
 logic or an explicitly quantified frame. Until then, functions of this shape can
-be given `pre` clauses and loop contracts but cannot be `--enforce-contract`ed
+be given `c_pre` clauses and loop contracts but cannot be `--enforce-contract`ed
 at all, because issue 7 means the empty frame rejects every write.
 
 ## 9. FIXED -- reaching for `__CPROVER_*` in a clause gave a diagnostic about side effects
@@ -199,7 +202,7 @@ at all, because issue 7 means the empty frame rejects every write.
 Writing what a CBMC user would write:
 
 ```c
-loop_invariant (tag == NULL || __CPROVER_r_ok(tag, sizeof(TAG)))
+c_invariant (tag == NULL || __CPROVER_r_ok(tag, sizeof(TAG)))
 ```
 
 ```
@@ -209,7 +212,7 @@ error: contract predicate must be free of side effects
 
 The second message is the one that will be read, and it is misleading: the
 predicate has no side effects, the identifier is simply not a contract
-intrinsic. The right spelling is `readable(tag, sizeof(TAG))`, which works.
+intrinsic. The right spelling is `c_readable(tag, sizeof(TAG))`, which works.
 
 **What this means for us.** Anyone arriving from CBMC will type `__CPROVER_*`
 first. An unknown call in a contract predicate should say so, and should suggest
@@ -241,7 +244,7 @@ a pile of failures pointing at the wrong line.
 | Was | Now |
 |---|---|
 | contract on an `always_inline` function silently did nothing | `warning: contract on 'wildcopy' has no effect on callers: the function is 'always_inline'` + a note on the attribute |
-| `pre` with no `assigns` produced one failure per field written | `warning: 'zero_one' has a contract but no 'assigns' clause, so its frame is empty` + a note on the offending write |
+| `c_pre` with no `c_assigns` produced one failure per field written | `warning: 'zero_one' has a contract but no 'assigns' clause, so its frame is empty` + a note on the offending write |
 | an un-annotated loop crashed `goto-instrument` with an internal invariant | `warning: 'clear' has a contract but its body contains a loop with no loop contract` + a note on the loop |
 | `__CPROVER_r_ok` in a predicate said "must be free of side effects" | note: `use the contract intrinsic 'readable' rather than CBMC's '__CPROVER_r_ok'`, and an unknown `__CPROVER_*` lists the five intrinsics |
 

@@ -53,16 +53,16 @@ authors' heads and in scattered arithmetic, and is therefore invisible to review
 and unprotected against a future caller.
 
 That is the argument for this project stated in evidence rather than in prose,
-and it is what the `pre` clause is for:
+and it is what the `c_pre` clause is for:
 
 ```c
 size_t ZSTD_execSequence(BYTE* op, BYTE* const oend, seq_t sequence,
                          const BYTE** litPtr, const BYTE* const litLimit, ...)
-  pre (op != 0)
-  pre (oend - op >= WILDCOPY_OVERLENGTH)
-  pre (sequence.matchLength >= 1)
-  pre (*litPtr + sequence.litLength <= litLimit)
-  pre (sequence.litLength + sequence.matchLength <= (size_t)(oend - op));
+  c_pre (op != 0)
+  c_pre (oend - op >= WILDCOPY_OVERLENGTH)
+  c_pre (sequence.matchLength >= 1)
+  c_pre (*litPtr + sequence.litLength <= litLimit)
+  c_pre (sequence.litLength + sequence.matchLength <= (size_t)(oend - op));
 ```
 
 Written once, checked at every call site, and lowered to `__CPROVER_requires`

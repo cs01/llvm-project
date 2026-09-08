@@ -14,7 +14,7 @@ sidestepped the entire point: it matched source text and never once used a
 contract, so nothing it reported was proved and nothing it reported exercised
 the checker this project exists to build. The shapes below are kept because
 they tell you *what to write a contract about*. Turning a shape into a
-mechanical search is not the goal; turning it into a `pre` clause that a solver
+mechanical search is not the goal; turning it into a `c_pre` clause that a solver
 discharges is.
 
 The route for a new tree is [`verify-contract.sh`](verify-contract.sh):

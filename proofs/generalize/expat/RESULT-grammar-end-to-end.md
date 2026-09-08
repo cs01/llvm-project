@@ -17,8 +17,8 @@ clang still compiles (the keywords are ordinary identifiers without
 ```c
 static XML_Bool
 storeRawNames(XML_Parser parser)
-    pre(parser != NULL)
-    pre(parser->m_tagStack == NULL || parser->m_tagStack->buf.raw <= parser->m_tagStack->bufEnd)
+    c_pre (parser != NULL)
+    c_pre (parser->m_tagStack == NULL || parser->m_tagStack->buf.raw <= parser->m_tagStack->bufEnd)
 {
 ```
 
@@ -61,7 +61,7 @@ was never designed against.
 
 ## What this does not show
 
-**The `pre` clauses are not what finds the bug.** The failures come from
+**The `c_pre` clauses are not what finds the bug.** The failures come from
 `--pointer-check`, exactly as they do without any annotation. What the grammar
 contributes here is that the precondition is now *stated, in C, in the source*,
 and that the lowering is faithful. Claiming the contracts found this defect

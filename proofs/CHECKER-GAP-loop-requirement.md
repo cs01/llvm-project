@@ -17,7 +17,7 @@ all of them.
 
 `ZSTD_wildcopy`'s three include a `do { } while (0)` **macro**, which is not a
 loop in the source, and one in a branch the contract's own
-`pre (ovtype == ZSTD_no_overlap)` excludes. So the burden is proportional to
+`c_pre (ovtype == ZSTD_no_overlap)` excludes. So the burden is proportional to
 what the preprocessor leaves behind, not to the code a maintainer cares about.
 
 `inflate_table` is the honest verdict. Eleven loops means roughly thirty-three
@@ -35,17 +35,17 @@ most.
 
 ## The fix, and it is ours to make
 
-`--enforce-contract` needs loop contracts because it checks the `assigns` clause,
+`--enforce-contract` needs loop contracts because it checks the `c_assigns` clause,
 and an uncontracted loop can write anywhere. But we do not have to use
 `--enforce-contract` to get a harness out of a contract.
 
-**Emit the harness from the `pre` clauses in our own compiler.** A
+**Emit the harness from the `c_pre` clauses in our own compiler.** A
 `-fcontract-emit-harness` mode would turn
 
 ```c
 void f(char *p, size_t n)
-  pre (fresh(p, n))
-  pre (n > 0 && n < 64);
+  c_pre (c_fresh(p, n))
+  c_pre (n > 0 && n < 64);
 ```
 
 into
@@ -62,7 +62,7 @@ void __contract_harness_f(void) {
 which is precisely the harness a human writes today, generated from the contract
 instead of guessed. CBMC then unwinds normally and the loop requirement never
 applies. The author still writes only contracts; nobody writes
-`__CPROVER_assume`; and the `assigns` checking that needs loop contracts becomes
+`__CPROVER_assume`; and the `c_assigns` checking that needs loop contracts becomes
 opt-in for the functions where it is worth the invariants.
 
 That is one emitter mode, and it is the difference between a grammar that
@@ -84,7 +84,7 @@ line 332  pointer arithmetic: *table + used                              FAILURE
 **The control was run, and it is what makes the red mean something.** Widening
 the one clause under test flips it:
 
-| `fresh(*table, N)` | result |
+| `c_fresh(*table, N)` | result |
 |---|---|
 | `(1u << 3) * sizeof(code)` — what the doc-comment promises | 3 of 353 failed, 51 s |
 | `16 * sizeof(code)` | **0 of 353 failed**, 1340 s |
@@ -99,18 +99,18 @@ Two things this did **not** fix, stated plainly because the first was
 mis-recorded once already:
 
 1. **Loop contracts are not the missing feature — writing them is the cost.**
-   `loop_invariant` and `decreases` work, and `ZSTD_wildcopy` is verified
+   `c_invariant` and `c_decreases` work, and `ZSTD_wildcopy` is verified
    *through* `--enforce-contract` with its frame checked (5 function clauses +
    9 loop clauses, 475 s). `inflate_table`'s frame still needs eleven triples
    that nobody has written. That is labour, not a capability gap, and calling it
    a wall was wrong.
 2. **The quantifier arrived separately.** The first version of this proof pinned
    `codes == 5` and spelled out five indices, because `lens[]` wants "every
-   element is at most MAXBITS" and nothing could say it. `forall (i : lo, hi)`
+   element is at most MAXBITS" and nothing could say it. `c_forall(i, lo, hi, P)`
    landed on the branch in 445c3e05cc68, so the clause is now
 
    ```c
-   pre (forall (i : 0, codes) lens[i] <= 15)
+   c_pre (c_forall(i, 0, codes, lens[i] <= 15))
    ```
 
    with `codes` left as a range rather than a constant. **The timings recorded

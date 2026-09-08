@@ -40,7 +40,7 @@ with zstd, which is what the question at the top of this file was asking.
 
 Everything in this file was found with hand-written CBMC harnesses, which is
 evidence about CBMC, not about this fork. Annotating expat `storeRawNames` with
-`pre` clauses and lowering it with `-fcontract-emit-cprover-unit` gives the
+`c_pre` clauses and lowering it with `-fcontract-emit-cprover-unit` gives the
 identical result: same two properties, same 20740 obligations, on an 11k-line
 real translation unit. See [the write-up](expat/RESULT-grammar-end-to-end.md),
 including the two things it does *not* show: the clauses are not what detects

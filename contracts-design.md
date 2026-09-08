@@ -325,7 +325,24 @@ a codebase with its own `readable()` keeps it and its calls print as themselves.
 
 Contracts are real grammar. They are lexed, parsed into expressions with the
 function's parameters in scope, type-checked, and diagnosed like any other
-construct. They are not macros that expand to nothing and not comments.
+construct. They are not comments.
+
+They are also not *only* grammar. An earlier draft of this section ruled out
+"macros that expand to nothing" outright, and that was wrong — it confused the
+surface a project writes with the form a checker consumes. `c_contracts.h` gives
+every clause a macro spelling with three targets: the grammar below under
+`-fc-contracts`, CBMC's native contracts under `C_CONTRACTS_CPROVER`, and
+nothing under an ordinary compiler. Annotated source then builds with GCC, MSVC
+and tcc, which is the difference between a language extension a project must
+wait for and a header it can vendor today.
+
+The grammar is what makes this work rather than what it competes with. A macro
+that expanded to a string-valued attribute, or a comment, could not be
+type-checked with the parameters in scope, so the front-end and call-site levels
+would not exist at all. The macro decides *who can compile the file*; the grammar
+decides *what can be checked*. See
+[docs/annotation-spec.md](docs/annotation-spec.md) for the language stated
+without reference to either.
 
 ```c
 size_t ZSTD_decompress(void *dst, size_t dstCap,

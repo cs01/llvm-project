@@ -1,7 +1,10 @@
 --- a/inftrees.c
 +++ b/inftrees.c
-@@ -45,7 +45,33 @@
+@@ -45,7 +45,36 @@
   */
++#ifdef CONTRACTS
++#include <c_contracts.h>
++#endif
  int ZLIB_INTERNAL inflate_table(codetype type, unsigned short FAR *lens,
                                  unsigned codes, code FAR * FAR *table,
 -                                unsigned FAR *bits, unsigned short FAR *work) {
@@ -11,25 +14,25 @@
 +       contract rather than as a harness. `codes` is bounded and the root fixed
 +       at 3 bits to keep the symbolic state tractable; the loops run to MAXBITS
 +       whatever `codes` is, so the shape of the proof does not depend on it. */
-+    pre (type == LENS)
++    c_pre (type == LENS)
 +    /* Pinned, not ranged. A 'forall' whose bound is symbolic contributes
 +       nothing and does not say so -- codes in [1,5] gives 29 of 338 failed,
 +       26 of them artefacts of lens[] being unconstrained. See
 +       proofs/CHECKER-GAPS.md gap 6. */
-+    pre (codes == 5)
-+    pre (fresh(lens, codes * sizeof(unsigned short)))
++    c_pre (codes == 5)
++    c_pre (c_fresh(lens, codes * sizeof(unsigned short)))
 +    /* MAXBITS is 15; a longer code is a caller error, and zlib's own callers
 +       cannot produce one. This is the clause that needed a quantifier -- it was
 +       five hand-written indices before 'forall' landed. */
-+    pre (forall (i : 0, codes) lens[i] <= 15)
-+    pre (fresh(work, codes * sizeof(unsigned short)))
-+    pre (fresh(bits, sizeof(unsigned)))
-+    pre (*bits == 3)
-+    pre (fresh(table, sizeof(code FAR *)))
++    c_pre (c_forall(i, 0, codes, lens[i] <= 15))
++    c_pre (c_fresh(work, codes * sizeof(unsigned short)))
++    c_pre (c_fresh(bits, sizeof(unsigned)))
++    c_pre (*bits == 3)
++    c_pre (c_fresh(table, sizeof(code FAR *)))
 +    /* The line under test. The doc-comment says indices 0..2^bits-1, so this
 +       is exactly what a caller reading it would allocate. Widen it and the
 +       proof goes green -- that is the control. */
-+    pre (fresh(*table, (1u << 3) * sizeof(code)))
++    c_pre (c_fresh(*table, (1u << 3) * sizeof(code)))
 +#endif
 +{
      unsigned len;               /* a code's length in bits */

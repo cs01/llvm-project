@@ -9,26 +9,26 @@ This is a *proof* vocabulary that also checks at run time.
 | -------------------------------- | -------------------------------------- | ------------------------------------------------ |
 | language                         | C++                                    | **C** (rejected under `-x c++`)                   |
 | status                           | **standardised**, ships in GCC 16      | a fork, one implementation                        |
-| clauses                          | `pre`, `post`, `contract_assert`       | `pre`, `post`, `old`, `assigns`, `loop_invariant`, `decreases` |
-| quantifiers                      | —                                      | `forall (i : lo, hi) pred`                        |
-| entry values in `post`           | none; a parameter named in `post` must be `const` | `old(x)`                          |
-| frame conditions                 | —                                      | `assigns (dst[0 : n])`                            |
-| loop reasoning                   | —                                      | `loop_invariant`, `decreases`                     |
-| memory predicates                | —                                      | `readable`, `writable`, `fresh`, `same_object`, `pointer_offset` |
+| clauses                          | `pre`, `post`, `contract_assert`       | `c_pre`, `c_post`, `old`, `c_assigns`, `c_invariant`, `c_decreases` |
+| quantifiers                      | —                                      | `c_forall(i, lo, hi, pred)`                        |
+| entry values in `post`           | none; a parameter named in `post` must be `const` | `c_old(x)`                        |
+| frame conditions                 | —                                      | `c_assigns (dst[0 : n])`                          |
+| loop reasoning                   | —                                      | `c_invariant`, `c_decreases`                      |
+| memory predicates                | —                                      | `c_readable`, `c_writable`, `c_fresh`, `c_same_object`, `c_pointer_offset` |
 | when violations surface          | run time                               | compile time (caller dataflow), run time, or proof |
 | static proof                     | out of scope                           | CBMC, entry point generated from the contract     |
 | may the optimiser assume it?     | **no**, by design — even unchecked     | no (see below)                                    |
 
 The clauses C++26 does not have are not decoration: they are what a prover
-needs. `pre`/`post` alone cannot say what a function may modify, cannot make a
+needs. `c_pre`/`c_post` alone cannot say what a function may modify, cannot make a
 loop tractable, cannot describe the extent of a buffer, and cannot say anything
 about every element of an array. zlib's
-`inflate_table` needs `fresh` on the target of an out-parameter — `code **table`
+`inflate_table` needs `c_fresh` on the target of an out-parameter — `code **table`
 — and that sentence has no spelling in P2900.
 
 **On the assumption question.** The contentious part of P2900 is that a contract
 predicate may not be assumed by the optimiser, even under a checking semantic;
-Daniel Lemire's example is a `pre` that the divisor is a power of two, which
+Daniel Lemire's example is a `c_pre` that the divisor is a power of two, which
 GCC 16 checks and then still fails to use to strength-reduce `i % n` into
 `i & (n - 1)`; `[[assume]]` gets the optimisation, the checked contract does
 not. This branch behaves

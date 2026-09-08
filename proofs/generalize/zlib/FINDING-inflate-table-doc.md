@@ -26,11 +26,11 @@ with `lens` symbolic and bounded only by `MAXBITS`, all a caller decoding an
 untrusted stream can assume:
 
 ```c
-pre (codes >= 1 && codes <= 5)
-pre (fresh(lens, codes * sizeof(unsigned short)))
-pre (forall (i : 0, codes) lens[i] <= 15)
-pre (*bits == 3)
-pre (fresh(*table, (1u << 3) * sizeof(code)))    /* the line under test */
+c_pre (codes >= 1 && codes <= 5)
+c_pre (c_fresh(lens, codes * sizeof(unsigned short)))
+c_pre (c_forall(i, 0, codes, lens[i] <= 15))
+c_pre (*bits == 3)
+c_pre (c_fresh(*table, (1u << 3) * sizeof(code)))    /* the line under test */
 ```
 
 Run it with [`../../repro/02-zlib-inflate-table.sh`](../../repro/02-zlib-inflate-table.sh),
@@ -85,7 +85,7 @@ and it is recorded as bucket 2.
 ## What the contract should say
 
 ```c
-  pre (writable(*table, ENOUGH * sizeof(code)))   /* not 2^bits */
+  c_pre (c_writable(*table, ENOUGH * sizeof(code)))   /* not 2^bits */
 ```
 
 That line is the finding. It is one line, it is checkable, and it is the line

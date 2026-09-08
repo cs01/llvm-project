@@ -79,5 +79,5 @@ Compute `diff` only where it is defined and used:
 
 This is not the kind of bug fuzzing finds, because nothing misbehaves at
 runtime. It is found by asking the compiler to prove a property, and it is
-exactly what a `pre` clause would have stated: `ZSTD_wildcopy` has two different
+exactly what a `c_pre` clause would have stated: `ZSTD_wildcopy` has two different
 contracts depending on `ovtype`, and only one of them permits the subtraction.

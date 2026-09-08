@@ -2,10 +2,13 @@ diff --git a/lib/common/zstd_internal.h b/lib/common/zstd_internal.h
 index 86a0fc5..86de737 100644
 --- a/lib/common/zstd_internal.h
 +++ b/lib/common/zstd_internal.h
-@@ -214,21 +214,42 @@ typedef enum {
+@@ -214,21 +214,45 @@ typedef enum {
   *         - ZSTD_overlap_src_before_dst: The src and dst may overlap, but they MUST be at least 8 bytes apart.
   *           The src buffer must be before the dst buffer.
   */
++#ifdef ZSTD_CONTRACTS
++#include <c_contracts.h>
++#endif
 +
  MEM_STATIC FORCE_INLINE_ATTR
  void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e const ovtype)
@@ -13,11 +16,11 @@ index 86a0fc5..86de737 100644
 +  /* What the function requires, written on the function. This replaces a
 +     hand-written harness that said exactly the same thing where nobody could
 +     review it. length is not capped, so a discharged proof is unbounded. */
-+  pre     (fresh(dst, length + WILDCOPY_OVERLENGTH))
-+  pre     (fresh(src, length + WILDCOPY_OVERLENGTH))
-+  pre     (length > 0 && length < 0x40000000)
-+  pre     (ovtype == ZSTD_no_overlap)
-+  assigns (((BYTE*)dst)[0 : length + WILDCOPY_OVERLENGTH])
++  c_pre     (c_fresh(dst, length + WILDCOPY_OVERLENGTH))
++  c_pre     (c_fresh(src, length + WILDCOPY_OVERLENGTH))
++  c_pre     (length > 0 && length < 0x40000000)
++  c_pre     (ovtype == ZSTD_no_overlap)
++  c_assigns (c_range((BYTE*)dst, 0, length + WILDCOPY_OVERLENGTH))
 +#endif
  {
 -    ptrdiff_t diff = (BYTE*)dst - (const BYTE*)src;
@@ -42,9 +45,9 @@ index 86a0fc5..86de737 100644
 +           every loop in the function regardless of reachability. */
 +        do
 +#ifdef ZSTD_CONTRACTS
-+          assigns        (op, ip)
-+          loop_invariant (same_object(op, (BYTE*)dst))
-+          decreases      ((long)length - pointer_offset(op))
++          c_assigns   (c_locations(op, ip))
++          c_invariant (c_same_object(op, (BYTE*)dst))
++          c_decreases ((long)length - c_pointer_offset(op))
 +#endif
 +        { ZSTD_copy8(op, ip); op += 8; ip += 8; } while (op < oend);
      } else {
@@ -52,7 +55,7 @@ index 86a0fc5..86de737 100644
          /* Separate out the first COPY16() call because the copy length is
           * almost certain to be short, so the branches have different
           * probabilities. Since it is almost certain to be short, only do
-@@ -239,11 +260,25 @@ void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e con
+@@ -239,11 +263,26 @@ void ZSTD_wildcopy(void* dst, const void* src, size_t length, ZSTD_overlap_e con
          if (16 >= length) return;
          op += 16;
          ip += 16;
@@ -65,13 +68,14 @@ index 86a0fc5..86de737 100644
 +         * CBMC counts as a loop, so it is inlined here for the same reason. */
 +        while (1)
 +#ifdef ZSTD_CONTRACTS
-+        assigns        (op, ip, dstStart[0 : length + WILDCOPY_OVERLENGTH])
-+        loop_invariant (same_object(op, dstStart))
-+        loop_invariant (same_object(ip, (const BYTE*)src))
-+        loop_invariant (pointer_offset(op) >= 16)
-+        loop_invariant (pointer_offset(op) < (long)length)
-+        loop_invariant (pointer_offset(ip) == pointer_offset(op))
-+        decreases      ((long)length - pointer_offset(op))
++        c_assigns   (c_locations(op, c_locations(ip,
++                        c_range(dstStart, 0, length + WILDCOPY_OVERLENGTH))))
++        c_invariant (c_same_object(op, dstStart))
++        c_invariant (c_same_object(ip, (const BYTE*)src))
++        c_invariant (c_pointer_offset(op) >= 16)
++        c_invariant (c_pointer_offset(op) < (long)length)
++        c_invariant (c_pointer_offset(ip) == c_pointer_offset(op))
++        c_decreases ((long)length - c_pointer_offset(op))
 +#endif
 +        {
 +            ZSTD_copy16(op, ip); op += 16; ip += 16;

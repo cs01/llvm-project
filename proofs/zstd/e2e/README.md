@@ -21,44 +21,25 @@ tells you to come update this file.
 | 5 | A contract on a FORCE_INLINE function reaches its call sites | **pass** |
 | 6 | A wrong contract fails, loudly | **pass** |
 | 7 | A proof fits in a CI step (60 s budget) | **pass**, 10 s |
-| 8 | Annotations can live in the upstream source tree | fail |
-| 9 | A violated precondition can trap at runtime | **pass**, scalar `pre` |
+| 8 | Annotations can live in the upstream source tree | **pass** |
+| 9 | A violated precondition can trap at runtime | **pass**, scalar `c_pre` |
 
-Eight of nine. The eight that pass are not the easy ones: a wrong contract really
+Eight of nine. The cases that pass are not the easy ones: a wrong contract really
 is rejected, the frame really does hold across a call replacement, and the
-unbounded proof really does fit in a CI step. The five that fail are the ones
-between a research artifact and something a maintainer would adopt.
+unbounded proof really does fit in a CI step.
 
 **Case 8 is the one that decides whether anyone can use this at all**, and it
-fails for a reason that is a syntax decision rather than a hard problem. Stock
-gcc and stock clang were measured against four candidate spellings of the same
-annotation:
-
-| spelling | gcc 13 | stock clang |
-|---|---|---|
-| `pre (n > 0)` — what this fork parses | **error** | **error** |
-| `__attribute__((contract_pre("n > 0")))` | ok, 1 warning | ok, 2 warnings |
-| `[[clang::contract_pre(n > 0)]]` | ok, 1 warning | ok, 2 warnings |
-| `/*@ pre n > 0; */` | ok, silent | ok, silent |
-
-Only the first one cannot exist in a file that anyone else compiles, which is
-why `patches/annotate-wildcopy-our-grammar.patch` wraps every clause in
-`#ifdef ZSTD_CONTRACTS`. A maintainer will not take that, and the ifdefs are
-not a presentation problem: they are the reason the annotations cannot go
-upstream and therefore cannot be maintained by the people who own the code.
-
-The AST, Sema checking, call-site analysis, serialization and CBMC lowering all
-sit behind the parser and do not depend on the spelling. Changing the surface
-syntax to one of the lower three rows is a parser change, not a redesign, and it
-is the difference between a fork nobody installs and a tool that reads
-annotations already sitting in someone's repository.
+now passes through the portable `c_contracts.h` layer. A contract-aware compiler
+expands `c_pre (n > 0)` to the checked grammar; GCC, stock clang and other C
+compilers erase it. Both paths compile the same declaration, so an annotated
+header can live upstream without a second source path.
 
 ## Case 9, and where a runtime check has to go
 
 The tier that most potential users ask for first -- ship a checked build, trap
 on a violated precondition, no prover in CI -- is easy for scalar clauses and
 impossible in the obvious place for memory clauses. C gives no way to recover an
-allocation's bounds from a `void *`, so `pre (readable(src, srcSize))` cannot be
+allocation's bounds from a `void *`, so `c_pre (c_readable(src, srcSize))` cannot be
 checked where `src` arrives.
 
 `__builtin_dynamic_object_size`, which is how `_FORTIFY_SOURCE` works, was

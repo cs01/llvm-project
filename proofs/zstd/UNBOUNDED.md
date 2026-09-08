@@ -11,10 +11,10 @@ None of them is about mathematics, and each is expanded below.
 - CBMC rejects loop contracts on `do`/`while`; the loop must be rewritten.
 - `do { } while (0)` macros count as loops, so a contract silently attaches to
   the wrong one. No diagnostic.
-- The `assigns` clause havocs the cursors before the invariant is assumed, so
+- The `c_assigns` clause havocs the cursors before the invariant is assumed, so
   raw pointer comparisons in an invariant get flagged themselves. Use
   `__CPROVER_same_object` and `__CPROVER_POINTER_OFFSET`.
-- A symbolic extent in `assigns` generates its own unbounded havoc loop. Use a
+- A symbolic extent in `c_assigns` generates its own unbounded havoc loop. Use a
   concrete bound where the semantics give you one.
 - **`FORCE_INLINE` was recorded as defeating callee contracts. It does not, on
   CBMC 6.11.** This entry said an inlined loop needed its invariant repeated at
@@ -27,7 +27,7 @@ None of them is about mathematics, and each is expanded below.
   inlined copy. Kept as `e2e` case 5.
 
   What blocked `ZSTD_safecopy` was therefore something else, most likely the
-  symbolic `assigns` extent above, or a CBMC older than 6. Re-testing safecopy
+  symbolic `c_assigns` extent above, or a CBMC older than 6. Re-testing safecopy
   itself is still open; nothing here says it now passes, only that this reason
   for its failing was wrong.
 
@@ -190,7 +190,7 @@ __CPROVER_decreases((__CPROVER_ssize_t)length - __CPROVER_POINTER_OFFSET(op))
 
 Two things about it are worth carrying forward:
 
-- **Offsets, not pointer comparisons.** The `assigns` clause havocs `op` and `ip`
+- **Offsets, not pointer comparisons.** The `c_assigns` clause havocs `op` and `ip`
   before the invariant is assumed, so a plain `op < oend + 32` asks CBMC to
   compare pointers it does not yet know are valid, and it flags the comparison
   itself. `__CPROVER_same_object` and `__CPROVER_POINTER_OFFSET` are defined on
@@ -219,7 +219,7 @@ Loop ZSTD_safecopy.1:  line 891   (the leftovers after wildcopy)
 
 The invariants follow the shape that worked for `ZSTD_wildcopy`: capture the
 cursor pair in locals immediately before the loop, then state `same_object` plus
-offset bounds and a lockstep relation between the two offsets, with `decreases`
+offset bounds and a lockstep relation between the two offsets, with `c_decreases`
 measured in offsets rather than pointer difference.
 
 One difference worth noting. The harness includes the whole
@@ -229,7 +229,7 @@ function. It is not obviously the bottleneck, but it is a reason a per-function
 harness for a `static` function costs more than the same function would if it
 were exported.
 
-### The fourth obstacle: a symbolic `assigns` extent is itself a loop
+### The fourth obstacle: a symbolic `c_assigns` extent is itself a loop
 
 `--show-loops` on the pruned program reported exactly the two annotated loops,
 and CBMC then unwound `ZSTD_safecopy.2`. That third loop does not exist in the
@@ -298,10 +298,11 @@ extension is not to write those, so the proof was re-expressed as source:
 
 ```c
 while (1)
-  assigns        (op, ip, dstStart[0 : length + WILDCOPY_OVERLENGTH])
-  loop_invariant (same_object(op, dstStart))
-  loop_invariant (pointer_offset(op) < (long)length)
-  decreases      ((long)length - pointer_offset(op))
+  c_assigns (c_locations(op, c_locations(ip,
+               c_range(dstStart, 0, length + WILDCOPY_OVERLENGTH))))
+  c_invariant (c_same_object(op, dstStart))
+  c_invariant (c_pointer_offset(op) < (long)length)
+  c_decreases ((long)length - c_pointer_offset(op))
 ```
 
 Every name in that is C written by the author. There is no prover vocabulary in

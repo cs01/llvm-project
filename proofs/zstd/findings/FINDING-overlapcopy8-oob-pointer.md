@@ -110,7 +110,7 @@ assertion is an invariant of the `ZSTD_bm_stable` input mode maintained by the
 validation at `:6486`-`:6520`. It is worth recording only because the guard is
 an `assert`, so under `-DNDEBUG` a caller that violates the stable-buffer
 contract gets a `size_t` underflow on `input->pos` and a wild `ip`. That is API
-misuse rather than an internal defect, but it is the kind of place a `pre`
+misuse rather than an internal defect, but it is the kind of place a `c_pre`
 clause would earn its keep, since the contract is currently enforced only in
 debug builds.
 

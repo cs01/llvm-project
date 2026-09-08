@@ -64,7 +64,7 @@ below 32:
 Maximum real value 30, table size 32. It is correct today, by one index of
 headroom, and for a reason stated nowhere near the code that depends on it.
 
-**What a contract would have done.** `pre (nbBits < 32)` on `BIT_lookBits`
+**What a contract would have done.** `c_pre (nbBits < 32)` on `BIT_lookBits`
 contradicts its own doc-comment on sight — the mismatch is visible at the
 declaration rather than requiring a reader to follow a call into a different
 header and know the size of a static table.
@@ -80,8 +80,8 @@ honest if the near-misses are in it.
 **Not a bug. The dogfooding milestone.** The first proof on this branch whose
 contracts were written in this syntax rather than in CBMC's macros.
 
-`ZSTD_wildcopy` in upstream zstd `d9c0c7e2`, annotated with `assigns`,
-`loop_invariant` and `decreases` (see
+`ZSTD_wildcopy` in upstream zstd `d9c0c7e2`, annotated with `c_assigns`,
+`c_invariant` and `c_decreases` (see
 [`patches/annotate-wildcopy-our-grammar.patch`](patches/annotate-wildcopy-our-grammar.patch)),
 lowered by `-fcontract-emit-cprover-unit`, and run through
 [`run-wildcopy-from-grammar.sh`](run-wildcopy-from-grammar.sh):
@@ -148,7 +148,7 @@ Three things this entry is worth more for than the finding itself:
   `ERROR()` convention (`(size_t)-1`) and neither of them UB. A finding count is
   a statement about the flags before it is a statement about the code.
 - **The front end caught an error in the finding.** The first draft of the
-  contract said `post (r: r == srcSize)`, and clang rejected it: `srcSize` is a
+  contract said `c_returns (c_result == srcSize)`, and clang rejected it: `srcSize` is a
   by-value copy the body may mutate, so a bare mention is ambiguous between its
   entry and exit value. Level 1 catching a specification bug inside a document
   about specification bugs is the argument for type-checking contracts rather

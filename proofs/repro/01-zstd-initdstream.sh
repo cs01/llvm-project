@@ -13,14 +13,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ZSTD=${ZSTD:-$HOME/facebook/zstd}
 [ -d "$ZSTD" ] || { echo "SKIP 01-zstd-initdstream: no zstd tree at $ZSTD"; exit 0; }
 H="$ZSTD/lib/common/bitstream.h"
-grep -q "pre (fresh(srcBuffer" "$H" 2>/dev/null || {
+grep -q "c_pre (c_fresh(srcBuffer" "$H" 2>/dev/null || {
   echo "SKIP 01-zstd-initdstream: bitstream.h is not annotated"
   echo "  apply ../zstd/patches/annotate-initdstream.patch"; exit 0; }
 
 echo "== zstd BIT_initDStream: pointer past the caller's object =="
 echo "   contract under test:"
 sed -n '/^MEM_STATIC size_t BIT_initDStream/,/^{$/p' "$H" |
-  grep -E "^\s+pre " | sed 's/^/     /'
+  grep -E "^\s+c_pre " | sed 's/^/     /'
 
 # fresh() rather than readable(): readable is a LOWER bound, so CBMC may give
 # the object slack past srcSize -- and that slack is exactly what hides this.
@@ -32,7 +32,7 @@ W=$(mktemp -d); trap 'rm -rf "$W"; cp "$W.h" "$H" 2>/dev/null' EXIT
 cp "$H" "$W.h"
 for N in 4 8; do
   cp "$W.h" "$H"
-  perl -0pi -e "s/pre \(srcSize == \d+\)/pre (srcSize == $N)/s" "$H"
+  perl -0pi -e "s/c_pre \(srcSize == \d+\)/c_pre (srcSize == $N)/s" "$H"
   printf '   srcSize == %-3s ' "$N"
   UNWIND=8 DEADLINE=${DEADLINE:-900} "$HERE/../verify-contract.sh" \
       BIT_initDStream "$ZSTD/lib/decompress/huf_decompress.c" \

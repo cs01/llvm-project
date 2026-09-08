@@ -3,6 +3,10 @@
 Full syntax, semantics and internals for the `-fc-contracts` extension. The
 [README](../README.md) is the orientation; this is the detail.
 
+Usage examples use the portable `c_contracts.h` spellings. The grammar,
+clause-mechanics, and compiler-internals sections show the raw tokens those
+macros expand to.
+
 ## Contents
 
 - [Grammar](#grammar)
@@ -170,8 +174,8 @@ invariant gives it induction, the variant gives it termination.
 void fill(int *buf, unsigned len) {
   unsigned i = 0;
   while (i < len)
-    loop_invariant (i <= len)      // true before, and after every iteration
-    decreases   (len - i)       // gets smaller each time, never negative
+    loop_invariant (i <= len)   // true before, and after every iteration
+    decreases (len - i)        // gets smaller each time, never negative
   {
     buf[i] = 0;
     i++;
@@ -227,6 +231,10 @@ give up and assume nothing. With one, `ZSTD_wildcopy` is proved memory-safe for
 
 `__has_feature(c_contracts)` is true under the flag, so a header can carry
 contracts and still compile with a stock clang.
+
+`-fcontract-emit-cprover-unit` rewrites source spans, so input using the portable
+macro layer must be preprocessed first. `proofs/verify-contract.sh` performs
+that step and forces the contract-aware macro expansion before invoking Clang.
 
 ### Runtime checking
 
@@ -405,9 +413,9 @@ buffer write at every level:
 
 ```c
 void put(int *buf, unsigned len, unsigned i, int v)
-  pre  (buf != 0)
-  pre  (i < len)
-  assigns (buf[i]);
+  c_pre     (buf != 0)
+  c_pre     (i < len)
+  c_assigns (buf[i]);
 ```
 
 ### Level 1 — the front end: is the *contract* well formed?
@@ -464,7 +472,7 @@ put(b, n, k, 1);        // symbolic: it cannot relate n and k, so it says nothin
 That last one is the big gap, and it is not subtle:
 
 ```c
-void fill(int *buf, unsigned len) pre (buf != 0) {
+void fill(int *buf, unsigned len) c_pre (buf != 0) {
   for (unsigned i = 0; i <= len; i++)   // off by one
     buf[i] = 0;
 }
@@ -488,7 +496,7 @@ bugs that fuzzing cannot reach, because nothing misbehaves at runtime.
 instead of the code —
 
 ```c
-  pre  (i <= len)     // wrong, but now it is the spec
+  c_pre (i <= len)     // wrong, but now it is the spec
 ```
 
 — and CBMC proves the code matches it, cheerfully, forever. It also only sees

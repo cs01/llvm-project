@@ -3,6 +3,8 @@ real function. They exist today only in asserts that -DNDEBUG deletes and in
 allocation arithmetic two call frames away; see
 findings/FINDING-execsequence-implicit-preconditions.md.
 
+#include <c_contracts.h>
+
 size_t ZSTD_execSequence(BYTE* op,
     BYTE* const oend, seq_t sequence,
     const BYTE** litPtr, const BYTE* const litLimit,
@@ -10,11 +12,11 @@ size_t ZSTD_execSequence(BYTE* op,
     /* The obligations below live today in asserts that -DNDEBUG deletes, and in
        allocation arithmetic two call frames away in ZSTD_decodeLiteralsBlock.
        Stated here they survive the release build and reach CBMC. */
-    pre(op != NULL)
-    pre(oend - op >= WILDCOPY_OVERLENGTH)
-    pre(sequence.matchLength >= 1)
-    pre(sequence.offset >= 1)
-    pre(sequence.offset <= (size_t)(op - prefixStart) + sequence.litLength)
-    pre(*litPtr + sequence.litLength <= litLimit)
-    pre(sequence.litLength + sequence.matchLength <= (size_t)(oend - op))
+    c_pre(op != NULL)
+    c_pre(oend - op >= WILDCOPY_OVERLENGTH)
+    c_pre(sequence.matchLength >= 1)
+    c_pre(sequence.offset >= 1)
+    c_pre(sequence.offset <= (size_t)(op - prefixStart) + sequence.litLength)
+    c_pre(*litPtr + sequence.litLength <= litLimit)
+    c_pre(sequence.litLength + sequence.matchLength <= (size_t)(oend - op))
 {

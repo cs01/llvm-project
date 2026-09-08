@@ -2977,7 +2977,8 @@ public:
 namespace {
 /// Turns contract violations into diagnostics. The predicate is printed as the
 /// user wrote it: a pretty-printed AST would not match the source they have to
-/// go fix.
+/// go fix. A predicate reaching us through a macro has no source text to quote,
+/// and falls back to the AST rather than to a placeholder.
 class ContractReporter : public contracts::ContractViolationReporter {
   Sema &S;
 
@@ -3000,9 +3001,17 @@ private:
   void report(const CallExpr *Call, const FunctionDecl *Callee,
               const ContractClause &Clause, unsigned DiagID) {
     const SourceManager &SM = S.getSourceManager();
+    const Expr *Predicate = Clause.getPredicate();
     CharSourceRange R =
-        CharSourceRange::getTokenRange(Clause.getPredicate()->getSourceRange());
+        CharSourceRange::getTokenRange(Predicate->getSourceRange());
     StringRef Text = Lexer::getSourceText(R, SM, S.getLangOpts());
+
+    std::string Printed;
+    if (Text.empty()) {
+      llvm::raw_string_ostream OS(Printed);
+      Predicate->printPretty(OS, nullptr, S.getPrintingPolicy());
+      Text = Printed;
+    }
 
     S.Diag(Call->getBeginLoc(), DiagID)
         << (Text.empty() ? StringRef("<predicate>") : Text) << Callee

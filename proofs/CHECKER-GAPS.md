@@ -19,12 +19,12 @@ remedy. `verify-contract.sh` now lists them and says what to add.
 
 **The cost is the finding.** `inflate_table` is one function and it has **ten**
 loops, so verifying its documented contract means writing ten
-`assigns`/`loop_invariant`/`decreases` triples first. For a maintainer deciding
+`c_assigns`/`c_invariant`/`c_decreases` triples first. For a maintainer deciding
 whether to annotate a codebase, that ratio matters more than any feature in the
 grammar, and nothing in our documentation mentioned it.
 
 *Open:* whether the frame check can be skipped for loops that provably do not
-write outside it, so a `pre`-only contract does not drag in the whole body.
+write outside it, so a `c_pre`-only contract does not drag in the whole body.
 
 ## 1b. `--apply-loop-contracts` must be its own earlier pass
 
@@ -43,7 +43,7 @@ this again.
 
 `ZSTD_wildcopy` reports three loops. One is the `while (1)` anyone would expect;
 one is a `do { } while (0)` **macro** that is not a loop in the source; and one
-is in a branch the contract's own `pre (ovtype == ZSTD_no_overlap)` excludes.
+is in a branch the contract's own `c_pre (ovtype == ZSTD_no_overlap)` excludes.
 All three need contracts before any contract on the function can be checked.
 
 The annotation burden is therefore not proportional to the code a maintainer
@@ -52,14 +52,14 @@ leaves behind.
 
 ## 1d. A missing frame surfaces somewhere unrecognisable
 
-Verifying `ZSTD_wildcopy` without its function-level `assigns` fails at
+Verifying `ZSTD_wildcopy` without its function-level `c_assigns` fails at
 
 ```
 [_mm_storeu_si128.assigns.1] line 742 Check that *__P is assignable: FAILURE
 ```
 
 an SSE intrinsic in a header, with nothing pointing back at the function being
-verified or at the clause that is missing. Restoring the `assigns` gives
+verified or at the clause that is missing. Restoring the `c_assigns` gives
 `0 of 354`. Anyone meeting that message cold would look in the wrong place.
 
 ## 2. `static inline` functions vanish before instrumentation
@@ -94,17 +94,17 @@ finish, but the dispatcher printed "symex-bound, not solver-bound: shrink the
 harness" — advice that would have sent someone to rewrite a perfectly good
 harness. It now distinguishes the two.
 
-## 5. `post` cannot name a by-value parameter, and real contracts want to
+## 5. `c_post` cannot name a by-value parameter, and real contracts want to
 
 Relaxed once already for dereferences, because `ZSTD_overlapCopy8`'s own
 documented postcondition is `*op - *ip >= 8` and was unwritable. The remaining
 restriction is deliberate — CBMC reads a bare parameter in `ensures` as its
-entry value, so `old()` is for the reader — but it is friction every author
+entry value, so `c_old()` is for the reader — but it is friction every author
 meets, and it was met three times in one session.
 
 ## 6. `forall` stops constraining when its range is symbolic, and says nothing
 
-`forall (i : 0, n) lens[i] <= 15` lowers to
+`c_forall(i, 0, n, lens[i] <= 15)` lowers to
 `__CPROVER_forall { unsigned long i; (i < n) ==> (lens[i] <= 15) }`. Whether
 that assumption does any work depends on whether `n` is concrete, and nothing
 warns when it does not.
@@ -113,8 +113,8 @@ Measured on zlib's `inflate_table`, same contract, one clause changed:
 
 | the range | result |
 |---|---|
-| `pre (codes == 5)` — concrete | **3 of 338 failed**, 63 s. The three real properties, identical to spelling the five indices out by hand; widening the clause under test then gives 0 of 338 in 182 s. |
-| `pre (codes >= 1 && codes <= 5)` — symbolic | **29 of 338 failed**, 447 s. |
+| `c_pre (codes == 5)` — concrete | **3 of 338 failed**, 63 s. The three real properties, identical to spelling the five indices out by hand; widening the clause under test then gives 0 of 338 in 182 s. |
+| `c_pre (codes >= 1 && codes <= 5)` — symbolic | **29 of 338 failed**, 447 s. |
 
 The 26 extra failures are the tell: `array 'count' upper bound in
 count[lens[sym]]`, `offs[lens[sym]]`, `work + sym` out of bounds. Every one of
@@ -124,7 +124,7 @@ so it looks like a finding, and it is an artefact.
 
 **Why this is the dangerous shape.** An assumption that is dropped does not fail
 loudly; it makes the property set *larger*, and a bigger red number reads like a
-better result. The failure mode of a missing `assigns` (gap 1d) is an
+better result. The failure mode of a missing `c_assigns` (gap 1d) is an
 unrecognisable error message. The failure mode here is a plausible bug report.
 
 It is also the shape that hides the opposite error. Had those 26 properties been
