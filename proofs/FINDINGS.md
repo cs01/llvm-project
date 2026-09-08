@@ -18,6 +18,8 @@ The *shapes* behind these findings, and the detectors built from them, are in
 | 3 | zlib `inflate_table` | doc says size the array `2^bits`; do that and the body **writes past it** | doc defect, proven | [`02`](repro/02-zlib-inflate-table.sh) |
 | 4 | expat `storeRawNames` | compares and subtracts a pointer `realloc` already freed | real UB (indeterminate value) | [`03`](repro/03-realloc-aliasing-scan.sh) |
 | 5 | sqlite `fts3_unicode.c` +1 more | same shape as 4 | real UB (indeterminate value) | [`03`](repro/03-realloc-aliasing-scan.sh) |
+| 8 | CPython `PyImport_ExtendInittab` | compares a pointer `realloc` freed; the guarded branch **dereferences** the stale one | real UB, worst path of the family | [finding](generalize/cpython/FINDING-import-inittab-freed-compare.md) |
+| 9 | CPython `Modules/expat/xmlparse.c` | vendored copy of finding 4: the expat defect ships in every CPython | real UB (indeterminate value) | [finding](generalize/expat/FINDING-storerawnames-freed-pointer.md) |
 | 6 | zstd `BIT_lookBits` | documents a bound 26 wider than its callee accepts | doc defect, not reachable | [ledger](zstd/EXPERIMENT-annotation-yield.md) |
 | 7 | zstd `ZSTD_execSequence` | preconditions live in asserts that `-DNDEBUG` removes | doc defect | [finding](zstd/findings/FINDING-execsequence-implicit-preconditions.md) |
 
@@ -55,12 +57,35 @@ re-triaged if a rule ever regresses:
 | `redis src/rdb.c:2572` | inside `if (nv == NULL)` — the failure path, where the old block is still live and must be freed. Correct code |
 | `jq src/jv.c:455` | reads `values.values_num`, the integer count |
 | `sqlite src/printf.c:1233` | `p->nAlloc` is the size argument, not the pointer |
+| `cpython Modules/_elementtree.c:515` | the `memcpy` is in the `else` branch, reached only when no `realloc` happened. The detector's window crosses the branch; it does not model control flow |
 
 The lesson generalises past this detector: **a filter that silences a finding is
 worse than the noise it removes.** Tightening these rules once eliminated every
 false positive *and* the real expat defect, because expat's guard returns and
 everything after it is the success path. Every rule here was re-checked against
 the known-real sites before it was kept.
+
+## The detector's *blind* spots, which are worse than its false positives
+
+A false positive costs a few minutes of reading. A blind spot prints nothing and
+is recorded as a clean tree. Two were found by auditing the detector rather than
+its output, and both had already put wrong entries in this file:
+
+| Blind spot | How it showed up | Fixed by |
+|---|---|---|
+| Trees with no C in them | `~/git/postgres` is a TypeScript client. It was swept and reported clean; there was nothing to sweep | the `[coverage]` line, which names files scanned and calls seen |
+| Reallocators reached through a struct field | cJSON calls `p->hooks.reallocate(...)`; expat's own `REALLOC` expands to `parser->m_mem.realloc_fcn(...)`. The regex required the name to start the callee, so it counted **zero calls in files that have them** | an optional member prefix in the call pattern |
+
+Every run now ends with, on stderr:
+
+```
+[coverage] <tree>: N C files, M realloc-shaped calls, K repaired-pointer sites, H hits
+```
+
+and says so loudly when `N` or `M` is zero. **A zero-hit sweep means nothing
+until that line says the detector examined something.** This is the gate-audit
+rule applied to our own tooling: a check that silently examines nothing reports
+success forever.
 
 ## Not looked at yet
 
