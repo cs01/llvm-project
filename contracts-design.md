@@ -286,6 +286,41 @@ a C programmer meeting contracts elsewhere meets the same words. `old` predates
 all of them — Eiffel, JML's `\old`, ACSL's `\old`. `assigns`, `loop_invariant`
 and `decreases` are ACSL's, which CBMC then adopted.
 
+| name | keyword or intrinsic | borrowed from |
+| --- | --- | --- |
+| `pre`, `post` | keyword | C++26 P2900, same spelling |
+| `old` | keyword | Eiffel; JML and ACSL `\old`; CBMC `__CPROVER_old` |
+| `assigns` | keyword | ACSL `assigns`; CBMC `__CPROVER_assignable` |
+| `loop_invariant`, `decreases` | keyword | ACSL, adopted by CBMC; `decreases` also Dafny |
+| `forall` | keyword | ACSL and JML `\forall`, Dafny, CBMC `__CPROVER_forall` |
+| `fresh` | intrinsic | CBMC `__CPROVER_is_fresh` |
+| `same_object` | intrinsic | CBMC `__CPROVER_same_object` |
+| `pointer_offset` | intrinsic | CBMC `__CPROVER_POINTER_OFFSET` |
+| `readable`, `writable` | intrinsic | **ours.** CBMC spells them `r_ok` and `w_ok`; ACSL has `\valid_read` and `\valid` |
+
+Everything in the right column except the last row was checked against the
+`cbmc` binary itself rather than from memory. Two names are coinages, and both
+are renames of a CBMC builtin whose own spelling (`r_ok`) reads as prover
+jargon.
+
+**A caution on `fresh`.** ACSL also has a `\fresh`, and it does not mean this.
+ACSL's is a post-state property — *newly allocated during this call*. Ours is
+CBMC's `__CPROVER_is_fresh`: in a `pre`, "points to a distinct object of exactly
+this size", which is closer to an allocation directive than to a predicate, and
+which is why `-fcontract-emit-harness` compiles it to a `__CPROVER_allocate`
+rather than an assumption. A reader arriving from Frama-C will guess wrong. The
+name is kept because the prover we lower to is CBMC, not Frama-C, but the
+divergence is real and belongs in the reference next to the clause.
+
+**Keyword versus intrinsic is a compatibility decision, not a taxonomy.** A
+keyword adds grammar, and every added word can break code that already uses it,
+so a name earns keyword status only when it cannot be a call:
+`forall (i : lo, hi) p[i] == 0` binds `i`, and no function call in C introduces
+a name. `fresh(p, n)` is already valid C syntax, so making it grammar would cost
+compatibility and buy nothing. The intrinsics are resolved in Sema only after
+ordinary lookup has failed (`SemaExpr.cpp`, guarded on `R.empty()`), which means
+a codebase with its own `readable()` keeps it and its calls print as themselves.
+
 
 
 Contracts are real grammar. They are lexed, parsed into expressions with the
