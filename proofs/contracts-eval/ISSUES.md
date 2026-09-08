@@ -30,6 +30,25 @@ detect this at the point the user can act on it: when `-fcontract-emit-cprover-u
 emits a function contract for a function whose body (after the inlining the
 verification build will do) contains an un-annotated loop, say so.
 
+**Addendum: annotating the loop is necessary but not sufficient — split the
+passes.** A fully annotated loop still produces this crash when
+`--apply-loop-contracts` and `--enforce-contract` are given to *one*
+`goto-instrument` invocation, which is how the command in
+`RESULT-execsequence-from-grammar.md` is written. Two invocations succeed:
+
+```sh
+goto-instrument --apply-loop-contracts f.goto f-a.goto
+goto-instrument --enforce-contract fill f-a.goto f-b.goto
+```
+
+Measured on a `fill(int *buf, unsigned len)` whose loop carries `c_assigns`,
+`c_invariant` and `c_decreases`: single pass crashes, two passes report
+VERIFICATION SUCCESSFUL, and the `i <= len` variant fails on invariant
+preservation, the decreases clause, and assignability of `buf[i]`. So part of
+what reads here as "contracts are gated on loop contracts" is really "the two
+instrumentation passes do not compose in one invocation". The inlining
+transitivity above is still real and still applies to `ZSTD_execSequence`.
+
 ## 2. FIXED (diagnosed) -- `FORCE_INLINE` silently discards a callee's contract
 
 `ZSTD_wildcopy` is `MEM_STATIC FORCE_INLINE_ATTR`. Its contract does not
