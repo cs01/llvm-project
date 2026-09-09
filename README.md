@@ -313,6 +313,42 @@ parameters in scope, that has to be free of side effects. A call inside one is
 allowed only if the callee is marked `const` or `pure`; the compiler rejects the
 rest.
 
+### Annotation reference
+
+The whole language is this table, and each row links to its own section below.
+Full syntax and semantics:
+**[docs/contracts-reference.md](docs/contracts-reference.md)**.
+
+| Keyword | Goes | Says |
+|---|---|---|
+| [`pre`](#pre-what-the-caller-must-guarantee) | after a function's parameter list | must hold when the function is **called** |
+| [`returns`](#returns-and-post-what-the-function-guarantees) | after a function's parameter list | must hold when it **returns**; `c_result` names the result |
+| [`post`](#returns-and-post-what-the-function-guarantees) | after a function's parameter list | a result-independent fact that holds when it returns |
+| [`old`](#returns-and-post-what-the-function-guarantees) | only inside a postcondition | the value an expression had **on entry** |
+| [`loop_invariant`](#loop_invariant-what-stays-true-every-time-around) | between a loop's header and its body | true on entry and **preserved by every iteration** |
+| [`decreases`](#decreases-why-the-loop-ends) | between a loop's header and its body | **strictly decreases**, never negative — so the loop terminates |
+| [`assigns`](#assigns-what-a-function-leaves-alone) | after a function's parameter list, or in a loop header | the **only** locations the function may modify |
+| [`c_ghost`](#c_ghost-a-value-that-exists-only-for-the-contract) | on a local declaration | the value exists for the contract only, and compiles away with it |
+| [`readable`](#readable-a-buffer-the-function-may-read) / [`writable`](#writable-a-buffer-the-function-may-write) | inside any predicate | the caller must supply that many readable, or writable, bytes |
+| [`fresh`](#fresh-an-exact-distinct-object-for-a-proof) | inside any predicate | an object of **exactly** that size, distinct from every other in the proof |
+| [`c_forall`](#c_forall-every-element-of-a-range) | inside any predicate | `c_forall(i, lo, hi, P)` holds `P` for every `i` from `lo` up to, but not including, `hi` |
+
+`assigns` takes one argument rather than a predicate. Use
+`locations(a, b)` inside it to combine locations; nested `locations` calls
+handle larger frames. A location may be a range: `range(buf, 0, len)` counts
+elements and stops just before `len`.
+
+These are *contextual* keywords, active only under `-fc-contracts`; without it
+they are ordinary identifiers, which is why annotated source still builds with
+any compiler. Writing them unprefixed takes `#define C_CONTRACTS_NO_PREFIX`
+before the header, as
+[Two spellings](#two-spellings-and-which-to-write) covers; the `c_`-prefixed
+forms mean the same thing and are what a project writes if it prefers a
+namespace.
+
+For why these spellings rather than the verifier's `requires` and `ensures`, see
+[contracts-design.md](contracts-design.md#5-syntax).
+
 ### `pre`: what the caller must guarantee
 
 A `pre` is a condition the caller has to satisfy before the call:
@@ -589,40 +625,6 @@ void zero(int *buf, unsigned len) {
 ```
 
 Here `len - i` shrinks by one each time around and stops at zero.
-
-### Annotation reference
-
-The core spellings are below. The full syntax and semantics are available in
-**[docs/contracts-reference.md](docs/contracts-reference.md)**.
-
-| Keyword | Goes | Says |
-|---|---|---|
-| `pre` | after a function's parameter list | must hold when the function is **called** |
-| `returns` | after a function's parameter list | must hold when it **returns**; `c_result` names the result |
-| `post` | after a function's parameter list | a result-independent fact that holds when it returns |
-| `old` | only inside a postcondition | the value an expression had **on entry** |
-| `loop_invariant` | between a loop's header and its body | true on entry and **preserved by every iteration** |
-| `decreases` | between a loop's header and its body | **strictly decreases**, never negative — so the loop terminates |
-| `assigns` | after a function's parameter list, or in a loop header | the **only** locations the function may modify |
-| `c_ghost` | on a local declaration | the value exists for the contract only, and compiles away with it |
-| `c_forall` | inside any predicate | `c_forall(i, lo, hi, P)` holds `P` for every `i` from `lo` up to, but not including, `hi` |
-
-`assigns` takes one argument rather than a predicate. Use
-`locations(a, b)` inside it to combine locations; nested `locations` calls
-handle larger frames. A location may be a range: `range(buf, 0, len)` counts
-elements and stops just before `len`.
-
-These are *contextual* keywords, active only under `-fc-contracts`; without it
-they are ordinary identifiers, which is why annotated source still builds with
-any compiler. Writing them unprefixed takes `#define C_CONTRACTS_NO_PREFIX`
-before the header, as
-[Two spellings](#two-spellings-and-which-to-write) covers; the `c_`-prefixed
-forms mean the same thing and are what a project writes if it prefers a
-namespace.
-
-For why these spellings rather than the verifier's `requires` and `ensures`, see
-[contracts-design.md](contracts-design.md#5-syntax).
-
 
 ## License
 
