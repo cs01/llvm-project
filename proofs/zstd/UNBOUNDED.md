@@ -318,15 +318,15 @@ and `pointer_offset` are contract intrinsics the compiler knows.
 VERIFICATION SUCCESSFUL
 ```
 
-Re-run 2026-09-09 against zstd `5c7b7ba` with CBMC 6.11 and z3: `** 0 of 194
-failed (1 iterations)`, VERIFICATION SUCCESSFUL, 2 s. The verdict is the same
-and the obligation count is not a constant -- it tracks the zstd revision and
-the check set, so a differing number is not by itself a discrepancy. Compare
-verdicts, not counts.
+Re-run 2026-09-09 on the current annotated zstd fork with CBMC 6.11: `** 0 of
+413 failed (1 iterations)`, VERIFICATION SUCCESSFUL. The complete script took
+59 s with z3; the same instrumented program took 3m21s with CBMC's built-in SAT
+backend. The obligation count is not a constant -- it tracks the zstd revision,
+annotations, and check set, so a differing number is not by itself a
+discrepancy. Compare verdicts, not counts.
 
-15 seconds for the whole pipeline, preprocessing through solve, with `z3`
-installed; about four minutes on CBMC's built-in SAT backend. Worth sitting with
-next to [COST.md](COST.md)'s bounded rows, which run to tens of minutes for a
+This is worth sitting next to [COST.md](COST.md)'s bounded rows, which run to
+tens of minutes for a
 result that only holds up to some `unwind`: removing the bound made this proof
 *cheaper*, because there is no unwinding left to pay for.
 

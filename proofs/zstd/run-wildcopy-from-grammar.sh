@@ -1,19 +1,20 @@
 #!/bin/sh
-# Prove ZSTD_wildcopy memory-safe for every length, with the contracts written
-# in this fork's grammar rather than in CBMC's macros.
+# Prove ZSTD_wildcopy's no-overlap mode memory-safe for every length below
+# 1 GiB, with the contracts written in this fork's grammar rather than in
+# CBMC's macros.
 #
-#   patches/annotate-wildcopy-our-grammar.patch  annotates real zstd with
+#   the contracts-annotations zstd fork  annotates real zstd with
 #     assigns / loop_invariant / decreases
-#   this script                                  lowers, compiles, proves
+#   this script                          lowers, compiles, proves
 #
 # Usage:  ZSTD=~/git/zstd CLANG=../../build/bin/clang ./run-wildcopy-from-grammar.sh
 #
 # Expected:  VERIFICATION SUCCESSFUL, in one iteration, with no failures.
-#            The obligation count tracks the zstd revision: 410 when this was
-#            written, 194 against 5c7b7ba on 2026-09-09. Compare the verdict.
-#            Seconds with z3 installed, about 4 min without.
+#            The obligation count tracks the zstd revision and annotations: 413
+#            on the current fork. Compare the verdict, not just the count.
+#            About a minute with z3 installed, about 3.5 min without.
 set -e
-ZSTD=${ZSTD:?set ZSTD to a zstd checkout with the patch applied}
+ZSTD=${ZSTD:?set ZSTD to the contracts-annotations zstd checkout}
 
 # CBMC 6 or newer. Ubuntu 24.04 ships 5.95, and loop-contract handling changed
 # substantially across that major: COST.md's recorded times are all 6.11. Get a
@@ -47,7 +48,7 @@ sed -e 's/__builtin_memcpy/memcpy/g' -e 's/__builtin_memmove/memmove/g' \
     "$WORK/h3.i" > "$WORK/wc.c" 2>"$WORK/rewrite.log" || true
 
 CLAUSES=$(grep -c '__CPROVER_loop_invariant\|__CPROVER_assigns\|__CPROVER_decreases' "$WORK/wc.c")
-[ "$CLAUSES" -eq 11 ] || { echo "expected 11 lowered clauses, got $CLAUSES"; exit 1; }
+[ "$CLAUSES" -eq 15 ] || { echo "expected 15 lowered clauses, got $CLAUSES"; exit 1; }
 echo "lowered $CLAUSES contract clauses from the grammar:"
 grep '__CPROVER_loop_invariant\|__CPROVER_assigns\|__CPROVER_decreases' "$WORK/wc.c" | sed 's/^ */  /'
 
@@ -55,17 +56,20 @@ grep '__CPROVER_loop_invariant\|__CPROVER_assigns\|__CPROVER_decreases' "$WORK/w
 goto-cc "$WORK/wc.c" -o "$WORK/wc.goto"
 goto-instrument --apply-loop-contracts "$WORK/wc.goto" "$WORK/wci.goto"
 
-# Z3 if it is installed. This harness allocates both buffers symbolically, so
-# their extent never becomes a constant, and an SMT solver with a theory of
-# arrays does not have to bit-blast it: 13 s against 245 s for CBMC's built-in
-# SAT backend, same obligations, same answer. Do not generalise the flag --
-# on the fixed-size-array harnesses in this directory it loses badly, and
-# COST.md gives the rule and the numbers.
-if command -v z3 >/dev/null 2>&1; then
+# Z3 if it is installed. Set CBMC_SOLVER to override this choice; an explicitly
+# empty CBMC_SOLVER selects CBMC's built-in SAT backend. This harness allocates
+# both buffers symbolically, so their extent never becomes a constant, and an
+# SMT solver with a theory of arrays does not have to bit-blast it: 59 s against
+# 201 s for CBMC's built-in SAT backend, same obligations, same answer. Do not
+# generalise the flag -- on the fixed-size-array harnesses in this directory it
+# loses badly, and COST.md gives the rule and the numbers.
+if [ "${CBMC_SOLVER+x}" = x ]; then
+  SOLVER=$CBMC_SOLVER
+elif command -v z3 >/dev/null 2>&1; then
   SOLVER=--z3
 else
   SOLVER=
-  echo "note: z3 not installed; using CBMC's built-in SAT backend (~20x slower here)" >&2
+  echo "note: z3 not installed; using CBMC's built-in SAT backend (~3x slower here)" >&2
 fi
 
 # --bounds-check --pointer-check only. Adding --pointer-overflow-check to this

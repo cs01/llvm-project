@@ -22,16 +22,16 @@ worth up to **20x in either direction**, depending on the harness.
 Same instrumented goto program per row, one solver at a time, nothing else
 running, Linux container with 4 cores, CBMC 6.11:
 
-| Harness | Buffers | built-in SAT | z3 4.8.12 | cvc5 1.1.2 |
+| Harness | Buffers | built-in SAT | z3 | cvc5 1.1.2 |
 |---|---|---|---|---|
-| `wildcopy`, loop contract, no unwind | `__CPROVER_allocate`, symbolic extent | 245 s | **13 s** | 14 s |
+| `wildcopy`, original loop contract, no unwind | `__CPROVER_allocate`, symbolic extent | 245 s | **13 s** | 14 s |
+| `wildcopy`, current two-loop contract, no unwind | `__CPROVER_allocate`, symbolic extent | 201 s | **59 s** | not run |
 | `execSequence`, `--unwind 12` | fixed 96 / 64 / 64 arrays | **685 s** | > 1800 s | > 1800 s |
 | `execSequence`, `--unwind 34` | same | **1640 s** | > 2700 s | > 2700 s |
 
-Every finishing run agrees: same obligation count, same verdict. (These rows
-were measured at 208 obligations, before the hand-declared prover externs were
-replaced by the contract intrinsics; the same proof is 205 obligations today and
-the solve times are unchanged.)
+Every finishing run agrees on the verdict. The original wildcopy row used z3
+4.8.12 and was measured at 208 obligations; the current row used z3 4.8.15,
+carries contracts on both source loops, and produces 413.
 
 ### Do not pick: race them
 
@@ -105,14 +105,14 @@ CBMC 6.11:
 
 | Target | Configuration | Obligations | Wall time |
 |---|---|---|---|
-| `ZSTD_wildcopy` | loop contract, no `--unwind`, length to 1 GiB | 208 | **245 s** SAT / **13 s** z3 |
+| `ZSTD_wildcopy` | current loop contracts, no `--unwind`, length to 1 GiB | 413 | **201 s** SAT / **59 s** z3 |
 | `ZSTD_wildcopy` | same, frame emitted as `(p + 0)` and `* sizeof(char)` | 208 | > 50 min, killed |
 
-Same proof, same obligations, same answer. The second row is what this branch's
-emitter produced before it was taught to canonicalise: a frame that denotes the
-identical set of bytes, written with an additive and a multiplicative identity
-left in. CBMC carries the extent symbolically into the havoc it generates, so
-the identities are not folded away before they reach the solver — they widen the
+The second row is a historical control from the original 208-obligation
+contract. It is the same proof as that contract's canonical form, except that
+this branch's emitter had left an additive and a multiplicative identity in its
+frame. CBMC carries the extent symbolically into the havoc it generates, so the
+identities are not folded away before they reach the solver — they widen the
 expression the havoc loop is built from.
 
 The lesson generalises past this one bug. **When a tool consumes generated text,
