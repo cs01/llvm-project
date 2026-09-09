@@ -15,7 +15,7 @@ int deref(int *p)
 int deref2(int *p)
     // expected-error@+3 {{call to undeclared function '__CPROVER_nonsense'}}
     // expected-error@+2 {{contract predicate must be free of side effects}}
-    // expected-note@+1 {{contract intrinsics are 'readable', 'writable', 'fresh', 'same_object' and 'pointer_offset'}}
+    // expected-note@+1 {{contract intrinsics are 'readable', 'writable', 'fresh', 'same_object', 'pointer_in_range' and 'pointer_offset'}}
     pre(__CPROVER_nonsense(p))
 {
   return *p;

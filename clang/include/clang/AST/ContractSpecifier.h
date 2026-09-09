@@ -55,6 +55,16 @@ inline constexpr ContractIntrinsicInfo ContractIntrinsicTable[] = {
     {"writable", "__CPROVER_w_ok", 1, true},
     {"same_object", "__CPROVER_same_object", 2, false},
     {"pointer_offset", "__CPROVER_POINTER_OFFSET", 1, false},
+    // 'pointer_in_range (lo, p, hi)' is the only way to relate two pointer
+    // parameters in a precondition that will be *enforced*. Checking a function
+    // against its own contract havocs every parameter and assumes the clauses,
+    // and a havoc'd pointer satisfies neither 'readable'/'writable' -- which
+    // test an object rather than producing one -- nor 'same_object' against a
+    // second pointer havoc'd independently. Either makes the precondition set
+    // unsatisfiable, and CBMC then reports every property SUCCESS over a body
+    // it never reaches. 'fresh' for the object, 'pointer_in_range' for anything
+    // else that must land inside it, is the pair that stays satisfiable.
+    {"pointer_in_range", "__CPROVER_pointer_in_range_dfcc", 3, false},
 };
 
 /// The intrinsic \p Name names, or null if it is not one.

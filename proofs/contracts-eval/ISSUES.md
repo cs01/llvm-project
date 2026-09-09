@@ -82,6 +82,71 @@ all, because the bulk arrives through inlining — including every `do { } while
 (0)` macro in the path, which CBMC counts as a loop, exactly as
 [UNBOUNDED.md](../zstd/UNBOUNDED.md) records for `COPY16`.
 
+**FIXED. The 41 were counted, and 34 of them were not loops.**
+
+| loops | what they are |
+|---|---|
+| 20 | `RETURN_ERROR_IF` at four sites, five apiece |
+| 14 | `COPY16` / `ZSTD_copy16` expansions, no source location |
+| 7 | `ZSTD_wildcopy`'s two real loops, inlined |
+
+`RETURN_ERROR_IF` is a `do { } while (0)` wrapping three `RAWLOG`s, each itself
+a `do { } while (0)` under `-DNDEBUG`. That is where five loops per call site
+come from. Reduced, the rule is about *nesting*, not count:
+
+| shape | `--enforce-contract` |
+|---|---|
+| one flat `do { } while (0)` | OK |
+| two sequential | OK |
+| **two nested** | `Loops remain` |
+
+goto-instrument's own cleanup removes a trivially-false backedge at the top
+level and not one inside another loop, and every macro of this kind nests.
+
+So `-fcontract-emit-cprover-unit` now flattens `do S while (0)` to `{ S }`,
+which is what it already means — except when a `break` or `continue` binds to
+that loop, where the two differ and the loop stays
+(`isVacuousDoWhile` in `SemaContracts.cpp`, tested in
+`clang/test/Sema/c-contracts-cprover-unit-do-while-zero.c`). The same predicate
+stops `findUncontractedLoop` warning about them, which would otherwise fire on
+every `assert` in C.
+
+Measured on the same `ZSTD_execSequence` unit:
+
+| | before | after |
+|---|---|---|
+| loops in `ZSTD_execSequence` | 41 | **0** |
+| loops program-wide | 5211 | **204** |
+| `--apply-loop-contracts` | 11m53s | **1m33s** |
+
+It also deletes two whole categories of hand-editing from
+[`annotate-wildcopy-our-grammar.patch`](../zstd/patches/annotate-wildcopy-our-grammar.patch),
+which manually inlined `COPY8`/`COPY16` and manually rewrote `do`/`while` — both
+now the compiler's job.
+
+**What was actually left.** All six residual loops were `ZSTD_wildcopy`'s two,
+at `zstd_internal.h:237` and `:254`, inlined into `ZSTD_safecopy`. With loop
+contracts on those, `FORCE_INLINE_ATTR` suppressed (issue 2), and a function
+contract on `ZSTD_safecopy`, the modular form works:
+
+```sh
+goto-instrument --replace-call-with-contract ZSTD_wildcopy \
+                --replace-call-with-contract ZSTD_safecopy \
+                --enforce-contract ZSTD_execSequence  es.goto es-en.goto
+```
+
+That is the first `--enforce-contract` to succeed on a real zstd decode
+function. Replacing the callees rather than letting them inline is also what
+sidesteps the `__in_loop_havoc_block__` sizing failure below: there are 368 of
+those bools in the loop-contracted binary, and `--enforce-contract` cannot size
+any of them.
+
+| form | result |
+|---|---|
+| one pass, both flags | `Loops remain` in 0.8s — enforcement runs before loop contracts |
+| two passes | `no definite size for lvalue target: bool` |
+| **replace callees, then enforce** | **instruments, and `cbmc` discharges** |
+
 ## 2. FIXED (diagnosed) -- `FORCE_INLINE` silently discards a callee's contract
 
 `ZSTD_wildcopy` is `MEM_STATIC FORCE_INLINE_ATTR`. Its contract does not

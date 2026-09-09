@@ -14428,8 +14428,8 @@ def err_contract_forall_signed_bound : Error<
 def note_contract_use_intrinsic : Note<
   "use the contract intrinsic '%0' rather than CBMC's '%1'">;
 def note_contract_intrinsics_available : Note<
-  "contract intrinsics are 'readable', 'writable', 'fresh', 'same_object' and "
-  "'pointer_offset'">;
+  "contract intrinsics are 'readable', 'writable', 'fresh', 'same_object', "
+  "'pointer_in_range' and 'pointer_offset'">;
 def warn_contract_harness_unbounded_alloc : Warning<
   "size of the object allocated for %0 depends on %1, which no earlier 'pre' "
   "constrains; the generated entry point will allocate an unbounded object">,

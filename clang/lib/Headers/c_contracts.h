@@ -103,6 +103,8 @@
 #define c_writable(P, N) __CPROVER_w_ok((P), (N))
 #define c_fresh(P, N) __CPROVER_is_fresh((P), (N))
 #define c_same_object(P, Q) __CPROVER_same_object((P), (Q))
+#define c_pointer_in_range(LO, P, HI)                                          \
+  __CPROVER_pointer_in_range_dfcc((LO), (P), (HI))
 #define c_pointer_offset(P) __CPROVER_POINTER_OFFSET(P)
 #define c_old(E) __CPROVER_old(E)
 #define c_result __CPROVER_return_value
@@ -153,6 +155,7 @@
 #define c_writable(P, N) writable((P), (N))
 #define c_fresh(P, N) fresh((P), (N))
 #define c_same_object(P, Q) same_object((P), (Q))
+#define c_pointer_in_range(LO, P, HI) pointer_in_range((LO), (P), (HI))
 #define c_pointer_offset(P) pointer_offset(P)
 #define c_old(E) old(E)
 #define c_result result
@@ -257,6 +260,7 @@ void __contract_violation(const char *predicate, const char *file,
 #define writable(P, N) c_writable(P, N)
 #define fresh(P, N) c_fresh(P, N)
 #define same_object(P, Q) c_same_object(P, Q)
+#define pointer_in_range(LO, P, HI) c_pointer_in_range(LO, P, HI)
 #define pointer_offset(P) c_pointer_offset(P)
 #define range(P, LO, HI) c_range(P, LO, HI)
 

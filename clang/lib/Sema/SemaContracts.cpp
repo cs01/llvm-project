@@ -433,6 +433,78 @@ static const ContinueStmt *findContinueTargetingLoop(const Stmt *S) {
   return nullptr;
 }
 
+/// True if \p S contains a `break` or `continue` that binds to the loop whose
+/// body \p S is, rather than to a loop or switch nested inside it.
+///
+/// \p BreakBinds is false once the walk is inside a nested switch, where a
+/// `break` leaves the switch and never reaches the loop.
+static bool hasJumpTargetingLoop(const Stmt *S, bool BreakBinds) {
+  if (!S)
+    return false;
+  if (isa<ContinueStmt>(S))
+    return true;
+  if (BreakBinds && isa<BreakStmt>(S))
+    return true;
+  if (isa<WhileStmt>(S) || isa<ForStmt>(S) || isa<DoStmt>(S))
+    return false;
+  bool Binds = BreakBinds && !isa<SwitchStmt>(S);
+  for (const Stmt *Child : S->children())
+    if (hasJumpTargetingLoop(Child, Binds))
+      return true;
+  return false;
+}
+
+/// True if \p S is a `do ... while (0)` that means exactly the block it
+/// contains, so the emitted unit can drop the loop around it.
+///
+/// This is the `do { } while (0)` of macro hygiene, not a loop anyone wrote to
+/// iterate. It matters because goto-cc gives it a backedge like any other loop,
+/// and CBMC's --enforce-contract refuses a function whose body still has one.
+/// Flat ones survive goto-instrument's own cleanup; nested ones do not, and
+/// nesting is the normal shape -- zstd's RETURN_ERROR_IF wraps three RAWLOG
+/// macros, each itself a do-while(0), so one call site leaves five loops in an
+/// otherwise loop-free function.
+///
+/// `break` and `continue` are the only statements that can tell the two apart:
+/// in the do-loop both leave the block, in a plain block `break` escapes to
+/// whatever encloses it and `continue` restarts it. With either present the
+/// rewrite is not sound and the loop stays.
+static bool isVacuousDoWhile(const Stmt *S, const ASTContext &Ctx) {
+  const auto *DS = dyn_cast<DoStmt>(S);
+  if (!DS || Ctx.getLoopContracts(DS))
+    return false;
+  std::optional<llvm::APSInt> Cond =
+      DS->getCond()->getIntegerConstantExpr(Ctx);
+  if (!Cond || *Cond != 0)
+    return false;
+  return !hasJumpTargetingLoop(DS->getBody(), /*BreakBinds=*/true);
+}
+
+namespace {
+class VacuousDoWhileCollector
+    : public RecursiveASTVisitor<VacuousDoWhileCollector> {
+public:
+  VacuousDoWhileCollector(const ASTContext &Ctx,
+                          SmallVectorImpl<const DoStmt *> &Out)
+      : Ctx(Ctx), Out(Out) {}
+
+  bool VisitDoStmt(DoStmt *DS) {
+    if (isVacuousDoWhile(DS, Ctx))
+      Out.push_back(DS);
+    return true;
+  }
+
+private:
+  const ASTContext &Ctx;
+  SmallVectorImpl<const DoStmt *> &Out;
+};
+} // namespace
+
+static void collectVacuousDoWhiles(Decl *Root, const ASTContext &Ctx,
+                                   SmallVectorImpl<const DoStmt *> &Out) {
+  VacuousDoWhileCollector(Ctx, Out).TraverseDecl(Root);
+}
+
 /// Prints the loop contracts reachable from \p S as CBMC loop-contract clauses.
 static void printCProverLoopContracts(const Stmt *S, const FunctionDecl *FD,
                                       const ASTContext &Ctx) {
@@ -896,6 +968,50 @@ void Sema::EmitCProverUnit() {
     Diag(SM.getLocForStartOfFile(Main),
          diag::warn_contract_cprover_unit_skipped_header)
         << Skipped;
+
+  // Drop the loop around every `do ... while (0)`. See isVacuousDoWhile: these
+  // are macro hygiene rather than iteration, but goto-cc cannot tell, and one
+  // left in a body is enough for --enforce-contract to refuse the function.
+  SmallVector<const DoStmt *, 16> Vacuous;
+  collectVacuousDoWhiles(Context.getTranslationUnitDecl(), Context, Vacuous);
+  for (const DoStmt *DS : Vacuous) {
+    // The statement's semicolon goes with the `while (0)`. Leaving it behind
+    // turns `if (c) do { } while (0); else` into `if (c) { } ; else`, which is
+    // not C -- and standing in for a call that must not swallow the else is
+    // the whole reason a macro is written as a do-loop. Erasing it too leaves
+    // the compound statement, a statement everywhere the do-loop was one.
+    std::optional<Token> Semi =
+        Lexer::findNextToken(DS->getRParenLoc(), SM, getLangOpts());
+    if (!Semi || !Semi->is(tok::semi))
+      continue;
+    // `do` is one token, so its range begins and ends at the same location.
+    SourceRange Spans[] = {SourceRange(DS->getDoLoc(), DS->getDoLoc()),
+                           SourceRange(DS->getWhileLoc(), Semi->getLocation())};
+    unsigned Begins[2], Ends[2];
+    bool Usable = true;
+    for (unsigned I = 0; I != 2; ++I) {
+      if (Spans[I].getBegin().isMacroID() || Spans[I].getEnd().isMacroID()) {
+        Usable = false;
+        break;
+      }
+      std::pair<FileID, unsigned> B = SM.getDecomposedLoc(Spans[I].getBegin());
+      std::pair<FileID, unsigned> E = SM.getDecomposedLoc(
+          Lexer::getLocForEndOfToken(Spans[I].getEnd(), 0, SM, getLangOpts()));
+      if (B.first != Main || E.first != Main || E.second < B.second) {
+        Usable = false;
+        break;
+      }
+      Begins[I] = B.second;
+      Ends[I] = E.second;
+    }
+    // Half a rewrite is worse than none: erasing `do` while leaving `while (0)`
+    // is a different program. Both spans land in the main file or neither does.
+    if (!Usable)
+      continue;
+    Edits.push_back({Begins[0], Ends[0], ""});
+    Edits.push_back({Begins[1], Ends[1], ""});
+  }
+
   llvm::sort(Edits,
              [](const Edit &A, const Edit &B) { return A.Begin < B.Begin; });
 
@@ -1036,7 +1152,7 @@ static const Stmt *findUncontractedLoop(const Stmt *S, const ASTContext &Ctx) {
   if (!S)
     return nullptr;
   if (isa<WhileStmt>(S) || isa<ForStmt>(S) || isa<DoStmt>(S))
-    if (!Ctx.getLoopContracts(S))
+    if (!Ctx.getLoopContracts(S) && !isVacuousDoWhile(S, Ctx))
       return S;
   for (const Stmt *Child : S->children())
     if (const Stmt *Found = findUncontractedLoop(Child, Ctx))
