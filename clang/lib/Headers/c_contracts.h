@@ -187,6 +187,32 @@
 
 #endif
 
+
+#ifdef __cplusplus
+extern "C" void __contract_violation(const char *predicate, const char *file,
+                                     unsigned line, const char *function);
+#else
+void __contract_violation(const char *predicate, const char *file,
+                          unsigned line, const char *function);
+#endif
+
+#endif
+
+/* Deliberately OUTSIDE the include guard above, and with a guard of its own.
+ * A project that vendors this header will often see it included first by some
+ * other header that does not want the unprefixed spelling; if these aliases sat
+ * inside the main guard, a later
+ *
+ *     #define C_CONTRACTS_NO_PREFIX
+ *     #include "c_contracts.h"
+ *
+ * would be a no-op and every unprefixed clause would fail to compile with
+ * "call to undeclared function 'range'". Include order decided the language,
+ * which is not a property an annotation layer may have.
+ */
+#ifdef C_CONTRACTS_NO_PREFIX
+#ifndef __C_CONTRACTS_NO_PREFIX_H
+#define __C_CONTRACTS_NO_PREFIX_H
 /* Unprefixed spelling, opt-in with C_CONTRACTS_NO_PREFIX.
  *
  * Each alias forwards to its c_ form, so this works the same under every
@@ -202,7 +228,6 @@
  * unprefixed. Check a candidate project first: grep for `name(` rather than for
  * the bare word.
  */
-#ifdef C_CONTRACTS_NO_PREFIX
 
 /* These six are real grammar under a contract-aware front end, so aliasing them
  * there would only shadow the keyword and earn a -Wc-contracts warning per
@@ -240,13 +265,4 @@
  * name cannot serve both. Write c_forall.
  */
 #endif
-
-#ifdef __cplusplus
-extern "C" void __contract_violation(const char *predicate, const char *file,
-                                     unsigned line, const char *function);
-#else
-void __contract_violation(const char *predicate, const char *file,
-                          unsigned line, const char *function);
-#endif
-
 #endif

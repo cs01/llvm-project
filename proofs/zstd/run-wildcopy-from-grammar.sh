@@ -8,8 +8,10 @@
 #
 # Usage:  ZSTD=~/git/zstd CLANG=../../build/bin/clang ./run-wildcopy-from-grammar.sh
 #
-# Expected:  ** 0 of 410 failed (1 iterations) / VERIFICATION SUCCESSFUL
-#            about 20 s with z3 installed, about 4 min without.
+# Expected:  VERIFICATION SUCCESSFUL, in one iteration, with no failures.
+#            The obligation count tracks the zstd revision: 410 when this was
+#            written, 194 against 5c7b7ba on 2026-09-09. Compare the verdict.
+#            Seconds with z3 installed, about 4 min without.
 set -e
 ZSTD=${ZSTD:?set ZSTD to a zstd checkout with the patch applied}
 

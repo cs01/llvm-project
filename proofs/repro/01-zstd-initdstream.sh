@@ -34,7 +34,8 @@ for N in 4 8; do
   cp "$W.h" "$H"
   perl -0pi -e "s/c_pre \(srcSize == \d+\)/c_pre (srcSize == $N)/s" "$H"
   printf '   srcSize == %-3s ' "$N"
-  UNWIND=8 DEADLINE=${DEADLINE:-900} "$HERE/../verify-contract.sh" \
+  UNWIND=8 DEADLINE=${DEADLINE:-900} \
+  CPPFLAGS="-U__ARM_NEON -DZSTD_NO_INTRINSICS" "$HERE/../verify-contract.sh" \
       BIT_initDStream "$ZSTD/lib/decompress/huf_decompress.c" \
       -I "$ZSTD/lib/common" -I "$ZSTD/lib" -I "$ZSTD/lib/decompress" 2>&1 |
     grep -E "^\*\* [0-9]+ of|solved by" | tr '\n' ' '

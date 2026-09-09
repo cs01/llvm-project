@@ -318,6 +318,12 @@ and `pointer_offset` are contract intrinsics the compiler knows.
 VERIFICATION SUCCESSFUL
 ```
 
+Re-run 2026-09-09 against zstd `5c7b7ba` with CBMC 6.11 and z3: `** 0 of 194
+failed (1 iterations)`, VERIFICATION SUCCESSFUL, 2 s. The verdict is the same
+and the obligation count is not a constant -- it tracks the zstd revision and
+the check set, so a differing number is not by itself a discrepancy. Compare
+verdicts, not counts.
+
 15 seconds for the whole pipeline, preprocessing through solve, with `z3`
 installed; about four minutes on CBMC's built-in SAT backend. Worth sitting with
 next to [COST.md](COST.md)'s bounded rows, which run to tens of minutes for a

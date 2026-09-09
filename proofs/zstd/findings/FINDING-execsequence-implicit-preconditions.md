@@ -67,3 +67,51 @@ size_t ZSTD_execSequence(BYTE* op, BYTE* const oend, seq_t sequence,
 
 Written once, checked at every call site, and lowered to `__CPROVER_requires`
 for the proof. Today it is a comment in a different file.
+
+## Correction, 2026-09-09: four of those seven are not preconditions
+
+The list above is what a *harness* had to assume, and that is not the same thing
+as what a caller owes. Running the annotated function under
+`-fcontract-runtime-checks` on an ordinary 297 KB decompression settled it:
+
+```
+CONTRACT VIOLATION: oend - op >= 32 at zstd_decompress_block.c:1040
+    in ZSTD_execSequence      (three times, output byte-identical)
+```
+
+`ZSTD_execSequence` validates that condition itself. When it fails,
+`oMatchEnd > oend_w` sends the sequence to `ZSTD_execSequenceEnd`, which exists
+for exactly that case. The same holds for three others: the literals fitting
+(`iLitEnd > litLimit` routes to the same place), the sequence fitting in the
+output buffer (`RETURN_ERROR_IF(sequenceLength > (size_t)(oend - op))`), and the
+offset lying inside the window (`RETURN_ERROR_IF(sequence.offset > (size_t)(
+oLitEnd - virtualStart))`). All four are checked, and three of the four return an
+error to the caller rather than trapping. Asserting them at entry claims the
+caller owes them; a checker that believes the claim rejects legal streams.
+
+What survives as a genuine precondition:
+
+```c
+pre (op != NULL)
+pre (op <= oend)
+pre (prefixStart <= op)
+pre (*litPtr <= litLimit)
+pre (sequence.matchLength >= 1)
+pre (sequence.offset >= 1)
+pre (readable(*litPtr, (size_t)(litLimit - *litPtr) + WILDCOPY_OVERLENGTH))
+```
+
+Zero violations across levels 1/3/9/19, `--ultra -22 --long=27`, a dictionary
+round trip and a streaming round trip, over random, text and highly repetitive
+inputs, all byte-identical.
+
+The same run corrected a second clause. `ZSTD_wildcopy`'s separation
+requirement was first written as `WILDCOPY_VECLEN` (16) and fired 3809 times:
+the doc-comment says **8** for `ZSTD_overlap_src_before_dst`, and
+`ZSTD_overlapCopy8` exists precisely to serve separations of 8..15.
+
+The lesson is about method rather than about zstd. A harness assumption that
+makes a proof go green is not evidence that the assumption is a precondition:
+strengthening the entry state always makes a proof easier, and nothing in the
+proof tier ever complains. The runtime tier is what tells you a clause is too
+strong, because real callers walk into it.

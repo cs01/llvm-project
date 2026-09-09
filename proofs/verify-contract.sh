@@ -36,9 +36,22 @@ W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 
 # 1. Preprocess with the system compiler. goto-cc cannot parse what clang's
 #    glibc expansion leaves behind, and contract keywords survive cpp untouched.
+# -idirafter, never -I: clang/lib/Headers holds clang's own stdint.h, whose
+# #include_next chain only works from the resource dir. On -I it shadows the
+# system header, the typedefs never appear, and the failure surfaces much later
+# as "unknown type name 'uint8_t'" in the project's own file.
+# CPPFLAGS is how a project passes what its own build passes. zstd needs
+# -U__ARM_NEON -DZSTD_NO_INTRINSICS here: CBMC's frontend, and the system cc on
+# macOS, cannot get through arm_vector_types.h.
 # shellcheck disable=SC2086
 cc -E -DNDEBUG -DZSTD_CONTRACTS -DCONTRACTS -DC_CONTRACTS=1 \
-    -I "$CONTRACT_HEADERS" $INCS "$TU" -o "$W/tu.i" 2>/dev/null
+    -idirafter "$CONTRACT_HEADERS" $INCS ${CPPFLAGS:-} "$TU" -o "$W/tu.i" 2>"$W/cpp.log" || {
+  # Silently continuing here produces "no contract clauses lowered -- is it
+  # annotated?", which sends the reader to look at an annotation that is fine.
+  echo "preprocessing $TU failed:" >&2
+  grep -m3 "error:" "$W/cpp.log" >&2
+  echo "  add the defines your build uses via CPPFLAGS" >&2
+  exit 2; }
 sed -e 's/__builtin_memcpy/memcpy/g' -e 's/__builtin_memmove/memmove/g' \
     "$W/tu.i" > "$W/tu2.i"
 
@@ -53,7 +66,9 @@ HARNESS_FLAG=-fcontract-emit-harness
 # 2. Lower the grammar. Front-end errors from unrelated headers are expected;
 #    the clause count below is what actually matters.
 # shellcheck disable=SC2086
-"$CLANG" -cc1 -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit \
+# -fblocks: the source is already preprocessed, so macOS system headers arrive
+# with their ^-block declarations expanded, and -cc1 defaults them off.
+"$CLANG" -cc1 -fsyntax-only -fblocks -fc-contracts -fcontract-emit-cprover-unit \
     $HARNESS_FLAG "$W/tu2.i" > "$W/out.c" 2>"$W/rewrite.log" || true
 N=$(grep -c "__CPROVER_requires\|__CPROVER_ensures\|__CPROVER_assigns" "$W/out.c" 2>/dev/null || true)
 [ "${N:-0}" -gt 0 ] || { echo "no contract clauses lowered -- is $FN annotated?" >&2
