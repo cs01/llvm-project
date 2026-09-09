@@ -87,7 +87,7 @@ lowered by `-fcontract-emit-cprover-unit`, and run through
 [`run-wildcopy-from-grammar.sh`](run-wildcopy-from-grammar.sh):
 
 ```
-** 0 of 205 failed (1 iterations)
+** 0 of 410 failed (1 iterations)
 VERIFICATION SUCCESSFUL
 ```
 

@@ -314,7 +314,7 @@ and `pointer_offset` are contract intrinsics the compiler knows.
 `goto-instrument --apply-loop-contracts` instruments it, `cbmc` discharges it.
 
 ```
-** 0 of 205 failed (1 iterations)
+** 0 of 410 failed (1 iterations)
 VERIFICATION SUCCESSFUL
 ```
 

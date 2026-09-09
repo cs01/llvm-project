@@ -8,7 +8,7 @@
 #
 # Usage:  ZSTD=~/git/zstd CLANG=../../build/bin/clang ./run-wildcopy-from-grammar.sh
 #
-# Expected:  ** 0 of 205 failed (1 iterations) / VERIFICATION SUCCESSFUL
+# Expected:  ** 0 of 410 failed (1 iterations) / VERIFICATION SUCCESSFUL
 #            about 20 s with z3 installed, about 4 min without.
 set -e
 ZSTD=${ZSTD:?set ZSTD to a zstd checkout with the patch applied}
@@ -27,8 +27,8 @@ WORK=$(mktemp -d)
 
 # 1. Preprocess with the SYSTEM compiler, not clang. goto-cc cannot parse the
 #    _Float128 declarations clang's glibc expansion leaves behind.
-cc -E -DNDEBUG -DZSTD_CONTRACTS -DC_CONTRACTS=1 \
-   -I "$CONTRACT_HEADERS" -I "$ZSTD/lib/common" -I "$ZSTD/lib" \
+cc -E -DNDEBUG -DZSTD_CONTRACTS -DZSTD_NO_INTRINSICS -DC_CONTRACTS=1 \
+   -I "$ZSTD/lib/common" -I "$ZSTD/lib" -idirafter "$CONTRACT_HEADERS" \
    "$HERE/harnesses/harness_wildcopy.c" -o "$WORK/h.i"
 
 # 2. CBMC models the plain names, not the builtins Apple/glibc route through.
@@ -40,15 +40,12 @@ sed -e 's/__builtin_memcpy/memcpy/g' -e 's/__builtin_memmove/memmove/g' \
   echo 'void *__CPROVER_allocate(unsigned long, int);'
   cat "$WORK/h2.i"; } > "$WORK/h3.i"
 
-# 4. Lower our grammar to CBMC's. Errors from gcc's mmintrin.h are expected and
-#    harmless: clang rejects gcc's MMX vector builtins, which zstd pulls in
-#    through compiler.h and wildcopy does not use. The rewrite still emits every
-#    contract, which step 5 checks.
+# 4. Lower our grammar to CBMC's.
 "$CLANG" -cc1 -fsyntax-only -fc-contracts -fcontract-emit-cprover-unit \
     "$WORK/h3.i" > "$WORK/wc.c" 2>"$WORK/rewrite.log" || true
 
 CLAUSES=$(grep -c '__CPROVER_loop_invariant\|__CPROVER_assigns\|__CPROVER_decreases' "$WORK/wc.c")
-[ "$CLAUSES" -eq 7 ] || { echo "expected 7 lowered clauses, got $CLAUSES"; exit 1; }
+[ "$CLAUSES" -eq 11 ] || { echo "expected 11 lowered clauses, got $CLAUSES"; exit 1; }
 echo "lowered $CLAUSES contract clauses from the grammar:"
 grep '__CPROVER_loop_invariant\|__CPROVER_assigns\|__CPROVER_decreases' "$WORK/wc.c" | sed 's/^ */  /'
 
