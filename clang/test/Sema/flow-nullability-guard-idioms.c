@@ -407,3 +407,54 @@ void tp17(int *_Nullable p) {
   bool b = p != NULL;
   if (b == false) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
+
+//===----------------------------------------------------------------------===//
+// FP: an explicit _Nonnull cast asserts non-null at the use
+//===----------------------------------------------------------------------===//
+
+// FP
+void nc01(int *_Nullable p) { takes((int *_Nonnull)p); }
+
+// FP
+void nc02(int *_Nullable p) { *(int *_Nonnull)p = 1; }
+
+// FP
+void nc03(struct S *_Nullable s) { ((struct S *_Nonnull)s)->x = 1; }
+
+// FP
+void nc04(int *_Nullable p) { ((int *_Nonnull)p)[0] = 1; }
+
+void nc05(int *_Nullable p) {
+  takes((int *_Nonnull)(int *_Nullable)p);
+}
+
+void nc06(int *_Nonnull p) {
+  takes((int *_Nullable)p);
+  (void)*(int *_Nullable)p;
+}
+
+//===----------------------------------------------------------------------===//
+// TP: casts that assert nothing
+//===----------------------------------------------------------------------===//
+
+// TP: an unannotated cast still reaches the tracked pointer
+void tpc01(int *_Nullable p) {
+  *(int *)p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// TP: a _Nullable cast is not an assertion
+void tpc02(int *_Nullable p) {
+  takes((int *_Nullable)p); // expected-warning {{passing nullable pointer to nonnull parameter}} expected-note {{add a null check}}
+}
+
+void tpc03(int *_Nullable p) {
+  takes((int *_Nullable)(int *_Nonnull)p); // expected-warning {{passing nullable pointer to nonnull parameter}} expected-note {{add a null check}}
+}
+
+void tpc04(int *_Nullable p) {
+  takes((int *_Nonnull)0); // expected-warning {{passing nullable pointer to nonnull parameter}} expected-note {{add a null check}}
+}
+
+void tpc05(int *_Nonnull p) {
+  p = (int *)(int *_Nonnull)0; // expected-warning {{assigning nullable pointer to nonnull variable}} expected-note {{add a null check}}
+}
