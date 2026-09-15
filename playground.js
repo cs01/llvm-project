@@ -114,10 +114,113 @@ async function loadExamples() {
             }
         }
 
+        const ansiPattern = /\x1b\[([0-9;]*)m/g;
+        const ansiColors = {
+            30: 'black', 31: 'red', 32: 'green', 33: 'yellow',
+            34: 'blue', 35: 'magenta', 36: 'cyan', 37: 'white',
+            90: 'bright-black', 91: 'bright-red', 92: 'bright-green',
+            93: 'bright-yellow', 94: 'bright-blue', 95: 'bright-magenta',
+            96: 'bright-cyan', 97: 'bright-white',
+        };
+
+        function stripAnsi(text) {
+            return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+        }
+
+        function appendAnsiText(element, text) {
+            const fragment = document.createDocumentFragment();
+            let start = 0;
+            let bold = false;
+            let dim = false;
+            let color = null;
+
+            function appendSegment(segment) {
+                if (!segment) return;
+                if (!bold && !dim && !color) {
+                    fragment.appendChild(document.createTextNode(segment));
+                    return;
+                }
+                const span = document.createElement('span');
+                if (bold) span.classList.add('ansi-bold');
+                if (dim) span.classList.add('ansi-dim');
+                if (color) span.classList.add(`ansi-${color}`);
+                span.textContent = segment;
+                fragment.appendChild(span);
+            }
+
+            for (const match of text.matchAll(ansiPattern)) {
+                appendSegment(text.slice(start, match.index));
+                const codes = match[1] ? match[1].split(';').map(Number) : [0];
+                for (const code of codes) {
+                    if (code === 0) {
+                        bold = false;
+                        dim = false;
+                        color = null;
+                    } else if (code === 1) {
+                        bold = true;
+                    } else if (code === 2) {
+                        dim = true;
+                    } else if (code === 22) {
+                        bold = false;
+                        dim = false;
+                    } else if (code === 39) {
+                        color = null;
+                    } else if (ansiColors[code]) {
+                        color = ansiColors[code];
+                    }
+                }
+                start = match.index + match[0].length;
+            }
+            appendSegment(text.slice(start));
+            element.appendChild(fragment);
+        }
+
+        function renderCompilerOutput(element, command, output) {
+            const commandRow = document.createElement('div');
+            commandRow.className = 'compiler-command';
+
+            const commandText = document.createElement('code');
+            commandText.textContent = '$ ' + command;
+
+            const copyButton = document.createElement('button');
+            copyButton.type = 'button';
+            copyButton.className = 'copy-command';
+            copyButton.textContent = 'Copy';
+            copyButton.title = 'Copy this exact compiler command';
+            copyButton.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(command);
+                    copyButton.textContent = 'Copied';
+                    showToast('Compiler command copied to clipboard!');
+                    setTimeout(() => {
+                        copyButton.textContent = 'Copy';
+                    }, 1500);
+                } catch (error) {
+                    showToast('Could not copy compiler command');
+                }
+            });
+
+            commandRow.append(commandText, copyButton);
+            element.replaceChildren(commandRow);
+
+            const diagnostics = document.createElement('div');
+            diagnostics.className = 'compiler-diagnostics';
+            appendAnsiText(diagnostics, output);
+            element.appendChild(diagnostics);
+        }
+
+        function formatCompilerCommand(args) {
+            const safeArg = /^[A-Za-z0-9_./:=+,-]+$/;
+            const quote = arg => safeArg.test(arg)
+                ? arg
+                : `'${arg.replaceAll("'", "'\\''")}'`;
+            return 'clang ' + args.map(quote).join(' ');
+        }
+
         // Parse clang diagnostics into Monaco markers
         function parseDiagnostics(stderr) {
             const markers = [];
-            const lines = stderr.split('\n');
+            const lines = stripAnsi(stderr).split('\n');
             const diagnosticRegex = /^input\.(?:cpp|c):(\d+):(\d+):\s+(error|warning|note):\s+(.+)$/;
 
             for (const line of lines) {
@@ -543,9 +646,13 @@ async function loadExamples() {
             // user of standard clang would get if they ran --analyze.
             const analyzerBaseFlags = [
                 '--analyze',
-                '--target=wasm32-unknown-emscripten',
                 '-Xanalyzer', '-analyzer-checker=core.NullDereference',
                 '-Xanalyzer', '-analyzer-checker=nullability',
+            ];
+
+            const mainlineBaseFlags = [
+                '-fsyntax-only',
+                '-Wnullable-to-nonnull-conversion',
             ];
 
             try {
@@ -559,17 +666,15 @@ async function loadExamples() {
                 // Compile all three versions in parallel
                 const [nullsafeResult, mainlineResult, analyzerResult] = await Promise.all([
                     compileCode(code, [], null, inputFile),
-                    compileCode(code, ['-Wno-nullability', '-Wno-flow-nullability'], null, inputFile),
+                    compileCode(code, [], mainlineBaseFlags, inputFile),
                     compileCode(code, [], analyzerBaseFlags, inputFile)
                 ]);
 
                 const duration = (performance.now() - startTime).toFixed(0);
 
-                // Build command strings
-                const baseArgs = '-fsyntax-only --target=wasm32-unknown-emscripten';
-                const nullsafeCmd = `$ clang ${baseArgs} ${inputFile}`;
-                const mainlineCmd = `$ clang ${baseArgs} -Wno-nullability -Wno-flow-nullability ${inputFile}`;
-                const analyzerCmd = `$ clang --analyze -analyzer-checker=core.NullDereference,nullability ${inputFile}`;
+                const nullsafeCmd = formatCompilerCommand(nullsafeResult.args);
+                const mainlineCmd = formatCompilerCommand(mainlineResult.args);
+                const analyzerCmd = formatCompilerCommand(analyzerResult.args);
 
                 // Update headers with version and timing
                 const headers = document.querySelectorAll('.output-section-header');
@@ -586,34 +691,34 @@ async function loadExamples() {
                 }
 
                 // Count nullability warnings to detect missed bugs
-                const nullWarningCount = (nullsafeResult.stderr.match(/\[-W(?:flow-)?null(?:ability|able-dereference)\]/g) || []).length;
+                const nullWarningCount = (stripAnsi(nullsafeResult.stderr).match(/\[-W(?:flow-)?null(?:ability|able-dereference)\]/g) || []).length;
 
                 // Display null-safe results with command
                 if (nullsafeResult.stdout || nullsafeResult.stderr) {
-                    outputNullsafe.textContent = nullsafeCmd + '\n' + nullsafeResult.stderr + nullsafeResult.stdout;
+                    renderCompilerOutput(outputNullsafe, nullsafeCmd, nullsafeResult.stderr + nullsafeResult.stdout);
                 } else {
-                    outputNullsafe.textContent = nullsafeCmd + '\n✓ No errors or warnings';
+                    renderCompilerOutput(outputNullsafe, nullsafeCmd, '✓ No errors or warnings');
                 }
 
                 // Display mainline results with command and comparison
                 if (mainlineResult.stdout || mainlineResult.stderr) {
-                    outputMainline.textContent = mainlineCmd + '\n' + mainlineResult.stderr + mainlineResult.stdout;
+                    renderCompilerOutput(outputMainline, mainlineCmd, mainlineResult.stderr + mainlineResult.stdout);
                 } else {
                     if (nullWarningCount > 0) {
-                        outputMainline.textContent = mainlineCmd + '\n✓ No errors or warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' (see Nullsafe panel)';
+                        renderCompilerOutput(outputMainline, mainlineCmd, '✓ No errors or warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' (see Nullsafe panel)');
                     } else {
-                        outputMainline.textContent = mainlineCmd + '\n✓ No errors or warnings';
+                        renderCompilerOutput(outputMainline, mainlineCmd, '✓ No errors or warnings');
                     }
                 }
 
                 // Display analyzer results
                 if (analyzerResult.stdout || analyzerResult.stderr) {
-                    outputAnalyzer.textContent = analyzerCmd + '\n' + analyzerResult.stderr + analyzerResult.stdout;
+                    renderCompilerOutput(outputAnalyzer, analyzerCmd, analyzerResult.stderr + analyzerResult.stdout);
                 } else {
                     if (nullWarningCount > 0) {
-                        outputAnalyzer.textContent = analyzerCmd + '\n✓ No warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' that Nullsafe Clang caught';
+                        renderCompilerOutput(outputAnalyzer, analyzerCmd, '✓ No warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' that Nullsafe Clang caught');
                     } else {
-                        outputAnalyzer.textContent = analyzerCmd + '\n✓ No warnings';
+                        renderCompilerOutput(outputAnalyzer, analyzerCmd, '✓ No warnings');
                     }
                 }
 
@@ -650,7 +755,7 @@ async function loadExamples() {
                 }, 30000);
 
                 worker.onmessage = function(e) {
-                    const { type, text, error, exitCode } = e.data;
+                    const { type, text, error, exitCode, args } = e.data;
 
                     if (type === 'ready') {
                         // Worker is ready, send compile request
@@ -665,7 +770,7 @@ async function loadExamples() {
                         completed = true;
                         clearTimeout(timeout);
                         worker.terminate();
-                        resolve({ stdout, stderr, exitCode });
+                        resolve({ stdout, stderr, exitCode, args });
                     } else if (type === 'error') {
                         completed = true;
                         clearTimeout(timeout);
