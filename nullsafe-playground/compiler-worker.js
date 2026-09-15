@@ -112,18 +112,22 @@ self.onmessage = function(e) {
                 // Fall back to default
             }
 
-            const defaultBase = [
-                '-fsyntax-only',
+            const commonFlags = [
                 '--target=wasm32-unknown-emscripten',
-                '-fflow-sensitive-nullability',
-                '-fnullability-default=nullable',
+                '-fcolor-diagnostics',
                 '-resource-dir', resourceDir,
                 '-isystem', '/include/c++/v1',
                 '-isystem', '/include',
                 '-isystem', '/include/compat',
             ];
+            const defaultBase = [
+                '-fsyntax-only',
+                ...commonFlags,
+                '-fflow-sensitive-nullability',
+                '-fnullability-default=nullable',
+            ];
             const args = [
-                ...(baseFlags || defaultBase),
+                ...(baseFlags ? [...baseFlags, ...commonFlags] : defaultBase),
                 ...extraFlags,
                 inputFile
             ];
@@ -141,7 +145,8 @@ self.onmessage = function(e) {
             // Send completion
             self.postMessage({
                 type: 'complete',
-                exitCode
+                exitCode,
+                args
             });
 
         } catch (error) {

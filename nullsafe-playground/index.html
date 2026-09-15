@@ -479,6 +479,47 @@
             font-style: italic;
         }
 
+        .compiler-command {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin: -4px -4px 12px;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-secondary);
+            white-space: normal;
+        }
+
+        .compiler-command code {
+            flex: 1;
+            min-width: 0;
+            color: var(--text-secondary);
+            overflow-wrap: anywhere;
+            user-select: all;
+        }
+
+        .copy-command {
+            flex-shrink: 0;
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            padding: 3px 8px;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            font: inherit;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .copy-command:hover {
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        .compiler-diagnostics {
+            white-space: pre-wrap;
+        }
+
         .output-divider {
             height: 2px;
             background: var(--border-color);
@@ -488,6 +529,24 @@
         .error { color: var(--error); }
         .warning { color: var(--warning); }
         .success { color: var(--success); }
+        .ansi-bold { font-weight: 700; }
+        .ansi-dim { opacity: 0.68; }
+        .ansi-black { color: #767b89; }
+        .ansi-red { color: #e06c75; }
+        .ansi-green { color: #98c379; }
+        .ansi-yellow { color: #e5c07b; }
+        .ansi-blue { color: #61afef; }
+        .ansi-magenta { color: #c678dd; }
+        .ansi-cyan { color: #56b6c2; }
+        .ansi-white { color: #d7dae0; }
+        .ansi-bright-black { color: #8f96a8; }
+        .ansi-bright-red { color: #ff7a85; }
+        .ansi-bright-green { color: #b4dc8c; }
+        .ansi-bright-yellow { color: #f1cf8b; }
+        .ansi-bright-blue { color: #7dbdff; }
+        .ansi-bright-magenta { color: #dd91f3; }
+        .ansi-bright-cyan { color: #70d2de; }
+        .ansi-bright-white { color: #ffffff; }
 
         .loading-bar {
             height: 2px;
@@ -689,7 +748,7 @@
                 </div>
                 <div class="output-divider" id="outputDivider"></div>
                 <div class="output-section">
-                    <div class="output-section-header">Standard Clang <span class="info-icon">&#9432;<span class="tooltip">Stock Clang with all nullability warnings disabled. This is what most C/C++ developers compile with today — no null safety checking at all.</span></span></div>
+                    <div class="output-section-header">Standard Clang <span class="info-icon">&#9432;<span class="tooltip">Stock-style Clang with flow analysis disabled and the type-based nullable-to-nonnull conversion warning enabled. It understands explicit casts but not control-flow narrowing.</span></span></div>
                     <div id="output-mainline" class="output-content"></div>
                 </div>
                 <div class="output-divider" id="outputDivider2"></div>
