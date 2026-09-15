@@ -202,6 +202,15 @@
             box-shadow: 0 0 0 2px rgba(91, 141, 239, 0.2);
         }
 
+        .nullability-select {
+            min-width: 210px;
+        }
+
+        .examples-select:disabled {
+            opacity: 0.5;
+            cursor: wait;
+        }
+
         .status {
             color: var(--text-muted);
             font-size: 12px;
@@ -709,6 +718,12 @@
             <option value="late-init">7. Late Initialization (C++)</option>
         </select>
 
+        <select id="nullabilityDefaultSelect" class="examples-select nullability-select" aria-label="Default nullability" title="Choose how Nullsafe Clang treats pointers without explicit nullability">
+            <option value="nullable" selected>Pointer default: nullable</option>
+            <option value="nonnull">Pointer default: nonnull</option>
+            <option value="unspecified">Pointer default: unspecified</option>
+        </select>
+
         <button id="shareBtn" class="btn btn-secondary" title="Copy a shareable link with your code to clipboard">
             <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: text-bottom;">
                 <path d="M13.5 1a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM11 2.5a2.5 2.5 0 1 1 .603 1.628l-6.718 3.12a2.499 2.499 0 0 1 0 1.504l6.718 3.12a2.5 2.5 0 1 1-.488.876l-6.718-3.12a2.5 2.5 0 1 1 0-3.256l6.718-3.12A2.5 2.5 0 0 1 11 2.5zm-8.5 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm11 5.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/>
@@ -743,7 +758,7 @@
             </div>
             <div class="output-container">
                 <div class="output-section">
-                    <div class="output-section-header">Nullsafe Clang <span class="info-icon">&#9432;<span class="tooltip">This Clang fork with flow-sensitive nullability analysis. Treats all unannotated pointers as nullable and warns on unchecked dereferences. Runs as part of the normal compile — fast enough for every build and supported in clangd/IDEs.</span></span></div>
+                    <div class="output-section-header">Nullsafe Clang <span class="info-icon">&#9432;<span class="tooltip">This Clang fork uses flow-sensitive nullability analysis and the selected pointer default. It runs as part of the normal compile — fast enough for every build and supported in clangd/IDEs.</span></span></div>
                     <div id="output-nullsafe" class="output-content"></div>
                 </div>
                 <div class="output-divider" id="outputDivider"></div>

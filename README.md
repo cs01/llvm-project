@@ -5,6 +5,7 @@ An interactive web-based playground for experimenting with **Nullsafe Clang**, a
 ## Features
 
 - 🔍 Real-time null-safety analysis
+- ⚙️ Configurable nullable, nonnull, and unspecified pointer defaults
 - 💻 In-browser C compilation using WebAssembly
 - 🎨 Syntax highlighting and error detection
 - 📝 Example code snippets
