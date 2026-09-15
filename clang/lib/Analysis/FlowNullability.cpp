@@ -632,6 +632,28 @@ static bool isNonnullType(QualType Ty) {
   return Nullability && *Nullability == NullabilityKind::NonNull;
 }
 
+struct ExplicitCastInfo {
+  const ExplicitCastExpr *DefinitiveCast;
+  const Expr *Operand;
+
+  bool isNonnull() const {
+    return DefinitiveCast && isNonnullType(DefinitiveCast->getType());
+  }
+};
+
+/// Returns the first definitive nullability and final operand of a cast chain.
+static ExplicitCastInfo getExplicitCastInfo(const Expr *E) {
+  const ExplicitCastExpr *DefinitiveCast = nullptr;
+  while (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
+    if (!DefinitiveCast)
+      if (auto Current = CE->getType()->getNullability())
+        if (*Current != NullabilityKind::Unspecified)
+          DefinitiveCast = CE;
+    E = CE->getSubExpr()->IgnoreParenImpCasts();
+  }
+  return {DefinitiveCast, E};
+}
+
 /// Walk from a smart pointer expression back to its declaration (if any)
 /// and check whether the declared type carries a _Nonnull qualifier.
 /// Needed because overload resolution on operator->/operator* strips
@@ -1422,18 +1444,21 @@ public:
   /// *p dereference checks and p++ / p-- arithmetic checks.
   void VisitUnaryOperator(const UnaryOperator *UO) {
     if (UO->getOpcode() == UO_Deref) {
-      const Expr *SubExpr =
-          lookThroughPtrToPtrCasts(UO->getSubExpr()->IgnoreParenImpCasts());
+      const Expr *Operand = UO->getSubExpr()->IgnoreParenImpCasts();
+      ExplicitCastInfo Cast = getExplicitCastInfo(Operand);
+      if (!Cast.isNonnull()) {
+        const Expr *SubExpr = lookThroughPtrToPtrCasts(Operand);
 
-      if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
-        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-          if (!VD->isImplicit() && !isNarrowed(VD))
-            checkVarDeref(UO, VD);
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
+          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+            if (!VD->isImplicit() && !isNarrowed(VD))
+              checkVarDeref(UO, VD);
+          }
+        } else if (const auto *ME = dyn_cast<MemberExpr>(SubExpr)) {
+          checkMemberExprDeref(UO, ME);
+        } else if (!isa<CXXThisExpr>(SubExpr)) {
+          checkExprDeref(UO, SubExpr);
         }
-      } else if (const auto *ME = dyn_cast<MemberExpr>(SubExpr)) {
-        checkMemberExprDeref(UO, ME);
-      } else if (!isa<CXXThisExpr>(SubExpr)) {
-        checkExprDeref(UO, SubExpr);
       }
     }
 
@@ -1461,8 +1486,12 @@ public:
     if (!ME->isArrow())
       return;
 
-    const Expr *Base =
-        lookThroughPtrToPtrCasts(ME->getBase()->IgnoreParenImpCasts());
+    const Expr *Operand = ME->getBase()->IgnoreParenImpCasts();
+    ExplicitCastInfo Cast = getExplicitCastInfo(Operand);
+    if (Cast.isNonnull())
+      return;
+
+    const Expr *Base = lookThroughPtrToPtrCasts(Operand);
 
     if (isa<CXXThisExpr>(Base))
       return;
@@ -1484,8 +1513,12 @@ public:
 
   /// p[i] dereference checks. An array-typed base or (&x)[i] cannot be null.
   void VisitArraySubscriptExpr(const ArraySubscriptExpr *ASE) {
-    const Expr *Base =
-        lookThroughPtrToPtrCasts(ASE->getBase()->IgnoreParenImpCasts());
+    const Expr *Operand = ASE->getBase()->IgnoreParenImpCasts();
+    ExplicitCastInfo Cast = getExplicitCastInfo(Operand);
+    if (Cast.isNonnull())
+      return;
+
+    const Expr *Base = lookThroughPtrToPtrCasts(Operand);
     if (const auto *UO = dyn_cast<UnaryOperator>(Base))
       if (UO->getOpcode() == UO_AddrOf)
         return;
@@ -2584,6 +2617,20 @@ private:
     // expression's type.
     if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
       return true;
+    ExplicitCastInfo Cast = getExplicitCastInfo(E);
+    if (Cast.DefinitiveCast) {
+      if (Cast.Operand->isNullPointerConstant(
+              Ctx, Expr::NPC_ValueDependentIsNotNull))
+        return true;
+      if (Cast.isNonnull())
+        return false;
+      const Expr *Origin = stripNonDynamicCasts(E);
+      if (const auto *DCE = dyn_cast<CXXDynamicCastExpr>(Origin))
+        if (DCE->getType()->isPointerType())
+          return true;
+      if (Origin != E)
+        return isExprNullable(Origin, ExplicitOnly);
+    }
     // Pointer dynamic_cast is nullable even when its source is non-null, and
     // under the nonnull default its unannotated result type says nothing, so
     // this rule is what keeps T *q = dynamic_cast<T *>(p) from narrowing q.

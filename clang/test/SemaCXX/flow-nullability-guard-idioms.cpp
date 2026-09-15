@@ -15,12 +15,20 @@ struct S {
   struct S *_Nullable s;
 };
 
+struct Base {
+  virtual ~Base() = default;
+};
+struct Derived : Base {
+  int x;
+};
+
 int *_Nonnull nonnull(void);
 int *_Nullable nullable(void);
 int *fallback(void);
 extern int gx, gy;
 int cond(void);
 void takes(int *_Nonnull);
+void takesDerived(Derived *_Nonnull);
 
 //===----------------------------------------------------------------------===//
 // FP: bool/int guards
@@ -559,4 +567,86 @@ int *_Nullable tp27(bool c) {
   *pc = true;
   if (c) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
   return p;
+}
+
+//===----------------------------------------------------------------------===//
+// FP: an explicit _Nonnull cast asserts non-null at the use
+//===----------------------------------------------------------------------===//
+
+// FP
+void nc01(int *_Nullable p) { takes((int *_Nonnull)p); }
+
+// FP
+void nc02(int *_Nullable p) { takes(static_cast<int *_Nonnull>(p)); }
+
+// FP
+void nc03(int *_Nullable p) { *(int *_Nonnull)p = 1; }
+
+// FP
+void nc04(S *_Nullable s) { ((S *_Nonnull)s)->x = 1; }
+
+// FP
+void nc05(int *_Nullable p) { ((int *_Nonnull)p)[0] = 1; }
+
+// FP: an outer unannotated cast does not undo the assertion
+void nc06(int *_Nullable p) { *(int *)(int *_Nonnull)p = 1; }
+
+// FP
+int *_Nonnull nc07(int *_Nullable p) {
+  int *_Nonnull q = (int *_Nonnull)p;
+  return q;
+}
+
+// FP
+int *_Nonnull nc08(int *_Nullable p) { return (int *_Nonnull)p; }
+
+void nc09(Base *_Nullable p) {
+  takesDerived(dynamic_cast<Derived *_Nonnull>(p));
+}
+
+Derived *_Nonnull nc10(Base *_Nullable p) {
+  return dynamic_cast<Derived *_Nonnull>(p);
+}
+
+void nc11(Base *_Nullable p) {
+  (void)*dynamic_cast<Derived *_Nonnull>(p);
+}
+
+void nc12(int *_Nullable p) {
+  takes((int *_Nonnull)(int *_Nullable)p);
+}
+
+void nc13(int *_Nonnull p) {
+  takes((int *_Nullable)p);
+  (void)*(int *_Nullable)p;
+}
+
+//===----------------------------------------------------------------------===//
+// TP: casts that assert nothing
+//===----------------------------------------------------------------------===//
+
+// TP: an unannotated cast still reaches the tracked pointer
+void tp28(int *_Nullable p) {
+  *(int *)p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// TP: a _Nullable cast is not an assertion
+void tp29(int *_Nullable p) {
+  takes((int *_Nullable)p); // expected-warning {{passing nullable pointer to nonnull parameter}} expected-note {{add a null check}}
+}
+
+void tp30(int *_Nullable p) {
+  takes((int *_Nullable)(int *_Nonnull)p); // expected-warning {{passing nullable pointer to nonnull parameter}} expected-note {{add a null check}}
+}
+
+void tp31(int *_Nullable) {
+  takes((int *_Nonnull)nullptr); // expected-warning {{passing nullable pointer to nonnull parameter}} expected-note {{add a null check}}
+}
+
+void tp32(int *_Nonnull p) {
+  p = (int *)(int *_Nonnull)nullptr; // expected-warning {{assigning nullable pointer to nonnull variable}} expected-note {{add a null check}}
+}
+
+void tp33(Base *_Nonnull p) {
+  takesDerived((Derived *_Nullable)dynamic_cast<Derived *_Nonnull>(p)); // expected-warning {{passing nullable pointer to nonnull parameter}} expected-note {{add a null check}}
 }
