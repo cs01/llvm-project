@@ -5,12 +5,20 @@
         const compileBtn = document.getElementById('compileBtn');
         const status = document.getElementById('status');
         const examplesSelect = document.getElementById('examplesSelect');
+        const nullabilityDefaultSelect = document.getElementById('nullabilityDefaultSelect');
         const shareBtn = document.getElementById('shareBtn');
         const loadingBar = document.getElementById('loadingBar');
         const toast = document.getElementById('toast');
         const divider = document.getElementById('divider');
 
         let editor = null; // Monaco editor instance
+        const validNullabilityDefaults = new Set(['nullable', 'nonnull', 'unspecified']);
+
+        function getNullabilityDefault() {
+            return validNullabilityDefaults.has(nullabilityDefaultSelect.value)
+                ? nullabilityDefaultSelect.value
+                : 'nullable';
+        }
 
         // Map example numbers to names for URL parameters
         const exampleNumbers = {
@@ -89,7 +97,13 @@ async function loadExamples() {
                             if (!scriptUrl || isCompiling) return;
                             try {
                                 const code = getEditorValue();
-                                const result = await compileCode(code, [], null, getInputFile(code));
+                                const result = await compileCode(
+                                    code,
+                                    [],
+                                    null,
+                                    getInputFile(code),
+                                    getNullabilityDefault()
+                                );
                                 const diagnostics = parseDiagnostics(result.stderr);
                                 monaco.editor.setModelMarkers(editor.getModel(), 'clang', diagnostics);
                             } catch (error) {
@@ -351,6 +365,16 @@ async function loadExamples() {
             }
         });
 
+        nullabilityDefaultSelect.addEventListener('change', () => {
+            const url = new URL(window.location);
+            url.searchParams.set('nullability', getNullabilityDefault());
+            window.history.replaceState({}, '', url);
+
+            if (scriptUrl) {
+                compile();
+            }
+        });
+
         // Share button - encode code in URL
         shareBtn.addEventListener('click', async () => {
             try {
@@ -361,6 +385,7 @@ async function loadExamples() {
                 // Remove example param and add code param
                 url.searchParams.delete('example');
                 url.searchParams.set('code', encoded);
+                url.searchParams.set('nullability', getNullabilityDefault());
 
                 await navigator.clipboard.writeText(url.toString());
                 showToast('Share link copied to clipboard!');
@@ -462,6 +487,10 @@ async function loadExamples() {
         // Load code from URL on page load
         function loadCodeFromURL() {
             const urlParams = new URLSearchParams(window.location.search);
+            const nullabilityDefault = urlParams.get('nullability');
+            if (validNullabilityDefaults.has(nullabilityDefault)) {
+                nullabilityDefaultSelect.value = nullabilityDefault;
+            }
 
             // Priority 1: Load from ?code= (user shared code)
             const encodedCode = urlParams.get('code');
@@ -632,6 +661,7 @@ async function loadExamples() {
 
             isCompiling = true;
             compileBtn.disabled = true;
+            nullabilityDefaultSelect.disabled = true;
             status.textContent = 'Compiling...';
             status.className = 'status compiling';
             outputNullsafe.innerHTML = '';
@@ -658,6 +688,7 @@ async function loadExamples() {
             try {
                 const code = getEditorValue();
                 const inputFile = getInputFile(code);
+                const nullabilityDefault = getNullabilityDefault();
 
                 // Update Monaco language to match
                 const lang = inputFile.endsWith('.cpp') ? 'cpp' : 'c';
@@ -665,7 +696,7 @@ async function loadExamples() {
 
                 // Compile all three versions in parallel
                 const [nullsafeResult, mainlineResult, analyzerResult] = await Promise.all([
-                    compileCode(code, [], null, inputFile),
+                    compileCode(code, [], null, inputFile, nullabilityDefault),
                     compileCode(code, [], mainlineBaseFlags, inputFile),
                     compileCode(code, [], analyzerBaseFlags, inputFile)
                 ]);
@@ -735,11 +766,12 @@ async function loadExamples() {
             } finally {
                 isCompiling = false;
                 compileBtn.disabled = false;
+                nullabilityDefaultSelect.disabled = false;
                 loadingBar.classList.remove('active');
             }
         }
 
-        async function compileCode(code, extraFlags = [], baseFlags = null, inputFile = 'input.c') {
+        async function compileCode(code, extraFlags = [], baseFlags = null, inputFile = 'input.c', nullabilityDefault = null) {
             return new Promise((resolve, reject) => {
                 const worker = new Worker('compiler-worker.js');
 
@@ -761,6 +793,7 @@ async function loadExamples() {
                         // Worker is ready, send compile request
                         const msg = { type: 'compile', code, extraFlags, inputFile };
                         if (baseFlags) msg.baseFlags = baseFlags;
+                        if (nullabilityDefault) msg.nullabilityDefault = nullabilityDefault;
                         worker.postMessage(msg);
                     } else if (type === 'stdout') {
                         stdout += text + '\n';

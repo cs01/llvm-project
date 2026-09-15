@@ -94,8 +94,17 @@ self.onmessage = function(e) {
         }
 
         try {
-            const { code, extraFlags = [], baseFlags, inputFile: requestedFile } = data;
+            const {
+                code,
+                extraFlags = [],
+                baseFlags,
+                inputFile: requestedFile,
+                nullabilityDefault: requestedNullabilityDefault,
+            } = data;
             const inputFile = requestedFile || 'input.c';
+            const nullabilityDefault = ['nullable', 'nonnull', 'unspecified'].includes(requestedNullabilityDefault)
+                ? requestedNullabilityDefault
+                : 'nullable';
 
             // Write source file
             FS.writeFile(inputFile, code);
@@ -124,7 +133,7 @@ self.onmessage = function(e) {
                 '-fsyntax-only',
                 ...commonFlags,
                 '-fflow-sensitive-nullability',
-                '-fnullability-default=nullable',
+                `-fnullability-default=${nullabilityDefault}`,
             ];
             const args = [
                 ...(baseFlags ? [...baseFlags, ...commonFlags] : defaultBase),
