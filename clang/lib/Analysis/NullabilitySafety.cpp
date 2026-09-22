@@ -1856,6 +1856,7 @@ private:
       // Verify at call sites: warn when passing nullable to a lambda param
       // that isn't explicitly _Nullable.
       if (!ParamIsNonnull && IsLambdaCall &&
+          Options.DefaultNullability != NullabilityKind::NonNull &&
           !isExplicitlyNullableType(Param->getType()))
         ParamIsNonnull = true;
       if (ParamIsNonnull)
