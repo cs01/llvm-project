@@ -81,7 +81,7 @@ if ! cmake --build "$BUILD_DIR" --target clang -j"$(sysctl -n hw.ncpu 2>/dev/nul
   exit 1
 fi
 
-TESTS=$(ls clang/test/*/flow-nullability* clang/test/Driver/nullsafe* \
+TESTS=$(ls clang/test/*/nullability-safety* \
   clang/test/SemaCXX/nullability-default* 2>/dev/null | grep -v '\.h$')
 "$BUILD_DIR/bin/llvm-lit" -q $TESTS || FAILED+=(lit)
 
@@ -91,7 +91,7 @@ command -v xcrun >/dev/null && SYSROOT_FLAGS=(-isysroot "$(xcrun --show-sdk-path
 run_sqlite() {
   local out="$1"
   shift
-  "$CLANG" "${SYSROOT_FLAGS[@]}" -fsyntax-only -fflow-sensitive-nullability \
+  "$CLANG" "${SYSROOT_FLAGS[@]}" -fsyntax-only -fnullability-safety \
     -Wno-everything -ferror-limit=0 "$@" "$SQLITE" >"$out.raw" 2>&1
   local status=$?
   if [[ $status -ne 0 ]] || grep -q 'error:' "$out.raw"; then
@@ -104,7 +104,7 @@ if [[ $SKIP_SQLITE -eq 1 ]]; then
 elif [[ -f "$SQLITE" ]]; then
   for mode in nonnull nullable; do
     f="$OUT/sqlite-$mode-$TAG.txt"
-    run_sqlite "$f" -fnullability-default=$mode -Wflow-nullability || FAILED+=("sqlite-$mode")
+    run_sqlite "$f" -fnullability-default=$mode -Wnullability-safety || FAILED+=("sqlite-$mode")
     { grep 'warning:' "$f.raw" || true; } | sort >"$f"
     echo "sqlite $mode: $(wc -l <"$f")"
   done
@@ -117,7 +117,7 @@ else
   FAILED+=(sqlite-missing)
 fi
 
-FORMAT_OUT=$(git clang-format --diff HEAD 2>&1)
+FORMAT_OUT=$(git clang-format --diff HEAD -- clang 2>&1)
 FORMAT_STATUS=$?
 FORMAT_LINES=$({ grep '^[+-]' <<<"$FORMAT_OUT" || true; } | wc -l)
 echo "clang-format diff lines: $FORMAT_LINES"

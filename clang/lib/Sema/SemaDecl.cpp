@@ -14361,7 +14361,7 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
     // null-init of a _Nonnull var there is not a real initialization and must
     // not warn. The flow analysis itself naturally skips these (they aren't in
     // the CFG); this type-based check needs the explicit gate.
-    if (VDecl && Init && getLangOpts().FlowSensitiveNullability &&
+    if (VDecl && Init && getLangOpts().NullabilitySafety &&
         !ExprEvalContexts.empty() &&
         !ExprEvalContexts.back().isDiscardedStatementContext()) {
       QualType VDeclType = VDecl->getType();
@@ -14369,7 +14369,7 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
         if (*Nullability == NullabilityKind::NonNull) {
           if (Init->isNullPointerConstant(Context,
                                           Expr::NPC_ValueDependentIsNotNull)) {
-            Diag(Init->getBeginLoc(), diag::warn_null_init_nonnull)
+            Diag(Init->getBeginLoc(), diag::warn_nullability_safety_null_init)
                 << VDeclType << Init->getSourceRange();
           }
         }

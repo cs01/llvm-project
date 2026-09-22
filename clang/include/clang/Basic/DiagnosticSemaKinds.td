@@ -13129,50 +13129,50 @@ def warn_nullability_lost : Warning<
   "implicit conversion from nullable pointer %0 to non-nullable pointer "
   "type %1">,
   InGroup<NullableToNonNullConversion>, DefaultIgnore;
-def warn_flow_nullable_dereference : Warning<
+def warn_nullability_safety_dereference : Warning<
   "dereference of nullable pointer %0">,
-  InGroup<FlowNullableDereference>;
-def warn_null_init_nonnull : Warning<
+  InGroup<NullabilitySafetyDereference>;
+def warn_nullability_safety_null_init : Warning<
   "null assigned to a variable of nonnull type %0">,
-  InGroup<FlowNullableAssignment>;
+  InGroup<NullabilitySafetyAssignment>;
 def note_nullable_dereference_fix : Note<
   "add a null check before dereferencing, or annotate as '_Nonnull' if this "
   "pointer cannot be null">;
-def warn_flow_nullable_arithmetic : Warning<
+def warn_nullability_safety_arithmetic : Warning<
   "pointer arithmetic on nullable pointer %0">,
-  InGroup<FlowNullableArithmetic>;
+  InGroup<NullabilitySafetyArithmetic>;
 def note_nullable_arithmetic_fix : Note<
   "add a null check before performing arithmetic, or annotate as '_Nonnull' "
   "if this pointer cannot be null">;
-def warn_flow_nullable_return : Warning<
+def warn_nullability_safety_return : Warning<
   "returning nullable pointer from function with nonnull return type">,
-  InGroup<FlowNullableReturn>;
+  InGroup<NullabilitySafetyReturn>;
 def note_nullable_return_fix : Note<
   "add a null check before returning, or change the return type to '_Nullable'">;
-def warn_flow_nullable_assignment : Warning<
+def warn_nullability_safety_assignment : Warning<
   "assigning nullable pointer to nonnull variable %0">,
-  InGroup<FlowNullableAssignment>;
-def warn_flow_nullable_field_init : Warning<
+  InGroup<NullabilitySafetyAssignment>;
+def warn_nullability_safety_field_init : Warning<
   "initializing nonnull member %0 with null">,
-  InGroup<FlowNullableAssignment>;
+  InGroup<NullabilitySafetyAssignment>;
 def note_nullable_field_init_fix : Note<
   "remove '_Nonnull' if this member can be null, or remove the null initializer">;
-def warn_flow_nullable_member_assignment : Warning<
+def warn_nullability_safety_member_assignment : Warning<
   "assigning nullable pointer to nonnull member %0">,
-  InGroup<FlowNullableAssignment>;
+  InGroup<NullabilitySafetyAssignment>;
 def note_nullable_member_assignment_fix : Note<
   "add a null check before assigning, or remove '_Nonnull' from the member">;
-def warn_flow_nullable_default_arg : Warning<
+def warn_nullability_safety_default_arg : Warning<
   "nullable default argument for nonnull parameter %0">,
-  InGroup<FlowNullableAssignment>;
+  InGroup<NullabilitySafetyAssignment>;
 def note_nullable_default_arg_fix : Note<
   "remove '_Nonnull' from the parameter, or change the default to a nonnull value">;
 def note_nullable_assignment_fix : Note<
   "add a null check before assigning, or change the variable type to "
   "'_Nullable'">;
-def warn_flow_nullable_argument : Warning<
+def warn_nullability_safety_argument : Warning<
   "passing nullable pointer to nonnull parameter %0">,
-  InGroup<FlowNullableArgument>;
+  InGroup<NullabilitySafetyArgument>;
 def note_nullable_argument_fix : Note<
   "add a null check before the call, or change the parameter type to "
   "'_Nullable'">;

@@ -8080,8 +8080,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   Args.addOptInFlag(CmdArgs, options::OPT_fapple_pragma_pack,
                     options::OPT_fno_apple_pragma_pack);
 
-  Args.addOptInFlag(CmdArgs, options::OPT_fflow_sensitive_nullability,
-                    options::OPT_fno_flow_sensitive_nullability);
+  Args.addOptInFlag(CmdArgs, options::OPT_fnullability_safety,
+                    options::OPT_fno_nullability_safety);
   // Opt-out for the built-in stdlib nullable-return list (default on); only
   // -fno-... needs forwarding to cc1.
   Args.addOptOutFlag(CmdArgs, options::OPT_fnullability_stdlib_annotations,

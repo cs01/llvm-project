@@ -3,7 +3,7 @@
  *
  * C++ template member functions cannot be re-declared with _Nonnull/_Nullable
  * in overlay headers the way C functions can. Instead, the nullsafe flow
- * analysis has a built-in allowlist (in FlowNullability.cpp, function
+ * analysis has a built-in allowlist (in NullabilitySafety.cpp, function
  * isStlNonnullReturnCall) that recognizes specific std:: methods as returning
  * nonnull pointers.
  *
@@ -37,7 +37,7 @@
  *   std::span<T>::end()              - always valid
  *
  * Smart pointer methods are handled separately by the smart pointer tracking
- * in FlowNullability.cpp (unique_ptr, shared_ptr, weak_ptr).
+ * in NullabilitySafety.cpp (unique_ptr, shared_ptr, weak_ptr).
  */
 
 #ifndef _NULLSAFE_STL_H

@@ -1499,17 +1499,23 @@ $ cat foo/bar.cc
 See {doc}`WarningSuppressionMappings` for details about the file format and
 functionality.
 
-#### Flow-Sensitive Nullability Checking
+#### Nullability Safety Checking
 
 Clang can flow-sensitively check uses of `_Nullable` pointers, diagnosing
 dereferences, arithmetic, returns, assignments, and arguments that may be null
 on the path where they occur. The analysis is off by default and is enabled
 with:
 
-:::{option} -fflow-sensitive-nullability
+:::{option} -fnullability-safety
 
 Enable the flow-sensitive, intraprocedural nullability analysis. Use
-`-fno-flow-sensitive-nullability` to disable it.
+`-fno-nullability-safety` to disable it.
+:::
+
+:::{option} -fno-nullability-stdlib-annotations
+
+Stop treating the results of C library functions that return null on failure
+(`malloc`, `fopen`, `getenv`, `strchr`, and similar) as `_Nullable`.
 :::
 
 :::{option} -fnullability-default=<value>
@@ -1526,17 +1532,17 @@ non-`unspecified` value, or the function has explicit `_Nullable` /
 `_Nonnull` annotations on its parameters or return type. This allows gradual
 adoption one function at a time.
 
-The diagnostics are grouped under `-Wflow-nullability`, with the subgroups
-`-Wflow-nullable-dereference`, `-Wflow-nullable-arithmetic`,
-`-Wflow-nullable-return`, `-Wflow-nullable-assignment`, and
-`-Wflow-nullable-argument`. `-Rnullsafe-evidence` emits remarks describing
+The diagnostics are grouped under `-Wnullability-safety`, with the subgroups
+`-Wnullability-safety-dereference`, `-Wnullability-safety-arithmetic`,
+`-Wnullability-safety-return`, `-Wnullability-safety-assignment`, and
+`-Wnullability-safety-argument`. `-Rnullsafe-evidence` emits remarks describing
 the inferred nullability for consumption by annotation-migration tooling.
 
 ```console
 $ cat deref.c
 #pragma clang assume_nonnull begin
 int f(int *_Nullable p) {
-  return *p;            // warning: dereference of possibly-null pointer
+  return *p;            // warning: dereference of nullable pointer
 }
 int g(int *_Nullable p) {
   if (!p) return 0;
@@ -1544,16 +1550,16 @@ int g(int *_Nullable p) {
 }
 #pragma clang assume_nonnull end
 
-$ clang -fflow-sensitive-nullability -Wflow-nullability -c deref.c
+$ clang -fnullability-safety -Wnullability-safety -c deref.c
 ```
 
-See [Flow-Sensitive Nullability
-Analysis](LanguageExtensions.html#flow-sensitive-nullability-analysis) in the
+See [Nullability Safety
+Analysis](LanguageExtensions.html#nullability-safety-analysis) in the
 language extensions documentation for the narrowing idioms, smart-pointer
 support, and known limitations.
 
 :::{note}
-`-fflow-sensitive-nullability` and `-fnullability-default=` are recorded
+`-fnullability-safety` and `-fnullability-default=` are recorded
 as build-compatibility constraints: all precompiled headers and modules used
 in a build must agree on their values, and mixing translation units compiled
 with different settings is rejected. Adoption is therefore per-function

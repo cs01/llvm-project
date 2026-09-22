@@ -1,32 +1,32 @@
-# Wall-time performance: baseline vs. nullsafe fork vs. Clang Static Analyzer
+# Wall-time performance: baseline vs. Nullability Safety vs. Clang Static Analyzer
 
 This documents a wall-time benchmark comparing three ways to run the compiler on
 the same C/C++ code:
 
-- **baseline** — `clang -fsyntax-only`, no nullsafe flags (≈ vanilla frontend cost)
-- **nullsafe** — `+ -fflow-sensitive-nullability -fnullability-default=nullable`
-  (this fork's flow-sensitive null checker)
+- **baseline** — `clang -fsyntax-only`, no nullability flags (≈ vanilla frontend cost)
+- **nullability-safety** — `+ -fnullability-safety -fnullability-default=nullable`
+  (this fork's Nullability Safety analysis)
 - **analyzer** — `clang --analyze` (the Clang Static Analyzer, CSA)
 
 For *what each tool catches* (correctness, not speed) see
-[`../../../nullsafe-playground/standard-clang-gap.c`](../../../nullsafe-playground/examples/standard-clang-gap.c)
+[`nullsafe-playground/examples/standard-clang-gap.c`](../../../nullsafe-playground/examples/standard-clang-gap.c)
 and the architecture note
-[`nullsafe-vs-csa.md`](../../../nullsafe-playground/nullsafe-vs-csa.md). This doc is
+[`nullability-safety-vs-csa.md`](../../../nullsafe-playground/nullability-safety-vs-csa.md). This doc is
 purely about **cost**.
 
 ## Headline
 
 | Comparison | Effect | 95% CI | Significance |
 |---|---|---|---|
-| nullsafe, worst case (pointer-dense C, `-fsyntax-only`) | **+18.9%** | — | Welch t≈12, p<1e-15 |
-| nullsafe, realistic C++ (STL-heavy TU) | +2.4% | overlaps 0 | p≈0.28, **not sig.** |
-| **nullsafe, real clang/LLVM TUs (paired, n=24)** | **+4.5% geomean** | +0.25%…+9.03% | p=0.049, just sig. |
+| Nullability Safety, worst case (pointer-dense C, `-fsyntax-only`) | **+18.9%** | — | Welch t≈12, p<1e-15 |
+| Nullability Safety, realistic C++ (STL-heavy TU) | +2.4% | overlaps 0 | p≈0.28, **not sig.** |
+| **Nullability Safety, real clang/LLVM TUs (paired, n=24)** | **+4.5% geomean** | +0.25%…+9.03% | p=0.049, just sig. |
 | analyzer, realistic C++ | 2.05× slower | — | p≪0.001 |
 | **analyzer, real clang/LLVM TUs (paired, n=24)** | **1.95× geomean** | 1.23×…3.09× | p=0.009 |
 | analyzer, pointer-dense C worst case | 38.8× slower | — | p≪0.001 |
 | analyzer, pathological real TU (`MicrosoftDemangleNodes.cpp`) | **277.8×** (359ms→99.8s) | — | — |
 
-**Takeaway:** the nullsafe fork costs ~5% in practice (and scales with *pointer
+**Takeaway:** Nullability Safety costs ~5% in practice (and scales with *pointer
 density*, not code size, because it's a linear dataflow pass). The static analyzer
 costs ~2× typically but is unbounded — it exploded to 278× on one real file. That
 unbounded, non-deterministic cost is exactly why CSA can't run on every build and
@@ -60,13 +60,13 @@ the feature cost", not a limitation.
 - CPU-pinned with `taskset -c 4` to cut scheduler migration noise.
 - Microbenchmarks (inputs 1 & 2): `hyperfine`, 5 warmup + 40–50 timed runs.
 - Real TUs (input 3): **paired** design — every TU measured in every mode, so
-  per-TU size variance cancels. baseline/nullsafe = best-of-3; analyzer = 1 rep
+  per-TU size variance cancels. baseline/nullability-safety = best-of-3; analyzer = 1 rep
   (it's expensive, and the effect is huge).
 - Significance: pure-Python Welch's / one-sample t-tests with a real
   t-distribution p-value (regularized incomplete beta) — no scipy. (`stats.py`)
 - **Correct scale matters.** Real compile times span three orders of magnitude and
   overhead is *multiplicative*, so the primary test is on the per-TU **log-ratio**,
-  not raw milliseconds. On raw ms the nullsafe test is p=0.087 (dominated by a few
+  not raw milliseconds. On raw ms the nullability-safety test is p=0.087 (dominated by a few
   9–13 s TUs); on the log-ratio it is p=0.049. Same data, right scale.
 
 ## Static Analyzer notes (important caveats on the CSA numbers)
@@ -93,7 +93,7 @@ the feature cost", not a limitation.
 - Measured on a shared 72-core devserver; CPU-pinning mitigates but can't eliminate
   neighbor noise.
 - All results are `-fsyntax-only` (frontend-only). Under a real `-O2 -c` build the
-  nullsafe overhead is diluted further by codegen/optimization time.
+  Nullability Safety overhead is diluted further by codegen/optimization time.
 
 ## Reproduce
 

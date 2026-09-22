@@ -4624,7 +4624,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       // active we silently tag single-level pointers as Unspecified so the
       // flow checker can track them, but we never fire the consistency
       // warning ("pointer is missing a nullability type specifier") here.
-      if (S.getLangOpts().FlowSensitiveNullability &&
+      if (S.getLangOpts().NullabilitySafety &&
           S.getLangOpts().getNullabilityDefault() ==
               NullabilityKind::Nullable) {
         auto wrappingKind = PointerWrappingDeclaratorKind::None;
@@ -4739,7 +4739,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
     // trips `TL.getFullDataSize() == CurrTL.getFullDataSize()` (assertion abort
     // in asserts builds; silent mismatched copy otherwise). Inference would
     // also change the operator's type identity, breaking overload resolution.
-    // This must hold under assume_nonnull / -fflow-sensitive-nullability too,
+    // This must hold under assume_nonnull / -fnullability-safety too,
     // not just -fnullability-default injection: with injection off this region
     // is identical to upstream, where the same inference crashes an asserts
     // build on `operator T*()` inside an assume_nonnull region.

@@ -27,7 +27,7 @@ stash is a no-op and the pop restores an unrelated older stash. `--base`
 stashes only when there is something to stash and pops that entry by name.
 
 1. Build clang (`BUILD_DIR`, default `build-arm` if present, else `build`).
-2. Lit: every `clang/test/*/flow-nullability*`, `clang/test/Driver/nullsafe*`,
+2. Lit: every `clang/test/*/nullability-safety*` and
    `clang/test/SemaCXX/nullability-default*` test passes.
 3. sqlite differential (`SQLITE`, default `~/git/sqlite/sqlite3.c`; build it
    with `./configure && make sqlite3.c`): sorted warning lists in
@@ -39,7 +39,11 @@ stashes only when there is something to stash and pops that entry by name.
    19620. After the rebase (Linux devserver, `build`, node's vendored sqlite
    3.53.1 at `~/git/node/deps/sqlite/sqlite3.c`): nonnull 139, nullable
    22642, evidence 19385.
-4. `git clang-format --diff` is empty.
+4. `git clang-format --diff HEAD -- clang` is empty (C++ under `clang/`
+   only; the playground's JS and demo files keep their own layout).
+
+The script passes `-fnullability-safety`, so `--base` on a commit from
+before step 6 fails; use a checkout of the old script for such baselines.
 
 ## Status
 
@@ -51,7 +55,7 @@ stashes only when there is something to stash and pops that entry by name.
 | - | Rebase onto `llvm/main` (2026-09-22); default branch renamed `nullsafe-clang-dev` -> `nullability-safety` | done; gates green on the rebased tree (lit 50/50, sqlite nonnull/nullable/evidence byte-identical to the pre-rebase step 2 lists) |
 | - | Gates script exits nonzero on any failure (missing sqlite included, unless `--skip-sqlite`); `--base` replaces the hand-rolled stash recipe | done |
 | 4 | Stop tagging types with `_Null_unspecified` unless `-fnullability-default=nullable` (the only mode where the tag changes results); drop the duplicate null-init warning (`warn_null_init_nonnull` vs flow `warn_flow_nullable_assignment`) | done (sqlite below) |
-| 6 | Rename to **NullabilitySafety** everywhere (moved before 5 so new files get final names); update the gates script's filename globs; decide explicitly whether old flag spellings stay as aliases | todo |
+| 6 | Rename to **NullabilitySafety** everywhere (moved before 5 so new files get final names); update the gates script's filename globs; decide explicitly whether old flag spellings stay as aliases | done: hard cut, no aliases (below) |
 | 5a | API: options struct, summary oracle split from the handler, drop the unused `SrcExpr` parameter, one Sema opt-in predicate | todo |
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite | todo |
 | 5c | SSAF whole-program propagation (below) | todo |
@@ -60,6 +64,24 @@ stashes only when there is something to stash and pops that entry by name.
 
 `nullsafe-upstream` keeps its name: it is the head of llvm PR #189131, and
 GitHub cannot retarget a PR's head branch.
+
+## Step 6 results
+
+Decision: hard cut. `-fflow-sensitive-nullability`, `-Wflow-nullability` and
+`-Wflow-nullable-*` are gone, not aliased; in-repo consumers (release and CI
+workflows, install script, playground, benchmarks, docs) were updated in the
+same commit. Anyone still passing the old flag gets `unknown argument`.
+
+Renamed per the Naming table, plus: `FlowNullabilityReporter` /
+`FlowNullabilityTUAnalysis` in `AnalysisBasedWarnings.cpp`, `DEBUG_TYPE`
+`nullability-safety`, every `flow-nullability-*` test and doc file, and
+`Driver/nullsafe-flags*.c` -> `Driver/nullability-safety-flags*.c`. The
+`nullsafe` product names (playground, headers, `-Rnullsafe-evidence`,
+`remark_nullsafe_*`) are unchanged; the remarks go away in 5d.
+
+sqlite (group names in the baseline normalized to the new spelling): nonnull
+0 lost / 0 gained, nullable 0 / 0, evidence 0 / 0; counts unchanged (139,
+22642, 19385); lit 51/51.
 
 ## Step 4 results
 
@@ -110,7 +132,7 @@ fallbacks.
 (named for the property checked, not the technique). Neither neighbor is sound
 either; both document their limitations, and so must we.
 
-| Thing | Now | Target |
+| Thing | Before | Target |
 |---|---|---|
 | Files | `FlowNullability.{h,cpp}` | `NullabilitySafety.{h,cpp}` |
 | API | `runFlowNullabilityAnalysis`, `FlowNullabilityHandler` | `runNullabilitySafetyAnalysis`, `NullabilitySafetyHandler` |

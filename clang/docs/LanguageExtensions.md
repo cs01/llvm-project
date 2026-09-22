@@ -5621,9 +5621,9 @@ invariants and rules for static analysis tools, such as the [Clang Static
 Analyzer](https://clang-analyzer.llvm.org/). These attributes are documented
 in the analyzer's {doc}`list of annotations for analysis <analyzer/user-docs/Annotations>`.
 
-## Flow-Sensitive Nullability Analysis
+## Nullability Safety Analysis
 
-When enabled with `-fflow-sensitive-nullability` (off by default), Clang runs
+When enabled with `-fnullability-safety` (off by default), Clang runs
 a flow-sensitive, intraprocedural analysis that proves whether a `_Nullable`
 pointer may be null at the point it is used. Unlike the type-only nullability
 checks, this analysis tracks the *flow* of a function: a `_Nullable` pointer
@@ -5638,16 +5638,16 @@ analyzed.
 
 ### What it diagnoses
 
-The diagnostics live under the `-Wflow-nullability` umbrella group:
+The diagnostics live under the `-Wnullability-safety` umbrella group:
 
-* `-Wflow-nullable-dereference`: dereference (`*p`, `p->m`, `p[i]`) of a
+* `-Wnullability-safety-dereference`: dereference (`*p`, `p->m`, `p[i]`) of a
   pointer that may be null on that path.
-* `-Wflow-nullable-arithmetic`: pointer arithmetic on a possibly-null pointer.
-* `-Wflow-nullable-return`: returning a possibly-null value from a function
+* `-Wnullability-safety-arithmetic`: pointer arithmetic on a possibly-null pointer.
+* `-Wnullability-safety-return`: returning a possibly-null value from a function
   whose return type is `_Nonnull`.
-* `-Wflow-nullable-assignment`: assigning a possibly-null value to a
+* `-Wnullability-safety-assignment`: assigning a possibly-null value to a
   `_Nonnull` variable.
-* `-Wflow-nullable-argument`: passing a possibly-null value as a `_Nonnull`
+* `-Wnullability-safety-argument`: passing a possibly-null value as a `_Nonnull`
   parameter.
 
 ### Opt-in
@@ -5716,6 +5716,15 @@ keep the diagnostic noise low. The following cases are not diagnosed by design:
 * **Function calls do not invalidate narrowing.** Once a pointer is narrowed,
   an intervening call does not reset it. This is deliberate and matches the
   behavior of the thread safety analysis.
+
+### C library functions
+
+The results of C library functions that return null on failure (`malloc`,
+`calloc`, `realloc`, `aligned_alloc`, `fopen`, `freopen`, `tmpfile`, `getenv`,
+`strtok`, `strstr`, `strchr`, `strrchr`, `strpbrk`, `memchr`, `bsearch`,
+`tmpnam`, `setlocale`) are treated as `_Nullable` regardless of how the system
+headers declare them. Only functions at global or `std` scope match.
+`-fno-nullability-stdlib-annotations` disables this.
 
 ### Migration evidence
 

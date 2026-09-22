@@ -32,8 +32,8 @@
 #include "clang/Analysis/Analyses/CFGReachabilityAnalysis.h"
 #include "clang/Analysis/Analyses/CalledOnceCheck.h"
 #include "clang/Analysis/Analyses/Consumed.h"
-#include "clang/Analysis/Analyses/FlowNullability.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeSafety.h"
+#include "clang/Analysis/Analyses/NullabilitySafety.h"
 #include "clang/Analysis/Analyses/ReachableCode.h"
 #include "clang/Analysis/Analyses/ThreadSafety.h"
 #include "clang/Analysis/Analyses/UninitializedValues.h"
@@ -3053,7 +3053,7 @@ static bool shouldSuggestUnsafeBufferUsageSuggestions(const Sema &S) {
 }
 
 namespace {
-class FlowNullabilityReporter : public FlowNullabilityHandler {
+class NullabilitySafetyReporter : public NullabilitySafetyHandler {
   Sema &S;
   // Shared cross-function set of functions proven to always return
   // non-null. Owned by InterProceduralData, persists across calls.
@@ -3081,14 +3081,14 @@ class FlowNullabilityReporter : public FlowNullabilityHandler {
   }
 
 public:
-  FlowNullabilityReporter(Sema &S,
-                          llvm::DenseSet<const FunctionDecl *> &NonnullFuncs,
-                          bool SuppressInference = false)
+  NullabilitySafetyReporter(Sema &S,
+                            llvm::DenseSet<const FunctionDecl *> &NonnullFuncs,
+                            bool SuppressInference = false)
       : S(S), AllReturnsNonnullFuncs(NonnullFuncs),
         SuppressInference(SuppressInference) {}
 
   /// Emit all buffered diagnostics in source-location order, then reset the
-  /// buffers. Call after each runFlowNullabilityAnalysis invocation.
+  /// buffers. Call after each runNullabilitySafetyAnalysis invocation.
   void emitDiagnostics() {
     Warnings.sort(SortDiagBySourceLocation(S.getSourceManager()));
     for (const auto &Diag : Warnings) {
@@ -3105,11 +3105,11 @@ public:
   void handleNullableDereference(const Expr *DerefExpr,
                                  QualType PtrType) override {
     SourceLocation Loc = DerefExpr->getExprLoc();
-    if (!isFirst(diag::warn_flow_nullable_dereference, Loc,
+    if (!isFirst(diag::warn_nullability_safety_dereference, Loc,
                  PtrType.getAsOpaquePtr()))
       return;
     PartialDiagnosticAt Warning(
-        Loc, S.PDiag(diag::warn_flow_nullable_dereference) << PtrType);
+        Loc, S.PDiag(diag::warn_nullability_safety_dereference) << PtrType);
     PartialDiagnosticAt Note(Loc,
                              S.PDiag(diag::note_nullable_dereference_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
@@ -3120,10 +3120,10 @@ public:
     SourceLocation Loc = ArithExpr->getExprLoc();
     // Keyed on the variable, not the type: `a - b` faults both operands at one
     // location, and they usually share a type.
-    if (!isFirst(diag::warn_flow_nullable_arithmetic, Loc, VD))
+    if (!isFirst(diag::warn_nullability_safety_arithmetic, Loc, VD))
       return;
     PartialDiagnosticAt Warning(
-        Loc, S.PDiag(diag::warn_flow_nullable_arithmetic) << PtrType);
+        Loc, S.PDiag(diag::warn_nullability_safety_arithmetic) << PtrType);
     PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_arithmetic_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
@@ -3131,10 +3131,10 @@ public:
   void handleNullableReturn(const Expr *ReturnExpr, QualType ExprType,
                             QualType ReturnType) override {
     SourceLocation Loc = ReturnExpr->getExprLoc();
-    if (!isFirst(diag::warn_flow_nullable_return, Loc))
+    if (!isFirst(diag::warn_nullability_safety_return, Loc))
       return;
     PartialDiagnosticAt Warning(Loc,
-                                S.PDiag(diag::warn_flow_nullable_return));
+                                S.PDiag(diag::warn_nullability_safety_return));
     PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_return_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
@@ -3142,10 +3142,10 @@ public:
   void handleNullableAssignment(const Expr *AssignExpr,
                                 const VarDecl *LHSVar) override {
     SourceLocation Loc = AssignExpr->getExprLoc();
-    if (!isFirst(diag::warn_flow_nullable_assignment, Loc, LHSVar))
+    if (!isFirst(diag::warn_nullability_safety_assignment, Loc, LHSVar))
       return;
     PartialDiagnosticAt Warning(
-        Loc, S.PDiag(diag::warn_flow_nullable_assignment) << LHSVar);
+        Loc, S.PDiag(diag::warn_nullability_safety_assignment) << LHSVar);
     PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_assignment_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
@@ -3153,10 +3153,11 @@ public:
   void handleNullableMemberAssignment(const Expr *AssignExpr,
                                       const FieldDecl *Member) override {
     SourceLocation Loc = AssignExpr->getExprLoc();
-    if (!isFirst(diag::warn_flow_nullable_member_assignment, Loc, Member))
+    if (!isFirst(diag::warn_nullability_safety_member_assignment, Loc, Member))
       return;
     PartialDiagnosticAt Warning(
-        Loc, S.PDiag(diag::warn_flow_nullable_member_assignment) << Member);
+        Loc, S.PDiag(diag::warn_nullability_safety_member_assignment)
+                 << Member);
     PartialDiagnosticAt Note(
         Loc, S.PDiag(diag::note_nullable_member_assignment_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
@@ -3165,10 +3166,10 @@ public:
   void handleNullableArgument(const Expr *ArgExpr,
                               const ParmVarDecl *Param) override {
     SourceLocation Loc = ArgExpr->getExprLoc();
-    if (!isFirst(diag::warn_flow_nullable_argument, Loc, Param))
+    if (!isFirst(diag::warn_nullability_safety_argument, Loc, Param))
       return;
     PartialDiagnosticAt Warning(
-        Loc, S.PDiag(diag::warn_flow_nullable_argument) << Param);
+        Loc, S.PDiag(diag::warn_nullability_safety_argument) << Param);
     PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_argument_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
@@ -3304,7 +3305,7 @@ static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
   // Opt-in: only analyze if -fnullability-default is set, or the decl has
   // explicit nullability annotations. This gate applies symmetrically to
   // FunctionDecls, ObjC methods, and blocks so an unannotated decl is never
-  // analyzed on -fflow-sensitive-nullability alone (which would otherwise let
+  // analyzed on -fnullability-safety alone (which would otherwise let
   // flow-tracked nullability warn without any opt-in).
   if (Default == NullabilityKind::Unspecified &&
       !S.declHasNullabilityAnnotations(Def))
@@ -3320,14 +3321,14 @@ static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
 /// Uses scc_iterator (Tarjan's algorithm) instead of plain post_order so we
 /// can detect mutually recursive SCCs and skip all-returns-nonnull inference
 /// for them (conservative but correct).
-static void FlowNullabilityTUAnalysis(
+static void NullabilitySafetyTUAnalysis(
     Sema &S, TranslationUnitDecl *TU,
     llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs) {
-  llvm::TimeTraceScope TimeProfile("FlowNullabilityTUAnalysis");
+  llvm::TimeTraceScope TimeProfile("NullabilitySafetyTUAnalysis");
   CallGraph CG;
   CG.addToCallGraph(TU);
 
-  FlowNullabilityReporter Reporter(S, AllReturnsNonnullFuncs);
+  NullabilitySafetyReporter Reporter(S, AllReturnsNonnullFuncs);
   NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
   bool StdlibAnnotations = S.getLangOpts().NullabilityStdlibAnnotations;
 
@@ -3354,12 +3355,13 @@ static void FlowNullabilityTUAnalysis(
         // but suppress all-returns-nonnull inference. The reporter still
         // reads from AllReturnsNonnullFuncs so non-recursive callees that
         // were already proven nonnull are still used for narrowing.
-        FlowNullabilityReporter SCCReporter(S, AllReturnsNonnullFuncs,
-                                            /*SuppressInference=*/true);
-        runFlowNullabilityAnalysis(AC, SCCReporter, Default, StdlibAnnotations);
+        NullabilitySafetyReporter SCCReporter(S, AllReturnsNonnullFuncs,
+                                              /*SuppressInference=*/true);
+        runNullabilitySafetyAnalysis(AC, SCCReporter, Default,
+                                     StdlibAnnotations);
         SCCReporter.emitDiagnostics();
       } else {
-        runFlowNullabilityAnalysis(AC, Reporter, Default, StdlibAnnotations);
+        runNullabilitySafetyAnalysis(AC, Reporter, Default, StdlibAnnotations);
         Reporter.emitDiagnostics();
       }
     }
@@ -3415,8 +3417,8 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   // enabled. Diagnostic state at an invalid SourceLocation only reflects the
   // command line and cannot detect warnings re-enabled by a source pragma;
   // emission at each real source location still applies all suppression rules.
-  if (S.getLangOpts().FlowSensitiveNullability)
-    FlowNullabilityTUAnalysis(S, TU, IPData->AllReturnsNonnullFuncs);
+  if (S.getLangOpts().NullabilitySafety)
+    NullabilitySafetyTUAnalysis(S, TU, IPData->AllReturnsNonnullFuncs);
 }
 
 void clang::sema::AnalysisBasedWarnings::IssueWarningsForImplicitFunction(
@@ -3575,7 +3577,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   }
 
   // Flow-sensitive nullability now runs as a TU-level analysis in
-  // call-graph order (see FlowNullabilityTUAnalysis). This ensures
+  // call-graph order (see NullabilitySafetyTUAnalysis). This ensures
   // all-returns-nonnull inference works regardless of source order.
 
   // Check for violations of consumed properties.

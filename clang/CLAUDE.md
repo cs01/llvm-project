@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-# Nullsafe Clang Fork
+# Clang Nullability Safety Fork
 
 This is a fork of LLVM/Clang that adds compile-time null pointer dereference checking via flow-sensitive analysis. The fork lives on branch `nullability-safety`.
 
@@ -29,39 +29,39 @@ Built language server: `build/bin/clangd`
 ninja -C build check-clang-unit
 ```
 
-Lit tests for nullsafe features:
-- `test/SemaCXX/flow-nullability-analysis.cpp` - core analysis: narrowing, dereference, aliases, control flow (~2000 lines)
-- `test/SemaCXX/flow-nullability-cxx-features.cpp` - templates, lambdas, coroutines, smart pointers, structured bindings
-- `test/SemaCXX/flow-nullability-adoption.cpp` - gradual adoption, false-positive suppression, perf stress
-- `test/SemaCXX/flow-nullability-crubit-regression.cpp` - regression tests ported from Crubit
-- `test/SemaCXX/flow-nullability-warning-groups.cpp` - warning group suppression/promotion
-- `test/SemaCXX/flow-nullability-default-nonnull.cpp` - `-fnullability-default=nonnull` mode
-- `test/SemaCXX/flow-nullability-real-smartptr.cpp` - real stdlib smart pointer tests (requires system headers)
-- `test/Sema/flow-nullability-c.c` - all C-mode tests: narrowing, idioms, call invalidation
-- `test/Driver/nullsafe-flags.c` - driver flag forwarding
+Lit tests for Nullability Safety:
+- `test/SemaCXX/nullability-safety-analysis.cpp` - core analysis: narrowing, dereference, aliases, control flow (~2000 lines)
+- `test/SemaCXX/nullability-safety-cxx-features.cpp` - templates, lambdas, coroutines, smart pointers, structured bindings
+- `test/SemaCXX/nullability-safety-adoption.cpp` - gradual adoption, false-positive suppression, perf stress
+- `test/SemaCXX/nullability-safety-crubit-regression.cpp` - regression tests ported from Crubit
+- `test/SemaCXX/nullability-safety-warning-groups.cpp` - warning group suppression/promotion
+- `test/SemaCXX/nullability-safety-default-nonnull.cpp` - `-fnullability-default=nonnull` mode
+- `test/SemaCXX/nullability-safety-real-smartptr.cpp` - real stdlib smart pointer tests (requires system headers)
+- `test/Sema/nullability-safety-c.c` - all C-mode tests: narrowing, idioms, call invalidation
+- `test/Driver/nullability-safety-flags.c` - driver flag forwarding
 
-Run all nullsafe tests:
+Run all Nullability Safety tests:
 ```bash
-build/bin/llvm-lit -v clang/test/SemaCXX/flow-nullability-*.cpp clang/test/Sema/flow-nullability-*.c clang/test/Driver/nullsafe-flags.c
+build/bin/llvm-lit -v clang/test/SemaCXX/nullability-safety-*.cpp clang/test/Sema/nullability-safety-*.c clang/test/Driver/nullability-safety-flags.c
 ```
 
 ## Key Custom Flags
 
-- `-fflow-sensitive-nullability` - enables flow-sensitive nullability analysis
+- `-fnullability-safety` - enables flow-sensitive nullability analysis
 - `-fnullability-default=nullable|nonnull|unspecified` - sets default nullability for unannotated pointers
 
-## Key Files (Nullsafe Changes)
+## Key Files
 
-- `lib/Analysis/FlowNullability.cpp` - CFG-based forward dataflow analysis: nullability narrowing, dereference checking, condition analysis, per-edge state tracking
-- `include/clang/Analysis/Analyses/FlowNullability.h` - analysis interface: `FlowNullabilityHandler` callback, `runFlowNullabilityAnalysis` entry point
-- `lib/Sema/AnalysisBasedWarnings.cpp` - wires the analysis into Clang's warning pipeline: `FlowNullabilityReporter`, CFG build options
-- `lib/Sema/SemaDecl.cpp` - `warn_null_init_nonnull` diagnostic for null-init of _Nonnull vars
+- `lib/Analysis/NullabilitySafety.cpp` - CFG-based forward dataflow analysis: nullability narrowing, dereference checking, condition analysis, per-edge state tracking
+- `include/clang/Analysis/Analyses/NullabilitySafety.h` - analysis interface: `NullabilitySafetyHandler` callback, `runNullabilitySafetyAnalysis` entry point
+- `lib/Sema/AnalysisBasedWarnings.cpp` - wires the analysis into Clang's warning pipeline: `NullabilitySafetyReporter`, CFG build options
+- `lib/Sema/SemaDecl.cpp` - `warn_nullability_safety_null_init` diagnostic for null-init of _Nonnull vars
 - `include/clang/Sema/Sema.h` - `functionHasNullabilityAnnotations` helper
 - `lib/Sema/Sema.cpp` - `functionHasNullabilityAnnotations`, `diagnoseNullableToNonnullConversion`
 - `lib/Driver/ToolChains/Clang.cpp` - driver-to-cc1 flag forwarding
-- `include/clang/Driver/Options.td` - flag definitions
-- `include/clang/Basic/DiagnosticSemaKinds.td` - `warn_flow_nullable_dereference` diagnostic
-- `include/clang/Basic/DiagnosticGroups.td` - `FlowNullableDereference` / `FlowNullability` diagnostic groups
+- `include/clang/Options/Options.td` - flag definitions
+- `include/clang/Basic/DiagnosticSemaKinds.td` - `warn_nullability_safety_dereference` diagnostic
+- `include/clang/Basic/DiagnosticGroups.td` - `NullabilitySafetyDereference` / `NullabilitySafety` diagnostic groups
 
 ## Architecture
 
@@ -69,11 +69,11 @@ The analysis follows the same pattern as Clang's ThreadSafety and UninitializedV
 
 ### Three-layer design
 
-**`lib/Analysis/FlowNullability.cpp`** — the analysis algorithm. Operates on the CFG (control flow graph), which Clang builds automatically from the AST. Uses `ForwardDataflowWorklist` for fixpoint iteration over CFG blocks in reverse-post-order. Tracks `NullState` (sets of narrowed variables and members) per edge, intersecting at merge points. Reports dereferences of nullable pointers via `FlowNullabilityHandler` callbacks.
+**`lib/Analysis/NullabilitySafety.cpp`** — the analysis algorithm. Operates on the CFG (control flow graph), which Clang builds automatically from the AST. Uses `ForwardDataflowWorklist` for fixpoint iteration over CFG blocks in reverse-post-order. Tracks `NullState` (sets of narrowed variables and members) per edge, intersecting at merge points. Reports dereferences of nullable pointers via `NullabilitySafetyHandler` callbacks.
 
-**`lib/Sema/AnalysisBasedWarnings.cpp`** — the glue layer. Builds the CFG, instantiates the analysis, and converts handler callbacks into `S.Diag()` calls. Gated by `EnableFlowNullability` (precomputed from LangOpts and diagnostic state).
+**`lib/Sema/AnalysisBasedWarnings.cpp`** — the glue layer. Builds the CFG, instantiates the analysis, and converts handler callbacks into `S.Diag()` calls. Gated by `EnableNullabilitySafety` (precomputed from LangOpts and diagnostic state).
 
-**`test/SemaCXX/flow-nullability-*.cpp`** — C++ tests in `test/SemaCXX/`, C tests in `test/Sema/`. This matches ThreadSafety's test layout. Tests are consolidated into a few large files rather than many small ones.
+**`test/SemaCXX/nullability-safety-*.cpp`** — C++ tests in `test/SemaCXX/`, C tests in `test/Sema/`. This matches ThreadSafety's test layout. Tests are consolidated into a few large files rather than many small ones.
 
 ### Dataflow analysis details
 
@@ -104,11 +104,11 @@ Flow-sensitive checking only activates per-function when inside a `#pragma clang
 Two branches are maintained:
 
 - **`nullability-safety`** — the full fork with playground, install scripts, CI, WASM build, docs, etc. **All development happens here. Always work on this branch.**
-- **`nullsafe-upstream`** — clean branch with only the core compiler changes (68 files), used for the upstream PR to `llvm/llvm-project`. **Never work directly on this branch** — it is rebuilt from `nullability-safety` via `sync-upstream.sh`.
+- **`nullsafe-upstream`** — clean branch with only the core compiler changes, used for the upstream PR to `llvm/llvm-project`. **Never work directly on this branch** — it is rebuilt from `nullability-safety` via `sync-upstream.sh`.
 
 Run `./tools/sync-upstream.sh` to rebuild `nullsafe-upstream` from the current state of `nullability-safety`. It filters out all fork-only files and creates a single commit on top of `llvm/main`.
 
-**When adding new files:** if the file is part of the compiler feature (belongs in the upstream PR), make sure it's not caught by `EXCLUDE_PATTERNS` in `tools/sync-upstream.sh`. If the file is fork-only (playground, CI, docs, benchmarks, etc.), add a matching pattern to `EXCLUDE_PATTERNS` so it doesn't leak into the upstream branch.
+**When adding new files:** `tools/sync-upstream.sh` is an allowlist. Compiler files belong under one of its `INCLUDE_PREFIXES`; a fork-only file that lands under an included prefix must be added to `EXCLUDE_PATHS` so it doesn't leak into the upstream branch.
 
 ## Conventions
 

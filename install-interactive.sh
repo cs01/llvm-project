@@ -288,10 +288,10 @@ if [ -z "$SKIP_PROMPTS" ]; then
 
             if [ "$PATH_ACTIVE" = true ]; then
                 echo "Try it now:"
-                echo "    echo 'void f(int* _Nullable p) { *p = 42; }' | clang -x c - -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable"
+                echo "    echo 'void f(int* _Nullable p) { *p = 42; }' | clang -x c - -fsyntax-only -fnullability-safety -fnullability-default=nullable"
             else
                 echo "Try it now (using full path):"
-                echo "    echo 'void f(int* _Nullable p) { *p = 42; }' | $INSTALL_DIR/bin/clang -x c - -fsyntax-only -fflow-sensitive-nullability -fnullability-default=nullable"
+                echo "    echo 'void f(int* _Nullable p) { *p = 42; }' | $INSTALL_DIR/bin/clang -x c - -fsyntax-only -fnullability-safety -fnullability-default=nullable"
                 echo ""
                 echo "Or reload your shell and use just 'clang'."
             fi

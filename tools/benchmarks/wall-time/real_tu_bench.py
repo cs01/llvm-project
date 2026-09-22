@@ -9,7 +9,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BUILD = os.environ.get("BUILD_DIR", os.path.join(HERE, "..", "..", "..", "build"))
 CC = os.environ.get("COMPILE_COMMANDS", os.path.join(BUILD, "compile_commands.json"))
 FORK = os.environ.get("CLANG", os.path.join(BUILD, "bin", "clang"))
-NULLSAFE = ["-fflow-sensitive-nullability", "-fnullability-default=nullable"]
+NULLSAFE = ["-fnullability-safety", "-fnullability-default=nullable"]
 PIN = ["taskset", "-c", "4"]
 N_TU = int(sys.argv[1]) if len(sys.argv) > 1 else 40
 K = int(sys.argv[2]) if len(sys.argv) > 2 else 3   # reps per TU per mode (take min)

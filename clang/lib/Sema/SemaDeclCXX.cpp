@@ -392,8 +392,7 @@ Sema::ActOnParamDefaultArgument(Decl *param, SourceLocation EqualLoc,
     return ActOnParamDefaultArgumentError(param, EqualLoc, DefaultArg);
 
   // Warn when a _Nonnull parameter has a nullable default argument.
-  if (getLangOpts().FlowSensitiveNullability &&
-      Param->getType()->isPointerType()) {
+  if (getLangOpts().NullabilitySafety && Param->getType()->isPointerType()) {
     auto ParamNullability = Param->getType()->getNullability();
     if (ParamNullability && *ParamNullability == NullabilityKind::NonNull) {
       Expr *Arg = DefaultArg->IgnoreParenImpCasts();
@@ -407,7 +406,8 @@ Sema::ActOnParamDefaultArgument(Decl *param, SourceLocation EqualLoc,
         }
       }
       if (IsNullable) {
-        Diag(Arg->getExprLoc(), diag::warn_flow_nullable_default_arg) << Param;
+        Diag(Arg->getExprLoc(), diag::warn_nullability_safety_default_arg)
+            << Param;
         Diag(Arg->getExprLoc(), diag::note_nullable_default_arg_fix);
       }
     }
@@ -4339,21 +4339,22 @@ void Sema::ActOnFinishCXXInClassMemberInitializer(Decl *D,
   FD->setInClassInitializer(InitExpr.get());
 
   // Warn when a _Nonnull field is initialized with null.
-  if (getLangOpts().FlowSensitiveNullability &&
-      FD->getType()->isPointerType()) {
+  if (getLangOpts().NullabilitySafety && FD->getType()->isPointerType()) {
     auto Nullability = FD->getType()->getNullability();
     if (Nullability && *Nullability == NullabilityKind::NonNull) {
       Expr *Init = InitExpr.get()->IgnoreParenImpCasts();
       if (Init->isNullPointerConstant(Context,
                                       Expr::NPC_ValueDependentIsNotNull)) {
-        Diag(Init->getExprLoc(), diag::warn_flow_nullable_field_init) << FD;
+        Diag(Init->getExprLoc(), diag::warn_nullability_safety_field_init)
+            << FD;
         Diag(Init->getExprLoc(), diag::note_nullable_field_init_fix);
       } else {
         const Expr *Unwrapped = Init->IgnoreParenCasts();
         if (const auto *CE = dyn_cast<CallExpr>(Unwrapped)) {
           auto RetNullability = CE->getType()->getNullability();
           if (RetNullability && *RetNullability == NullabilityKind::Nullable) {
-            Diag(Init->getExprLoc(), diag::warn_flow_nullable_field_init) << FD;
+            Diag(Init->getExprLoc(), diag::warn_nullability_safety_field_init)
+                << FD;
             Diag(Init->getExprLoc(), diag::note_nullable_field_init_fix);
           }
         }

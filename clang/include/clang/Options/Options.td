@@ -1754,8 +1754,8 @@ def fnullability_default_EQ : Joined<["-"], "fnullability-default=">,
   NormalizedValues<["Unspecified", "Nullable", "NonNull"]>,
   MarshallingInfoEnum<LangOpts<"NullabilityDefault">, "Unspecified">;
 
-defm flow_sensitive_nullability : BoolFOption<"flow-sensitive-nullability",
-  LangOpts<"FlowSensitiveNullability">, DefaultFalse,
+defm nullability_safety : BoolFOption<"nullability-safety",
+  LangOpts<"NullabilitySafety">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],
           "Enable flow-sensitive nullability analysis">,
   NegFlag<SetFalse>>;

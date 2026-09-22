@@ -725,7 +725,7 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
   // function is never analyzed, so suppressing here would leave the conversion
   // unwarned by anyone. Only suppress when flow analysis will actually cover
   // this expression; otherwise fall through to the legacy type-based warning.
-  if (getLangOpts().FlowSensitiveNullability) {
+  if (getLangOpts().NullabilitySafety) {
     bool DefaultOptsIn =
         getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified;
     // The enclosing decl the flow checker would analyze may be a block or an

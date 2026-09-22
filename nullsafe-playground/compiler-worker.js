@@ -132,7 +132,7 @@ self.onmessage = function(e) {
             const defaultBase = [
                 '-fsyntax-only',
                 ...commonFlags,
-                '-fflow-sensitive-nullability',
+                '-fnullability-safety',
                 `-fnullability-default=${nullabilityDefault}`,
             ];
             const args = [

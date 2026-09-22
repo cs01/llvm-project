@@ -3,7 +3,7 @@
 // correlate `ok` with `p != 0`, so it emits a (rare) false positive here.
 //
 // Run nullsafe fork (WARNS — false positive):
-//   ../build/bin/clang -fsyntax-only -fflow-sensitive-nullability \
+//   ../build/bin/clang -fsyntax-only -fnullability-safety \
 //       -fnullability-default=nullable csa-wins-correlated.c
 //
 // Run Clang Static Analyzer (SILENT — correct):
