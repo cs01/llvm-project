@@ -57,7 +57,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | 4 | Stop tagging types with `_Null_unspecified` unless `-fnullability-default=nullable` (the only mode where the tag changes results); drop the duplicate null-init warning (`warn_null_init_nonnull` vs flow `warn_flow_nullable_assignment`) | done (sqlite below) |
 | 6 | Rename to **NullabilitySafety** everywhere (moved before 5 so new files get final names); update the gates script's filename globs; decide explicitly whether old flag spellings stay as aliases | done: hard cut, no aliases (below) |
 | 5a | API: options struct, summary oracle split from the handler, drop the unused `SrcExpr` parameter, one Sema opt-in predicate | done (below) |
-| 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; fix the contradictory argument evidence first (below) | todo |
+| 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | todo |
 | 5c | SSAF whole-program propagation (below) | todo |
 | 5d | SSAF source transformation; then delete the remarks, the `handle*Evidence` callbacks, and the remark-scraping loop | todo |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | todo |
@@ -86,10 +86,7 @@ GitHub cannot retarget a PR's head branch.
 sqlite vs the libc-flag rename commit: 0 lost / 0 gained in all three modes;
 lit 51/51.
 
-## Known evidence bug (fix in 5b)
-
-A nullable argument to a `_Nonnull` parameter yields the warning and a
-contradictory remark on the same expression:
+## Argument evidence assumes callee contracts (not a bug)
 
 ```c
 void take(int *_Nonnull p);
@@ -98,9 +95,15 @@ void f(int *_Nullable q) { take(q); }
 // remark: parameter 'p' of 'take' ... called with nonnull argument
 ```
 
-The argument evidence is likely read after the call has narrowed `q` to
-nonnull. The extractor must not inherit this; add a lit test that expects
-`nullable argument` here.
+Looks contradictory, is deliberate (`24aadeefa793`, locked by `two_params`
+in `SemaCXX/nullability-safety-evidence-unspecified.cpp`): evidence is
+judged after the call's nonnull-parameter narrowing, i.e. assuming the
+contract held. The violation is reported once, as the warning; judging the
+argument before narrowing would also give the call's other parameters
+nullable evidence (`take_two(q, q)` with only the first `_Nonnull`), which 5c
+would propagate into `_Nullable` and new warnings inside the callee, a
+cascade from one already-reported bug. The SSAF extractor keeps these
+semantics.
 
 ## Step 6 results
 
