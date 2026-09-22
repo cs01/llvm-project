@@ -56,7 +56,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | - | Gates script exits nonzero on any failure (missing sqlite included, unless `--skip-sqlite`); `--base` replaces the hand-rolled stash recipe | done |
 | 4 | Stop tagging types with `_Null_unspecified` unless `-fnullability-default=nullable` (the only mode where the tag changes results); drop the duplicate null-init warning (`warn_null_init_nonnull` vs flow `warn_flow_nullable_assignment`) | done (sqlite below) |
 | 6 | Rename to **NullabilitySafety** everywhere (moved before 5 so new files get final names); update the gates script's filename globs; decide explicitly whether old flag spellings stay as aliases | done: hard cut, no aliases (below) |
-| 5a | API: options struct, summary oracle split from the handler, drop the unused `SrcExpr` parameter, one Sema opt-in predicate | todo |
+| 5a | API: options struct, summary oracle split from the handler, drop the unused `SrcExpr` parameter, one Sema opt-in predicate | done (below) |
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; fix the contradictory argument evidence first (below) | todo |
 | 5c | SSAF whole-program propagation (below) | todo |
 | 5d | SSAF source transformation; then delete the remarks, the `handle*Evidence` callbacks, and the remark-scraping loop | todo |
@@ -64,6 +64,27 @@ before step 6 fails; use a checkout of the old script for such baselines.
 
 `nullsafe-upstream` keeps its name: it is the head of llvm PR #189131, and
 GitHub cannot retarget a PR's head branch.
+
+## Step 5a results
+
+- `runNullabilitySafetyAnalysis(AC, Handler, Options, Summaries)`:
+  `NullabilitySafetyOptions` holds `DefaultNullability` and
+  `LibcNullableReturns`; `NullabilitySafetySummaries` (nullable pointer) holds
+  the one cross-function query, `isKnownAllReturnsNonnull`, so the handler is
+  output only. Sema implements it as `AllReturnsNonnullSummaries` over the
+  TU-local set; 5c's SSAF results are meant to be a second implementation.
+- `Sema::diagnoseNullableToNonnullConversion` is back to the upstream
+  signature: the `SrcExpr` argument the fork added was never read, and its
+  four call sites now match upstream.
+- `handleNullableReturn` lost its `ExprType` / `ReturnType` parameters, which
+  the reporter never used.
+- `Sema::isNullabilitySafetyOptedIn(const Decl *)` is the one opt-in
+  predicate, used by `getAnalyzableDecl` and by the legacy
+  `warn_nullability_lost` suppression; `functionHasNullabilityAnnotations`
+  and `declHasNullabilityAnnotations` became file-static in `Sema.cpp`.
+
+sqlite vs the libc-flag rename commit: 0 lost / 0 gained in all three modes;
+lit 51/51.
 
 ## Known evidence bug (fix in 5b)
 

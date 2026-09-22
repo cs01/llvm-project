@@ -5555,7 +5555,7 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
   // _Nullable type to a _Nonnull one, complain.
   if (!isCast(CCK))
     diagnoseNullableToNonnullConversion(ToType, InitialFromType,
-                                        From->getBeginLoc(), From);
+                                        From->getBeginLoc());
 
   return From;
 }

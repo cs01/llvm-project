@@ -1190,21 +1190,15 @@ public:
   /// enclosing function will actually be analyzed by the flow checker (it
   /// opted in via -fnullability-default or explicit annotations), this legacy
   /// type-based warning is suppressed in favor of the flow analysis's better
-  /// coverage. \p SrcExpr is the converted expression, if available.
+  /// coverage.
   void diagnoseNullableToNonnullConversion(QualType DstType, QualType SrcType,
-                                           SourceLocation Loc,
-                                           Expr *SrcExpr = nullptr);
+                                           SourceLocation Loc);
 
-  /// Check if a function has any nullability annotations on its
-  /// parameters or return type.
-  bool functionHasNullabilityAnnotations(const FunctionDecl *FD) const;
-
-  /// Check if a decl (FunctionDecl, ObjCMethodDecl, or BlockDecl) carries any
-  /// explicit nullability annotation on its return type or a parameter. This is
-  /// the flow-analysis opt-in gate under an unspecified default; it must agree
-  /// across all three decl kinds (see getAnalyzableDecl in
-  /// AnalysisBasedWarnings.cpp).
-  bool declHasNullabilityAnnotations(const Decl *D) const;
+  /// Whether the nullability safety analysis covers \p D (a function, ObjC
+  /// method, or block): -fnullability-safety is on, and either
+  /// -fnullability-default is set or \p D carries an explicit nullability
+  /// annotation on its return type or a parameter.
+  bool isNullabilitySafetyOptedIn(const Decl *D) const;
 
   /// Warn when implicitly casting 0 to nullptr.
   void diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E);

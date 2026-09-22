@@ -7621,9 +7621,8 @@ PerformConstructorInitialization(Sema &S,
 
   // A smart pointer constructed from a nullable pointer is nullable.
   if (NumArgs == 1 && !Kind.isExplicitCast())
-    S.diagnoseNullableToNonnullConversion(Entity.getType(),
-                                          Args.front()->getType(),
-                                          Kind.getLocation(), Args.front());
+    S.diagnoseNullableToNonnullConversion(
+        Entity.getType(), Args.front()->getType(), Kind.getLocation());
 
   // Determine the arguments required to actually perform the constructor
   // call.

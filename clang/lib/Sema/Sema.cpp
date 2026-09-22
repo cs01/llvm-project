@@ -700,8 +700,7 @@ void Sema::PrintStats() const {
 
 void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
                                                QualType SrcType,
-                                               SourceLocation Loc,
-                                               Expr *SrcExpr) {
+                                               SourceLocation Loc) {
   NullabilityKindOrNone ExprNullability = SrcType->getNullability();
   if (!ExprNullability || (*ExprNullability != NullabilityKind::Nullable &&
                            *ExprNullability != NullabilityKind::NullableResult))
@@ -726,8 +725,6 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
   // unwarned by anyone. Only suppress when flow analysis will actually cover
   // this expression; otherwise fall through to the legacy type-based warning.
   if (getLangOpts().NullabilitySafety) {
-    bool DefaultOptsIn =
-        getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified;
     // The enclosing decl the flow checker would analyze may be a block or an
     // ObjC method, not just a function/lambda — getCurFunctionDecl is null in
     // those contexts. Pick the innermost one (block, then method, then
@@ -741,15 +738,14 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
       EnclosingDecl = MD;
     else
       EnclosingDecl = getCurFunctionDecl(/*AllowLambda=*/true);
-    if (DefaultOptsIn ||
-        (EnclosingDecl && declHasNullabilityAnnotations(EnclosingDecl)))
+    if (isNullabilitySafetyOptedIn(EnclosingDecl))
       return;
   }
 
   Diag(Loc, diag::warn_nullability_lost) << SrcType << DstType;
 }
 
-bool Sema::functionHasNullabilityAnnotations(const FunctionDecl *FD) const {
+static bool functionHasNullabilityAnnotations(const FunctionDecl *FD) {
   if (!FD || FD->isInvalidDecl())
     return false;
 
@@ -783,7 +779,7 @@ bool Sema::functionHasNullabilityAnnotations(const FunctionDecl *FD) const {
   return false;
 }
 
-bool Sema::declHasNullabilityAnnotations(const Decl *D) const {
+static bool declHasNullabilityAnnotations(const Decl *D) {
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D))
     return functionHasNullabilityAnnotations(FD);
 
@@ -809,6 +805,14 @@ bool Sema::declHasNullabilityAnnotations(const Decl *D) const {
     return false;
   }
   return false;
+}
+
+bool Sema::isNullabilitySafetyOptedIn(const Decl *D) const {
+  if (!getLangOpts().NullabilitySafety)
+    return false;
+  if (getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified)
+    return true;
+  return declHasNullabilityAnnotations(D);
 }
 
 // Generate diagnostics when adding or removing effects in a type conversion.
@@ -900,9 +904,7 @@ ExprResult Sema::ImpCastExprToType(Expr *E, QualType Ty,
          "can't cast prvalue to glvalue");
 #endif
 
-  // Pass the source expression so flow-sensitive analysis can suppress the
-  // warning when the expression is provably non-null despite its declared type.
-  diagnoseNullableToNonnullConversion(Ty, E->getType(), E->getBeginLoc(), E);
+  diagnoseNullableToNonnullConversion(Ty, E->getType(), E->getBeginLoc());
   diagnoseZeroToNullptrConversion(Kind, E);
   if (Context.hasAnyFunctionEffects() && !isCast(CCK) &&
       Kind != CK_NullToPointer && Kind != CK_NullToMemberPointer)

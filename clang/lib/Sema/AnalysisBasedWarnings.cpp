@@ -3128,8 +3128,7 @@ public:
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
-  void handleNullableReturn(const Expr *ReturnExpr, QualType ExprType,
-                            QualType ReturnType) override {
+  void handleNullableReturn(const Expr *ReturnExpr) override {
     SourceLocation Loc = ReturnExpr->getExprLoc();
     if (!isFirst(diag::warn_nullability_safety_return, Loc))
       return;
@@ -3263,18 +3262,24 @@ public:
                  << Func->getNameAsString());
     Warnings.emplace_back(std::move(Remark), OptionalNotes());
   }
+};
+
+class AllReturnsNonnullSummaries : public NullabilitySafetySummaries {
+  const llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs;
+
+public:
+  explicit AllReturnsNonnullSummaries(
+      const llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs)
+      : AllReturnsNonnullFuncs(AllReturnsNonnullFuncs) {}
 
   bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const override {
-    if (!Func)
-      return false;
-    return AllReturnsNonnullFuncs.contains(Func->getCanonicalDecl());
+    return Func && AllReturnsNonnullFuncs.contains(Func->getCanonicalDecl());
   }
 };
 
 /// Check whether a Decl should be analyzed for flow-sensitive nullability.
 /// Handles FunctionDecl, ObjCMethodDecl, and BlockDecl (ObjC/C blocks).
-static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
-                                     NullabilityKind Default) {
+static const Decl *getAnalyzableDecl(const Decl *D, Sema &S) {
   if (!D)
     return nullptr;
 
@@ -3302,13 +3307,7 @@ static const Decl *getAnalyzableDecl(const Decl *D, Sema &S,
       S.SourceMgr.isInSystemHeader(Def->getLocation()))
     return nullptr;
 
-  // Opt-in: only analyze if -fnullability-default is set, or the decl has
-  // explicit nullability annotations. This gate applies symmetrically to
-  // FunctionDecls, ObjC methods, and blocks so an unannotated decl is never
-  // analyzed on -fnullability-safety alone (which would otherwise let
-  // flow-tracked nullability warn without any opt-in).
-  if (Default == NullabilityKind::Unspecified &&
-      !S.declHasNullabilityAnnotations(Def))
+  if (!S.isNullabilitySafetyOptedIn(Def))
     return nullptr;
   return Def;
 }
@@ -3329,8 +3328,10 @@ static void NullabilitySafetyTUAnalysis(
   CG.addToCallGraph(TU);
 
   NullabilitySafetyReporter Reporter(S, AllReturnsNonnullFuncs);
-  NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
-  bool LibcNullableReturns = S.getLangOpts().NullabilityLibcNullableReturns;
+  AllReturnsNonnullSummaries Summaries(AllReturnsNonnullFuncs);
+  NullabilitySafetyOptions Options;
+  Options.DefaultNullability = S.getLangOpts().getNullabilityDefault();
+  Options.LibcNullableReturns = S.getLangOpts().NullabilityLibcNullableReturns;
 
   // scc_iterator visits SCCs in reverse topological order: if SCC A calls
   // into SCC B, B is visited first. Within each SCC, we analyze all
@@ -3341,7 +3342,7 @@ static void NullabilitySafetyTUAnalysis(
     bool IsRecursive = SCCI.hasCycle();
 
     for (auto *Node : SCC) {
-      const Decl *Def = getAnalyzableDecl(Node->getDecl(), S, Default);
+      const Decl *Def = getAnalyzableDecl(Node->getDecl(), S);
       if (!Def)
         continue;
 
@@ -3352,17 +3353,15 @@ static void NullabilitySafetyTUAnalysis(
 
       if (IsRecursive) {
         // For recursive SCCs: run the analysis (warnings are still valid)
-        // but suppress all-returns-nonnull inference. The reporter still
-        // reads from AllReturnsNonnullFuncs so non-recursive callees that
-        // were already proven nonnull are still used for narrowing.
+        // but suppress all-returns-nonnull inference. Summaries still reads
+        // AllReturnsNonnullFuncs so non-recursive callees that were already
+        // proven nonnull are still used for narrowing.
         NullabilitySafetyReporter SCCReporter(S, AllReturnsNonnullFuncs,
                                               /*SuppressInference=*/true);
-        runNullabilitySafetyAnalysis(AC, SCCReporter, Default,
-                                     LibcNullableReturns);
+        runNullabilitySafetyAnalysis(AC, SCCReporter, Options, &Summaries);
         SCCReporter.emitDiagnostics();
       } else {
-        runNullabilitySafetyAnalysis(AC, Reporter, Default,
-                                     LibcNullableReturns);
+        runNullabilitySafetyAnalysis(AC, Reporter, Options, &Summaries);
         Reporter.emitDiagnostics();
       }
     }
