@@ -1,8 +1,9 @@
 #!/bin/bash
 # Gates for nullability analysis changes (see docs/nullability-safety-plan.md).
 # Builds clang, runs the nullability lit tests, writes sorted sqlite warning
-# and evidence lists tagged <tag>, and checks clang-format. Exits nonzero if
-# any gate fails. Compare two tags with --diff to see every gained or lost
+# and evidence lists tagged <tag>, checks that the NullabilitySafety SSAF
+# summaries match the evidence remarks, and checks clang-format. Exits nonzero
+# if any gate fails. Compare two tags with --diff to see every gained or lost
 # warning.
 #
 # Usage:
@@ -75,14 +76,15 @@ fi
 TAG="${1:?usage: nullability-gates.sh [--skip-sqlite] <tag> | --base <tag> | --diff <old> <new>}"
 FAILED=()
 
-if ! cmake --build "$BUILD_DIR" --target clang -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >"$OUT/build-$TAG.log" 2>&1; then
+if ! cmake --build "$BUILD_DIR" --target clang clang-ssaf-format -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >"$OUT/build-$TAG.log" 2>&1; then
   grep -E "error:" "$OUT/build-$TAG.log" | head -20
   echo "BUILD FAILED (log: $OUT/build-$TAG.log)"
   exit 1
 fi
 
-TESTS=$(ls clang/test/*/nullability-safety* \
-  clang/test/SemaCXX/nullability-default* 2>/dev/null | grep -v '\.h$')
+TESTS=$(ls -d clang/test/*/nullability-safety* \
+  clang/test/SemaCXX/nullability-default* \
+  clang/test/Analysis/Scalable/NullabilitySafety 2>/dev/null | grep -v '\.h$')
 "$BUILD_DIR/bin/llvm-lit" -q $TESTS || FAILED+=(lit)
 
 CLANG="$BUILD_DIR/bin/clang"
@@ -109,9 +111,13 @@ elif [[ -f "$SQLITE" ]]; then
     echo "sqlite $mode: $(wc -l <"$f")"
   done
   f="$OUT/sqlite-evidence-$TAG.txt"
-  run_sqlite "$f" -fnullability-default=nonnull -Rnullsafe-evidence || FAILED+=(sqlite-evidence)
+  run_sqlite "$f" -fnullability-default=nonnull -Rnullsafe-evidence \
+    --ssaf-extract-summaries=NullabilitySafety,EntitySourceLocations \
+    --ssaf-compilation-unit-id=sqlite --ssaf-tu-summary-file="$f.json" ||
+    FAILED+=(sqlite-evidence)
   { grep 'remark:' "$f.raw" || true; } | sort >"$f"
   echo "sqlite evidence: $(wc -l <"$f")"
+  python3 tools/nullability-ssaf-parity.py "$f.raw" "$f.json" || FAILED+=(ssaf-parity)
 else
   echo "sqlite not found: $SQLITE (cd sqlite && ./configure && make sqlite3.c)"
   FAILED+=(sqlite-missing)

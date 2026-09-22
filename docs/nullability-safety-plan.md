@@ -62,11 +62,39 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | F1b | libstdc++ `shared_ptr`: `s->` / `*s` resolve to the base class `__shared_ptr_access`, whose type is not a smart pointer, so no dereference is checked (both modes, predates F1; libc++ and `unique_ptr` are fine) | todo |
 | F4 | Output parameters: a pointer escaping as `&p` to `T **` or binding to `T *&` / `const T *&` loses its nullable facts and guards (reuse `invalidateBoolGuardsFor` / `invalidateMembersFor`); narrowing is kept | done (below) |
 | F5 | Lambdas: drop the call-site `IsLambdaCall` nonnull promotion; argument check only for `_Nonnull` or `nonnull(N)` (first parameter is `nonnull(2)`) | done, nonnull mode only (below) |
-| 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | todo |
+| 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | done (below) |
 | 5c | SSAF whole-program propagation (below) | todo |
 | 5d | SSAF source transformation; then delete the remarks, the `handle*Evidence` callbacks, and the remark-scraping loop | todo |
 | F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | todo |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | todo |
+
+## Step 5b results
+
+- `runNullabilitySafetyOnTU` (callees-first call-graph walk, all-returns-nonnull
+  bookkeeping, no inference inside recursive cycles), `getNullabilitySafetyDefinition`
+  and `hasExplicitNullabilityAnnotations` moved from Sema into
+  `lib/Analysis/NullabilitySafety.cpp`; Sema and the extractor share them.
+  No behavior change (gates identical).
+- `clang/{include,lib}/ScalableStaticAnalysis/Analyses/NullabilitySafety/`:
+  `NullabilitySafetyEntitySummary` (per contributor: `NonnullEvidence`,
+  `NullableEvidence`, `AllReturnsNonnull`, each an `EntityPointerLevelSet` of
+  parameters, fields and function returns), the extractor
+  (`--ssaf-extract-summaries=NullabilitySafety`; opt-in and options read
+  from `LangOpts`, does not need `-fnullability-safety`; evidence inside a
+  block is attributed to the enclosing function), JSON format, anchors.
+- Parity: `tools/nullability-ssaf-parity.py` resolves each remark to a
+  summary entity (see its docstring for the matching rule) and is a gate.
+  sqlite, nonnull default: 4984 remark targets, 4904 summary entries, 0
+  missing, 0 extra; 27 remarks name system-header functions that
+  `EntitySourceLocations` does not locate, matching the 27 unlocated
+  summary entries.
+- Lit: `Analysis/Scalable/NullabilitySafety/{extraction.c,
+  tu-summary-serialization.test}`, in the gates' lit set.
+- `tools/sync-upstream.sh` now carries `clang/{include,lib}/ScalableStaticAnalysis/`
+  so the extractor travels with its tests. Revert that if the llvm PR should
+  stay remarks-only (then exclude the tests too). Run `git fetch llvm` first:
+  with a stale `llvm/main` the merge base is old and the allowlist sweeps in
+  unrelated upstream files.
 
 ## False-positive track (F steps)
 
