@@ -40,6 +40,8 @@ INCLUDE_PREFIXES=(
     'clang/include/clang/Sema/'
     'clang/lib/Sema/'
     'clang/lib/Driver/'
+    'clang/include/clang/ScalableStaticAnalysis/'
+    'clang/lib/ScalableStaticAnalysis/'
     'clang/docs/'
     'clang/test/'
 )
