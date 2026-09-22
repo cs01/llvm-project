@@ -5,7 +5,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLANG="${CLANG:-$here/../../../build/bin/clang}"
 PIN="${PIN:-taskset -c 4}"
-NS="-fflow-sensitive-nullability -fnullability-default=nullable"
+NS="-fnullability-safety -fnullability-default=nullable"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 
 # (1) synthetic pointer-dense C

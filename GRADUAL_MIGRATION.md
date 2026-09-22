@@ -1,160 +1,166 @@
 # Gradual Migration Guide
 
-Nullsafe Clang works as a drop-in analysis tool. You don't need to change your build system or swap compilers — just point it at your existing `compile_commands.json`.
+You can run Nullability Safety over an existing codebase without changing your build system or switching compilers. Point the fork's `clang` at your `compile_commands.json` and it reports findings like a linter.
+
+In this guide, `clang` means the fork's `clang` (see [Installation](README.md#installation)), not your system compiler.
 
 ## Quick start: analyze without changing your build
 
-Use `-fsyntax-only` to run Nullsafe Clang as a linter — it parses and type-checks your code, runs the null-safety analysis, and reports warnings **without generating object files**. This is the key flag that makes it work as an analysis tool rather than a compiler.
+`-fsyntax-only` makes Clang parse and type-check your code, run the analysis, and report warnings **without producing object files**. That is what lets the fork act as an analysis tool next to your real compiler.
 
-### Single file
+### One file
 
 ```bash
-# Analyze a single file with its compile flags
-nullsafe-clang -fflow-sensitive-nullability -fnullability-default=nullable \
+clang -fnullability-safety -fnullability-default=nullable \
     -fsyntax-only -I/path/to/includes file.c
 ```
 
-### Using a compilation database
+### A whole compilation database
 
-If your project generates a `compile_commands.json` (CMake, Bear, intercept-build, etc.), you can analyze every file in it. A compilation database records the exact compiler invocation for each file — include paths, defines, standards, everything. To run nullsafe analysis, you read each entry, swap the compiler for `nullsafe-clang`, and add the nullsafe flags.
+A `compile_commands.json` (from CMake with `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`, Bear, intercept-build, and others) records the exact compiler command for each file: include paths, defines, language standard, and so on. To analyze every file, rewrite each command:
 
-> **Note:** Plain `clang` does not have a `-p compile_commands.json` flag (that's a `clang-tidy` / `clang-check` convention). You need to read the compdb yourself and invoke clang per-entry.
+1. **Replace** the compiler with the fork's `clang`
+2. **Add** `-fnullability-safety -fnullability-default=nullable -fsyntax-only`
+3. **Remove** `-c` and `-o <file>`, which don't apply with `-fsyntax-only`
 
-The key changes to each entry's command:
-
-1. **Replace** the compiler with `nullsafe-clang`
-2. **Add** `-fflow-sensitive-nullability -fnullability-default=nullable -fsyntax-only`
-3. **Strip** `-c` and `-o output.o` (these conflict with `-fsyntax-only`)
+> **Note:** `clang` has no `-p compile_commands.json` option; that belongs to LibTooling tools like `clang-tidy` and `clang-check`. You have to read the database and run `clang` once per entry.
 
 A minimal script:
 
-```bash
-#!/bin/bash
-# analyze-compdb.sh — run nullsafe-clang on every entry in a compdb
-NULLSAFE_FLAGS="-fflow-sensitive-nullability -fnullability-default=nullable -fsyntax-only"
+```python
+#!/usr/bin/env python3
+# analyze-compdb.py: run Nullability Safety on every entry in compile_commands.json
+import json, shlex, subprocess, sys
 
-python3 -c "
-import json, subprocess, sys
-db = json.load(open('compile_commands.json'))
-for entry in db:
-    # Drop the original compiler path; strip -c and -o (conflict with -fsyntax-only)
+CLANG = sys.argv[1] if len(sys.argv) > 1 else "clang"
+FLAGS = ["-fnullability-safety", "-fnullability-default=nullable", "-fsyntax-only"]
+
+for entry in json.load(open("compile_commands.json")):
+    argv = entry.get("arguments") or shlex.split(entry["command"])
     args, skip = [], False
-    for a in entry['arguments'][1:]:
-        if skip: skip = False; continue
-        if a == '-o': skip = True; continue
-        if a == '-c': continue
-        args.append(a)
-    cmd = ['nullsafe-clang'] + '$NULLSAFE_FLAGS'.split() + args
-    subprocess.run(cmd, cwd=entry.get('directory', '.'))
-"
+    for a in argv[1:]:
+        if skip:
+            skip = False
+        elif a == "-o":
+            skip = True
+        elif a != "-c" and not a.startswith("-o"):
+            args.append(a)
+    subprocess.run([CLANG, *FLAGS, *args], cwd=entry.get("directory", "."))
 ```
 
-This surfaces every potential null dereference in your codebase without touching your build flags, makefiles, or CI pipeline. Fix what you want, ignore the rest.
+Run it from the directory that contains `compile_commands.json`, passing the path to the fork's `clang` if it isn't first on your `PATH`:
+
+```bash
+python3 analyze-compdb.py ~/.local/null-safe-clang/bin/clang
+```
+
+This reports every potential null dereference in the codebase without touching your build flags, makefiles, or CI. Fix what matters and ignore the rest.
 
 ## Choosing a default nullability
 
-There are three ways to adopt null-safety. Pick the one that fits your team:
+There are three ways to adopt the analysis. Pick the one that fits your codebase.
 
-### Option A: `nullable` default (maximum checking)
+### Option A: `nullable` default (most checking)
 
 ```bash
-nullsafe-clang -fflow-sensitive-nullability -fnullability-default=nullable -fsyntax-only file.c
+clang -fnullability-safety -fnullability-default=nullable -fsyntax-only file.c
 ```
 
-Every unannotated pointer is treated as nullable. You get warnings on every unchecked dereference. This is the strictest mode — good for finding all the bugs, but noisy on large unannotated codebases.
+Every unannotated pointer may be null, so every unchecked dereference warns. This finds the most bugs, and on a large unannotated codebase it produces the most warnings.
 
-Mark pointers `_Nonnull` to suppress warnings where null is impossible:
+Mark pointers `_Nonnull` where null is impossible:
 
 ```c
 // With -fnullability-default=nullable
-void process(int *p) {           // p is nullable (implicit)
-    *p = 42;                      // warning: might be null
+void set(int *p) {              // p may be null (no annotation)
+    *p = 42;                    // warning
 }
 
-void process(int * _Nonnull p) { // p is nonnull (explicit)
-    *p = 42;                      // OK
+void set_nonnull(int * _Nonnull p) {
+    *p = 42;                    // OK
 }
 ```
 
-### Option B: `nonnull` default (ergonomic mode)
+### Option B: `nonnull` default (ergonomic)
 
 ```bash
-nullsafe-clang -fflow-sensitive-nullability -fnullability-default=nonnull -fsyntax-only file.c
+clang -fnullability-safety -fnullability-default=nonnull -fsyntax-only file.c
 ```
 
-Every unannotated pointer is treated as nonnull. No warnings unless you explicitly mark something `_Nullable`. Clean and quiet — good for new projects or codebases where most pointers shouldn't be null.
+Every unannotated pointer is non-null. You get warnings only where something is marked `_Nullable` or comes from a C library function that can return null (such as `malloc`). This is quiet, and suits new projects or codebases where most pointers shouldn't be null.
 
 Mark pointers `_Nullable` where null is expected:
 
 ```c
 // With -fnullability-default=nonnull
-int * _Nullable find(int key);   // might return null
+int * _Nullable find(int key);  // may return null
 
-void caller() {
+void caller(void) {
     int *result = find(42);
-    *result = 0;                  // warning: result is nullable
-    if (result) *result = 0;     // OK — checked
+    *result = 0;                // warning: result may be null
+    if (result) *result = 0;    // OK: checked
 }
 ```
 
-### Option C: Pragma-based (gradual, per-file or per-region)
+### Option C: annotations and pragmas only (most gradual)
 
 ```bash
-nullsafe-clang -fflow-sensitive-nullability -fsyntax-only file.c
+clang -fnullability-safety -fsyntax-only file.c
 ```
 
-No default is set. Analysis only activates inside `#pragma clang assume_nonnull` regions or for functions with explicit nullability annotations. Everything else is untouched.
+With no `-fnullability-default`, a function is checked only if it has a `_Nullable` or `_Nonnull` annotation on a parameter or its return type, or if it is inside a `#pragma clang assume_nonnull` region. Everything else is untouched.
 
 ```c
-// Unannotated — no warnings, no checking
+// No annotation: not checked
 void legacy(int *p) {
     *p = 42;  // no warning
 }
 
-// One annotation activates flow checking for this function
+// One annotation opts this function in
 void checked(int * _Nullable p) {
-    *p = 42;  // warning: p is nullable
+    *p = 42;  // warning: p is _Nullable
 }
 
-// Pragma activates checking for an entire region
+// The pragma opts in a whole region; unannotated pointers inside it are _Nonnull
 #pragma clang assume_nonnull begin
 
 void also_checked(int *p) {
-    *p = 42;  // OK — p is nonnull inside pragma
+    *p = 42;  // OK: p is _Nonnull
 }
 
 #pragma clang assume_nonnull end
 ```
 
-This is the most gradual approach — one function or one file at a time. Add a single `_Nullable` annotation to a crash-prone function and it gets full flow checking. Everything else stays silent.
+This lets you go one function or one file at a time: add a `_Nullable` to a function that crashes and it is fully checked, while the rest of the code stays silent.
 
-## Using nullsafe standard library headers
+## C library functions and annotated headers
 
-Nullsafe Clang includes nullability-annotated versions of `stdlib.h`, `stdio.h`, and `string.h` in `clang/nullsafe-headers/`. These annotate functions like `malloc` (returns `_Nullable`) and `free` (accepts `_Nullable`).
-
-```bash
-nullsafe-clang -fflow-sensitive-nullability -fnullability-default=nullable \
-    -fsyntax-only -I/path/to/clang/nullsafe-headers/include file.c
-```
-
-This catches common mistakes:
+The analysis already knows that `malloc`, `calloc`, `realloc`, `fopen`, `getenv`, `strchr`, `strstr`, and similar functions can return null, even with your system's headers. So this warns in Option A or B without anything extra:
 
 ```c
 char *buf = malloc(100);
-strcpy(buf, "hello");  // warning: buf might be null (malloc can fail)
+strcpy(buf, "hello");  // warning: passing nullable pointer to nonnull parameter
+```
+
+That warning also depends on `strcpy` declaring its parameters non-null, which glibc does. For a libc that doesn't, the fork ships annotated `stdlib.h`, `stdio.h`, and `string.h` in `clang/nullsafe-headers/include`:
+
+```bash
+clang -fnullability-safety -fnullability-default=nullable \
+    -fsyntax-only -I/path/to/llvm-project/clang/nullsafe-headers/include file.c
 ```
 
 ## Flags reference
 
 | Flag | Description |
 |------|-------------|
-| `-fsyntax-only` | Parse and type-check only — no object files. Required for linter use |
-| `-fflow-sensitive-nullability` | Enable the analysis (required) |
-| `-fnullability-default=unspecified` | Default. No warnings on unannotated code |
-| `-fnullability-default=nullable` | Unannotated pointers are nullable. Maximum checking |
-| `-fnullability-default=nonnull` | Unannotated pointers are nonnull. Ergonomic mode |
-| `-Werror=flow-nullable-dereference` | Treat null dereference warnings as errors |
+| `-fsyntax-only` | Parse and type-check only; no object files. Use it to run the fork as a linter |
+| `-fnullability-safety` | Enable the analysis (required) |
+| `-fnullability-default=unspecified` | The default. Only annotated functions and `assume_nonnull` regions are checked |
+| `-fnullability-default=nullable` | Unannotated pointers may be null. Most checking |
+| `-fnullability-default=nonnull` | Unannotated pointers are non-null. Ergonomic mode |
+| `-fno-nullability-stdlib-annotations` | Don't treat `malloc`, `fopen`, etc. as returning nullable |
+| `-Werror=nullability-safety-dereference` | Make null dereference warnings errors |
 
-## IDE integration
+## Editor integration
 
-The fork includes `clangd`, so you get real-time warnings in your editor. See the main [README](README.md#ide-integration) for setup.
+The release includes `clangd`, so warnings show up in your editor as you type. See [Editor integration](README.md#editor-integration) in the README.

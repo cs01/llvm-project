@@ -210,7 +210,7 @@ def main():
 
         # 5. + nullsafe (only nullsafe analysis active)
         t = benchmark_config("Nullsafe", base + quiet + [
-            "-fflow-sensitive-nullability", "-fnullability-default=nullable"],
+            "-fnullability-safety", "-fnullability-default=nullable"],
                              cwd, args.warmup, args.iterations)
         r["configs"]["Nullsafe"] = t
 

@@ -1,6 +1,6 @@
-# Flow-Nullability Performance Analysis
+# Nullability Safety Performance
 
-Compile-time overhead of `-fflow-sensitive-nullability` with benchmarks
+Compile-time overhead of `-fnullability-safety` with benchmarks
 comparing against other CFG-based Sema analyses in Clang.
 
 **Architecture:** Forward dataflow on CFG (same pattern as `-Wthread-safety`
@@ -23,7 +23,7 @@ per file). `-fnullability-default=nullable` forces the analysis to run on
 
 ### Direct measurement via `-ftime-trace`
 
-`-ftime-trace` isolates the exact `FlowNullabilityAnalysis` phase from
+`-ftime-trace` isolates the exact `NullabilitySafetyAnalysis` phase from
 everything else. Sampled across 9 files of varying size from `clang/lib/`
 with `-fnullability-default=nullable` (analysis runs on every function):
 
@@ -45,8 +45,7 @@ characteristics. Small files that pull in heavy template headers
 template instantiation amplifies the function count while keeping other
 per-TU overhead low. Large implementation files see <1%.
 
-The median across this sample is ~2%. On typical source files, the
-analysis is a rounding error in overall compile time.
+The median across this sample is ~2%.
 
 ### Cross-analysis comparison on real code
 
@@ -61,7 +60,7 @@ the same flags — only the analysis flag differs.
 | Quiet (`-Wno-everything`) | 25.6s | — |
 | + `-Wuninitialized` | 24.5s | -4.7% |
 | + `-Wthread-safety` | 25.0s | -2.3% |
-| + **flow-nullability** | 24.0s | -6.3% |
+| + **nullability-safety** | 24.0s | -6.3% |
 
 **ExprConstant.cpp** (22,275 lines, 3,143 `->` dereferences):
 
@@ -70,7 +69,7 @@ the same flags — only the analysis flag differs.
 | Quiet (`-Wno-everything`) | 12.1s | — |
 | + `-Wuninitialized` | 13.2s | +8.6% |
 | + `-Wthread-safety` | 12.9s | +6.6% |
-| + **flow-nullability** | 12.0s | -1.3% |
+| + **nullability-safety** | 12.0s | -1.3% |
 
 All three analyses are within measurement noise on these files. The
 overhead differences are not statistically significant — normal run-to-run
@@ -84,11 +83,11 @@ On `ExprConstant.cpp`:
 | Tool | Time |
 |------|-----:|
 | Compile only (baseline) | 8.75s |
-| Compile + flow-nullability | 10.57s |
+| Compile + nullability-safety | 10.57s |
 | CSA `--analyze` (all checkers) | 433.89s |
-| **CSA / flow-nullability** | **41x** |
+| **CSA / nullability-safety** | **41x** |
 
-CSA takes **7 minutes** on a single file. Flow-nullability adds ~2 seconds
+CSA takes **7 minutes** on a single file. Nullability Safety adds ~2 seconds
 to the same compilation. For a codebase with thousands of translation units,
 this is the difference between "runs on every build" and "runs overnight."
 
@@ -137,19 +136,19 @@ Each analysis compiles N functions with patterns that exercise its specific
 checks. Baseline compiles the same code with `-w` (all warnings suppressed).
 Paired t-tests on matched iterations.
 
-| N functions | Baseline | `-Wuninitialized` | `-Wthread-safety` | `-fflow-sensitive-nullability` |
+| N functions | Baseline | `-Wuninitialized` | `-Wthread-safety` | `-fnullability-safety` |
 |------------:|---------:|-------------------:|-------------------:|-----------------------------------:|
 | 100         | 37.4ms   | +8.9% (p=0.05)    | +103.3% (p<0.001) | +37.7% (p<0.001) |
 | 500         | 175.9ms  | +8.0% (p=0.11)    | +86.3% (p<0.001)  | +31.0% (p<0.001) |
 | 1000        | 328.9ms  | +11.3% (p<0.001)  | +102.8% (p<0.001) | +36.0% (p<0.001) |
 | 2000        | 602.1ms  | +20.5% (p<0.001)  | +130.1% (p<0.001) | +39.3% (p<0.001) |
 
-Flow-nullability costs 31-39% overhead vs 86-130% for `-Wthread-safety`.
+Nullability Safety costs 31-39% overhead vs 86-130% for `-Wthread-safety`.
 
 ## Marginal Cost (on top of `-Wuninitialized`)
 
 When `-Wuninitialized` is already enabled, the CFG is already built.
-This measures the additional cost of adding flow-nullability.
+This measures the additional cost of adding nullability-safety.
 
 | N functions | `-Wuninitialized` | Combined | Marginal Overhead | p-value | Sig |
 |------------:|-------------------:|---------:|------------------:|--------:|:---:|
@@ -162,7 +161,7 @@ This measures the additional cost of adding flow-nullability.
 
 N separate functions each with a null-check-and-use pattern.
 
-| N functions | Baseline | With Nullsafe | Analysis Time | Overhead | p-value | Sig |
+| N functions | Baseline | With Nullability Safety | Analysis Time | Overhead | p-value | Sig |
 |------------:|---------:|--------------:|--------------:|---------:|--------:|:---:|
 | 100         | 32.2ms ± 4.4ms | 33.2ms ± 1.9ms | <1us/fn | +3.2% ± 17.3% | 0.6043 | n.s. |
 | 500         | 127.9ms ± 6.4ms | 151.9ms ± 10.1ms | <1us/fn | +18.8% ± 9.9% | 0.0000 | *** |
@@ -171,7 +170,7 @@ N separate functions each with a null-check-and-use pattern.
 | 5000        | 1.34s ± 78.6ms | 1.49s ± 49.3ms | <1us/fn | +10.7% ± 6.3% | 0.0001 | *** |
 
 Per-function analysis time is sub-microsecond (below `-ftime-trace`
-granularity). The `FlowNullabilityAnalysis` trace event accounts for
+granularity). The `NullabilitySafetyAnalysis` trace event accounts for
 <0.3% of compile time at 5,000 functions; the remainder of the overhead
 is CFG construction.
 
@@ -181,7 +180,7 @@ Single functions with increasing variable counts.
 
 ### Sequential Dereferences (N variables, each checked and used)
 
-| N    | Baseline | With Nullsafe | Analysis Time | Analysis % | Overhead | Sig |
+| N    | Baseline | With Nullability Safety | Analysis Time | Analysis % | Overhead | Sig |
 |-----:|---------:|--------------:|--------------:|-----------:|---------:|:---:|
 | 50   | 10.8ms | 11.5ms | 338us | 2.9% | +6.6% | n.s. |
 | 100  | 15.0ms | 16.9ms | 1.3ms | 7.9% | +12.4% | n.s. |
@@ -193,7 +192,7 @@ At N=1000, the analysis takes 57ms — 38% of compile time.
 
 ### Branch Fan-out (N independent if-branches merging)
 
-| N    | Baseline | With Nullsafe | Analysis Time | Analysis % | Overhead | Sig |
+| N    | Baseline | With Nullability Safety | Analysis Time | Analysis % | Overhead | Sig |
 |-----:|---------:|--------------:|--------------:|-----------:|---------:|:---:|
 | 100  | 14.8ms | 14.1ms | 363us | 2.6% | -4.7% | n.s. |
 | 200  | 20.5ms | 22.0ms | 1.2ms | 5.5% | +7.3% | n.s. |
@@ -205,7 +204,7 @@ Analysis stays under 7% at 2000 branches.
 
 ### Loop Convergence (N variables reassigned in a while loop)
 
-| N   | Baseline | With Nullsafe | Analysis Time | Analysis % | Overhead | Sig |
+| N   | Baseline | With Nullability Safety | Analysis Time | Analysis % | Overhead | Sig |
 |----:|---------:|--------------:|--------------:|-----------:|---------:|:---:|
 | 50  | 13.3ms | 12.7ms | 539us | 4.2% | -4.0% | n.s. |
 | 100 | 16.8ms | 17.8ms | 1.6ms | 9.2% | +5.9% | n.s. |
@@ -216,7 +215,7 @@ At N=500 variables in one loop, the analysis takes 25ms.
 
 ### Nested if-Guards (N levels of `if (p)` nesting)
 
-| N   | Baseline | With Nullsafe | Analysis Time | Analysis % | Overhead | Sig |
+| N   | Baseline | With Nullability Safety | Analysis Time | Analysis % | Overhead | Sig |
 |----:|---------:|--------------:|--------------:|-----------:|---------:|:---:|
 | 10  | 8.1ms | 7.5ms | <1us | <1% | -7.2% | n.s. |
 | 25  | 9.0ms | 9.4ms | <1us | <1% | +5.0% | n.s. |
@@ -240,7 +239,7 @@ Analysis stays under 3.5% at 200 levels of nesting.
 ### Measurement
 
 `-ftime-trace` produces structured JSON with per-event durations. The
-`FlowNullabilityAnalysis` trace event isolates the analysis phase from CFG
+`NullabilitySafetyAnalysis` trace event isolates the analysis phase from CFG
 construction and other shared overhead. `ExecuteCompiler` gives total
 compile time.
 
@@ -250,7 +249,7 @@ Each analysis gets source tailored to its annotation style:
 - **Baseline**: bare pointer code with `-w` (all warnings suppressed)
 - **`-Wuninitialized`**: same code, uninitialized patterns
 - **`-Wthread-safety`**: mutex/lock annotations, `guarded_by` attributes
-- **`-fflow-sensitive-nullability`**: `_Nullable`/`_Nonnull` annotations,
+- **`-fnullability-safety`**: `_Nullable`/`_Nonnull` annotations,
   `assume_nonnull` pragmas
 
 The thread-safety source is structurally more complex (mutex classes,
@@ -260,13 +259,13 @@ scoped guards) which contributes to its higher overhead.
 
 ```bash
 # Self-contained benchmark (no external dependencies)
-python3 clang/test/Sema/flow-nullability-benchmark.py \
+python3 tools/benchmarks/nullability-safety-benchmark.py \
     --clang-binary build/bin/clang \
     --output-dir benchmark_results \
     --warmup 3 --iterations 10
 
 # Cross-analysis comparison (no external dependencies)
-python3 clang/test/Sema/flow-nullability-cross-analysis-benchmark.py \
+python3 tools/benchmarks/nullability-safety-cross-analysis-benchmark.py \
     --clang-binary build/bin/clang \
     --output-dir cross_benchmark_results \
     --warmup 3 --iterations 10
@@ -283,14 +282,14 @@ path-aware) but runs as a separate step (`--analyze`) on top of normal
 compilation. How does it actually compare?
 
 **Important:** CSA `--analyze` skips code generation — it only runs the
-analyzer. Flow-nullability runs as part of compilation. The total cost
+analyzer. Nullability Safety runs as part of compilation. The total cost
 to get both a compiled object AND null-dereference checking is
 compile time + CSA time for the CSA workflow, vs just compile time
-(with analysis included) for flow-nullability.
+(with analysis included) for nullability-safety.
 
 ### Null-dereference patterns (null-check-and-use)
 
-| N functions | Baseline | Flow-Nullability | CSA (null checker only) | CSA (all checkers) |
+| N functions | Baseline | Nullability Safety | CSA (null checker only) | CSA (all checkers) |
 |------------:|---------:|-----------------:|------------------------:|-------------------:|
 | 50          | 69.7ms   | 72.7ms           | 32.4ms                  | 90.8ms             |
 | 100         | 91.8ms   | 115.9ms          | 37.9ms                  | 172.1ms            |
@@ -300,7 +299,7 @@ compile time + CSA time for the CSA workflow, vs just compile time
 
 CSA `--analyze` alone looks fast because it skips codegen. But you still
 need to compile. Total cost for N=500:
-- Flow-nullability: **418ms** (compile with analysis included)
+- Nullability Safety: **418ms** (compile with analysis included)
 - CSA null-only: 374ms compile + 108ms analyze = **482ms**
 - CSA all checkers: 374ms compile + 666ms analyze = **1,040ms**
 
@@ -308,7 +307,7 @@ need to compile. Total cost for N=500:
 
 This is where CSA's path-sensitive approach shows exponential cost.
 
-| N functions | Baseline | Flow-Nullability | CSA (null only) | CSA (all checkers) | CSA-all / Nullsafe |
+| N functions | Baseline | Nullability Safety | CSA (null only) | CSA (all checkers) | CSA-all / Nullability Safety |
 |------------:|---------:|-----------------:|----------------:|-------------------:|-------------------:|
 | 50          | 49.6ms   | 51.2ms           | 25.9ms          | 426.3ms            | **8.3x**           |
 | 100         | 65.4ms   | 71.2ms           | 36.8ms          | 770.6ms            | **10.8x**          |
@@ -317,12 +316,12 @@ This is where CSA's path-sensitive approach shows exponential cost.
 | 1000        | 490.5ms  | 517.7ms          | 154.6ms         | 7.51s              | **14.5x**          |
 
 At 1000 functions with branching, CSA takes 7.5 seconds vs 518ms for
-flow-nullability — a **14.5x** difference. The ratio grows with N
+nullability-safety — a **14.5x** difference. The ratio grows with N
 because CSA explores paths per-function while dataflow merges states.
 
 ### Loop traversal (linked-list walks)
 
-| N functions | Baseline | Flow-Nullability | CSA (null only) | CSA (all checkers) | CSA-all / Nullsafe |
+| N functions | Baseline | Nullability Safety | CSA (null only) | CSA (all checkers) | CSA-all / Nullability Safety |
 |------------:|---------:|-----------------:|----------------:|-------------------:|-------------------:|
 | 50          | 58.0ms   | 55.8ms           | 32.8ms          | 142.2ms            | **2.5x**           |
 | 100         | 89.1ms   | 99.3ms           | 44.7ms          | 262.1ms            | **2.6x**           |
@@ -344,7 +343,7 @@ suite. The "CSA (all checkers)" column is what users actually experience.
 ### Reproducing
 
 ```bash
-python3 clang/test/Sema/flow-nullability-csa-benchmark.py \
+python3 tools/benchmarks/nullability-safety-csa-benchmark.py \
     --clang-binary build/bin/clang \
     --output-dir csa_benchmark_results \
     --warmup 3 --iterations 10

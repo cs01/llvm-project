@@ -392,6 +392,8 @@ documentation](CIR/index.md) for more information regarding ClangIR's status and
   for more information.
 
 - New option `-f[no-]flow-sensitive-nullability` added to enable a
+
+- New option `-f[no-]nullability-safety` added to enable a
   flow-sensitive, intraprocedural analysis that diagnoses uses of `_Nullable`
   pointers that may be null on the path where they occur. It is off by default.
 
@@ -400,6 +402,10 @@ documentation](CIR/index.md) for more information regarding ClangIR's status and
   values are `unspecified` (the default), `nullable`, and `nonnull`; a
   non-`unspecified` value also opts every function in the translation unit
   into the analysis.
+
+- New option `-fno-nullability-stdlib-annotations` added to stop the
+  nullability analysis from treating C library functions that return null on
+  failure (`malloc`, `fopen`, `getenv`, ...) as returning `_Nullable`.
 
 ### Deprecated Compiler Flags
 
@@ -484,13 +490,15 @@ documentation](CIR/index.md) for more information regarding ClangIR's status and
   null pointer macros such as `(NULL)`. (#GH171874)
 
 - Added the `-Wflow-nullability` family of warnings, driven by a new
+
+- Added the `-Wnullability-safety` family of warnings, driven by a new
   flow-sensitive, intraprocedural nullability analysis (enabled with
-  `-fflow-sensitive-nullability`). It tracks null checks through the control
+  `-fnullability-safety`). It tracks null checks through the control
   flow of a function and warns about dereferences, arithmetic, returns,
   assignments, and arguments where a `_Nullable` pointer may be null on that
-  path, via the subgroups `-Wflow-nullable-dereference`,
-  `-Wflow-nullable-arithmetic`, `-Wflow-nullable-return`,
-  `-Wflow-nullable-assignment`, and `-Wflow-nullable-argument`. The analysis
+  path, via the subgroups `-Wnullability-safety-dereference`,
+  `-Wnullability-safety-arithmetic`, `-Wnullability-safety-return`,
+  `-Wnullability-safety-assignment`, and `-Wnullability-safety-argument`. The analysis
   recognizes common narrowing idioms and models `std::unique_ptr` /
   `shared_ptr` / `weak_ptr`, and is opt-in per function (via
   `#pragma clang assume_nonnull` regions, explicit annotations, or

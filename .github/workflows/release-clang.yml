@@ -114,13 +114,13 @@ jobs:
             ### Usage:
             ```bash
             # Enable flow-sensitive nullability with nullable-by-default
-            clang -fflow-sensitive-nullability -fnullability-default=nullable mycode.c
+            clang -fnullability-safety -fnullability-default=nullable mycode.c
 
             # Gradual migration mode (no warnings on unannotated code)
-            clang -fflow-sensitive-nullability -fnullability-default=unknown mycode.c
+            clang -fnullability-safety -fnullability-default=unknown mycode.c
 
             # Promote warnings to errors
-            clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=nullability mycode.c
+            clang -fnullability-safety -fnullability-default=nullable -Werror=nullability mycode.c
             ```
 
             ### Try it online:
@@ -175,13 +175,13 @@ jobs:
             ### Usage:
             ```bash
             # Enable flow-sensitive nullability with nullable-by-default
-            clang -fflow-sensitive-nullability -fnullability-default=nullable mycode.c
+            clang -fnullability-safety -fnullability-default=nullable mycode.c
 
             # Gradual migration mode (no warnings on unannotated code)
-            clang -fflow-sensitive-nullability -fnullability-default=unknown mycode.c
+            clang -fnullability-safety -fnullability-default=unknown mycode.c
 
             # Promote warnings to errors
-            clang -fflow-sensitive-nullability -fnullability-default=nullable -Werror=nullability mycode.c
+            clang -fnullability-safety -fnullability-default=nullable -Werror=nullability mycode.c
             ```
 
             ### Try it online:

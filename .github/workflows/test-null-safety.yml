@@ -62,7 +62,7 @@ jobs:
       - name: Run null-safety tests
         run: |
           cd build
-          ./bin/llvm-lit -v ../clang/test/Sema/flow-nullability-*.cpp ../clang/test/Sema/flow-nullability-*.c ../clang/test/Driver/nullsafe-flags.c
+          ./bin/llvm-lit -v ../clang/test/Sema/nullability-safety-*.cpp ../clang/test/Sema/nullability-safety-*.c ../clang/test/Driver/nullability-safety-flags.c
 
       - name: Test results
         if: success()

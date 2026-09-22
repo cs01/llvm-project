@@ -46,7 +46,7 @@ INCLUDE_PREFIXES=(
 # Exceptions inside the allowlisted prefixes.
 EXCLUDE_PATHS=(
     # needs a system C++ standard library, which upstream CI does not provide
-    'clang/test/SemaCXX/flow-nullability-real-smartptr.cpp'
+    'clang/test/SemaCXX/nullability-safety-real-smartptr.cpp'
 )
 
 # get list of changed files relative to upstream
@@ -116,7 +116,7 @@ nullability state through control flow, supporting null checks, early
 returns, assertions, ternary operators, loops, and boolean intermediaries.
 
 New flags:
-  -fflow-sensitive-nullability    enables the analysis
+  -fnullability-safety    enables the analysis
   -fnullability-default=<mode>    sets default nullability (nullable|nonnull|unspecified)
 
 The analysis follows the same architecture as ThreadSafety and
