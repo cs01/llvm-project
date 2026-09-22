@@ -52,6 +52,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
@@ -63,10 +64,12 @@
 #include "clang/Analysis/Analyses/ExprMutationAnalyzer.h"
 #include "clang/Analysis/AnalysisDeclContext.h"
 #include "clang/Analysis/CFG.h"
+#include "clang/Analysis/CallGraph.h"
 #include "clang/Analysis/FlowSensitive/DataflowWorklist.h"
 #include "clang/Basic/Builtins.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -3025,6 +3028,167 @@ static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
   if (Returns.HasPointerReturn && Returns.AllNonnull &&
       !isExplicitlyNullableType(FD->getReturnType()))
     Handler.handleAllReturnsNonnull(FD);
+}
+
+static bool functionHasNullabilityAnnotations(const FunctionDecl *FD) {
+  if (!FD || FD->isInvalidDecl())
+    return false;
+
+  // Annotations may live on a separate declaration (e.g. a header prototype)
+  // while the definition we're handed is unannotated. Opt-in must consider the
+  // whole redeclaration chain, otherwise a function that opted in via its
+  // prototype would be silently skipped by the flow analysis.
+  for (const FunctionDecl *Redecl : FD->redecls()) {
+    // Check return type
+    QualType ReturnType = Redecl->getReturnType();
+    if (!ReturnType.isNull() && !ReturnType->isDependentType()) {
+      if (ReturnType->getNullability())
+        return true;
+    }
+
+    // Check parameters — during early function processing, parameters might
+    // not be fully set up, so guard with param_empty().
+    if (!Redecl->param_empty()) {
+      for (const ParmVarDecl *Param : Redecl->parameters()) {
+        if (!Param)
+          continue;
+        QualType ParamType = Param->getType();
+        if (!ParamType.isNull() && !ParamType->isDependentType()) {
+          if (ParamType->getNullability())
+            return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+bool clang::hasExplicitNullabilityAnnotations(const Decl *D) {
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D))
+    return functionHasNullabilityAnnotations(FD);
+
+  auto typeHasNullability = [](QualType T) {
+    return !T.isNull() && !T->isDependentType() && T->getNullability();
+  };
+  if (const auto *MD = dyn_cast_or_null<ObjCMethodDecl>(D)) {
+    if (typeHasNullability(MD->getReturnType()))
+      return true;
+    for (const ParmVarDecl *P : MD->parameters())
+      if (P && typeHasNullability(P->getType()))
+        return true;
+    return false;
+  }
+  if (const auto *BD = dyn_cast_or_null<BlockDecl>(D)) {
+    for (const ParmVarDecl *P : BD->parameters())
+      if (P && typeHasNullability(P->getType()))
+        return true;
+    if (const TypeSourceInfo *TSI = BD->getSignatureAsWritten())
+      if (const auto *FPT = TSI->getType()->getAs<FunctionProtoType>())
+        if (typeHasNullability(FPT->getReturnType()))
+          return true;
+    return false;
+  }
+  return false;
+}
+
+const Decl *clang::getNullabilitySafetyDefinition(const Decl *D) {
+  const Decl *Def = nullptr;
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D))
+    Def = FD->getDefinition();
+  else if (const auto *MD = dyn_cast_or_null<ObjCMethodDecl>(D))
+    Def = MD->hasBody() ? MD : nullptr;
+  else if (const auto *BD = dyn_cast_or_null<BlockDecl>(D))
+    Def = BD;
+  if (!Def || Def->isInvalidDecl() ||
+      Def->getDeclContext()->isDependentContext())
+    return nullptr;
+  return Def;
+}
+
+namespace {
+class TUDriverHandler final : public NullabilitySafetyHandler,
+                              public NullabilitySafetySummaries {
+  NullabilitySafetyHandler &Inner;
+  llvm::DenseSet<const FunctionDecl *> AllReturnsNonnull;
+
+public:
+  bool InRecursiveSCC = false;
+
+  explicit TUDriverHandler(NullabilitySafetyHandler &Inner) : Inner(Inner) {}
+
+  void handleNullableDereference(const Expr *DerefExpr,
+                                 QualType PtrType) override {
+    Inner.handleNullableDereference(DerefExpr, PtrType);
+  }
+  void handleNullableArithmetic(const Expr *ArithExpr, QualType PtrType,
+                                const VarDecl *VD) override {
+    Inner.handleNullableArithmetic(ArithExpr, PtrType, VD);
+  }
+  void handleNullableReturn(const Expr *ReturnExpr) override {
+    Inner.handleNullableReturn(ReturnExpr);
+  }
+  void handleNullableAssignment(const Expr *AssignExpr,
+                                const VarDecl *LHSVar) override {
+    Inner.handleNullableAssignment(AssignExpr, LHSVar);
+  }
+  void handleNullableMemberAssignment(const Expr *AssignExpr,
+                                      const FieldDecl *Member) override {
+    Inner.handleNullableMemberAssignment(AssignExpr, Member);
+  }
+  void handleNullableArgument(const Expr *ArgExpr,
+                              const ParmVarDecl *Param) override {
+    Inner.handleNullableArgument(ArgExpr, Param);
+  }
+  void handleMemberAssignEvidence(const Expr *AssignExpr,
+                                  const FieldDecl *Member,
+                                  bool IsNonnull) override {
+    Inner.handleMemberAssignEvidence(AssignExpr, Member, IsNonnull);
+  }
+  void handleReturnEvidence(const Expr *RetExpr, const FunctionDecl *Func,
+                            bool IsNonnull) override {
+    Inner.handleReturnEvidence(RetExpr, Func, IsNonnull);
+  }
+  void handleParameterEvidence(const Expr *ArgExpr, const ParmVarDecl *Param,
+                               const FunctionDecl *Func,
+                               bool IsNonnull) override {
+    Inner.handleParameterEvidence(ArgExpr, Param, Func, IsNonnull);
+  }
+  void handleAllReturnsNonnull(const FunctionDecl *Func) override {
+    if (InRecursiveSCC)
+      return;
+    AllReturnsNonnull.insert(Func->getCanonicalDecl());
+    Inner.handleAllReturnsNonnull(Func);
+  }
+
+  bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const override {
+    return Func && AllReturnsNonnull.contains(Func->getCanonicalDecl());
+  }
+};
+} // namespace
+
+void clang::runNullabilitySafetyOnTU(
+    TranslationUnitDecl *TU, NullabilitySafetyHandler &Handler,
+    const NullabilitySafetyOptions &Options,
+    llvm::function_ref<bool(const Decl *)> ShouldAnalyze,
+    llvm::function_ref<void()> AfterFunction) {
+  CallGraph CG;
+  CG.addToCallGraph(TU);
+  TUDriverHandler Driver(Handler);
+  for (auto SCCI = llvm::scc_begin(&CG); !SCCI.isAtEnd(); ++SCCI) {
+    Driver.InRecursiveSCC = SCCI.hasCycle();
+    for (CallGraphNode *Node : *SCCI) {
+      const Decl *Def = getNullabilitySafetyDefinition(Node->getDecl());
+      if (!Def || !ShouldAnalyze(Def))
+        continue;
+      AnalysisDeclContext AC(nullptr, Def);
+      AC.getCFGBuildOptions().setAllAlwaysAdd();
+      if (!AC.getCFG())
+        continue;
+      runNullabilitySafetyAnalysis(AC, Driver, Options, &Driver);
+      AfterFunction();
+    }
+  }
 }
 
 void clang::runNullabilitySafetyAnalysis(
