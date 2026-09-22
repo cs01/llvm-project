@@ -93,7 +93,8 @@ void test_nonconst_method_warns(Holder& h) {
 // ==========================================================================
 // GAP 5: Smart pointer release() modeling
 // release() returns the pointer and nulls out the smart ptr.
-// STATUS: NOT IMPLEMENTED
+// STATUS: PARTIAL: release() leaves the smart pointer nullable; its return
+// value is not yet tied to the smart pointer's state before the call.
 // ==========================================================================
 
 namespace std {
@@ -135,7 +136,8 @@ void test_release_nulls_smart_ptr() {
                    // expected-note@-1{{add a null check}}
                    // XFAIL-GAP: should NOT warn once release() is modeled
 
-    sp->val = 3; // XFAIL-GAP: should warn — sp is null after release
+    sp->val = 3; // expected-warning{{dereference of nullable pointer}}
+                 // expected-note@-1{{add a null check}}
 }
 
 // ==========================================================================
