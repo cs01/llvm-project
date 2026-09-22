@@ -4,7 +4,7 @@
 // and feasible paths, so with a non-null argument it sees no bug to report.
 //
 // Run nullsafe fork (WARNS at the template body):
-//   ../build/bin/clang -fsyntax-only -std=c++17 -fflow-sensitive-nullability \
+//   ../build/bin/clang -fsyntax-only -std=c++17 -fnullability-safety \
 //       -fnullability-default=nullable template-contract.cpp
 //
 // Run Clang Static Analyzer (SILENT here — the callsite passes a non-null arg):

@@ -1,6 +1,6 @@
-# Nullsafe Fork vs. Clang Static Analyzer: Two CFG Walkers, Wildly Different Speeds
+# Nullability Safety vs. the Clang Static Analyzer: Two CFG Walkers, Very Different Speeds
 
-Both the **nullsafe fork** and the **Clang Static Analyzer (CSA)** start from the same
+Both **Nullability Safety** and the **Clang Static Analyzer (CSA)** start from the same
 Clang CFG. Both are, technically, "CFG walkers." But one runs on every keystroke in your
 editor and the other is a batch tool you run overnight. This doc explains *why* — the
 difference is not the CFG, it's **what state they carry as they walk it**.
@@ -9,7 +9,7 @@ difference is not the CFG, it's **what state they carry as they walk it**.
 
 ## TL;DR
 
-| | **Nullsafe fork** | **Clang Static Analyzer** |
+| | **Nullability Safety** | **Clang Static Analyzer** |
 |---|---|---|
 | Walks the CFG? | Yes | Yes (but really walks a derived graph) |
 | State per program point | **One** joined lattice value | **Many** — one per feasible path |
@@ -23,7 +23,7 @@ difference is not the CFG, it's **what state they carry as they walk it**.
 | False positives | suppressed aggressively (silence > noise) | tolerated, pruned by path feasibility |
 | Soundness | unsound by design | sound-ish on explored paths |
 
-**The one-sentence version:** the fork keeps *one fact per variable* and merges at
+**The one-sentence version:** Nullability Safety keeps *one fact per variable* and merges at
 control-flow joins (fast, approximate); CSA keeps *one whole simulated program state per
 path* and never merges (precise, expensive).
 
@@ -44,9 +44,9 @@ void f(int *_Nullable p) {
 }
 ```
 
-### Nullsafe fork — JOINS at the merge (dataflow)
+### Nullability Safety — JOINS at the merge (dataflow)
 
-The fork keeps **one abstract state per CFG edge**. At the merge point it computes the
+Nullability Safety keeps **one abstract state per CFG edge**. At the merge point it computes the
 **join** of the two incoming edges:
 
 ```
@@ -77,7 +77,7 @@ Path B (cond false):  p = $p,                   constraint {$p ?= 0}    -> *p: s
   constraints accumulated along *that specific path*.
 - Can produce a concrete trace: "enter with cond=false, assume p is null here, deref here."
 
-> **Mental model.** The fork is a *type-checker with flow narrowing*. CSA is an
+> **Mental model.** Nullability Safety is a *type-checker with flow narrowing*. CSA is an
 > *interpreter that runs your function on symbolic inputs and explores every feasible
 > outcome*.
 
@@ -85,7 +85,7 @@ Path B (cond false):  p = $p,                   constraint {$p ?= 0}    -> *p: s
 
 ## Why "both are CFG walkers" is misleading
 
-- The fork **walks the CFG directly**: reverse-post-order, one pass, revisiting blocks
+- Nullability Safety **walks the CFG directly**: reverse-post-order, one pass, revisiting blocks
   until the lattice stops changing (fixpoint). One CFG block = one state slot.
 - CSA walks the **ExplodedGraph**, which is the CFG *exploded* by path-state:
 
@@ -100,7 +100,7 @@ So: same map (CFG), totally different territory actually traversed.
 
 ---
 
-## Why the fork is fast af
+## Why Nullability Safety is fast
 
 1. **Bounded state.** One lattice value per CFG edge. The lattice is small: sets of
    narrowed/nullable vars, member paths, bool-guards, aliases. No per-path explosion.
@@ -137,19 +137,19 @@ Net: **exponential worst case**, tamed by budgets. A batch tool, not an on-keyst
 
 ## What each one buys you
 
-### Fork wins
-- Runs everywhere, always, for free (it's part of the compile).
+### Nullability Safety wins
+- Runs on every build at low cost (it's part of the compile).
 - Predictable, near-linear cost.
 - Annotation-driven (`_Nonnull`/`_Nullable`), so it enforces an intended **contract** and
   supports gradual adoption (`-fnullability-default=`, `#pragma clang assume_nonnull`).
 - Aggressive false-positive suppression → trustworthy warnings that devs won't `// NOLINT`.
 
-### Fork gives up
+### Nullability Safety gives up
 - No path traces ("nullable here" but not *how*).
 - Shallow interprocedural reasoning (only the nonnull-return summary).
 - **Unsound by design**: opaque calls don't invalidate narrowing, `this->` derefs
   suppressed, etc. Real bugs slip through to keep the signal clean.
-- Needs annotations to do much.
+- Needs annotations, or `-fnullability-default=nullable`, to do much.
 
 ### CSA wins
 - Finds bugs in **un-annotated** code.
@@ -166,14 +166,14 @@ Net: **exponential worst case**, tamed by budgets. A batch tool, not an on-keyst
 
 ## The precise analogy
 
-| Nullsafe fork | Clang Static Analyzer |
+| Nullability Safety | Clang Static Analyzer |
 |---|---|
 | `-Wuninitialized`, `-Wthread-safety` | `scan-build`, `clang --analyze` |
 | Kotlin/Swift null-safety type checking | a bounded model-checker / symbolic executor |
 | **Type contract + flow narrowing** | **Symbolic execution + constraint solving** |
 | join at merges (dataflow) | split at branches (path-sensitive) |
 
-Same CFG. The fork keeps one fact and merges; CSA keeps one world per path and never
+Same CFG. Nullability Safety keeps one fact and merges; CSA keeps one world per path and never
 merges. That single decision is the whole difference between "runs as you type" and "run it
 in CI overnight."
 
@@ -189,5 +189,5 @@ clang -cc1 -analyze -analyzer-checker=core.NullDereference \
 dot -Tpng /tmp/eg.dot -o eg.png   # every node is a <ProgramPoint, ProgramState>
 ```
 
-The fork has no equivalent graph to dump — because there is nothing to explode. It's just
+Nullability Safety has no equivalent graph to dump — because there is nothing to explode. It's just
 one lattice value flowing along CFG edges to a fixpoint.

@@ -1,15 +1,15 @@
-# Nullsafe Clang Playground
+# Nullability Safety Playground
 
-An interactive web-based playground for experimenting with **Nullsafe Clang**, an experimental C compiler with strict nullability checking.
+A browser-based playground for trying **Nullability Safety**, the flow-sensitive null pointer analysis in this Clang fork, and comparing it with stock Clang and the Clang Static Analyzer.
 
 ## Features
 
-- 🔍 Real-time null-safety analysis
-- ⚙️ Configurable nullable, nonnull, and unspecified pointer defaults
-- 💻 In-browser C compilation using WebAssembly
-- 🎨 Syntax highlighting and error detection
-- 📝 Example code snippets
-- 🚀 No installation required - runs entirely in the browser
+- Runs the analysis as you type
+- Switch between the `nullable`, `nonnull`, and `unspecified` pointer defaults
+- Compiles C in the browser with a WebAssembly build of Clang
+- Syntax highlighting and inline diagnostics
+- Example programs
+- Nothing to install; everything runs in the browser
 
 ## Quick Start
 
@@ -30,7 +30,7 @@ An interactive web-based playground for experimenting with **Nullsafe Clang**, a
 
 ### Deployment to GitHub Pages
 
-The playground can be deployed to GitHub Pages. The WASM files are generated from the Nullsafe Clang compiler build and should not be committed to the repository due to their size (~64MB).
+The playground can be deployed to GitHub Pages. The WASM files are generated from the fork's Clang build and should not be committed to the repository due to their size (~64MB).
 
 For deployment:
 1. Build the WASM files using `build.sh`
@@ -39,11 +39,11 @@ For deployment:
 
 ## Comparison with the Clang Static Analyzer
 
-Nullsafe Clang and the **Clang Static Analyzer (CSA)** both find null bugs, but they
+Nullability Safety and the **Clang Static Analyzer (CSA)** both find null bugs, but they
 work — and cost — very differently. Both start from the same Clang CFG, but the fork
 keeps *one joined fact per program point* (fast, ~linear dataflow) while CSA keeps
 *one simulated program state per path* (precise, path-sensitive, exponential worst
-case). See [`nullsafe-vs-csa.md`](nullsafe-vs-csa.md) for the full architecture
+case). See [`nullability-safety-vs-csa.md`](nullability-safety-vs-csa.md) for the full architecture
 breakdown, and the [`examples/`](examples/) that show what each catches
 (e.g. `standard-clang-gap.c`, `csa-wins-correlated.c`, `template-contract.cpp`).
 
@@ -59,8 +59,8 @@ in [`../tools/benchmarks/wall-time/`](../tools/benchmarks/wall-time/PERFORMANCE.
 
 | Mode vs. baseline `-fsyntax-only` | Overhead | Notes |
 |---|---|---|
-| **nullsafe fork**, real clang/LLVM TUs (n=24, paired) | **+4.5%** (CI +0.3…+9%, p=0.049) | scales with pointer density, not code size |
-| nullsafe fork, pointer-dense worst case | +18.9% | linear dataflow pass, never explodes |
+| **Nullability Safety**, real clang/LLVM TUs (n=24, paired) | **+4.5%** (CI +0.3…+9%, p=0.049) | scales with pointer density, not code size |
+| Nullability Safety, pointer-dense worst case | +18.9% | linear dataflow pass, never explodes |
 | **static analyzer**, real clang/LLVM TUs (n=24, paired) | **1.95×** (CI 1.2–3.1×, p=0.009) | unbounded — up to **278×** on one real file |
 
 The analyzer numbers use CSA's **default** RangeConstraintManager (this build has no
@@ -78,7 +78,7 @@ caveats, and a reproducible harness live in
 
 ## Building WASM Files
 
-The WASM files are generated from the Nullsafe Clang compiler using Emscripten:
+The WASM files are built from the fork's Clang with Emscripten:
 
 ```bash
 ./build.sh   # sysroot headers, emcmake configure, ninja clang
@@ -87,7 +87,7 @@ The WASM files are generated from the Nullsafe Clang compiler using Emscripten:
 ## Development
 
 To modify the playground:
-1. Edit `index.html`
+1. Edit `index.html` or `playground.js`
 2. Refresh your browser (no rebuild needed)
 3. Changes to the compiler require rebuilding WASM files
 
