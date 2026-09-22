@@ -24,6 +24,7 @@
 #include "clang/AST/PrettyDeclStackTrace.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/AST/TypeOrdering.h"
+#include "clang/Analysis/Analyses/NullabilitySafety.h"
 #include "clang/Basic/DarwinSDKInfo.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/PartialDiagnostic.h"
@@ -745,74 +746,12 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
   Diag(Loc, diag::warn_nullability_lost) << SrcType << DstType;
 }
 
-static bool functionHasNullabilityAnnotations(const FunctionDecl *FD) {
-  if (!FD || FD->isInvalidDecl())
-    return false;
-
-  // Annotations may live on a separate declaration (e.g. a header prototype)
-  // while the definition we're handed is unannotated. Opt-in must consider the
-  // whole redeclaration chain, otherwise a function that opted in via its
-  // prototype would be silently skipped by the flow analysis.
-  for (const FunctionDecl *Redecl : FD->redecls()) {
-    // Check return type
-    QualType ReturnType = Redecl->getReturnType();
-    if (!ReturnType.isNull() && !ReturnType->isDependentType()) {
-      if (ReturnType->getNullability())
-        return true;
-    }
-
-    // Check parameters — during early function processing, parameters might
-    // not be fully set up, so guard with param_empty().
-    if (!Redecl->param_empty()) {
-      for (const ParmVarDecl *Param : Redecl->parameters()) {
-        if (!Param)
-          continue;
-        QualType ParamType = Param->getType();
-        if (!ParamType.isNull() && !ParamType->isDependentType()) {
-          if (ParamType->getNullability())
-            return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
-
-static bool declHasNullabilityAnnotations(const Decl *D) {
-  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D))
-    return functionHasNullabilityAnnotations(FD);
-
-  auto typeHasNullability = [](QualType T) {
-    return !T.isNull() && !T->isDependentType() && T->getNullability();
-  };
-  if (const auto *MD = dyn_cast_or_null<ObjCMethodDecl>(D)) {
-    if (typeHasNullability(MD->getReturnType()))
-      return true;
-    for (const ParmVarDecl *P : MD->parameters())
-      if (P && typeHasNullability(P->getType()))
-        return true;
-    return false;
-  }
-  if (const auto *BD = dyn_cast_or_null<BlockDecl>(D)) {
-    for (const ParmVarDecl *P : BD->parameters())
-      if (P && typeHasNullability(P->getType()))
-        return true;
-    if (const TypeSourceInfo *TSI = BD->getSignatureAsWritten())
-      if (const auto *FPT = TSI->getType()->getAs<FunctionProtoType>())
-        if (typeHasNullability(FPT->getReturnType()))
-          return true;
-    return false;
-  }
-  return false;
-}
-
 bool Sema::isNullabilitySafetyOptedIn(const Decl *D) const {
   if (!getLangOpts().NullabilitySafety)
     return false;
   if (getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified)
     return true;
-  return declHasNullabilityAnnotations(D);
+  return hasExplicitNullabilityAnnotations(D);
 }
 
 // Generate diagnostics when adding or removing effects in a type conversion.

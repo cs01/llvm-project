@@ -16,14 +16,17 @@
 
 #include "clang/AST/Type.h"
 #include "clang/Basic/Specifiers.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 
 namespace clang {
 
 class AnalysisDeclContext;
+class Decl;
 class Expr;
 class FieldDecl;
 class FunctionDecl;
 class ParmVarDecl;
+class TranslationUnitDecl;
 class VarDecl;
 
 /// Receives the diagnostics and evidence produced by
@@ -104,6 +107,16 @@ void runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
                                   NullabilitySafetyHandler &Handler,
                                   const NullabilitySafetyOptions &Options,
                                   const NullabilitySafetySummaries *Summaries);
+
+bool hasExplicitNullabilityAnnotations(const Decl *D);
+
+const Decl *getNullabilitySafetyDefinition(const Decl *D);
+
+void runNullabilitySafetyOnTU(
+    TranslationUnitDecl *TU, NullabilitySafetyHandler &Handler,
+    const NullabilitySafetyOptions &Options,
+    llvm::function_ref<bool(const Decl *)> ShouldAnalyze,
+    llvm::function_ref<void()> AfterFunction);
 
 } // namespace clang
 

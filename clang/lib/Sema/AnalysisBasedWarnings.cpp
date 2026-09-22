@@ -2770,11 +2770,6 @@ public:
   // It is important to analyze blocks within functions because it's a very
   // common pattern to capture completion handler parameters by blocks.
   CalledOnceInterProceduralData CalledOnceData;
-
-  // Functions proven to always return non-null. Accumulated across
-  // per-function analyses so that later callers within the same TU
-  // can narrow the returned pointer.
-  llvm::DenseSet<const FunctionDecl *> AllReturnsNonnullFuncs;
 };
 
 template <typename... Ts>
@@ -3055,13 +3050,6 @@ static bool shouldSuggestUnsafeBufferUsageSuggestions(const Sema &S) {
 namespace {
 class NullabilitySafetyReporter : public NullabilitySafetyHandler {
   Sema &S;
-  // Shared cross-function set of functions proven to always return
-  // non-null. Owned by InterProceduralData, persists across calls.
-  llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs;
-  // When true, skip writing to AllReturnsNonnullFuncs (used for recursive
-  // SCCs where we can't reliably infer all-returns-nonnull without a
-  // fixpoint, but still want to read existing results and emit warnings).
-  bool SuppressInference = false;
   // Buffered so emitDiagnostics() can sort by source location: the analysis
   // reports in CFG block order, not source order (same pattern as
   // ThreadSafetyReporter).
@@ -3081,11 +3069,7 @@ class NullabilitySafetyReporter : public NullabilitySafetyHandler {
   }
 
 public:
-  NullabilitySafetyReporter(Sema &S,
-                            llvm::DenseSet<const FunctionDecl *> &NonnullFuncs,
-                            bool SuppressInference = false)
-      : S(S), AllReturnsNonnullFuncs(NonnullFuncs),
-        SuppressInference(SuppressInference) {}
+  explicit NullabilitySafetyReporter(Sema &S) : S(S) {}
 
   /// Emit all buffered diagnostics in source-location order, then reset the
   /// buffers. Call after each runNullabilitySafetyAnalysis invocation.
@@ -3249,11 +3233,6 @@ public:
   }
 
   void handleAllReturnsNonnull(const FunctionDecl *Func) override {
-    if (SuppressInference)
-      return;
-    // Record immediately (not deferred to emitDiagnostics) — later functions
-    // in the call-graph order read this set during their own analysis.
-    AllReturnsNonnullFuncs.insert(Func->getCanonicalDecl());
     SourceLocation Loc = Func->getLocation();
     if (!isFirst(diag::remark_nullsafe_all_returns_nonnull, Loc, Func))
       return;
@@ -3264,108 +3243,24 @@ public:
   }
 };
 
-class AllReturnsNonnullSummaries : public NullabilitySafetySummaries {
-  const llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs;
-
-public:
-  explicit AllReturnsNonnullSummaries(
-      const llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs)
-      : AllReturnsNonnullFuncs(AllReturnsNonnullFuncs) {}
-
-  bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const override {
-    return Func && AllReturnsNonnullFuncs.contains(Func->getCanonicalDecl());
-  }
-};
-
-/// Check whether a Decl should be analyzed for flow-sensitive nullability.
-/// Handles FunctionDecl, ObjCMethodDecl, and BlockDecl (ObjC/C blocks).
-static const Decl *getAnalyzableDecl(const Decl *D, Sema &S) {
-  if (!D)
-    return nullptr;
-
-  // Get the definition — we need a body to analyze.
-  const Decl *Def = nullptr;
-  if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
-    Def = FD->getDefinition();
-  } else if (const auto *MD = dyn_cast<ObjCMethodDecl>(D)) {
-    if (MD->hasBody())
-      Def = MD;
-  } else if (const auto *BD = dyn_cast<BlockDecl>(D)) {
-    // Blocks always have a body if they appear in the call graph.
-    Def = BD;
-  }
-  if (!Def || Def->isInvalidDecl())
-    return nullptr;
-
-  // Skip dependent contexts (uninstantiated templates).
-  if (Def->getDeclContext()->isDependentContext())
-    return nullptr;
-
-  // Skip system headers.
-  DiagnosticsEngine &Diags = S.getDiagnostics();
-  if (Diags.getSuppressSystemWarnings() &&
-      S.SourceMgr.isInSystemHeader(Def->getLocation()))
-    return nullptr;
-
-  if (!S.isNullabilitySafetyOptedIn(Def))
-    return nullptr;
-  return Def;
-}
-
-/// Run flow-sensitive nullability analysis over the entire TU using SCC-based
-/// call-graph ordering (callees before callers). This ensures that
-/// all-returns-nonnull inference is order-independent — a callee defined after
-/// its caller still gets analyzed first.
-///
-/// Uses scc_iterator (Tarjan's algorithm) instead of plain post_order so we
-/// can detect mutually recursive SCCs and skip all-returns-nonnull inference
-/// for them (conservative but correct).
-static void NullabilitySafetyTUAnalysis(
-    Sema &S, TranslationUnitDecl *TU,
-    llvm::DenseSet<const FunctionDecl *> &AllReturnsNonnullFuncs) {
+/// Run flow-sensitive nullability analysis over the entire TU, callees before
+/// callers (see runNullabilitySafetyOnTU).
+static void NullabilitySafetyTUAnalysis(Sema &S, TranslationUnitDecl *TU) {
   llvm::TimeTraceScope TimeProfile("NullabilitySafetyTUAnalysis");
-  CallGraph CG;
-  CG.addToCallGraph(TU);
-
-  NullabilitySafetyReporter Reporter(S, AllReturnsNonnullFuncs);
-  AllReturnsNonnullSummaries Summaries(AllReturnsNonnullFuncs);
+  NullabilitySafetyReporter Reporter(S);
   NullabilitySafetyOptions Options;
   Options.DefaultNullability = S.getLangOpts().getNullabilityDefault();
   Options.LibcNullableReturns = S.getLangOpts().NullabilityLibcNullableReturns;
-
-  // scc_iterator visits SCCs in reverse topological order: if SCC A calls
-  // into SCC B, B is visited first. Within each SCC, we analyze all
-  // functions (warnings are still correct), but skip nonnull-return
-  // inference for non-trivial SCCs (mutual recursion).
-  for (auto SCCI = llvm::scc_begin(&CG); !SCCI.isAtEnd(); ++SCCI) {
-    const auto &SCC = *SCCI;
-    bool IsRecursive = SCCI.hasCycle();
-
-    for (auto *Node : SCC) {
-      const Decl *Def = getAnalyzableDecl(Node->getDecl(), S);
-      if (!Def)
-        continue;
-
-      AnalysisDeclContext AC(nullptr, Def);
-      AC.getCFGBuildOptions().setAllAlwaysAdd();
-      if (!AC.getCFG())
-        continue;
-
-      if (IsRecursive) {
-        // For recursive SCCs: run the analysis (warnings are still valid)
-        // but suppress all-returns-nonnull inference. Summaries still reads
-        // AllReturnsNonnullFuncs so non-recursive callees that were already
-        // proven nonnull are still used for narrowing.
-        NullabilitySafetyReporter SCCReporter(S, AllReturnsNonnullFuncs,
-                                              /*SuppressInference=*/true);
-        runNullabilitySafetyAnalysis(AC, SCCReporter, Options, &Summaries);
-        SCCReporter.emitDiagnostics();
-      } else {
-        runNullabilitySafetyAnalysis(AC, Reporter, Options, &Summaries);
-        Reporter.emitDiagnostics();
-      }
-    }
-  }
+  bool SkipSystemHeaders = S.getDiagnostics().getSuppressSystemWarnings();
+  runNullabilitySafetyOnTU(
+      TU, Reporter, Options,
+      [&](const Decl *Def) {
+        if (SkipSystemHeaders &&
+            S.SourceMgr.isInSystemHeader(Def->getLocation()))
+          return false;
+        return S.isNullabilitySafetyOptedIn(Def);
+      },
+      [&] { Reporter.emitDiagnostics(); });
 }
 
 } // anonymous namespace
@@ -3418,7 +3313,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   // command line and cannot detect warnings re-enabled by a source pragma;
   // emission at each real source location still applies all suppression rules.
   if (S.getLangOpts().NullabilitySafety)
-    NullabilitySafetyTUAnalysis(S, TU, IPData->AllReturnsNonnullFuncs);
+    NullabilitySafetyTUAnalysis(S, TU);
 }
 
 void clang::sema::AnalysisBasedWarnings::IssueWarningsForImplicitFunction(
