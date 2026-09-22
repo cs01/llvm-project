@@ -1864,6 +1864,12 @@ private:
 
     // Evidence runs as a second pass so every argument is judged after all
     // nonnull-parameter narrowing from this call has been applied.
+    for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
+         ++I)
+      if (const VarDecl *VD = pointerWritableByCallee(
+              CE->getArg(I + ArgOffset), Callee->getParamDecl(I)->getType()))
+        escapeToCallee(VD);
+
     if (EmitEvidence && Reporting) {
       for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
            ++I) {
@@ -1898,6 +1904,46 @@ private:
                                           /*IsNonnull=*/false);
       }
     }
+  }
+
+  const VarDecl *pointerWritableByCallee(const Expr *Arg,
+                                         QualType ParamTy) const {
+    Arg = Arg->IgnoreParenImpCasts();
+    auto pointerVar = [](const Expr *E) -> const VarDecl * {
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts()))
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+          if (VD->getType()->isPointerType())
+            return VD;
+      return nullptr;
+    };
+    if (const auto *RT = ParamTy->getAs<LValueReferenceType>()) {
+      QualType Referee = RT->getPointeeType();
+      if (Referee->isPointerType() && !Referee.isConstQualified())
+        return pointerVar(Arg);
+      return nullptr;
+    }
+    const auto *PT = ParamTy->getAs<PointerType>();
+    if (!PT || !PT->getPointeeType()->isPointerType() ||
+        PT->getPointeeType().isConstQualified())
+      return nullptr;
+    if (const auto *UO = dyn_cast<UnaryOperator>(Arg))
+      if (UO->getOpcode() == UO_AddrOf)
+        return pointerVar(UO->getSubExpr());
+    if (const VarDecl *PPVD = pointerVar(Arg)) {
+      auto It = State.AddrOfTargets.find(PPVD);
+      if (It != State.AddrOfTargets.end())
+        return It->second;
+    }
+    return nullptr;
+  }
+
+  void escapeToCallee(const VarDecl *VD) {
+    State.NullableVars.erase(VD);
+    State.NullableMembers.remove_if(
+        [VD](const MemberAccessPath &Path) { return Path.Root == VD; });
+    invalidateBoolGuardsFor(VD);
+    State.BoolGuards.erase(VD);
+    State.AddrOfTargets.erase(VD);
   }
 
   /// Handle sp.reset() / sp.reset(ptr), a CXXMemberCallExpr.
