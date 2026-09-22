@@ -1,5 +1,4 @@
-//===- NullabilitySafety.cpp - Flow-sensitive null dereference checking
-//-----===//
+//===- NullabilitySafety.cpp - Nullability safety analysis ---------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -95,6 +94,7 @@ STATISTIC(NumArgumentWarnings, "Number of nullable argument warnings");
 using namespace clang;
 
 NullabilitySafetyHandler::~NullabilitySafetyHandler() = default;
+NullabilitySafetySummaries::~NullabilitySafetySummaries() = default;
 
 //===----------------------------------------------------------------------===//
 // Access paths and AST helpers
@@ -1397,10 +1397,8 @@ class TransferFunctions : public ConstStmtVisitor<TransferFunctions> {
   NullabilitySafetyHandler &Handler;
   ReturnSummary &Returns;
   ASTContext &Ctx;
-  NullabilityKind DefaultNullability;
-  // When false, the built-in C library nullable-return list (malloc/fopen/...)
-  // is ignored (-fno-nullability-libc-nullable-returns).
-  bool LibcNullableReturns;
+  const NullabilitySafetyOptions &Options;
+  const NullabilitySafetySummaries *Summaries;
   // The enclosing function declaration, needed for return type checking.
   const FunctionDecl *EnclosingFunc;
   // Function-scoped parent map; see isStdMoveInsideSmartPtrTransferCtx.
@@ -1413,13 +1411,17 @@ class TransferFunctions : public ConstStmtVisitor<TransferFunctions> {
 public:
   TransferFunctions(NullState &State, NullabilitySafetyHandler &Handler,
                     ReturnSummary &Returns, ASTContext &Ctx,
-                    NullabilityKind DefaultNullability,
-                    bool LibcNullableReturns, const FunctionDecl *EnclosingFunc,
-                    const ParentMap *PM, bool Reporting)
+                    const NullabilitySafetyOptions &Options,
+                    const NullabilitySafetySummaries *Summaries,
+                    const FunctionDecl *EnclosingFunc, const ParentMap *PM,
+                    bool Reporting)
       : State(State), Handler(Handler), Returns(Returns), Ctx(Ctx),
-        DefaultNullability(DefaultNullability),
-        LibcNullableReturns(LibcNullableReturns), EnclosingFunc(EnclosingFunc),
+        Options(Options), Summaries(Summaries), EnclosingFunc(EnclosingFunc),
         ParentMapPtr(PM), Reporting(Reporting) {}
+
+  bool isKnownAllReturnsNonnull(const FunctionDecl *Callee) const {
+    return Summaries && Summaries->isKnownAllReturnsNonnull(Callee);
+  }
 
   /// Classify each declared pointer, smart pointer, or guard flag from its
   /// initializer.
@@ -1643,7 +1645,7 @@ public:
 
     if (isNonnullType(RetType) && !RetIsNonnull) {
       ++NumReturnWarnings;
-      Handler.handleNullableReturn(RetVal, RetVal->getType(), RetType);
+      Handler.handleNullableReturn(RetVal);
     }
   }
 
@@ -2209,7 +2211,7 @@ private:
   /// Gate the built-in C library nullable-return list on the langopt so
   /// -fno-nullability-libc-nullable-returns fully disables it.
   bool isLibcNullableReturn(const CallExpr *CE) const {
-    return LibcNullableReturns && isLibcNullableReturnCall(CE);
+    return Options.LibcNullableReturns && isLibcNullableReturnCall(CE);
   }
 
   /// Count and report a nullable dereference to the handler.
@@ -2223,7 +2225,7 @@ private:
   /// Report DerefExpr when PtrType (already adjusted by the caller for flow
   /// state and template sugar) is nullable.
   void checkDeref(const Expr *DerefExpr, QualType PtrType) {
-    if (isNullableType(PtrType, DefaultNullability)) {
+    if (isNullableType(PtrType, Options.DefaultNullability)) {
       LLVM_DEBUG(llvm::dbgs()
                  << "  deref: nullable " << PtrType.getAsString() << "\n");
       reportDeref(DerefExpr, PtrType);
@@ -2285,7 +2287,7 @@ private:
       if (!TemplateOverride && isStlNonnullReturnCall(CE))
         return;
       if (const auto *Callee = CE->getDirectCallee()) {
-        if (!TemplateOverride && Handler.isKnownAllReturnsNonnull(Callee))
+        if (!TemplateOverride && isKnownAllReturnsNonnull(Callee))
           return;
       }
       // sp.get() on a narrowed smart pointer is non-null.
@@ -2321,7 +2323,7 @@ private:
   /// nullable. Callers test isNarrowed first.
   void checkVarDeref(const Expr *DerefExpr, const VarDecl *VD) {
     QualType Ty = VD->getType();
-    if (isNullableType(Ty, DefaultNullability) ||
+    if (isNullableType(Ty, Options.DefaultNullability) ||
         State.NullableVars.contains(VD)) {
       LLVM_DEBUG(llvm::dbgs()
                  << "  deref: var '" << VD->getNameAsString() << "'\n");
@@ -2332,8 +2334,9 @@ private:
   /// Arithmetic on a pointer implies it is valid, so warn when the operand
   /// variable may be null and has not been narrowed.
   void checkVarArithmetic(const Expr *ArithExpr, const VarDecl *VD) {
-    if (!isNarrowed(VD) && (isNullableType(VD->getType(), DefaultNullability) ||
-                            State.NullableVars.contains(VD))) {
+    if (!isNarrowed(VD) &&
+        (isNullableType(VD->getType(), Options.DefaultNullability) ||
+         State.NullableVars.contains(VD))) {
       if (Reporting) {
         ++NumArithmeticWarnings;
         Handler.handleNullableArithmetic(ArithExpr, VD->getType(), VD);
@@ -2572,7 +2575,7 @@ private:
       if (isStlNonnullReturnCall(CE))
         return true;
       if (const auto *Callee = CE->getDirectCallee()) {
-        if (Handler.isKnownAllReturnsNonnull(Callee))
+        if (isKnownAllReturnsNonnull(Callee))
           return true;
       }
       // sp.get() on a narrowed smart pointer returns nonnull. Falls through
@@ -2612,7 +2615,7 @@ private:
   /// -fnullability-default=nullable.
   bool isNullableByType(QualType Ty, bool ExplicitOnly) const {
     return ExplicitOnly ? isExplicitlyNullableType(Ty)
-                        : isNullableType(Ty, DefaultNullability);
+                        : isNullableType(Ty, Options.DefaultNullability);
   }
 
   /// Whether E may be null, considering flow. This is the one judgment used
@@ -2695,7 +2698,7 @@ private:
       if (isStlNonnullReturnCall(CE))
         return false;
       if (const auto *Callee = CE->getDirectCallee()) {
-        if (Handler.isKnownAllReturnsNonnull(Callee))
+        if (isKnownAllReturnsNonnull(Callee))
           return false;
       }
       // sp.get() follows the smart pointer's flow state. Falls through when
@@ -2890,10 +2893,10 @@ static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
     Handler.handleAllReturnsNonnull(FD);
 }
 
-void clang::runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
-                                         NullabilitySafetyHandler &Handler,
-                                         NullabilityKind Default,
-                                         bool LibcNullableReturns) {
+void clang::runNullabilitySafetyAnalysis(
+    AnalysisDeclContext &AC, NullabilitySafetyHandler &Handler,
+    const NullabilitySafetyOptions &Options,
+    const NullabilitySafetySummaries *Summaries) {
   CFG *Cfg = AC.getCFG();
   if (!Cfg)
     return;
@@ -2979,8 +2982,8 @@ void clang::runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
     }
     BlockEntryStates[BlockID] = State;
 
-    TransferFunctions TF(State, Handler, Returns, Ctx, Default,
-                         LibcNullableReturns, EnclosingFunc, &PM,
+    TransferFunctions TF(State, Handler, Returns, Ctx, Options, Summaries,
+                         EnclosingFunc, &PM,
                          /*Reporting=*/false);
     for (const auto &Elem : *Block) {
       if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
@@ -3012,8 +3015,8 @@ void clang::runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
 
   if (const auto *CD = dyn_cast_or_null<CXXConstructorDecl>(AC.getDecl())) {
     NullState State = InitState;
-    TransferFunctions(State, Handler, Returns, Ctx, Default,
-                      LibcNullableReturns, EnclosingFunc, &PM,
+    TransferFunctions(State, Handler, Returns, Ctx, Options, Summaries,
+                      EnclosingFunc, &PM,
                       /*Reporting=*/true)
         .reportCtorInitEvidence(CD);
   }
@@ -3028,8 +3031,8 @@ void clang::runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
     if (It == BlockEntryStates.end())
       continue;
     NullState State = It->second;
-    TransferFunctions TF(State, Handler, Returns, Ctx, Default,
-                         LibcNullableReturns, EnclosingFunc, &PM,
+    TransferFunctions TF(State, Handler, Returns, Ctx, Options, Summaries,
+                         EnclosingFunc, &PM,
                          /*Reporting=*/true);
     for (const auto &Elem : *Block)
       if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())

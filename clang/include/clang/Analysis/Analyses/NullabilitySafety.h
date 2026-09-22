@@ -1,5 +1,4 @@
-//=- NullabilitySafety.h - Flow-sensitive null dereference checking -*- C++
-//-*-=//
+//===- NullabilitySafety.h - Nullability safety analysis --------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -43,8 +42,7 @@ public:
   virtual void handleNullableArithmetic(const Expr *ArithExpr, QualType PtrType,
                                         const VarDecl *VD) {}
   /// A function with a _Nonnull return type returns a value that may be null.
-  virtual void handleNullableReturn(const Expr *ReturnExpr, QualType ExprType,
-                                    QualType ReturnType) {}
+  virtual void handleNullableReturn(const Expr *ReturnExpr) {}
   /// A _Nonnull variable is initialized or assigned a value that may be null.
   virtual void handleNullableAssignment(const Expr *AssignExpr,
                                         const VarDecl *LHSVar) {}
@@ -81,24 +79,31 @@ public:
   /// (address-of, this, new, narrowed var, etc.). Enables callers to
   /// treat the function's return as implicitly _Nonnull.
   virtual void handleAllReturnsNonnull(const FunctionDecl *Func) {}
+};
 
-  /// Query: has this function been previously analyzed and found to have
-  /// all-returns-nonnull? Used by callers within the same TU to narrow
-  /// returned pointers. Returns false by default (conservative).
-  virtual bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const {
-    return false;
-  }
+/// Facts about other functions, consulted while analyzing one function.
+class NullabilitySafetySummaries {
+public:
+  virtual ~NullabilitySafetySummaries();
+  /// Whether every return of \p Func is known to be non-null. Used to narrow
+  /// the result of a call to \p Func.
+  virtual bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const = 0;
+};
+
+struct NullabilitySafetyOptions {
+  /// How an unannotated (_Null_unspecified) pointer is treated.
+  NullabilityKind DefaultNullability = NullabilityKind::Unspecified;
+  /// Enables the built-in list of C library functions that return null on
+  /// failure (malloc, fopen, ...).
+  bool LibcNullableReturns = true;
 };
 
 /// Run the flow-sensitive nullability analysis over the CFG of the function
-/// in \p AC, reporting through \p Handler. \p DefaultNullability is how an
-/// unannotated (_Null_unspecified) pointer is treated; \p LibcNullableReturns
-/// enables the built-in list of C library functions that return null on
-/// failure (malloc, fopen, ...).
+/// in \p AC, reporting through \p Handler. \p Summaries may be null.
 void runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
                                   NullabilitySafetyHandler &Handler,
-                                  NullabilityKind DefaultNullability,
-                                  bool LibcNullableReturns = true);
+                                  const NullabilitySafetyOptions &Options,
+                                  const NullabilitySafetySummaries *Summaries);
 
 } // namespace clang
 
