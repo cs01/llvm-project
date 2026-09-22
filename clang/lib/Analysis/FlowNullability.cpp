@@ -2110,7 +2110,7 @@ private:
     case StoredValue::Nullable:
       // A provably nullable value overrides the declared _Nonnull.
       State.markNullable(Target);
-      if (DeclaredNonnull && Reporting) {
+      if (DeclaredNonnull && Reporting && !isNullInitOfVar(Target, RHS)) {
         ++NumAssignmentWarnings;
         if (Target.VD)
           Handler.handleNullableAssignment(DiagExpr, Target.VD);
@@ -2129,6 +2129,14 @@ private:
       return true;
     }
     llvm_unreachable("unhandled StoredValue");
+  }
+
+  /// Whether RHS is a null pointer constant initializing Target's variable.
+  /// Sema reports that (warn_null_init_nonnull), including for globals the
+  /// flow analysis never sees, so the flow report would be a duplicate.
+  bool isNullInitOfVar(const PtrRef &Target, const Expr *RHS) const {
+    return Target.VD && Target.VD->getInit() == RHS &&
+           RHS->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
   }
 
   /// The single judgment behind every pointer store (variable init,

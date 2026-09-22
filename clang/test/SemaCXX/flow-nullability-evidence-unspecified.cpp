@@ -133,11 +133,11 @@ void call_two_params(int *p) {
 // inferred.
 
 void pass_tainted_nonnull() {
-    int *_Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
+    int *_Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}}
     takes_ptr(a); // expected-remark-re{{parameter 'p' of 'takes_ptr' (declared at {{.*}}) called with nullable argument}}
 }
 
 int *return_tainted_nonnull() {
-    int *_Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}} expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
+    int *_Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}}
     return a; // expected-remark-re{{function 'return_tainted_nonnull' of global scope (declared at {{.*}}) returns nullable}}
 }

@@ -4590,10 +4590,13 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
             inferNullabilityCS =
                 (context == DeclaratorContext::ObjCParameter ||
                  context == DeclaratorContext::ObjCResult);
-          } else {
+          } else if (S.getLangOpts().getNullabilityDefault() ==
+                     NullabilityKind::Nullable) {
             // Use Unspecified instead of the raw default so the flow checker
             // can distinguish explicit _Nullable from default-inferred.
             inferNullability = NullabilityKind::Unspecified;
+          } else {
+            complainAboutMissingNullability = CAMN_No;
           }
         }
         break;
@@ -4633,7 +4636,11 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
             !S.getSourceManager().isInSystemHeader(D.getBeginLoc()) &&
             S.getLangOpts().getNullabilityDefault() !=
                 NullabilityKind::Unspecified) {
-          inferNullability = NullabilityKind::Unspecified;
+          if (S.getLangOpts().getNullabilityDefault() ==
+              NullabilityKind::Nullable)
+            inferNullability = NullabilityKind::Unspecified;
+          else
+            complainAboutMissingNullability = CAMN_No;
         }
         break;
       }
@@ -4668,7 +4675,9 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
       // active we silently tag single-level pointers as Unspecified so the
       // flow checker can track them, but we never fire the consistency
       // warning ("pointer is missing a nullability type specifier") here.
-      if (S.getLangOpts().FlowSensitiveNullability) {
+      if (S.getLangOpts().FlowSensitiveNullability &&
+          S.getLangOpts().getNullabilityDefault() ==
+              NullabilityKind::Nullable) {
         auto wrappingKind = PointerWrappingDeclaratorKind::None;
         switch (classifyPointerDeclarator(S, T, D, wrappingKind)) {
         case PointerDeclaratorKind::NonPointer:
