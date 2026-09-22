@@ -61,7 +61,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | F1 | Smart pointers: in nonnull mode an unchecked smart pointer takes the declared default like a raw pointer; explicit taint for default construction, `= nullptr`, `release()`, `swap()` | done (below) |
 | F1b | libstdc++ `shared_ptr`: `s->` / `*s` resolve to the base class `__shared_ptr_access`, whose type is not a smart pointer, so no dereference is checked (both modes, predates F1; libc++ and `unique_ptr` are fine) | todo |
 | F4 | Output parameters: a pointer escaping as `&p` to `T **` or binding to `T *&` / `const T *&` loses its nullable facts and guards (reuse `invalidateBoolGuardsFor` / `invalidateMembersFor`); narrowing is kept | done (below) |
-| F5 | Lambdas: drop the call-site `IsLambdaCall` nonnull promotion; argument check only for `_Nonnull` or `nonnull(N)` (first parameter is `nonnull(2)`) | todo |
+| F5 | Lambdas: drop the call-site `IsLambdaCall` nonnull promotion; argument check only for `_Nonnull` or `nonnull(N)` (first parameter is `nonnull(2)`) | done, nonnull mode only (below) |
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | todo |
 | 5c | SSAF whole-program propagation (below) | todo |
 | 5d | SSAF source transformation; then delete the remarks, the `handle*Evidence` callbacks, and the remark-scraping loop | todo |
@@ -127,6 +127,19 @@ nullable 0 / 0. Evidence lost 67 / gained 64: 64 argument remarks flip from
 stale `= 0` no longer counts), and 3 `assigned from nullable source` member
 remarks disappear because the source is no longer provably nullable. Lit
 54/54, including the stale-guard false negative the escape fixes.
+
+## F5 results
+
+The call-site promotion of unannotated lambda parameters to nonnull is now
+skipped only under `-fnullability-default=nonnull`, not dropped everywhere as
+the worksheet proposed. In nullable mode the lambda body trusts its
+parameters (auto-narrowing) while a function body does not, so the call site
+is the only check left for a lambda; dropping it there would lose
+`work(maybe)` into `n->size` (`nullability-safety-analysis.cpp`,
+`lambda_callsite_check`). Under the nonnull default a function's unannotated
+parameter is not argument-checked either, so skipping it there is parity.
+The worksheet's lambda test was missing the argument warning's note; fixed.
+sqlite: no change (no lambdas). Nonnull total now 107 (139 before F4).
 
 `nullsafe-upstream` keeps its name: it is the head of llvm PR #189131, and
 GitHub cannot retarget a PR's head branch.
