@@ -156,7 +156,8 @@ either; both document their limitations, and so must we.
 | Warnings | `-Wflow-nullability`, `-Wflow-nullable-*` | `-Wnullability-safety`, `-Wnullability-safety-*` |
 | Diag IDs | `warn_flow_nullable_*`, `warn_null_init_nonnull` | `warn_nullability_safety_*` |
 | Evidence | `-Rnullsafe-evidence` remarks | SSAF summaries (below) |
-| Unchanged | `-fnullability-default=`, `-fnullability-stdlib-annotations` | |
+| C library list | `-fnullability-stdlib-annotations` | `-fnullability-libc-nullable-returns` (it never covered the C++ STL list, which has no flag) |
+| Unchanged | `-fnullability-default=` | |
 
 Rejected: NullSafety (overpromises a sound Kotlin-style guarantee, leaves
 clang's "nullability" vocabulary), NullChecker ("checker" means a Static

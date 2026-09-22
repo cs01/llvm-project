@@ -92,13 +92,13 @@ public:
 
 /// Run the flow-sensitive nullability analysis over the CFG of the function
 /// in \p AC, reporting through \p Handler. \p DefaultNullability is how an
-/// unannotated (_Null_unspecified) pointer is treated; \p StdlibAnnotations
+/// unannotated (_Null_unspecified) pointer is treated; \p LibcNullableReturns
 /// enables the built-in list of C library functions that return null on
 /// failure (malloc, fopen, ...).
 void runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
                                   NullabilitySafetyHandler &Handler,
                                   NullabilityKind DefaultNullability,
-                                  bool StdlibAnnotations = true);
+                                  bool LibcNullableReturns = true);
 
 } // namespace clang
 
