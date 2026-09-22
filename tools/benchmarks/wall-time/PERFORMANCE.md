@@ -106,4 +106,4 @@ python3 real_tu_bench.py 30 3           # writes real_tu.json + streams a log
 python3 analyze.py real_tu.json          # paired stats + significance
 ```
 
-Raw data from the run described above: `real_tu_run.log`, `B_real.json`.
+Raw data from the run described above: `B_real.json`.

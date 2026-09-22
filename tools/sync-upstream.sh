@@ -29,83 +29,49 @@ for arg in "$@"; do
     esac
 done
 
-# files/patterns to EXCLUDE from the upstream branch
-EXCLUDE_PATTERNS=(
-    # fork infrastructure
-    '.github/'
-    '.gitignore'
-    'README.md'
-    'CONTRIBUTING.md'
-    'GRADUAL_MIGRATION.md'
-    'PERFORMANCE.md'
-    'COMMIT_MSG.txt'
-    'install.sh'
-    'install-interactive.sh'
-    'tools/'
-    'docs/'
-
-    # playground
-    'nullsafe-playground/'
-
-    # claude/AI config
-    '*.claude*'
-    '*CLAUDE.md'
-
-    # nullsafe-headers (fork-specific shim headers)
-    'clang/nullsafe-headers/'
-
-    # profiling artifacts
-    '*.profraw'
-
-    # misc fork files
-    'UPSTREAM_PR_REVIEW.md'
-    'clang/cJSON.plist'
-    'clang/.gitignore'
-    'clang/test/Sema/.clangd'
-
-    # benchmark scripts (moved to tools/benchmarks/)
-    'clang/test/Sema/*benchmark*'
-
-    # real-smartptr test requires system headers — not suitable for upstream CI
+# The upstream branch is an allowlist: only paths under these prefixes are
+# carried over. A new fork-only file (playground, CI, scripts, docs) is left
+# out by default instead of leaking into the llvm PR.
+INCLUDE_PREFIXES=(
+    'clang/include/clang/Analysis/'
+    'clang/lib/Analysis/'
+    'clang/include/clang/Basic/'
+    'clang/include/clang/Options/'
+    'clang/include/clang/Sema/'
+    'clang/lib/Sema/'
+    'clang/lib/Driver/'
+    'clang/docs/'
+    'clang/test/'
+)
+# Exceptions inside the allowlisted prefixes.
+EXCLUDE_PATHS=(
+    # needs a system C++ standard library, which upstream CI does not provide
     'clang/test/SemaCXX/flow-nullability-real-smartptr.cpp'
-
-    # crubit test artifacts
-    'crubit-tests/'
-
-    # WASM build hacks (not related to nullsafe feature)
-    'llvm/'
-    'clang/include/clang/Support/Compiler.h'
-
-    # Lex changes (whitespace/comment-only, not part of feature)
-    'clang/lib/Lex/'
-    'clang/include/clang/Basic/DiagnosticLexKinds.td'
-
-    # lldb config
-    'lldb/'
 )
 
 # get list of changed files relative to upstream
 ALL_FILES=$(git diff --name-only "$BASE_REF"...HEAD)
 
-# filter to upstream-worthy files
 INCLUDE_FILES=()
+LEFT_OUT=()
 for file in $ALL_FILES; do
-    excluded=false
-    for pattern in "${EXCLUDE_PATTERNS[@]}"; do
-        case "$file" in
-            $pattern*) excluded=true; break ;;
-        esac
-        # also handle glob-style patterns with fnmatch
-        if [[ "$file" == $pattern ]]; then
-            excluded=true
-            break
-        fi
+    keep=false
+    for prefix in "${INCLUDE_PREFIXES[@]}"; do
+        [[ "$file" == "$prefix"* ]] && keep=true && break
     done
-    if [[ "$excluded" == "false" ]]; then
+    for path in "${EXCLUDE_PATHS[@]}"; do
+        [[ "$file" == "$path" ]] && keep=false && break
+    done
+    if [[ "$keep" == "true" ]]; then
         INCLUDE_FILES+=("$file")
+    else
+        LEFT_OUT+=("$file")
     fi
 done
 
+echo "=== Fork-only, left out (${#LEFT_OUT[@]}) ==="
+printf '%s\n' "${LEFT_OUT[@]}"
+echo ""
 echo "=== Files to include in upstream PR (${#INCLUDE_FILES[@]}) ==="
 printf '%s\n' "${INCLUDE_FILES[@]}"
 echo ""
