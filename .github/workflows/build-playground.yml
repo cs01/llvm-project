@@ -25,6 +25,7 @@ jobs:
               - 'clang/**'
               - 'llvm/**'
               - '.github/workflows/build-playground.yml'
+              - 'nullsafe-playground/build.sh'
             playground:
               - 'nullsafe-playground/**'
 
@@ -57,89 +58,8 @@ jobs:
           restore-keys: |
             ccache-wasm-
 
-      - name: Collect headers for WASM virtual filesystem
-        id: sysroot
-        run: |
-          SYSROOT="$(pwd)/playground-sysroot"
-          mkdir -p "$SYSROOT/include"
-
-          # --- Emscripten libc (musl) + libc++ headers ---
-          # Trigger Emscripten cache population if needed
-          EMSDK_SYSROOT="$(em-config CACHE)/sysroot/include"
-          if [ ! -d "$EMSDK_SYSROOT" ]; then
-            echo "int main(){}" > /tmp/hello.c
-            emcc /tmp/hello.c -o /tmp/hello.js
-            EMSDK_SYSROOT="$(em-config CACHE)/sysroot/include"
-          fi
-          cp -r "$EMSDK_SYSROOT"/* "$SYSROOT/include/"
-
-          # --- Clang resource headers (stddef.h, stdarg.h, etc.) ---
-          # These are in clang/lib/Headers/ in the source tree.
-          # Clang looks for them at: <resource-dir>/include/
-          CLANG_VER=$(grep 'set(LLVM_VERSION_MAJOR' cmake/Modules/LLVMVersion.cmake | grep -oP '[0-9]+')
-          RESOURCE_DST="${SYSROOT}/lib/clang/${CLANG_VER}/include"
-          mkdir -p "$RESOURCE_DST"
-
-          # Copy essential C/C++ headers only — skip architecture intrinsics
-          # (avx*, arm*, amx*, etc.) to save ~14MB of embedded space
-          for pattern in \
-            '__stddef*' '__stdarg*' '__stdc*' \
-            'stddef.h' 'stdarg.h' 'stdbool.h' 'stdnoreturn.h' 'stdatomic.h' \
-            'stdalign.h' 'stdint.h' \
-            'limits.h' 'float.h' 'inttypes.h' 'iso646.h' \
-            '__clang_hip_*.h' '__wasm*.h' \
-            'unwind.h' 'tgmath.h' 'varargs.h'; do
-            for h in clang/lib/Headers/$pattern; do
-              [ -f "$h" ] && cp "$h" "$RESOURCE_DST/"
-            done
-          done
-
-          echo "=== Embedded sysroot ==="
-          echo "Clang resource headers: $(find "$RESOURCE_DST" -type f | wc -l) files, $(du -sh "$RESOURCE_DST" | cut -f1)"
-          echo "Libc/libc++ headers: $(find "$SYSROOT/include" -type f | wc -l) files, $(du -sh "$SYSROOT/include" | cut -f1)"
-          echo "Total: $(du -sh "$SYSROOT" | cut -f1)"
-
-          echo "sysroot=$SYSROOT" >> "$GITHUB_OUTPUT"
-          echo "clang_ver=$CLANG_VER" >> "$GITHUB_OUTPUT"
-
-      - name: Configure WASM build
-        run: |
-          SYSROOT="${{ steps.sysroot.outputs.sysroot }}"
-          CLANG_VER="${{ steps.sysroot.outputs.clang_ver }}"
-
-          # --embed-file bakes files into the WASM binary's virtual filesystem.
-          # host_path@virtual_path maps where files go in the VFS:
-          #   /lib/clang/<ver>/include — clang resource headers (-resource-dir)
-          #   /include — C stdlib + C++ stdlib + compat headers (-isystem)
-          EMBED_FLAGS=""
-          EMBED_FLAGS+=" --embed-file ${SYSROOT}/lib/clang/${CLANG_VER}/include@/lib/clang/${CLANG_VER}/include"
-          EMBED_FLAGS+=" --embed-file ${SYSROOT}/include@/include"
-
-          mkdir -p build-wasm
-          cd build-wasm
-          emcmake cmake -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DLLVM_ENABLE_PROJECTS="clang" \
-            -DLLVM_TARGETS_TO_BUILD="WebAssembly" \
-            -DLLVM_ENABLE_THREADS=OFF \
-            -DLLVM_ENABLE_EH=OFF \
-            -DLLVM_ENABLE_RTTI=OFF \
-            -DLLVM_BUILD_TOOLS=OFF \
-            -DLLVM_BUILD_UTILS=OFF \
-            -DLLVM_INCLUDE_TESTS=OFF \
-            -DLLVM_INCLUDE_EXAMPLES=OFF \
-            -DLLVM_ENABLE_TERMINFO=OFF \
-            -DLLVM_ENABLE_ZLIB=OFF \
-            -DLLVM_ENABLE_LIBXML2=OFF \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_EXE_LINKER_FLAGS="-sEXPORTED_RUNTIME_METHODS=callMain -sEXIT_RUNTIME=0 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=33554432 -sINITIAL_MEMORY=268435456 ${EMBED_FLAGS}" \
-            ../llvm
-
-      - name: Build Null-Safe Clang WASM
-        run: |
-          cd build-wasm
-          ninja clang
+      - name: Build clang.wasm
+        run: nullsafe-playground/build.sh
 
       - name: Prepare artifacts
         run: |

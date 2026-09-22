@@ -203,10 +203,6 @@ public:
   uint64_t getSize() const {
     return (uint64_t(FileSizeHigh) << 32) + FileSizeLow;
   }
-#else
-  uint32_t getUser() const { return 0; }
-  uint32_t getGroup() const { return 0; }
-  uint64_t getSize() const { return 0; }
 #endif
 
   // setters

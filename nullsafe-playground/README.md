@@ -15,7 +15,8 @@ An interactive web-based playground for experimenting with **Nullsafe Clang**, a
 
 ### Running Locally
 
-1. Build the WASM files (or copy from existing build):
+1. Build the WASM files (needs an activated emsdk; this is the same script CI
+   runs, a stock Emscripten build of the tree):
    ```bash
    ./build.sh
    ```
@@ -80,9 +81,7 @@ caveats, and a reproducible harness live in
 The WASM files are generated from the Nullsafe Clang compiler using Emscripten:
 
 ```bash
-# TODO: Document proper Emscripten build process
-# Currently using pre-built WASM files
-./build.sh
+./build.sh   # sysroot headers, emcmake configure, ninja clang
 ```
 
 ## Development

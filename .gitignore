@@ -95,3 +95,8 @@ pythonenv*
 # Clang Static Analyzer output
 *.plist
 /csa_benchmark_results/
+
+# local editor/agent config and generated artifacts
+.claude/settings.local.json
+.clangd
+*.profraw
