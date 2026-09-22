@@ -100,3 +100,4 @@ pythonenv*
 .claude/settings.local.json
 .clangd
 *.profraw
+/playground-sysroot
