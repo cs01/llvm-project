@@ -7,13 +7,23 @@ branch by `tools/sync-upstream.sh`).
 
 ## Gates (run for every analysis change)
 
-1. Build: `make -C build-arm clang -j10`.
+`tools/nullability-gates.sh <tag>` does all of it; `--diff <old> <new>` shows
+the gained/lost sqlite lines between two runs. Typical loop:
+
+```bash
+git stash && tools/nullability-gates.sh base && git stash pop
+tools/nullability-gates.sh new
+tools/nullability-gates.sh --diff base new
+```
+
+1. Build clang (`BUILD_DIR`, default `build-arm`).
 2. Lit: every `clang/test/*/flow-nullability*`, `clang/test/Driver/nullsafe*`,
    `clang/test/SemaCXX/nullability-default*` test passes.
-3. sqlite differential: the sorted warning list for the sqlite amalgamation in
-   `-fnullability-default=nonnull` and `=nullable` modes, plus the sorted
-   `-Rnullsafe-evidence` remark list, diffed against the previous commit.
-   Every gained or lost line is explained in the commit.
+3. sqlite differential (`SQLITE`, default `~/git/sqlite/sqlite3.c`; build it
+   with `./configure && make sqlite3.c`): sorted warning lists in
+   `-fnullability-default=nonnull` and `=nullable` modes plus the sorted
+   evidence remark list. Every gained or lost line is explained in the commit.
+   Reference counts after step 2: nonnull 131, nullable 22849, evidence 19620.
 4. `git clang-format --diff` is empty.
 
 ## Status
@@ -23,7 +33,7 @@ branch by `tools/sync-upstream.sh`).
 | 1 | Report diagnostics and evidence only from converged dataflow states (silent fixpoint, then one reporting pass) | done (fixed contradictory `returns nonnull` + `returns nullable` evidence for one return) |
 | 2 | One `classifyStoredValue()` / `storePointer()` for every pointer store (var init, var assign, member assign, aggregate init, ctor-init evidence) | done |
 | 3 | Restore `llvm/` and Lex files to upstream; one playground wasm build script shared with CI; allowlist `sync-upstream.sh`; untrack junk | done |
-| - | Rebase onto `llvm/main`; default branch renamed `nullsafe-clang-dev` -> `nullability-safety` | done (gates pending at time of writing) |
+| - | Rebase onto `llvm/main` (2026-09-22); default branch renamed `nullsafe-clang-dev` -> `nullability-safety` | rebased and pushed; **gates not yet run on the rebased tree** (first thing to do: full build + `tools/nullability-gates.sh rebase`, compare counts above) |
 | 4 | Stop tagging types with `_Null_unspecified` unless a function opted in; drop the duplicate null-init warning (`warn_null_init_nonnull` vs flow `warn_flow_nullable_assignment`) | next |
 | 6 | Rename to **NullabilitySafety** everywhere (moved before 5 so new files get final names) | todo |
 | 5 | API: options struct, summary oracle split from the handler, drop the unused `SrcExpr` parameter, one Sema opt-in predicate; replace evidence remarks with SSAF (below) | todo |
@@ -31,6 +41,34 @@ branch by `tools/sync-upstream.sh`).
 
 `nullsafe-upstream` keeps its name: it is the head of llvm PR #189131, and
 GitHub cannot retarget a PR's head branch.
+
+## Step 4 design
+
+- Type tagging: `SemaType.cpp` injects `_Null_unspecified` in three places
+  (single-level pointers, multi-level pointers, and the local/cast/template
+  argument contexts under `FlowSensitiveNullability`). The tag only changes
+  analysis results under `-fnullability-default=nullable` (with `unspecified`
+  or `nonnull` an untagged pointer reads the same), so gate all three on
+  `getNullabilityDefault() == NullabilityKind::Nullable`. Then the flag alone
+  no longer rewrites types in unrelated diagnostics (repro: `char c = q;` with
+  `int *q` prints `'int * _Null_unspecified'` under just
+  `-fflow-sensitive-nullability`). Expect test expectations that spell
+  `_Null_unspecified` under nonnull mode to change.
+- Duplicate warning: `int *_Nonnull p = 0;` warns twice (`SemaDecl.cpp`
+  `warn_null_init_nonnull` and the flow `warn_flow_nullable_assignment`). Keep
+  the Sema one (type-based, also covers globals the flow never sees); in
+  `storePointer`, skip the report when a variable's initializer is a null
+  pointer constant, still marking the variable nullable. Assignments stay
+  flow-reported.
+
+## Resuming on another machine
+
+The loop was: do the next step in the status table, run the gates before and
+after, explain every sqlite diff line in the commit message, commit, update
+this table. Tell the agent: "continue docs/nullability-safety-plan.md". The
+branch `nullsafe-clang-dev` (pre-rebase history) and
+`backup/pre-rebase-2026-09-22` (local only on the original machine) are the
+fallbacks.
 
 ## Naming
 
