@@ -2259,8 +2259,11 @@ struct UnannotatedBuffer {
     uint8_t* getBuffer() {
         return reinterpret_cast<uint8_t*>(this) + offset;
     }
+    uint8_t* getExternal(); // no body: nothing proves its result
     void use() {
-        uint8_t val = getBuffer()[0]; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        // this + offset on every return path: inferred non-null.
+        uint8_t val = getBuffer()[0];
+        uint8_t ext = getExternal()[0]; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
     }
 };
 
