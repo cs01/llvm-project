@@ -63,7 +63,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | F4 | Output parameters: a pointer escaping as `&p` to `T **` or binding to `T *&` / `const T *&` loses its nullable facts and guards (reuse `invalidateBoolGuardsFor` / `invalidateMembersFor`); narrowing is kept | done (below) |
 | F5 | Lambdas: drop the call-site `IsLambdaCall` nonnull promotion; argument check only for `_Nonnull` or `nonnull(N)` (first parameter is `nonnull(2)`) | done, nonnull mode only (below) |
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | done (below) |
-| 5c | SSAF whole-program propagation (below) | todo |
+| 5c | SSAF whole-program propagation (below) | done, veto-only (below) |
 | 5d | SSAF source transformation; then delete the remarks, the `handle*Evidence` callbacks, and the remark-scraping loop | todo |
 | F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | todo |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | todo |
@@ -95,6 +95,31 @@ before step 6 fails; use a checkout of the old script for such baselines.
   stay remarks-only (then exclude the tests too). Run `git fetch llvm` first:
   with a stale `llvm/main` the merge base is old and the allowlist sweeps in
   unrelated upstream files.
+
+## Step 5c results
+
+`NullabilitySafetyAnalysis.{h,cpp}`: `NullabilityEvidenceAnalysisResult`
+(union of all contributors' summaries) and `NullabilityInferenceAnalysisResult`
+(`-a NullabilityInferenceAnalysisResult`, depends on `PointerFlow` too).
+Nullable evidence is propagated along reversed pointer-flow edges (assignee
+<- value), as designed, but the result is stricter than "seed and
+propagate": the pointer-flow graph is flow-insensitive, so `if (p) s->x = p;`
+is an edge `S::x <- p` and propagating would infer `_Nullable` for `S::x`
+from a caller's nullable `p`, then warn on every dereference of `S::x`. So
+propagation only vetoes:
+
+- `Nullable` = direct nullable evidence (already narrowing-aware per TU)
+- `Nonnull` = nonnull or all-returns-nonnull evidence not reached by any
+  nullable value
+- `NullableReachable` = everything propagation reached, for 5d to report
+  (SARIF) without annotating
+
+sqlite (one TU, nonnull default): evidence nonnull 4061, all-returns 187,
+nullable 656; inferred `Nonnull` 1364, `Nullable` 656, `NullableReachable`
+6471 (locals included). The veto removes about two thirds of the nonnull
+candidates. Lit: `Analysis/Scalable/NullabilitySafety/propagation.c` (two
+TUs, link, analyze; a VETO check verified to fail without the veto). The
+gates now also build `clang-ssaf-linker` and `clang-ssaf-analyzer`.
 
 ## False-positive track (F steps)
 

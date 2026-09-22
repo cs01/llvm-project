@@ -76,7 +76,7 @@ fi
 TAG="${1:?usage: nullability-gates.sh [--skip-sqlite] <tag> | --base <tag> | --diff <old> <new>}"
 FAILED=()
 
-if ! cmake --build "$BUILD_DIR" --target clang clang-ssaf-format -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >"$OUT/build-$TAG.log" 2>&1; then
+if ! cmake --build "$BUILD_DIR" --target clang clang-ssaf-format clang-ssaf-linker clang-ssaf-analyzer -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >"$OUT/build-$TAG.log" 2>&1; then
   grep -E "error:" "$OUT/build-$TAG.log" | head -20
   echo "BUILD FAILED (log: $OUT/build-$TAG.log)"
   exit 1
