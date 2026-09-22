@@ -231,14 +231,7 @@ Tools can combine these remarks across a whole codebase to suggest annotations. 
 
 **C library.** The analysis treats the results of C library functions that return null on failure as `_Nullable`, even with your system's headers: `malloc`, `calloc`, `realloc`, `aligned_alloc`, `fopen`, `freopen`, `tmpfile`, `getenv`, `strtok`, `strstr`, `strchr`, `strrchr`, `strpbrk`, `memchr`, `bsearch`, `tmpnam`, and `setlocale`. `-fno-nullability-stdlib-annotations` turns this off.
 
-For parameter contracts (for example, that `strlen` needs a non-null argument), the fork ships annotated `stdlib.h`, `stdio.h`, and `string.h`. They matter most with a libc that doesn't declare `__attribute__((nonnull))` itself:
-
-```bash
-clang -fnullability-safety -fnullability-default=nullable \
-      -I/path/to/llvm-project/clang/nullsafe-headers/include file.c
-```
-
-See [clang/nullsafe-headers/README.md](clang/nullsafe-headers/README.md).
+Parameter contracts (for example, that `strcpy` needs non-null arguments) come from `__attribute__((nonnull))` in your libc's headers, which glibc declares and the analysis honors.
 
 **C++ library.** These methods are known to return non-null pointers, so using their results doesn't warn:
 
@@ -283,7 +276,6 @@ require('lspconfig').clangd.setup({
 This section summarizes the implementation. For more detail:
 
 - [Architecture diagrams](docs/nullability-safety-architecture.md): Mermaid diagrams of the three layers, the worklist algorithm, state tracking, and transfer functions
-- [Architecture review guide](docs/nullability-safety-review-guide.md): a written walkthrough with code examples for each concept
 - [Performance](PERFORMANCE.md): LLVM/Clang measurements, synthetic stress tests, and a Static Analyzer comparison
 
 The analysis is a forward dataflow pass over Clang's CFG (control flow graph), one function at a time, built like the existing thread safety and uninitialized-variable analyses. It uses the CFG Clang already builds for those warnings; it does not use MLIR or ClangIR.

@@ -57,13 +57,29 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | 4 | Stop tagging types with `_Null_unspecified` unless `-fnullability-default=nullable` (the only mode where the tag changes results); drop the duplicate null-init warning (`warn_null_init_nonnull` vs flow `warn_flow_nullable_assignment`) | done (sqlite below) |
 | 6 | Rename to **NullabilitySafety** everywhere (moved before 5 so new files get final names); update the gates script's filename globs; decide explicitly whether old flag spellings stay as aliases | done: hard cut, no aliases (below) |
 | 5a | API: options struct, summary oracle split from the handler, drop the unused `SrcExpr` parameter, one Sema opt-in predicate | todo |
-| 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite | todo |
+| 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; fix the contradictory argument evidence first (below) | todo |
 | 5c | SSAF whole-program propagation (below) | todo |
 | 5d | SSAF source transformation; then delete the remarks, the `handle*Evidence` callbacks, and the remark-scraping loop | todo |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | todo |
 
 `nullsafe-upstream` keeps its name: it is the head of llvm PR #189131, and
 GitHub cannot retarget a PR's head branch.
+
+## Known evidence bug (fix in 5b)
+
+A nullable argument to a `_Nonnull` parameter yields the warning and a
+contradictory remark on the same expression:
+
+```c
+void take(int *_Nonnull p);
+void f(int *_Nullable q) { take(q); }
+// warning: passing nullable pointer to nonnull parameter 'p'
+// remark: parameter 'p' of 'take' ... called with nonnull argument
+```
+
+The argument evidence is likely read after the call has narrowed `q` to
+nonnull. The extractor must not inherit this; add a lit test that expects
+`nullable argument` here.
 
 ## Step 6 results
 
