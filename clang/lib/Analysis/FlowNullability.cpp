@@ -1381,6 +1381,9 @@ struct ReturnSummary {
   bool AllNonnull = true;
 };
 
+/// What a pointer store writes, as far as the analysis can tell.
+enum class StoredValue { Nonnull, Nullable, Unknown };
+
 /// What a smart pointer holds after sp.reset(arg), judged from arg.
 enum class ResetNullability { Null, Nonnull, Unknown };
 
@@ -1604,8 +1607,7 @@ public:
         continue;
       if (!isNonnullType(FD->getType()))
         continue;
-      const Expr *Init = ILE->getInit(I)->IgnoreParenImpCasts();
-      if (isExprNullable(Init)) {
+      if (classifyStoredValue(ILE->getInit(I)) == StoredValue::Nullable) {
         if (Reporting) {
           ++NumAssignmentWarnings;
           Handler.handleNullableMemberAssignment(ILE->getInit(I), FD);
@@ -1644,67 +1646,42 @@ public:
     }
   }
 
+  /// Evidence for a constructor's member initializers (': field(expr)'),
+  /// judged like member assignments against the entry state. They are
+  /// CXXCtorInitializers, not BinaryOperators, so VisitBinaryOperator never
+  /// sees them.
+  void reportCtorInitEvidence(const CXXConstructorDecl *CD) {
+    assert(Reporting && "evidence is emitted only by the reporting pass");
+    for (const auto *CI : CD->inits()) {
+      if (!CI->isAnyMemberInitializer())
+        continue;
+      const FieldDecl *FD = CI->getMember();
+      const Expr *Init = CI->getInit();
+      if (!FD || !Init || !FD->getType()->isPointerType())
+        continue;
+      StoredValue V = classifyStoredValue(Init);
+      bool IsNonnull =
+          V == StoredValue::Nonnull ||
+          (V == StoredValue::Unknown && isNonnullType(FD->getType()));
+      if (IsNonnull || isExprNullable(Init, /*ExplicitOnly=*/true))
+        Handler.handleMemberAssignEvidence(Init->IgnoreParenImpCasts(), FD,
+                                           IsNonnull);
+    }
+  }
+
 private:
   /// Classify a raw pointer variable from its initializer: record aliases,
-  /// warn on a nullable init of a _Nonnull variable, then narrow or taint.
+  /// then store the initial value. An uninitialized _Nonnull local is trusted
+  /// to its declaration.
   void handlePointerVarInit(const VarDecl *VD) {
-    if (VD->hasInit()) {
-      recordPointerSource(VD, VD->getInit());
-      recordTernaryPointerGuard(VD, VD->getInit());
-    }
-
-    if (isNonnullType(VD->getType())) {
-      bool InitIsNullable = false;
-      if (VD->hasInit()) {
-        const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
-        // A ternary's merged type inherits _Nullable from either arm
-        // even when the condition guards that arm (p ? p : q), so
-        // only the arm-aware isExprNullable may judge it.
-        bool IsTernary = isa<AbstractConditionalOperator>(Init);
-        if (!isExprNarrowedNonnull(Init) && !isNonnullInit(Init) &&
-            !isNonnullType(Init->getType()) &&
-            ((!IsTernary &&
-              isNullableType(Init->getType(), DefaultNullability)) ||
-             isExprNullable(Init))) {
-          InitIsNullable = true;
-          if (Reporting) {
-            ++NumAssignmentWarnings;
-            Handler.handleNullableAssignment(VD->getInit(), VD);
-          }
-        }
-      }
-      // A provably nullable init overrides the declared _Nonnull.
-      if (InitIsNullable)
-        State.markNullable(VD);
-      else
+    if (!VD->hasInit()) {
+      if (isNonnullType(VD->getType()))
         State.markNarrowed(VD);
-    } else if (VD->hasInit()) {
-      const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
-      if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
-        if (UO->getOpcode() == UO_AddrOf)
-          narrowAsAddrOf(VD, UO);
-      } else if (isExprNarrowedNonnull(Init) || isNonnullInit(Init) ||
-                 isNonnullType(Init->getType())) {
-        State.markNarrowed(VD);
-      } else {
-        // Judge the cast SOURCE type: template instantiations can bake
-        // _Nullable into a cast's result type even when the source is
-        // unannotated (e.g. static_cast<T*>(void_ptr)).
-        bool HasCast = false;
-        const Expr *TypeExpr = stripNonDynamicCasts(Init, &HasCast);
-        // Ternary merged types are judged arm-by-arm (see above).
-        bool IsTernary = isa<AbstractConditionalOperator>(TypeExpr);
-        if ((!IsTernary &&
-             isNullableType(TypeExpr->getType(), DefaultNullability)) ||
-            isExprNullable(Init)) {
-          State.markNullable(VD);
-        } else if (HasCast) {
-          // The cast source is not nullable, which overrides any _Nullable
-          // baked into the variable's own type by template instantiation.
-          State.markNarrowed(VD);
-        }
-      }
+      return;
     }
+    recordPointerSource(VD, VD->getInit());
+    recordTernaryPointerGuard(VD, VD->getInit());
+    storeToVar(VD, VD->getInit(), VD->getInit());
   }
 
   /// Track smart pointer initialization: narrow if constructed from a
@@ -2051,39 +2028,18 @@ private:
   }
 
   /// Assignment to a member (this->field, var->field, s.field, or nested
-  /// like s.inner.field) invalidates any narrowing on that member, then
-  /// re-narrows if the RHS is provably non-null.
+  /// like s.inner.field) invalidates any narrowing on that member and below
+  /// it, then stores the RHS.
   void handleMemberAssign(const BinaryOperator *BO,
                           const MemberAccessPath &LhsPath) {
     const FieldDecl *FD = LhsPath.leafField();
     invalidateMembersWithPrefix(LhsPath);
-
-    if (BO->getOpcode() == BO_Assign && FD->getType()->isPointerType()) {
-      const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-      bool Narrowed = isExprNarrowedNonnull(RHS);
-      bool IsTernary = isa<AbstractConditionalOperator>(RHS);
-      // Null constant assigned to _Nonnull member: warn immediately.
-      if (!Narrowed && isNonnullType(FD->getType()) && isExprNullable(RHS) &&
-          !isNonnullInit(RHS)) {
-        State.markNullable(LhsPath);
-        if (Reporting) {
-          ++NumAssignmentWarnings;
-          Handler.handleNullableMemberAssignment(BO, FD);
-        }
-      } else {
-        Narrowed = Narrowed || isNonnullInit(RHS) ||
-                   isNonnullType(BO->getRHS()->getType());
-        if (Narrowed) {
-          State.markNarrowed(LhsPath);
-        } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
-                                                 DefaultNullability)) ||
-                   isExprNullable(RHS)) {
-          State.markNullable(LhsPath);
-        }
-      }
-      if (Reporting && (Narrowed || isExprNullable(RHS, /*ExplicitOnly=*/true)))
-        Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
-    }
+    if (BO->getOpcode() != BO_Assign || !FD->getType()->isPointerType())
+      return;
+    bool Narrowed = storePointer(PtrRef{nullptr, LhsPath}, BO->getRHS(), BO);
+    if (Reporting &&
+        (Narrowed || isExprNullable(BO->getRHS(), /*ExplicitOnly=*/true)))
+      Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
   }
 
   /// Assignment to a local or parameter: guard flags re-capture their
@@ -2125,44 +2081,71 @@ private:
     forgetFactsAbout(VD);
 
     if (BO->getOpcode() == BO_Assign) {
-      const Expr *RHS = BO->getRHS()->IgnoreParenImpCasts();
-      recordPointerSource(VD, RHS);
-      recordTernaryPointerGuard(VD, RHS);
-
-      // Ternary merged types are judged arm-by-arm by
-      // isExprNullable/isNonnullInit (see VisitDeclStmt).
-      bool IsTernary = isa<AbstractConditionalOperator>(RHS);
-      const auto *RHSUO = dyn_cast<UnaryOperator>(RHS);
-      if (RHSUO && RHSUO->getOpcode() == UO_AddrOf) {
-        narrowAsAddrOf(VD, RHSUO);
-      } else if (isExprNarrowedNonnull(RHS)) {
-        State.markNarrowed(VD);
-      } else if (isNonnullType(VD->getType()) && isExprNullable(RHS) &&
-                 !isNonnullInit(RHS)) {
-        // Null constant assigned to _Nonnull: warn immediately.
-        // Check before isNonnullInit/isNonnullType because implicit
-        // casts can propagate _Nonnull from the LHS onto the RHS type.
-        State.markNullable(VD);
-        if (Reporting) {
-          ++NumAssignmentWarnings;
-          Handler.handleNullableAssignment(BO, VD);
-        }
-      } else if (isNonnullInit(RHS)) {
-        State.markNarrowed(VD);
-      } else if (isNonnullType(BO->getRHS()->getType())) {
-        State.markNarrowed(VD);
-      } else if ((!IsTernary && isNullableType(BO->getRHS()->getType(),
-                                               DefaultNullability)) ||
-                 isExprNullable(RHS)) {
-        State.markNullable(VD);
-        if (isNonnullType(VD->getType())) {
-          if (Reporting) {
-            ++NumAssignmentWarnings;
-            Handler.handleNullableAssignment(BO, VD);
-          }
-        }
-      }
+      recordPointerSource(VD, BO->getRHS());
+      recordTernaryPointerGuard(VD, BO->getRHS());
+      storeToVar(VD, BO->getRHS(), BO);
     }
+  }
+
+  /// Store RHS into a pointer variable. &local additionally records the
+  /// target so a later store through VD can invalidate it.
+  void storeToVar(const VarDecl *VD, const Expr *RHS, const Expr *DiagExpr) {
+    if (const auto *UO = dyn_cast<UnaryOperator>(RHS->IgnoreParenImpCasts()))
+      if (UO->getOpcode() == UO_AddrOf) {
+        narrowAsAddrOf(VD, UO);
+        return;
+      }
+    storePointer(PtrRef{VD, std::nullopt}, RHS, DiagExpr);
+  }
+
+  /// Record Target's facts after it is assigned or initialized from RHS, and
+  /// report a nullable value stored into a declared _Nonnull target. The
+  /// caller has already dropped Target's old facts. Returns whether Target is
+  /// now known non-null: from the value, or, when the value is unknown, from
+  /// a _Nonnull declaration.
+  bool storePointer(const PtrRef &Target, const Expr *RHS,
+                    const Expr *DiagExpr) {
+    bool DeclaredNonnull = isNonnullType(Target.getType());
+    switch (classifyStoredValue(RHS)) {
+    case StoredValue::Nullable:
+      // A provably nullable value overrides the declared _Nonnull.
+      State.markNullable(Target);
+      if (DeclaredNonnull && Reporting) {
+        ++NumAssignmentWarnings;
+        if (Target.VD)
+          Handler.handleNullableAssignment(DiagExpr, Target.VD);
+        else
+          Handler.handleNullableMemberAssignment(DiagExpr,
+                                                 Target.Path->leafField());
+      }
+      return false;
+    case StoredValue::Nonnull:
+      State.markNarrowed(Target);
+      return true;
+    case StoredValue::Unknown:
+      if (!DeclaredNonnull)
+        return false;
+      State.markNarrowed(Target);
+      return true;
+    }
+    llvm_unreachable("unhandled StoredValue");
+  }
+
+  /// The single judgment behind every pointer store (variable init,
+  /// assignment, member assignment, aggregate init). Flow facts about the
+  /// value come first: its narrowing, then any taint, which beats a _Nonnull
+  /// declaration (a _Nonnull variable assigned null reads as Nullable
+  /// wherever it is copied). Only then do proofs from the expression's form
+  /// or declared type count.
+  StoredValue classifyStoredValue(const Expr *E) const {
+    E = E->IgnoreParenImpCasts();
+    if (isExprNarrowedNonnull(E))
+      return StoredValue::Nonnull;
+    if (isExprNullable(E))
+      return StoredValue::Nullable;
+    if (isNonnullInit(E))
+      return StoredValue::Nonnull;
+    return StoredValue::Unknown;
   }
 
   /// Whether VD is narrowed (proven non-null) in the current state.
@@ -2725,6 +2708,17 @@ private:
     }
     if (isa<CXXThisExpr>(E))
       return false;
+    // p + n and p - n carry p's null-ness (arithmetic on a nullable p is
+    // diagnosed on its own), matching isNonnullInit. Without this the
+    // unannotated arithmetic type decides, and container_of on a narrowed
+    // pointer reads as nullable.
+    if (const auto *BO = dyn_cast<BinaryOperator>(E))
+      if (E->getType()->isPointerType() &&
+          (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub))
+        return isExprNullable(BO->getLHS()->getType()->isPointerType()
+                                  ? BO->getLHS()
+                                  : BO->getRHS(),
+                              ExplicitOnly);
     // For non-variable expressions, fall back to the declared type.
     return isNullableByType(E->getType(), ExplicitOnly);
   }
@@ -2801,59 +2795,6 @@ static NullState seedEntryState(const Decl *D) {
       InitState.markNarrowed(Param);
   }
   return InitState;
-}
-
-/// Emit nonnull/nullable evidence for constructor member initializer lists.
-/// These use CXXCtorInitializer (': field(expr)'), not BinaryOperator, so the
-/// dataflow's assignment handler never sees them.
-static void emitCtorInitEvidence(const Decl *D, ASTContext &Ctx,
-                                 const NullState &InitState,
-                                 FlowNullabilityHandler &Handler) {
-  const auto *CD = dyn_cast_or_null<CXXConstructorDecl>(D);
-  if (!CD)
-    return;
-  for (const auto *CI : CD->inits()) {
-    if (!CI->isAnyMemberInitializer())
-      continue;
-    const FieldDecl *FD = CI->getMember();
-    if (!FD || !FD->getType()->isPointerType())
-      continue;
-    const Expr *Init = CI->getInit();
-    if (!Init)
-      continue;
-    Init = Init->IgnoreParenImpCasts();
-    bool IsNonnull = false;
-    if (isNonnullType(Init->getType()))
-      IsNonnull = true;
-    // A parameter narrowed on entry (__attribute__((nonnull)) on the
-    // constructor) counts as non-null.
-    if (!IsNonnull) {
-      if (const auto *DRE = dyn_cast<DeclRefExpr>(Init))
-        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-          if (InitState.NarrowedVars.contains(VD))
-            IsNonnull = true;
-    }
-    if (!IsNonnull) {
-      if (const auto *UO = dyn_cast<UnaryOperator>(Init))
-        if (UO->getOpcode() == UO_AddrOf)
-          IsNonnull = true;
-    }
-    if (!IsNonnull) {
-      if (const auto *NE = dyn_cast<CXXNewExpr>(Init))
-        if (!NE->shouldNullCheckAllocation())
-          IsNonnull = true;
-    }
-    if (!IsNonnull && isa<CXXThisExpr>(Init))
-      IsNonnull = true;
-    // Nullable evidence needs an explicit source (nullptr or _Nullable), never
-    // an unannotated parameter.
-    bool IsExplicitlyNullable =
-        !IsNonnull &&
-        (Init->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull) ||
-         isExplicitlyNullableType(Init->getType()));
-    if (IsNonnull || IsExplicitlyNullable)
-      Handler.handleMemberAssignEvidence(Init, FD, IsNonnull);
-  }
 }
 
 /// Apply branch-condition narrowing to a block's outgoing edges. Given the
@@ -2968,7 +2909,6 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
   const CFGBlock &Entry = Cfg->getEntry();
   const auto *EnclosingFunc = dyn_cast_or_null<FunctionDecl>(AC.getDecl());
   NullState InitState = seedEntryState(AC.getDecl());
-  emitCtorInitEvidence(AC.getDecl(), Ctx, InitState, Handler);
 
   BlockEntryStates[Entry.getBlockID()] = InitState;
   Worklist.enqueueBlock(&Entry);
@@ -3058,6 +2998,13 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
         }
       }
     }
+  }
+
+  if (const auto *CD = dyn_cast_or_null<CXXConstructorDecl>(AC.getDecl())) {
+    NullState State = InitState;
+    TransferFunctions(State, Handler, Returns, Ctx, Default, StdlibAnnotations,
+                      EnclosingFunc, &PM, /*Reporting=*/true)
+        .reportCtorInitEvidence(CD);
   }
 
   // Reporting pass: each reached block once, from its final entry state. An
