@@ -60,7 +60,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | F0 | Reduced real-bug regression tests (`SemaCXX/nullability-safety-reduced-real-bugs.cpp`); must keep passing through every F step | done |
 | F1 | Smart pointers: in nonnull mode an unchecked smart pointer takes the declared default like a raw pointer; explicit taint for default construction, `= nullptr`, `release()`, `swap()` | done (below) |
 | F1b | libstdc++ `shared_ptr`: `s->` / `*s` resolve to the base class `__shared_ptr_access`, whose type is not a smart pointer, so no dereference is checked (both modes, predates F1; libc++ and `unique_ptr` are fine) | todo |
-| F4 | Output parameters: a pointer escaping as `&p` to `T **` or binding to `T *&` / `const T *&` loses its nullable facts and guards (reuse `invalidateBoolGuardsFor` / `invalidateMembersFor`); narrowing is kept | todo |
+| F4 | Output parameters: a pointer escaping as `&p` to `T **` or binding to `T *&` / `const T *&` loses its nullable facts and guards (reuse `invalidateBoolGuardsFor` / `invalidateMembersFor`); narrowing is kept | done (below) |
 | F5 | Lambdas: drop the call-site `IsLambdaCall` nonnull promotion; argument check only for `_Nonnull` or `nonnull(N)` (first parameter is `nonnull(2)`) | todo |
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | todo |
 | 5c | SSAF whole-program propagation (below) | todo |
@@ -103,6 +103,30 @@ and default-then-assigned are silent; default, `release`, both swaps,
 moved-from and `reset` warn. sqlite: no change (C). Re-scan the internal
 codebases to measure the effect; the worksheet predicts most of the 729
 smart-pointer sites disappear.
+
+## F4 results
+
+`pointerWritableByCallee` / `escapeToCallee` in `checkCallArguments`:
+`&p` to a non-const `T **`, `p` bound to a non-const `T *&` (including
+`const T *&`), or `pp` whose `AddrOfTargets` entry is `p` clears `p`'s
+nullable fact, its nullable member paths, the guards that name it or are
+keyed on it, and `AddrOfTargets[p]`. Narrowing and aliases are kept.
+
+Aliases on purpose: invalidating them was tried and gained one warning in
+both modes at sqlite `allocateBtreePage` (`pPrevTrunk = pTrunk`, then
+`&pTrunk` escapes, then `if (!pPrevTrunk) ... else pTrunk->aData`). The
+stale alias narrowing hid a path the analysis cannot rule out (the error arm
+that skips the escape exits via `if (rc) goto`, which it does not model).
+Keeping the alias is a possible miss, dropping it is a certain false
+positive; `*pp = X` does not invalidate aliases either.
+
+sqlite vs F1: nonnull lost 32 / gained 0 (output-parameter false positives,
+mostly `MemPage *` / `PgHdr *` / `Expr *` locals filled through `&p`),
+nullable 0 / 0. Evidence lost 67 / gained 64: 64 argument remarks flip from
+`nullable` to `nonnull` where the argument was last written by a callee (the
+stale `= 0` no longer counts), and 3 `assigned from nullable source` member
+remarks disappear because the source is no longer provably nullable. Lit
+54/54, including the stale-guard false negative the escape fixes.
 
 `nullsafe-upstream` keeps its name: it is the head of llvm PR #189131, and
 GitHub cannot retarget a PR's head branch.
