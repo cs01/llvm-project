@@ -33,7 +33,7 @@ tools/nullability-gates.sh --diff base new
 | 1 | Report diagnostics and evidence only from converged dataflow states (silent fixpoint, then one reporting pass) | done (fixed contradictory `returns nonnull` + `returns nullable` evidence for one return) |
 | 2 | One `classifyStoredValue()` / `storePointer()` for every pointer store (var init, var assign, member assign, aggregate init, ctor-init evidence) | done |
 | 3 | Restore `llvm/` and Lex files to upstream; one playground wasm build script shared with CI; allowlist `sync-upstream.sh`; untrack junk | done |
-| - | Rebase onto `llvm/main` (2026-09-22); default branch renamed `nullsafe-clang-dev` -> `nullability-safety` | rebased and pushed; **gates not yet run on the rebased tree** (first thing to do: full build + `tools/nullability-gates.sh rebase`, compare counts above) |
+| - | Rebase onto `llvm/main` (2026-09-22); default branch renamed `nullsafe-clang-dev` -> `nullability-safety` | done; gates green on the rebased tree (lit 50/50, sqlite nonnull/nullable/evidence byte-identical to the pre-rebase step 2 lists) |
 | 4 | Stop tagging types with `_Null_unspecified` unless a function opted in; drop the duplicate null-init warning (`warn_null_init_nonnull` vs flow `warn_flow_nullable_assignment`) | next |
 | 6 | Rename to **NullabilitySafety** everywhere (moved before 5 so new files get final names) | todo |
 | 5 | API: options struct, summary oracle split from the handler, drop the unused `SrcExpr` parameter, one Sema opt-in predicate; replace evidence remarks with SSAF (below) | todo |
