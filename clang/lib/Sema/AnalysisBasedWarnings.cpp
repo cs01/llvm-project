@@ -3062,14 +3062,14 @@ class FlowNullabilityReporter : public FlowNullabilityHandler {
   // SCCs where we can't reliably infer all-returns-nonnull without a
   // fixpoint, but still want to read existing results and emit warnings).
   bool SuppressInference = false;
-  // Diagnostics are buffered here during the dataflow fixpoint and emitted
-  // by emitDiagnostics() afterwards (same pattern as ThreadSafetyReporter).
-  // Transfer functions run on every block re-visit, so emitting directly
-  // from the callbacks duplicates warnings and evidence remarks whenever a
-  // back-edge changes a block's entry state.
+  // Buffered so emitDiagnostics() can sort by source location: the analysis
+  // reports in CFG block order, not source order (same pattern as
+  // ThreadSafetyReporter).
   DiagList Warnings;
-  // Dedupe key: (diag ID, location, distinguishing argument). The same
-  // callback can fire repeatedly for the same statement across re-visits.
+  // Dedupe key: (diag ID, location, distinguishing argument). One location
+  // can legitimately be reported more than once per function: a nullptr
+  // default argument yields parameter evidence at the default's location from
+  // every call site that omits it, and `p - p` reports p for both operands.
   llvm::DenseSet<std::tuple<unsigned, SourceLocation, const void *>>
       SeenDiags;
 

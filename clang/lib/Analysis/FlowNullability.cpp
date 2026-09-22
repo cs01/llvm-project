@@ -42,6 +42,10 @@
 // runFlowNullabilityAnalysis caps total block visits as a termination safety
 // net and suppresses summary inference if the cap fires.
 //
+// The fixpoint is silent. Diagnostics, evidence, and the return summary come
+// from a second pass that visits each reached block once with its converged
+// entry state (the UninitializedValues pattern).
+//
 //===----------------------------------------------------------------------===//
 
 #include "clang/Analysis/Analyses/FlowNullability.h"
@@ -1397,16 +1401,21 @@ class TransferFunctions : public ConstStmtVisitor<TransferFunctions> {
   const FunctionDecl *EnclosingFunc;
   // Function-scoped parent map; see isStdMoveInsideSmartPtrTransferCtx.
   const ParentMap *ParentMapPtr;
+  // False during the fixpoint, whose intermediate states are not final:
+  // reports and the return summary come only from the reporting pass over
+  // converged block entry states. Summary queries run in both.
+  bool Reporting;
 
 public:
   TransferFunctions(NullState &State, FlowNullabilityHandler &Handler,
                     ReturnSummary &Returns, ASTContext &Ctx,
                     NullabilityKind DefaultNullability, bool StdlibAnnotations,
-                    const FunctionDecl *EnclosingFunc, const ParentMap *PM)
+                    const FunctionDecl *EnclosingFunc, const ParentMap *PM,
+                    bool Reporting)
       : State(State), Handler(Handler), Returns(Returns), Ctx(Ctx),
         DefaultNullability(DefaultNullability),
         StdlibAnnotations(StdlibAnnotations), EnclosingFunc(EnclosingFunc),
-        ParentMapPtr(PM) {}
+        ParentMapPtr(PM), Reporting(Reporting) {}
 
   /// Classify each declared pointer, smart pointer, or guard flag from its
   /// initializer.
@@ -1597,8 +1606,10 @@ public:
         continue;
       const Expr *Init = ILE->getInit(I)->IgnoreParenImpCasts();
       if (isExprNullable(Init)) {
-        ++NumAssignmentWarnings;
-        Handler.handleNullableMemberAssignment(ILE->getInit(I), FD);
+        if (Reporting) {
+          ++NumAssignmentWarnings;
+          Handler.handleNullableMemberAssignment(ILE->getInit(I), FD);
+        }
       }
     }
   }
@@ -1618,6 +1629,8 @@ public:
     // Return evidence is skipped for lambdas and other non-identifier-named
     // functions: they have no cross-TU identity, and getName() would assert.
     bool RetIsNonnull = !isExprNullable(RetVal);
+    if (!Reporting)
+      return;
     Returns.HasPointerReturn = true;
     Returns.AllNonnull &= RetIsNonnull;
     if (EnclosingFunc->getDeclName().isIdentifier()) {
@@ -1654,8 +1667,10 @@ private:
               isNullableType(Init->getType(), DefaultNullability)) ||
              isExprNullable(Init))) {
           InitIsNullable = true;
-          ++NumAssignmentWarnings;
-          Handler.handleNullableAssignment(VD->getInit(), VD);
+          if (Reporting) {
+            ++NumAssignmentWarnings;
+            Handler.handleNullableAssignment(VD->getInit(), VD);
+          }
         }
       }
       // A provably nullable init overrides the declared _Nonnull.
@@ -1839,7 +1854,7 @@ private:
 
     // Evidence runs as a second pass so every argument is judged after all
     // nonnull-parameter narrowing from this call has been applied.
-    if (EmitEvidence) {
+    if (EmitEvidence && Reporting) {
       for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
            ++I) {
         const ParmVarDecl *Param = Callee->getParamDecl(I);
@@ -2051,8 +2066,10 @@ private:
       if (!Narrowed && isNonnullType(FD->getType()) && isExprNullable(RHS) &&
           !isNonnullInit(RHS)) {
         State.markNullable(LhsPath);
-        ++NumAssignmentWarnings;
-        Handler.handleNullableMemberAssignment(BO, FD);
+        if (Reporting) {
+          ++NumAssignmentWarnings;
+          Handler.handleNullableMemberAssignment(BO, FD);
+        }
       } else {
         Narrowed = Narrowed || isNonnullInit(RHS) ||
                    isNonnullType(BO->getRHS()->getType());
@@ -2064,7 +2081,7 @@ private:
           State.markNullable(LhsPath);
         }
       }
-      if (Narrowed || isExprNullable(RHS, /*ExplicitOnly=*/true))
+      if (Reporting && (Narrowed || isExprNullable(RHS, /*ExplicitOnly=*/true)))
         Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
     }
   }
@@ -2126,8 +2143,10 @@ private:
         // Check before isNonnullInit/isNonnullType because implicit
         // casts can propagate _Nonnull from the LHS onto the RHS type.
         State.markNullable(VD);
-        ++NumAssignmentWarnings;
-        Handler.handleNullableAssignment(BO, VD);
+        if (Reporting) {
+          ++NumAssignmentWarnings;
+          Handler.handleNullableAssignment(BO, VD);
+        }
       } else if (isNonnullInit(RHS)) {
         State.markNarrowed(VD);
       } else if (isNonnullType(BO->getRHS()->getType())) {
@@ -2137,8 +2156,10 @@ private:
                  isExprNullable(RHS)) {
         State.markNullable(VD);
         if (isNonnullType(VD->getType())) {
-          ++NumAssignmentWarnings;
-          Handler.handleNullableAssignment(BO, VD);
+          if (Reporting) {
+            ++NumAssignmentWarnings;
+            Handler.handleNullableAssignment(BO, VD);
+          }
         }
       }
     }
@@ -2200,8 +2221,10 @@ private:
 
   /// Count and report a nullable dereference to the handler.
   void reportDeref(const Expr *DerefExpr, QualType PtrType) {
-    ++NumDereferenceWarnings;
-    Handler.handleNullableDereference(DerefExpr, PtrType);
+    if (Reporting) {
+      ++NumDereferenceWarnings;
+      Handler.handleNullableDereference(DerefExpr, PtrType);
+    }
   }
 
   /// Report DerefExpr when PtrType (already adjusted by the caller for flow
@@ -2318,8 +2341,10 @@ private:
   void checkVarArithmetic(const Expr *ArithExpr, const VarDecl *VD) {
     if (!isNarrowed(VD) && (isNullableType(VD->getType(), DefaultNullability) ||
                             State.NullableVars.contains(VD))) {
-      ++NumArithmeticWarnings;
-      Handler.handleNullableArithmetic(ArithExpr, VD->getType(), VD);
+      if (Reporting) {
+        ++NumArithmeticWarnings;
+        Handler.handleNullableArithmetic(ArithExpr, VD->getType(), VD);
+      }
     }
   }
 
@@ -2577,8 +2602,10 @@ private:
   void checkNonnullParamArg(const Expr *ArgExpr, const ParmVarDecl *Param) {
     const Expr *Arg = ArgExpr->IgnoreParenImpCasts();
     if (isExprNullable(Arg)) {
-      ++NumArgumentWarnings;
-      Handler.handleNullableArgument(ArgExpr, Param);
+      if (Reporting) {
+        ++NumArgumentWarnings;
+        Handler.handleNullableArgument(ArgExpr, Param);
+      }
     }
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
@@ -2990,8 +3017,8 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     if (FirstPred)
       continue;
 
-    // Skip a block whose entry state is unchanged; re-processing it would
-    // duplicate warnings. The entry block is exempt because its pre-seeded
+    // Skip a block whose entry state is unchanged: its outgoing edges would
+    // not change either. The entry block is exempt because its pre-seeded
     // state would always match.
     if (BlockID != Entry.getBlockID()) {
       auto OldIt = BlockEntryStates.find(BlockID);
@@ -3003,7 +3030,8 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
     BlockEntryStates[BlockID] = State;
 
     TransferFunctions TF(State, Handler, Returns, Ctx, Default,
-                         StdlibAnnotations, EnclosingFunc, &PM);
+                         StdlibAnnotations, EnclosingFunc, &PM,
+                         /*Reporting=*/false);
     for (const auto &Elem : *Block) {
       if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
         if (const Stmt *S = CS->getStmt())
@@ -3030,6 +3058,25 @@ void clang::runFlowNullabilityAnalysis(AnalysisDeclContext &AC,
         }
       }
     }
+  }
+
+  // Reporting pass: each reached block once, from its final entry state. An
+  // intermediate state can be more optimistic than the converged one (a
+  // back-edge taint has not arrived yet), so reporting during the fixpoint
+  // would emit facts the final states contradict. After a visit-cap bailout
+  // the states are the last ones observed.
+  for (const CFGBlock *Block : *Cfg) {
+    auto It = BlockEntryStates.find(Block->getBlockID());
+    if (It == BlockEntryStates.end())
+      continue;
+    NullState State = It->second;
+    TransferFunctions TF(State, Handler, Returns, Ctx, Default,
+                         StdlibAnnotations, EnclosingFunc, &PM,
+                         /*Reporting=*/true);
+    for (const auto &Elem : *Block)
+      if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
+        if (const Stmt *S = CS->getStmt())
+          TF.Visit(S);
   }
 
   emitAllReturnsNonnullSummary(AC.getDecl(), HitVisitCap, Returns, Handler);
