@@ -3,7 +3,7 @@
 set -e
 
 REPO="cs01/llvm-project"
-BRANCH="nullsafe-clang-dev"
+BRANCH="nullability-safety"
 INSTALLER_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/install-interactive.sh"
 
 echo "Downloading Nullsafe Clang installer..."

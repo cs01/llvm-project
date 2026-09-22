@@ -1,5 +1,5 @@
 # Creates GitHub releases from successful builds.
-# - Branch pushes to nullsafe-clang-dev: rolling "latest" release (replaced each time)
+# - Branch pushes to nullability-safety: rolling "latest" release (replaced each time)
 # - Version tags (v*): permanent versioned release
 name: Create Clang Release
 
@@ -101,7 +101,7 @@ jobs:
 
             **Quick install (Linux/macOS):**
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullsafe-clang-dev/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullability-safety/install.sh | bash
             ```
 
             **Manual install:**
@@ -126,7 +126,7 @@ jobs:
             ### Try it online:
             Interactive WebAssembly playground: https://cs01.github.io/llvm-project/
 
-            See the [README](https://github.com/cs01/llvm-project/blob/nullsafe-clang-dev/README.md) for full documentation.
+            See the [README](https://github.com/cs01/llvm-project/blob/nullability-safety/README.md) for full documentation.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -146,7 +146,7 @@ jobs:
 
             Built from commit ${{ github.event.workflow_run.head_sha }}
 
-            This release is automatically updated on every push to `nullsafe-clang-dev`.
+            This release is automatically updated on every push to `nullability-safety`.
 
             ### What's included:
 
@@ -162,7 +162,7 @@ jobs:
 
             **Quick install (Linux/macOS):**
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullsafe-clang-dev/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullability-safety/install.sh | bash
             ```
 
             **Manual install:**
@@ -187,6 +187,6 @@ jobs:
             ### Try it online:
             Interactive WebAssembly playground: https://cs01.github.io/llvm-project/
 
-            See the [README](https://github.com/cs01/llvm-project/blob/nullsafe-clang-dev/README.md) for full documentation.
+            See the [README](https://github.com/cs01/llvm-project/blob/nullability-safety/README.md) for full documentation.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

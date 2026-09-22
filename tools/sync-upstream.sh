@@ -1,5 +1,5 @@
 #!/bin/bash
-# Rebuilds the nullsafe-upstream branch from nullsafe-clang-dev,
+# Rebuilds the nullsafe-upstream branch from nullability-safety,
 # including only the core compiler changes suitable for an upstream PR.
 # All fork-specific files (playground, install scripts, CI, WASM hacks,
 # docs, benchmarks, etc.) are excluded.
@@ -12,10 +12,10 @@
 
 set -euo pipefail
 
-DEV_BRANCH="nullsafe-clang-dev"
+DEV_BRANCH="nullability-safety"
 # default to -wip so we don't accidentally update the llvm PR
 UPSTREAM_BRANCH="nullsafe-upstream-wip"
-# Use the commit where nullsafe-clang-dev diverged from llvm/main.
+# Use the commit where nullability-safety diverged from llvm/main.
 # This ensures CI builds against the same upstream code we developed on.
 BASE_REF="$(git merge-base llvm/main "$DEV_BRANCH")"
 

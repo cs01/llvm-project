@@ -18,7 +18,7 @@ The key value proposition is:
 
 ## What Is In The PR vs. What Is In `nullsafe-upstream`
 
-The overall `nullsafe-clang-dev` branch contains three kinds of work:
+The overall `nullability-safety` branch contains three kinds of work:
 
 - core compiler analysis work
 - tests and correctness fixes around that analysis
@@ -298,7 +298,7 @@ Avoid saying:
 
 ## If You Need To Explain The Broader Branch
 
-The broader `nullsafe-clang-dev` branch is not just the upstream compiler patch. It also adds:
+The broader `nullability-safety` branch is not just the upstream compiler patch. It also adds:
 
 - extensive docs and architecture writeups
 - playground/demo UX

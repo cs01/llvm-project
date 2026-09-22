@@ -3,10 +3,10 @@ name: Test Null-Safety
 on:
   push:
     branches:
-      - nullsafe-clang-dev
+      - nullability-safety
   pull_request:
     branches:
-      - nullsafe-clang-dev
+      - nullability-safety
   workflow_dispatch:
 
 jobs:

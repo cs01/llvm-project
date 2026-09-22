@@ -9,7 +9,7 @@ on:
   # Also deploy on push (for HTML/JS-only changes that skip the WASM build)
   push:
     branches:
-      - nullsafe-clang-dev
+      - nullability-safety
     paths:
       - 'nullsafe-playground/**'
   workflow_dispatch:
@@ -80,7 +80,7 @@ jobs:
 
           git rm -rf . 2>/dev/null || true
 
-          git checkout nullsafe-clang-dev -- nullsafe-playground
+          git checkout nullability-safety -- nullsafe-playground
           mv nullsafe-playground/* .
           rm -rf nullsafe-playground
 

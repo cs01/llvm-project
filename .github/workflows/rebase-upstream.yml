@@ -1,4 +1,4 @@
-# Automatically rebases nullsafe-clang-dev onto upstream llvm/main.
+# Automatically rebases nullability-safety onto upstream llvm/main.
 # Runs weekly and can be triggered manually. Opens a GitHub issue on conflict.
 name: Rebase on Upstream LLVM
 
@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout nullsafe-clang-dev
+      - name: Checkout nullability-safety
         uses: actions/checkout@v4
         with:
-          ref: nullsafe-clang-dev
+          ref: nullability-safety
           # full history needed for rebase
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -52,7 +52,7 @@ jobs:
 
       - name: Push rebased branch
         if: steps.rebase.outputs.status == 'success'
-        run: git push --force-with-lease origin nullsafe-clang-dev
+        run: git push --force-with-lease origin nullability-safety
 
       - name: Open issue on conflict
         if: steps.rebase.outputs.status == 'conflict'
@@ -71,7 +71,7 @@ jobs:
               --title "Rebase conflict with upstream llvm/main" \
               --label "rebase-conflict" \
               --body "$(cat <<'EOF'
-          The automated weekly rebase of `nullsafe-clang-dev` onto `llvm/main` hit conflicts.
+          The automated weekly rebase of `nullability-safety` onto `llvm/main` hit conflicts.
 
           **Conflicting files:**
           ```
@@ -84,7 +84,7 @@ jobs:
           git rebase llvm/main
           # fix conflicts
           git rebase --continue
-          git push --force-with-lease origin nullsafe-clang-dev
+          git push --force-with-lease origin nullability-safety
           ```
 
           This issue will be updated weekly until resolved. Close it after a successful rebase.
