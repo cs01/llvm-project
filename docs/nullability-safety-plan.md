@@ -57,10 +57,35 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | 4 | Stop tagging types with `_Null_unspecified` unless `-fnullability-default=nullable` (the only mode where the tag changes results); drop the duplicate null-init warning (`warn_null_init_nonnull` vs flow `warn_flow_nullable_assignment`) | done (sqlite below) |
 | 6 | Rename to **NullabilitySafety** everywhere (moved before 5 so new files get final names); update the gates script's filename globs; decide explicitly whether old flag spellings stay as aliases | done: hard cut, no aliases (below) |
 | 5a | API: options struct, summary oracle split from the handler, drop the unused `SrcExpr` parameter, one Sema opt-in predicate | done (below) |
+| F0 | Reduced real-bug regression tests (`SemaCXX/nullability-safety-reduced-real-bugs.cpp`); must keep passing through every F step | done |
+| F1 | Smart pointers: in nonnull mode an unchecked smart pointer takes the declared default like a raw pointer; explicit taint for default construction, `= nullptr`, `release()`, `swap()` | todo |
+| F4 | Output parameters: a pointer escaping as `&p` to `T **` or binding to `T *&` / `const T *&` loses its nullable facts and guards (reuse `invalidateBoolGuardsFor` / `invalidateMembersFor`); narrowing is kept | todo |
+| F5 | Lambdas: drop the call-site `IsLambdaCall` nonnull promotion; argument check only for `_Nonnull` or `nonnull(N)` (first parameter is `nonnull(2)`) | todo |
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | todo |
 | 5c | SSAF whole-program propagation (below) | todo |
 | 5d | SSAF source transformation; then delete the remarks, the `handle*Evidence` callbacks, and the remark-scraping loop | todo |
+| F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | todo |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | todo |
+
+## False-positive track (F steps)
+
+From a scan of large real-world C++ code under
+`-fnullability-default=nonnull`: hundreds of warnings, the smart-pointer
+ones none of them a real bug. Governing rule: a missed
+bug is acceptable, a spurious warning is not. Design, trade-offs and the
+target-behavior lit tests for each step are in the local worksheet
+`docs/nullability-safety-fp-classes.md`, which cites internal code and stays
+untracked: this branch is pushed to a public fork, so nothing here (plan,
+tests, commit messages) may name internal projects, paths or code.
+
+Per F step: copy that step's test from the worksheet into
+`clang/test/SemaCXX/`, confirm it is red only on the lines the worksheet
+lists, implement, run the gates (sqlite diffs explained here as usual),
+confirm `nullability-safety-reduced-real-bugs.cpp` still passes. Order: F0,
+F1, F4, F5 (small, independent of SSAF), then 5b-5d, then F2a (largest,
+riskiest). Rejected: correlations lost at joins, arithmetic correlations
+(suppress per line). Assertion handlers: document `analyzer_noreturn`, no
+analysis change.
 
 `nullsafe-upstream` keeps its name: it is the head of llvm PR #189131, and
 GitHub cannot retarget a PR's head branch.
