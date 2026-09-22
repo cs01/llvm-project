@@ -137,7 +137,7 @@ void api_function(int *out, int * _Nullable input) {
 #pragma clang assume_nonnull end
 ```
 
-You can migrate one function, one file, or one module at a time. [GRADUAL_MIGRATION.md](GRADUAL_MIGRATION.md) walks through the options, including running the analysis over a `compile_commands.json` without changing your build.
+You can migrate one function, one file, or one module at a time.
 
 ### In the build or as a separate pass
 
