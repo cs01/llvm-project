@@ -663,16 +663,26 @@ static ExplicitCastInfo getExplicitCastInfo(const Expr *E) {
 /// and check whether the declared type carries a _Nonnull qualifier.
 /// Needed because overload resolution on operator->/operator* strips
 /// the nullability attribute from Obj->getType().
-static bool isSmartPointerDeclaredNonnull(const Expr *E) {
+static QualType getSmartPointerDeclaredType(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      return isNonnullType(VD->getType());
+      return VD->getType();
   } else if (const auto *ME = dyn_cast<MemberExpr>(E)) {
     if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
-      return isNonnullType(FD->getType());
+      return FD->getType();
   }
-  return false;
+  return QualType();
+}
+
+static bool isSmartPointerDeclaredNonnull(const Expr *E) {
+  QualType Ty = getSmartPointerDeclaredType(E);
+  return !Ty.isNull() && isNonnullType(Ty);
+}
+
+static bool isSmartPointerDeclaredNullable(const Expr *E) {
+  QualType Ty = getSmartPointerDeclaredType(E);
+  return !Ty.isNull() && isExplicitlyNullableType(Ty);
 }
 
 /// Check if a type is std::unique_ptr, std::shared_ptr, or std::weak_ptr.
@@ -1559,8 +1569,11 @@ public:
       checkCallArguments(CE, Callee);
     }
 
-    if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE))
+    if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
       handleSmartPtrReset(MCE);
+      handleSmartPtrReleaseOrSwap(MCE);
+    }
+    handleStdSwap(CE);
 
     if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(CE)) {
       handleSmartPtrAssign(OCE);
@@ -1690,6 +1703,21 @@ private:
   /// Track smart pointer initialization: narrow if constructed from a
   /// provably non-null source (make_unique, make_shared, new), or inherit
   /// the source's state from auto x = std::move(other).
+  bool isNullSmartPtrInit(const Expr *Init) const {
+    if (Init->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
+      return true;
+    if (const auto *CCE = dyn_cast<CXXConstructExpr>(Init)) {
+      if (CCE->getNumArgs() == 0)
+        return CCE->getConstructor()->isDefaultConstructor();
+      if (CCE->getNumArgs() == 1)
+        return isNullSmartPtrInit(unwrapImplicitWrappers(CCE->getArg(0)));
+      return false;
+    }
+    if (const auto *CE = dyn_cast<CallExpr>(Init))
+      return isExplicitlyNullableType(CE->getCallReturnType(Ctx));
+    return false;
+  }
+
   void handleSmartPtrVarInit(const VarDecl *VD) {
     // Strip reference: range-for loop variables have type const T&.
     if (isSmartPointerType(VD->getType().getNonReferenceType()) &&
@@ -1698,6 +1726,8 @@ private:
       if (isNonnullSmartPtrInit(Init) ||
           isInitFromNonnullContainerElement(VD)) {
         State.markNarrowed(VD);
+      } else if (isNullSmartPtrInit(Init)) {
+        State.markNullable(VD);
       } else {
         // auto x = std::move(other); inherits the source's narrowed
         // state. The standalone std::move handler skipped the source
@@ -1907,6 +1937,54 @@ private:
     }
   }
 
+  void handleSmartPtrReleaseOrSwap(const CXXMemberCallExpr *MCE) {
+    const Expr *Obj = MCE->getImplicitObjectArgument();
+    const auto *MD = MCE->getMethodDecl();
+    if (!Obj || !MD || !isSmartPointerType(Obj->getType()) ||
+        !MD->getDeclName().isIdentifier())
+      return;
+    if (MD->getName() == "release") {
+      if (auto R = smartPtrRef(Obj)) {
+        State.clear(*R);
+        State.markNullable(*R);
+      }
+    } else if (MD->getName() == "swap" && MCE->getNumArgs() == 1) {
+      swapSmartPtrFacts(Obj, MCE->getArg(0));
+    }
+  }
+
+  void handleStdSwap(const CallExpr *CE) {
+    const FunctionDecl *Callee = CE->getDirectCallee();
+    if (!Callee || CE->getNumArgs() != 2 || !Callee->isInStdNamespace() ||
+        !Callee->getDeclName().isIdentifier() || Callee->getName() != "swap")
+      return;
+    if (isSmartPointerType(CE->getArg(0)->getType()) &&
+        isSmartPointerType(CE->getArg(1)->getType()))
+      swapSmartPtrFacts(CE->getArg(0), CE->getArg(1));
+  }
+
+  void swapSmartPtrFacts(const Expr *A, const Expr *B) {
+    std::optional<PtrRef> RA = smartPtrRef(A), RB = smartPtrRef(B);
+    bool ANarrowed = RA && State.isNarrowed(*RA);
+    bool ANullable = RA && State.isNullable(*RA);
+    bool BNarrowed = RB && State.isNarrowed(*RB);
+    bool BNullable = RB && State.isNullable(*RB);
+    if (RA) {
+      State.clear(*RA);
+      if (BNarrowed)
+        State.markNarrowed(*RA);
+      else if (BNullable)
+        State.markNullable(*RA);
+    }
+    if (RB) {
+      State.clear(*RB);
+      if (ANarrowed)
+        State.markNarrowed(*RB);
+      else if (ANullable)
+        State.markNullable(*RB);
+    }
+  }
+
   /// Handle sp = nullptr / sp = make_unique(...) / sp = std::move(other).
   /// LHS may be a local (VarDecl), a this-member, or a member access chain.
   void handleSmartPtrAssign(const CXXOperatorCallExpr *OCE) {
@@ -1918,13 +1996,15 @@ private:
         // Clear the LHS's proof. A local only loses its narrowing; a member
         // path is additionally marked nullable.
         if (Lhs->VD)
-          State.NarrowedVars.erase(Lhs->VD);
+          State.clear(*Lhs);
         else
           State.markNullable(*Lhs);
         const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
 
         if (isNonnullSmartPtrInit(RHS)) {
           State.markNarrowed(*Lhs);
+        } else if (isNullSmartPtrInit(RHS)) {
+          State.markNullable(*Lhs);
         } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
           if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
             // sp = std::move(other): LHS inherits source's state.
@@ -2187,9 +2267,16 @@ private:
   /// declared _Nonnull. Flow facts after reset/move override the declared
   /// contract.
   void checkSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
-    if (isSmartPointerNullable(Obj) ||
-        (!isSmartPointerDeclaredNonnull(Obj) && !isSmartPointerNarrowed(Obj)))
+    if (isSmartPointerMaybeNull(Obj))
       warnSmartPtrDeref(DerefExpr, Obj);
+  }
+
+  bool isSmartPointerMaybeNull(const Expr *Obj) const {
+    if (isSmartPointerNullable(Obj) || isSmartPointerDeclaredNullable(Obj))
+      return true;
+    if (isSmartPointerNarrowed(Obj) || isSmartPointerDeclaredNonnull(Obj))
+      return false;
+    return Options.DefaultNullability != NullabilityKind::NonNull;
   }
 
   /// Returns true when Base (of a -> access) is an overloaded operator->
@@ -2711,7 +2798,7 @@ private:
           if (isSmartPointerNarrowed(Obj))
             return false;
           if (!ExplicitOnly)
-            return true;
+            return isSmartPointerMaybeNull(Obj);
         }
       }
     }
