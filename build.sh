@@ -1,65 +1,75 @@
 #!/bin/bash
-# Build script to generate clang.wasm and clang.js for the Nullsafe Clang Playground
+# Builds clang.wasm + clang.js for the playground with a stock Emscripten build
+# of this tree (no source patches). CI runs this same script
+# (.github/workflows/build-playground.yml). Needs emsdk activated (emcmake,
+# emcc, em-config on PATH), cmake and ninja.
+#
+# Output: $BUILD_DIR/bin/clang.{wasm,js} (default build-wasm/ at the repo root),
+# also copied next to this script, where serve.py and playground.js load them.
+set -euo pipefail
 
-set -e
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="${BUILD_DIR:-$ROOT/build-wasm}"
+SYSROOT="${SYSROOT:-$ROOT/playground-sysroot}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LLVM_ROOT="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="$LLVM_ROOT/build"
+# Headers embedded into the wasm virtual filesystem: Emscripten's libc and
+# libc++ headers, plus the clang resource headers from this tree.
+mkdir -p "$SYSROOT/include"
+EMSDK_SYSROOT="$(em-config CACHE)/sysroot/include"
+if [ ! -d "$EMSDK_SYSROOT" ]; then
+  # First emcc run populates the Emscripten cache.
+  echo "int main(){}" > "$BUILD_DIR.hello.c"
+  emcc "$BUILD_DIR.hello.c" -o "$BUILD_DIR.hello.js"
+  rm -f "$BUILD_DIR".hello.*
+fi
+cp -r "$EMSDK_SYSROOT"/* "$SYSROOT/include/"
 
-echo "Building Clang WASM for Nullsafe Clang Playground..."
-echo "LLVM Root: $LLVM_ROOT"
-echo "Build Directory: $BUILD_DIR"
+CLANG_VER=$(sed -n 's/.*set(LLVM_VERSION_MAJOR \([0-9]*\).*/\1/p' \
+  "$ROOT/cmake/Modules/LLVMVersion.cmake")
+RESOURCE_DST="$SYSROOT/lib/clang/$CLANG_VER/include"
+mkdir -p "$RESOURCE_DST"
+# Only the portable C/C++ headers; the architecture intrinsics (avx*, arm*,
+# amx*, ...) would add ~14MB to the embedded filesystem.
+for pattern in \
+  '__stddef*' '__stdarg*' '__stdc*' \
+  'stddef.h' 'stdarg.h' 'stdbool.h' 'stdnoreturn.h' 'stdatomic.h' \
+  'stdalign.h' 'stdint.h' \
+  'limits.h' 'float.h' 'inttypes.h' 'iso646.h' \
+  '__clang_hip_*.h' '__wasm*.h' \
+  'unwind.h' 'tgmath.h' 'varargs.h'; do
+  for h in "$ROOT"/clang/lib/Headers/$pattern; do
+    [ -f "$h" ] && cp "$h" "$RESOURCE_DST/"
+  done
+done
+echo "Embedded sysroot: $(du -sh "$SYSROOT" | cut -f1)"
 
-# Check if build directory exists
-if [ ! -d "$BUILD_DIR" ]; then
-    echo "Error: Build directory not found at $BUILD_DIR"
-    echo "Please build Clang first using: ninja -C build clang"
-    exit 1
+# host_path@virtual_path: resource headers at /lib/clang/<ver>/include
+# (-resource-dir), libc and libc++ at /include (-isystem).
+EMBED_FLAGS="--embed-file $RESOURCE_DST@/lib/clang/$CLANG_VER/include"
+EMBED_FLAGS+=" --embed-file $SYSROOT/include@/include"
+
+LAUNCHER=()
+if command -v ccache >/dev/null; then
+  LAUNCHER=(-DCMAKE_C_COMPILER_LAUNCHER=ccache
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
 fi
 
-# Check if clang binary exists
-if [ ! -f "$BUILD_DIR/bin/clang" ]; then
-    echo "Error: Clang binary not found at $BUILD_DIR/bin/clang"
-    echo "Please build Clang first using: ninja -C build clang"
-    exit 1
-fi
-
-# Check if Emscripten is available
-if ! command -v emcc &> /dev/null; then
-    echo "Error: Emscripten not found"
-    echo "Please install Emscripten: https://emscripten.org/docs/getting_started/downloads.html"
-    exit 1
-fi
-
-echo "Compiling Clang to WebAssembly..."
-echo "Note: This may take several minutes and requires significant memory..."
-
-# Use Emscripten to compile the native Clang binary to WASM
-# We'll use the existing build and just wrap it
-# For now, copy from tmp (this is a placeholder - we need proper WASM build)
-if [ -f "/tmp/null-safe-playground/clang.wasm" ]; then
-    echo "Copying WASM files from /tmp/null-safe-playground..."
-    cp /tmp/null-safe-playground/clang.wasm "$SCRIPT_DIR/"
-    cp /tmp/null-safe-playground/clang.js "$SCRIPT_DIR/"
-    echo "Done! WASM files copied to $SCRIPT_DIR"
-else
-    echo "Error: WASM files not found in /tmp/null-safe-playground"
-    echo ""
-    echo "TODO: Implement proper Emscripten build of Clang"
-    echo "This requires:"
-    echo "  1. Building LLVM/Clang with Emscripten toolchain"
-    echo "  2. Using emcc to compile Clang to WASM"
-    echo "  3. See: https://emscripten.org/"
-    exit 1
-fi
-
-echo ""
-echo "Build complete!"
-echo "Files generated:"
-ls -lh "$SCRIPT_DIR/clang.wasm" "$SCRIPT_DIR/clang.js"
-echo ""
-echo "To run the playground:"
-echo "  cd $SCRIPT_DIR"
-echo "  python3 serve.py"
-echo "  Open http://localhost:9000"
+emcmake cmake -S "$ROOT/llvm" -B "$BUILD_DIR" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_ENABLE_PROJECTS=clang \
+  -DLLVM_TARGETS_TO_BUILD=WebAssembly \
+  -DLLVM_ENABLE_THREADS=OFF \
+  -DLLVM_ENABLE_EH=OFF \
+  -DLLVM_ENABLE_RTTI=OFF \
+  -DLLVM_BUILD_TOOLS=OFF \
+  -DLLVM_BUILD_UTILS=OFF \
+  -DLLVM_INCLUDE_TESTS=OFF \
+  -DLLVM_INCLUDE_EXAMPLES=OFF \
+  -DLLVM_ENABLE_TERMINFO=OFF \
+  -DLLVM_ENABLE_ZLIB=OFF \
+  -DLLVM_ENABLE_LIBXML2=OFF \
+  "${LAUNCHER[@]}" \
+  -DCMAKE_EXE_LINKER_FLAGS="-sEXPORTED_RUNTIME_METHODS=callMain -sEXIT_RUNTIME=0 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=33554432 -sINITIAL_MEMORY=268435456 $EMBED_FLAGS"
+ninja -C "$BUILD_DIR" clang
+cp "$BUILD_DIR/bin/clang.wasm" "$BUILD_DIR/bin/clang.js" "$ROOT/nullsafe-playground/"
+ls -lh "$BUILD_DIR/bin/clang.wasm" "$BUILD_DIR/bin/clang.js"
