@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Nullsafe Clang Fork
 
-This is a fork of LLVM/Clang that adds compile-time null pointer dereference checking via flow-sensitive analysis. The fork lives on branch `nullsafe-clang-dev`.
+This is a fork of LLVM/Clang that adds compile-time null pointer dereference checking via flow-sensitive analysis. The fork lives on branch `nullability-safety`.
 
 ## Build
 
@@ -103,10 +103,10 @@ Flow-sensitive checking only activates per-function when inside a `#pragma clang
 
 Two branches are maintained:
 
-- **`nullsafe-clang-dev`** — the full fork with playground, install scripts, CI, WASM build, docs, etc. **All development happens here. Always work on this branch.**
-- **`nullsafe-upstream`** — clean branch with only the core compiler changes (68 files), used for the upstream PR to `llvm/llvm-project`. **Never work directly on this branch** — it is rebuilt from `nullsafe-clang-dev` via `sync-upstream.sh`.
+- **`nullability-safety`** — the full fork with playground, install scripts, CI, WASM build, docs, etc. **All development happens here. Always work on this branch.**
+- **`nullsafe-upstream`** — clean branch with only the core compiler changes (68 files), used for the upstream PR to `llvm/llvm-project`. **Never work directly on this branch** — it is rebuilt from `nullability-safety` via `sync-upstream.sh`.
 
-Run `./tools/sync-upstream.sh` to rebuild `nullsafe-upstream` from the current state of `nullsafe-clang-dev`. It filters out all fork-only files and creates a single commit on top of `llvm/main`.
+Run `./tools/sync-upstream.sh` to rebuild `nullsafe-upstream` from the current state of `nullability-safety`. It filters out all fork-only files and creates a single commit on top of `llvm/main`.
 
 **When adding new files:** if the file is part of the compiler feature (belongs in the upstream PR), make sure it's not caught by `EXCLUDE_PATTERNS` in `tools/sync-upstream.sh`. If the file is fork-only (playground, CI, docs, benchmarks, etc.), add a matching pattern to `EXCLUDE_PATTERNS` so it doesn't leak into the upstream branch.
 

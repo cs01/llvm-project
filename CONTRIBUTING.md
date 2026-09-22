@@ -1,6 +1,6 @@
 # Contributing to Null-Safe Clang
 
-Development branch: `nullsafe-clang-dev`
+Development branch: `nullability-safety`
 
 ## Building
 
@@ -52,7 +52,7 @@ ninja FileCheck count not split-file llvm-config
 
 ## Releases
 
-**Playground:** Push to `nullsafe-clang-dev` → deploys GitHub Pages automatically.
+**Playground:** Push to `nullability-safety` → deploys GitHub Pages automatically.
 
 **WASM files:** `git tag playground-v1.0 && git push origin playground-v1.0`
 

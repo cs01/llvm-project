@@ -3,7 +3,7 @@ name: Build Playground WASM
 on:
   push:
     branches:
-      - nullsafe-clang-dev
+      - nullability-safety
   workflow_dispatch:
 
 permissions:
