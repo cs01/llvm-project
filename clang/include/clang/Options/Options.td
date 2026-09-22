@@ -1759,11 +1759,12 @@ defm nullability_safety : BoolFOption<"nullability-safety",
   PosFlag<SetTrue, [], [ClangOption, CC1Option],
           "Enable flow-sensitive nullability analysis">,
   NegFlag<SetFalse>>;
-defm nullability_stdlib_annotations : BoolFOption<"nullability-stdlib-annotations",
-  LangOpts<"NullabilityStdlibAnnotations">, DefaultTrue,
+defm nullability_libc_nullable_returns : BoolFOption<"nullability-libc-nullable-returns",
+  LangOpts<"NullabilityLibcNullableReturns">, DefaultTrue,
   NegFlag<SetFalse, [], [ClangOption, CC1Option],
-          "Disable treating known stdlib functions (malloc/fopen/...) as "
-          "returning nullable pointers in flow-sensitive nullability analysis">,
+          "Disable treating C library functions that return null on "
+          "failure (malloc/fopen/...) as returning nullable pointers in "
+          "flow-sensitive nullability analysis">,
   PosFlag<SetTrue>>;
 defm xl_pragma_pack : BoolFOption<"xl-pragma-pack",
   LangOpts<"XLPragmaPack">, DefaultFalse,

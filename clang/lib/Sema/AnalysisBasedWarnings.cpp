@@ -3330,7 +3330,7 @@ static void NullabilitySafetyTUAnalysis(
 
   NullabilitySafetyReporter Reporter(S, AllReturnsNonnullFuncs);
   NullabilityKind Default = S.getLangOpts().getNullabilityDefault();
-  bool StdlibAnnotations = S.getLangOpts().NullabilityStdlibAnnotations;
+  bool LibcNullableReturns = S.getLangOpts().NullabilityLibcNullableReturns;
 
   // scc_iterator visits SCCs in reverse topological order: if SCC A calls
   // into SCC B, B is visited first. Within each SCC, we analyze all
@@ -3358,10 +3358,11 @@ static void NullabilitySafetyTUAnalysis(
         NullabilitySafetyReporter SCCReporter(S, AllReturnsNonnullFuncs,
                                               /*SuppressInference=*/true);
         runNullabilitySafetyAnalysis(AC, SCCReporter, Default,
-                                     StdlibAnnotations);
+                                     LibcNullableReturns);
         SCCReporter.emitDiagnostics();
       } else {
-        runNullabilitySafetyAnalysis(AC, Reporter, Default, StdlibAnnotations);
+        runNullabilitySafetyAnalysis(AC, Reporter, Default,
+                                     LibcNullableReturns);
         Reporter.emitDiagnostics();
       }
     }

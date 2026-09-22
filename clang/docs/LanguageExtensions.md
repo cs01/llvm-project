@@ -5724,7 +5724,7 @@ The results of C library functions that return null on failure (`malloc`,
 `strtok`, `strstr`, `strchr`, `strrchr`, `strpbrk`, `memchr`, `bsearch`,
 `tmpnam`, `setlocale`) are treated as `_Nullable` regardless of how the system
 headers declare them. Only functions at global or `std` scope match.
-`-fno-nullability-stdlib-annotations` disables this.
+`-fno-nullability-libc-nullable-returns` disables this.
 
 ### Migration evidence
 

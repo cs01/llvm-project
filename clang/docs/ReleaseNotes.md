@@ -278,7 +278,7 @@ features cannot lower the translation-unit ABI level;
   non-`unspecified` value also opts every function in the translation unit
   into the analysis.
 
-- New option `-fno-nullability-stdlib-annotations` added to stop the
+- New option `-fno-nullability-libc-nullable-returns` added to stop the
   nullability analysis from treating C library functions that return null on
   failure (`malloc`, `fopen`, `getenv`, ...) as returning `_Nullable`.
 

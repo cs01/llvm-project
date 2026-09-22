@@ -8084,8 +8084,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                     options::OPT_fno_nullability_safety);
   // Opt-out for the built-in stdlib nullable-return list (default on); only
   // -fno-... needs forwarding to cc1.
-  Args.addOptOutFlag(CmdArgs, options::OPT_fnullability_stdlib_annotations,
-                     options::OPT_fno_nullability_stdlib_annotations);
+  Args.addOptOutFlag(CmdArgs, options::OPT_fnullability_libc_nullable_returns,
+                     options::OPT_fno_nullability_libc_nullable_returns);
   if (Arg *A = Args.getLastArg(options::OPT_fnullability_default_EQ))
     A->render(Args, CmdArgs);
 

@@ -108,7 +108,7 @@ clang -fnullability-safety -Werror=nullability-safety file.c
 | `-fnullability-default=unspecified` | The default. Only functions with `_Nullable`/`_Nonnull` annotations and code inside `#pragma clang assume_nonnull` are checked |
 | `-fnullability-default=nullable` | Every unannotated pointer is nullable and every function is checked. Most warnings |
 | `-fnullability-default=nonnull` | Every unannotated pointer is nonnull and every function is checked. Annotate only what can be null, as in Kotlin and Swift |
-| `-fno-nullability-stdlib-annotations` | Stop treating `malloc`, `fopen`, `getenv`, `strchr` and similar C library functions as returning nullable (see [Standard library knowledge](#standard-library-knowledge)) |
+| `-fno-nullability-libc-nullable-returns` | Stop treating `malloc`, `fopen`, `getenv`, `strchr` and similar C library functions as returning nullable (see [Standard library knowledge](#standard-library-knowledge)) |
 
 The `-fnullability-*` flags must match across a translation unit and any precompiled headers or modules it uses.
 
@@ -229,11 +229,11 @@ Tools can combine these remarks across a whole codebase to suggest annotations. 
 
 ## Standard library knowledge
 
-**C library.** The analysis treats the results of C library functions that return null on failure as `_Nullable`, even with your system's headers: `malloc`, `calloc`, `realloc`, `aligned_alloc`, `fopen`, `freopen`, `tmpfile`, `getenv`, `strtok`, `strstr`, `strchr`, `strrchr`, `strpbrk`, `memchr`, `bsearch`, `tmpnam`, and `setlocale`. `-fno-nullability-stdlib-annotations` turns this off.
+**C library.** The analysis treats the results of C library functions that return null on failure as `_Nullable`, even with your system's headers: `malloc`, `calloc`, `realloc`, `aligned_alloc`, `fopen`, `freopen`, `tmpfile`, `getenv`, `strtok`, `strstr`, `strchr`, `strrchr`, `strpbrk`, `memchr`, `bsearch`, `tmpnam`, and `setlocale`. `-fno-nullability-libc-nullable-returns` turns this off.
 
 Parameter contracts (for example, that `strcpy` needs non-null arguments) come from `__attribute__((nonnull))` in your libc's headers, which glibc declares and the analysis honors.
 
-**C++ library.** These methods are known to return non-null pointers, so using their results doesn't warn:
+**C++ library.** These methods are known to return non-null pointers, so using their results doesn't warn. This list only removes warnings, so it is always on and has no flag:
 
 - `std::vector`: `data()`, `begin()`, `end()`
 - `std::basic_string`: `c_str()`, `data()`, `begin()`, `end()`

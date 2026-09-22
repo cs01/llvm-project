@@ -861,7 +861,7 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
 /// (malloc, fopen, getenv, strchr, ...). Their results are provably _Nullable
 /// regardless of annotations, so unchecked dereferences always warn. Only
 /// free functions at global or std scope match; the body is the exact set.
-static bool isStdlibNullableReturnCall(const CallExpr *CE) {
+static bool isLibcNullableReturnCall(const CallExpr *CE) {
   if (isa<CXXMemberCallExpr>(CE))
     return false;
   const FunctionDecl *FD = CE->getDirectCallee();
@@ -1398,9 +1398,9 @@ class TransferFunctions : public ConstStmtVisitor<TransferFunctions> {
   ReturnSummary &Returns;
   ASTContext &Ctx;
   NullabilityKind DefaultNullability;
-  // When false, the built-in stdlib nullable-return list (malloc/fopen/...) is
-  // ignored (-fno-nullability-stdlib-annotations).
-  bool StdlibAnnotations;
+  // When false, the built-in C library nullable-return list (malloc/fopen/...)
+  // is ignored (-fno-nullability-libc-nullable-returns).
+  bool LibcNullableReturns;
   // The enclosing function declaration, needed for return type checking.
   const FunctionDecl *EnclosingFunc;
   // Function-scoped parent map; see isStdMoveInsideSmartPtrTransferCtx.
@@ -1413,12 +1413,12 @@ class TransferFunctions : public ConstStmtVisitor<TransferFunctions> {
 public:
   TransferFunctions(NullState &State, NullabilitySafetyHandler &Handler,
                     ReturnSummary &Returns, ASTContext &Ctx,
-                    NullabilityKind DefaultNullability, bool StdlibAnnotations,
-                    const FunctionDecl *EnclosingFunc, const ParentMap *PM,
-                    bool Reporting)
+                    NullabilityKind DefaultNullability,
+                    bool LibcNullableReturns, const FunctionDecl *EnclosingFunc,
+                    const ParentMap *PM, bool Reporting)
       : State(State), Handler(Handler), Returns(Returns), Ctx(Ctx),
         DefaultNullability(DefaultNullability),
-        StdlibAnnotations(StdlibAnnotations), EnclosingFunc(EnclosingFunc),
+        LibcNullableReturns(LibcNullableReturns), EnclosingFunc(EnclosingFunc),
         ParentMapPtr(PM), Reporting(Reporting) {}
 
   /// Classify each declared pointer, smart pointer, or guard flag from its
@@ -2206,10 +2206,10 @@ private:
     return true;
   }
 
-  /// Gate the built-in stdlib nullable-return list on the langopt so
-  /// -fno-nullability-stdlib-annotations fully disables it.
-  bool isStdlibNullableReturn(const CallExpr *CE) const {
-    return StdlibAnnotations && isStdlibNullableReturnCall(CE);
+  /// Gate the built-in C library nullable-return list on the langopt so
+  /// -fno-nullability-libc-nullable-returns fully disables it.
+  bool isLibcNullableReturn(const CallExpr *CE) const {
+    return LibcNullableReturns && isLibcNullableReturnCall(CE);
   }
 
   /// Count and report a nullable dereference to the handler.
@@ -2567,7 +2567,7 @@ private:
     // STL method that contractually returns nonnull. Stdlib nullable functions
     // (malloc, fopen, etc.) are explicitly excluded.
     if (const auto *CE = dyn_cast<CallExpr>(Init)) {
-      if (isStdlibNullableReturn(CE))
+      if (isLibcNullableReturn(CE))
         return false;
       if (isStlNonnullReturnCall(CE))
         return true;
@@ -2690,7 +2690,7 @@ private:
       return NE->shouldNullCheckAllocation();
     if (const auto *CE = dyn_cast<CallExpr>(E)) {
       // Stdlib nullable returns (malloc, fopen, etc.) are provably nullable.
-      if (isStdlibNullableReturn(CE))
+      if (isLibcNullableReturn(CE))
         return true;
       if (isStlNonnullReturnCall(CE))
         return false;
@@ -2893,7 +2893,7 @@ static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
 void clang::runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
                                          NullabilitySafetyHandler &Handler,
                                          NullabilityKind Default,
-                                         bool StdlibAnnotations) {
+                                         bool LibcNullableReturns) {
   CFG *Cfg = AC.getCFG();
   if (!Cfg)
     return;
@@ -2980,7 +2980,7 @@ void clang::runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
     BlockEntryStates[BlockID] = State;
 
     TransferFunctions TF(State, Handler, Returns, Ctx, Default,
-                         StdlibAnnotations, EnclosingFunc, &PM,
+                         LibcNullableReturns, EnclosingFunc, &PM,
                          /*Reporting=*/false);
     for (const auto &Elem : *Block) {
       if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())
@@ -3012,8 +3012,9 @@ void clang::runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
 
   if (const auto *CD = dyn_cast_or_null<CXXConstructorDecl>(AC.getDecl())) {
     NullState State = InitState;
-    TransferFunctions(State, Handler, Returns, Ctx, Default, StdlibAnnotations,
-                      EnclosingFunc, &PM, /*Reporting=*/true)
+    TransferFunctions(State, Handler, Returns, Ctx, Default,
+                      LibcNullableReturns, EnclosingFunc, &PM,
+                      /*Reporting=*/true)
         .reportCtorInitEvidence(CD);
   }
 
@@ -3028,7 +3029,7 @@ void clang::runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
       continue;
     NullState State = It->second;
     TransferFunctions TF(State, Handler, Returns, Ctx, Default,
-                         StdlibAnnotations, EnclosingFunc, &PM,
+                         LibcNullableReturns, EnclosingFunc, &PM,
                          /*Reporting=*/true);
     for (const auto &Elem : *Block)
       if (std::optional<CFGStmt> CS = Elem.getAs<CFGStmt>())

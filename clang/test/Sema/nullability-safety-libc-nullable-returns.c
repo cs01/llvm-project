@@ -1,14 +1,14 @@
-// Opt-out flag for the built-in stdlib nullable-return list (malloc/fopen/...).
+// Opt-out flag for the built-in C library nullable-return list (malloc/fopen/...).
 //
-// By default (-fnullability-stdlib-annotations, implied), the analysis treats
-// known stdlib allocators/lookups as returning nullable pointers, so an
+// By default (-fnullability-libc-nullable-returns, implied), the analysis treats
+// C library allocators and lookups as returning nullable pointers, so an
 // unchecked dereference of their result warns. With
-// -fno-nullability-stdlib-annotations the list is ignored and the same code is
+// -fno-nullability-libc-nullable-returns the list is ignored and the same code is
 // silent.
 //
 // On by default (the negative cc1 flag below is what toggles it off):
 // RUN: %clang_cc1 -fsyntax-only -fnullability-safety -std=c11 -verify=on %s
-// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fno-nullability-stdlib-annotations -std=c11 -verify=off %s
+// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fno-nullability-libc-nullable-returns -std=c11 -verify=off %s
 
 typedef __SIZE_TYPE__ size_t;
 void *malloc(size_t);

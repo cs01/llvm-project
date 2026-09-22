@@ -1512,7 +1512,7 @@ Enable the flow-sensitive, intraprocedural nullability analysis. Use
 `-fno-nullability-safety` to disable it.
 :::
 
-:::{option} -fno-nullability-stdlib-annotations
+:::{option} -fno-nullability-libc-nullable-returns
 
 Stop treating the results of C library functions that return null on failure
 (`malloc`, `fopen`, `getenv`, `strchr`, and similar) as `_Nullable`.
