@@ -71,7 +71,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | done (below) |
 | 5c | SSAF whole-program propagation (below) | done, veto-only (below) |
 | 5d | SSAF source transformation; then delete the remarks and the remark-scraping loop | done; the `handle*Evidence` callbacks stay, the extractor needs them (below) |
-| F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | todo |
+| F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | done (below) |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | todo |
 
 ## Step 5b results
@@ -268,6 +268,20 @@ stays); qualifiers are kept. An unnamed nonnull parameter prints as
 and function-pointer parameter lists still show the tag. sqlite nullable:
 22335 lines change text only; with the tag and pointer spacing normalized the
 lists are identical. Other lists unchanged.
+
+## F2a results
+
+`recordPointerImplication`: `q = c ? E : nullptr` (or `c ? nullptr : E`)
+stores the facts of `c` taking the non-null arm in `BoolGuards[q]`; `&&`
+conjuncts (or `||` disjuncts under a null true arm) each contribute, and `E`
+need not be provably non-null. `applyNarrowing` follows these entries with a
+worklist and a visited set. Reusing `BoolGuards` keeps the existing join
+(intersection) and invalidation: reassigning either side, a store through a
+tracked `T **`, or an escape drops the entry (`forgetFactsAbout` now also
+erases a pointer's own key). Facts naming the assigned pointer itself, or a
+variable the ternary mutates, are dropped. sqlite nullable: one false positive
+gone, `sqlite3DbStrNDup` (`zNew = z ? ... : 0; if (zNew) memcpy(zNew, z, n)`).
+Other lists unchanged.
 
 ## F4 results
 
