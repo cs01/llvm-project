@@ -1,10 +1,11 @@
 // Nonnull evidence must be proven, not assumed. Under
-// -fnullability-default=nonnull an unannotated parameter, field or call
-// result is merely treated as nonnull; passing or returning one says nothing
-// about the value. A null test on a parameter, a field, or a local copied
-// from either rules out _Nonnull, except inside an assert, which claims the
-// opposite. The parameters of a function whose address is taken have callers
-// the analysis cannot see, so they are never _Nonnull either.
+// -fnullability-default=nonnull an unannotated parameter, field or call result
+// is merely treated as nonnull; passing or returning one says nothing about the
+// value. A null test on a parameter, a field, or a local copied from either
+// (directly or through a chain of copies) rules out _Nonnull, except inside an
+// assert, which claims the opposite. The parameters of a function whose address
+// is taken have callers the analysis cannot see, so they are never _Nonnull
+// either.
 
 // RUN: rm -f %t.json
 // RUN: %clang_cc1 -fsyntax-only -fnullability-default=nonnull %s \
@@ -67,13 +68,28 @@ int *returns_param(int *p) {
   return p;
 }
 
+void copy_chain(int *p) {
+  int *a = p;
+  int *b = a;
+  if (!b)
+    return;
+}
+void copy_cycle(int *p) {
+  int *a = p, *b;
+  b = a;
+  a = b;
+  if (a == 0)
+    return;
+}
 void unused_ctx(void) {
   static int x;
   cb(0, &x);
 }
 
 // CHECK-NOT: {{.}}
-// CHECK:      c:@F@from_field ConditionalEvidence c:@F@take_arg param 1 <- c:@S@Db@FI@arg
+// CHECK:      c:@F@copy_chain MaybeNullEvidence c:@F@copy_chain param 1
+// CHECK-NEXT: c:@F@copy_cycle MaybeNullEvidence c:@F@copy_cycle param 1
+// CHECK-NEXT: c:@F@from_field ConditionalEvidence c:@F@take_arg param 1 <- c:@S@Db@FI@arg
 // CHECK-NEXT: c:@F@from_field MaybeNullEvidence c:@S@Db@FI@head
 // CHECK-NEXT: c:@F@from_field NonnullEvidence c:@F@take_node param 1
 // CHECK-NEXT: c:@F@from_param ConditionalEvidence c:@F@take_deref param 1 <- c:@F@from_param param 1
