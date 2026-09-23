@@ -11,7 +11,7 @@
         const toast = document.getElementById('toast');
         const divider = document.getElementById('divider');
 
-        let editor = null; // Monaco editor instance
+        let editor = null;
         const validNullabilityDefaults = new Set(['nullable', 'nonnull', 'unspecified']);
 
         function getNullabilityDefault() {
@@ -62,58 +62,32 @@ async function loadExamples() {
 }
 
 
-        // Monaco editor will be initialized async
-        function initMonaco() {
-            return new Promise((resolve) => {
-                require(['vs/editor/editor.main'], function() {
-                    editor = monaco.editor.create(editorElement, {
-                        value: examples['hero-bug'] || '// Loading...',
-                        language: 'c',
-                        theme: 'vs-dark',
-                        automaticLayout: true,
-                        minimap: { enabled: false },
-                        fontSize: 14,
-                        lineNumbers: 'on',
-                        scrollBeyondLastLine: false,
-                        wordWrap: 'off',
-                        tabSize: 4
-                    });
+        function initEditor() {
+            editor = CodeEditor.create(editorElement, {
+                value: examples['hero-bug'] || '// Loading...',
+                tabSize: 4,
+            });
+            editor.onRun(() => compile());
 
-                    // Add Ctrl+Enter shortcut
-                    editor.addAction({
-                        id: 'compile-code',
-                        label: 'Compile Code',
-                        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-                        run: function() {
-                            compile();
-                        }
-                    });
-
-                    // Real-time diagnostics on content change
-                    let diagnosticsTimeout;
-                    editor.onDidChangeModelContent(() => {
-                        clearTimeout(diagnosticsTimeout);
-                        diagnosticsTimeout = setTimeout(async () => {
-                            if (!scriptUrl || isCompiling) return;
-                            try {
-                                const code = getEditorValue();
-                                const result = await compileCode(
-                                    code,
-                                    [],
-                                    null,
-                                    getInputFile(code),
-                                    getNullabilityDefault()
-                                );
-                                const diagnostics = parseDiagnostics(result.stderr);
-                                monaco.editor.setModelMarkers(editor.getModel(), 'clang', diagnostics);
-                            } catch (error) {
-                                // Silently fail - diagnostics are non-critical
-                            }
-                        }, 500);
-                    });
-
-                    resolve();
-                });
+            let diagnosticsTimeout;
+            editor.onChange(() => {
+                clearTimeout(diagnosticsTimeout);
+                diagnosticsTimeout = setTimeout(async () => {
+                    if (!scriptUrl || isCompiling) return;
+                    try {
+                        const code = getEditorValue();
+                        const result = await compileCode(
+                            code,
+                            [],
+                            null,
+                            getInputFile(code),
+                            getNullabilityDefault()
+                        );
+                        editor.setMarkers(parseDiagnostics(result.stderr));
+                    } catch (error) {
+                        // Silently fail - diagnostics are non-critical
+                    }
+                }, 500);
             });
         }
 
@@ -231,7 +205,6 @@ async function loadExamples() {
             return 'clang ' + args.map(quote).join(' ');
         }
 
-        // Parse clang diagnostics into Monaco markers
         function parseDiagnostics(stderr) {
             const markers = [];
             const lines = stripAnsi(stderr).split('\n');
@@ -242,15 +215,13 @@ async function loadExamples() {
                 if (match) {
                     const [, lineNum, colNum, severity, message] = match;
                     markers.push({
-                        startLineNumber: parseInt(lineNum),
-                        startColumn: parseInt(colNum),
-                        endLineNumber: parseInt(lineNum),
-                        endColumn: parseInt(colNum) + 1,
-                        message: message,
-                        severity: severity === 'error' ? monaco.MarkerSeverity.Error
-                                : severity === 'warning' ? monaco.MarkerSeverity.Warning
-                                : monaco.MarkerSeverity.Info
+                        line: parseInt(lineNum),
+                        column: parseInt(colNum),
+                        severity,
+                        message,
                     });
+                } else if (markers.length && /^\s{2,}\S/.test(line) && !/^\s*\d*\s*\|/.test(line)) {
+                    markers[markers.length - 1].message += ' ' + line.trim();
                 }
             }
             return markers;
@@ -499,11 +470,6 @@ async function loadExamples() {
                     const code = decodeURIComponent(escape(atob(encodedCode)));
                     setEditorValue(code);
 
-                    // Update Monaco language for shared code
-                    if (editor && isCppCode(code)) {
-                        monaco.editor.setModelLanguage(editor.getModel(), 'cpp');
-                    }
-
                     // Set dropdown to "Custom Code" or first option to indicate custom code
                     examplesSelect.value = '';
 
@@ -690,10 +656,6 @@ async function loadExamples() {
                 const inputFile = getInputFile(code);
                 const nullabilityDefault = getNullabilityDefault();
 
-                // Update Monaco language to match
-                const lang = inputFile.endsWith('.cpp') ? 'cpp' : 'c';
-                monaco.editor.setModelLanguage(editor.getModel(), lang);
-
                 // Compile all three versions in parallel
                 const [safetyResult, mainlineResult, analyzerResult] = await Promise.all([
                     compileCode(code, [], null, inputFile, nullabilityDefault),
@@ -723,6 +685,8 @@ async function loadExamples() {
 
                 // Count nullability warnings to detect missed bugs
                 const nullWarningCount = (stripAnsi(safetyResult.stderr).match(/\[-Wnullability(?:-safety-[a-z-]+)?\]/g) || []).length;
+
+                editor.setMarkers(parseDiagnostics(safetyResult.stderr));
 
                 // Display Nullability Safety results with command
                 if (safetyResult.stdout || safetyResult.stderr) {
@@ -854,7 +818,7 @@ async function loadExamples() {
         // Auto-compile on load
         window.addEventListener('load', async () => {
             await loadExamples();  // Load all examples from files
-            await initMonaco();  // Initialize Monaco editor first
+            initEditor();
             loadCodeFromURL();   // Load code from URL if present
             initCompiler();
         });
