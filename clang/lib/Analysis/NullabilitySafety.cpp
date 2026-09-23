@@ -78,6 +78,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <optional>
@@ -1439,6 +1440,7 @@ class TransferFunctions : public ConstStmtVisitor<TransferFunctions> {
   // reports and the return summary come only from the reporting pass over
   // converged block entry states. Summary queries run in both.
   bool Reporting;
+  mutable bool StrictNonnull = false;
 
 public:
   TransferFunctions(NullState &State, NullabilitySafetyHandler &Handler,
@@ -1671,10 +1673,11 @@ public:
     bool RetIsNonnull = !isExprNullable(RetVal);
     if (!Reporting)
       return;
+    bool RetIsProvablyNonnull = isProvablyNonnull(RetVal);
     Returns.HasPointerReturn = true;
-    Returns.AllNonnull &= RetIsNonnull;
+    Returns.AllNonnull &= RetIsProvablyNonnull;
     if (EnclosingFunc->getDeclName().isIdentifier()) {
-      if (auto Kind = classifyEvidence(RetVal, RetIsNonnull))
+      if (auto Kind = classifyEvidence(RetVal, RetIsProvablyNonnull))
         Handler.handleReturnEvidence(RetVal, EnclosingFunc, *Kind);
     }
 
@@ -1900,7 +1903,7 @@ private:
         if (!Param->getType()->isPointerType())
           continue;
         const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
-        if (auto Kind = classifyEvidence(Arg, !isExprNullable(Arg)))
+        if (auto Kind = classifyEvidence(Arg, isProvablyNonnull(Arg)))
           Handler.handleParameterEvidence(CE->getArg(I + ArgOffset), Param,
                                           Callee, *Kind);
       }
@@ -2338,7 +2341,8 @@ private:
       return true;
     if (isSmartPointerNarrowed(Obj) || isSmartPointerDeclaredNonnull(Obj))
       return false;
-    return Options.DefaultNullability != NullabilityKind::NonNull;
+    return StrictNonnull ||
+           Options.DefaultNullability != NullabilityKind::NonNull;
   }
 
   /// Returns true when Base (of a -> access) is an overloaded operator->
@@ -2763,8 +2767,16 @@ private:
   /// counts; otherwise _Null_unspecified also counts under
   /// -fnullability-default=nullable.
   bool isNullableByType(QualType Ty, bool ExplicitOnly) const {
-    return ExplicitOnly ? isExplicitlyNullableType(Ty)
-                        : isNullableType(Ty, Options.DefaultNullability);
+    if (ExplicitOnly)
+      return isExplicitlyNullableType(Ty);
+    if (StrictNonnull)
+      return Ty->isPointerType() && !isNonnullType(Ty);
+    return isNullableType(Ty, Options.DefaultNullability);
+  }
+
+  bool isProvablyNonnull(const Expr *E) const {
+    llvm::SaveAndRestore Strict(StrictNonnull, true);
+    return !isExprNullable(E);
   }
 
   /// Whether E may be null, considering flow. This is the one judgment used

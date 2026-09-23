@@ -206,9 +206,11 @@ void test_nonnull_default_evidence() {
 // EVIDENCE-NOT:  {{.}}
 // EVIDENCE:      c:@F@create# AllReturnsNonnull c:@F@create# return
 // EVIDENCE-NEXT: c:@F@create# NonnullEvidence c:@F@create# return
+// EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# MaybeNullEvidence c:@F@find_even#*$@S@ListNode# param 1
 // EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NonnullEvidence c:@F@find_even#*$@S@ListNode# return
 // EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NullableEvidence c:@F@find_even#*$@S@ListNode# return
 // EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NullableEvidence c:@F@find_odd#*$@S@ListNode# param 1
+// EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# MaybeNullEvidence c:@F@find_odd#*$@S@ListNode# param 1
 // EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# NonnullEvidence c:@F@find_odd#*$@S@ListNode# return
 // EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# NullableEvidence c:@F@find_even#*$@S@ListNode# param 1
 // EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# NullableEvidence c:@F@find_odd#*$@S@ListNode# return
@@ -218,6 +220,9 @@ void test_nonnull_default_evidence() {
 // EVIDENCE-NEXT: c:@F@maybe_null#b# NullableEvidence c:@F@maybe_null#b# return
 // EVIDENCE-NEXT: c:@F@singleton# AllReturnsNonnull c:@F@singleton# return
 // EVIDENCE-NEXT: c:@F@singleton# NonnullEvidence c:@F@singleton# return
+// EVIDENCE-NEXT: c:@F@takes_optional_ptr#*$@S@Widget# MaybeNullEvidence c:@F@takes_optional_ptr#*$@S@Widget# param 1
+// EVIDENCE-NEXT: c:@F@takes_ptr_nonnull_default#*$@S@Widget# MaybeNullEvidence c:@F@takes_ptr_nonnull_default#*$@S@Widget# param 1
+// EVIDENCE-NEXT: c:@F@takes_ptr_zero_default#*$@S@Widget# MaybeNullEvidence c:@F@takes_ptr_zero_default#*$@S@Widget# param 1
 // EVIDENCE-NEXT: c:@F@test_nonnull_default_evidence# NonnullEvidence c:@F@takes_ptr_nonnull_default#*$@S@Widget# param 1
 // EVIDENCE-NEXT: c:@F@test_nullptr_default_evidence# NonnullEvidence c:@F@takes_optional_ptr#*$@S@Widget# param 1
 // EVIDENCE-NEXT: c:@F@test_nullptr_default_evidence# NullableEvidence c:@F@takes_optional_ptr#*$@S@Widget# param 1

@@ -234,6 +234,7 @@ void direct_new_deref() {
 // EVIDENCE-NEXT: c:@F@getLocal# AllReturnsNonnull c:@F@getLocal# return
 // EVIDENCE-NEXT: c:@F@getLocal# NonnullEvidence c:@F@getLocal# return
 // EVIDENCE-NEXT: c:@F@getNarrowed#*$@S@Node# AllReturnsNonnull c:@F@getNarrowed#*$@S@Node# return
+// EVIDENCE-NEXT: c:@F@getNarrowed#*$@S@Node# MaybeNullEvidence c:@F@getNarrowed#*$@S@Node# param 1
 // EVIDENCE-NEXT: c:@F@getNarrowed#*$@S@Node# NonnullEvidence c:@F@getNarrowed#*$@S@Node# return
 // EVIDENCE-NEXT: c:@F@getNode#*$@S@Widget# AllReturnsNonnull c:@F@getNode#*$@S@Widget# return
 // EVIDENCE-NEXT: c:@F@getNode#*$@S@Widget# NonnullEvidence c:@F@getNode#*$@S@Widget# return
