@@ -13162,6 +13162,12 @@ def warn_nullability_safety_member_assignment : Warning<
   InGroup<NullabilitySafetyAssignment>;
 def note_nullable_member_assignment_fix : Note<
   "add a null check before assigning, or remove '_Nonnull' from the member">;
+def warn_nullability_safety_member_exit : Warning<
+  "nonnull member %0 is null when the function returns">,
+  InGroup<NullabilitySafetyAssignment>;
+def note_nullable_member_exit_fix : Note<
+  "it was reset, released, or moved from on every path; assign it a value "
+  "before returning, or remove '_Nonnull' from the member">;
 def warn_nullability_safety_default_arg : Warning<
   "nullable default argument for nonnull parameter %0">,
   InGroup<NullabilitySafetyAssignment>;

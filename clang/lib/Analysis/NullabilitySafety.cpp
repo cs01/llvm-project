@@ -3271,6 +3271,10 @@ public:
                               const ParmVarDecl *Param) override {
     Inner.handleNullableArgument(ArgExpr, Param);
   }
+  void handleNullableMemberAtExit(SourceLocation Loc,
+                                  const FieldDecl *Member) override {
+    Inner.handleNullableMemberAtExit(Loc, Member);
+  }
   void handleMemberAssignEvidence(const Expr *AssignExpr,
                                   const FieldDecl *Member,
                                   NullabilityEvidence Kind) override {
@@ -3336,6 +3340,36 @@ void clang::runNullabilitySafetyOnTU(
       Driver.finishFunction(Def);
     }
   }
+}
+
+static void reportNonnullMembersNullAtExit(
+    const Decl *D, const CFG &Cfg,
+    const llvm::DenseMap<unsigned, NullState> &BlockEntryStates,
+    NullabilitySafetyHandler &Handler) {
+  const auto *MD = dyn_cast_or_null<CXXMethodDecl>(D);
+  if (!MD || MD->isStatic() || isa<CXXDestructorDecl>(MD) ||
+      MD->getParent()->isLambda() || MD->getRefQualifier() == RQ_RValue ||
+      !MD->hasBody())
+    return;
+  auto It = BlockEntryStates.find(Cfg.getExit().getBlockID());
+  if (It == BlockEntryStates.end())
+    return;
+  const NullState &Exit = It->second;
+  SmallVector<const FieldDecl *, 4> Members;
+  for (const MemberAccessPath &Path : Exit.MustNullableMembers) {
+    if (Path.Root || Path.Fields.size() != 1)
+      continue;
+    const FieldDecl *FD = Path.leafField();
+    if (FD->getParent() == MD->getParent() &&
+        isSmartPointerType(FD->getType()) && isNonnullType(FD->getType()) &&
+        Exit.isMustNullable(PtrRef{nullptr, Path}))
+      Members.push_back(FD);
+  }
+  llvm::sort(Members, [](const FieldDecl *A, const FieldDecl *B) {
+    return A->getFieldIndex() < B->getFieldIndex();
+  });
+  for (const FieldDecl *FD : Members)
+    Handler.handleNullableMemberAtExit(MD->getBody()->getEndLoc(), FD);
 }
 
 void clang::runNullabilitySafetyAnalysis(
@@ -3485,5 +3519,6 @@ void clang::runNullabilitySafetyAnalysis(
           TF.Visit(S);
   }
 
+  reportNonnullMembersNullAtExit(AC.getDecl(), *Cfg, BlockEntryStates, Handler);
   emitAllReturnsNonnullSummary(AC.getDecl(), HitVisitCap, Returns, Handler);
 }

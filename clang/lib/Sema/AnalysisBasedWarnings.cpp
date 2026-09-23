@@ -3167,6 +3167,16 @@ public:
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
+  void handleNullableMemberAtExit(SourceLocation Loc,
+                                  const FieldDecl *Member) override {
+    if (!isFirst(diag::warn_nullability_safety_member_exit, Loc, Member))
+      return;
+    PartialDiagnosticAt Warning(
+        Loc, S.PDiag(diag::warn_nullability_safety_member_exit) << Member);
+    PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_member_exit_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
+  }
+
   void handleNullableArgument(const Expr *ArgExpr,
                               const ParmVarDecl *Param) override {
     SourceLocation Loc = ArgExpr->getExprLoc();

@@ -324,6 +324,18 @@ variable the ternary mutates, are dropped. sqlite nullable: one false positive
 gone, `sqlite3DbStrNDup` (`zNew = z ? ... : 0; if (zNew) memcpy(zNew, z, n)`).
 Other lists unchanged.
 
+## GAP 1 results
+
+`reportNonnullMembersNullAtExit`: after the reporting pass, a `_Nonnull`
+smart pointer member of `this` that is must-nullable in the exit block's
+state (reset, released, or moved from on every path) is reported once at the
+closing brace (`warn_nullability_safety_member_exit`, assignment group).
+Destructors, `&&`-qualified methods, static methods and lambdas are exempt;
+a member nulled on only some paths is not reported. Raw pointer members are
+not reported at exit: the assignment that nulls one already warns. Checked
+with real libstdc++ `unique_ptr` and `shared_ptr` in both modes. sqlite: no
+change (C).
+
 ## F4 results
 
 `pointerWritableByCallee` / `escapeToCallee` in `checkCallArguments`:

@@ -14,7 +14,10 @@ int *_Nonnull GetNonnull();
 // ==========================================================================
 // GAP 1: Nonnull field nullable at method exit
 // A method that nulls a _Nonnull field without restoring it.
-// STATUS: NOT IMPLEMENTED
+// STATUS: CLOSED BY DESIGN for raw pointers: the assignment that nulls the
+// field already warns, and warning again at exit would report one bug twice.
+// Smart pointer members, which reset/release/move null without an
+// assignment, are reported at exit (nullability-safety-member-exit.cpp).
 // ==========================================================================
 
 struct OwnerWithNonnullField {
@@ -25,7 +28,6 @@ struct OwnerWithNonnullField {
     void steal_field() {
         field_ = nullptr; // expected-warning{{assigning nullable pointer to nonnull member}}
                           // expected-note@-1{{add a null check}}
-        // XFAIL-GAP: should ALSO warn "nonnull field is nullable at method exit"
     }
 
     void swap_ok(int *_Nonnull replacement) {
