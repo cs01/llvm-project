@@ -336,6 +336,20 @@ not reported at exit: the assignment that nulls one already warns. Checked
 with real libstdc++ `unique_ptr` and `shared_ptr` in both modes. sqlite: no
 change (C).
 
+## Return-type consistency results
+
+Clang warned on conflicting parameter nullability across redeclarations but
+not on return types, and not at all across C++ overrides.
+`checkReturnNullabilityRedecl` (in `MergeFunctionDecl`, next to
+`mergeParamDeclTypes`) reuses `warn_mismatched_nullability_attr`;
+`checkOverridingNullability` reuses the ObjC override diagnostics and fires
+only when an override weakens the base: a `_Nullable` return for a
+`_Nonnull` one, or a `_Nonnull` parameter for a `_Nullable` one. Both need
+explicit specifiers on both sides and run without `-fnullability-safety`
+(group `-Wnullability`, like the parameter check). Clang's Sema, SemaCXX,
+SemaObjC(XX), SemaTemplate, APINotes, Modules, Analysis and Index suites
+pass (6583 tests). sqlite: no change.
+
 ## F4 results
 
 `pointerWritableByCallee` / `escapeToCallee` in `checkCallArguments`:
