@@ -1385,10 +1385,26 @@ static void narrowVarWithAliases(NullState &NS, const VarDecl *VD) {
 /// Apply one condition fact to a state (the caller picks the edge state
 /// matching CR.Negated).
 static void applyNarrowing(NullState &NS, const ConditionResult &CR) {
-  if (CR.Ref.Path)
-    narrowMemberPath(NS, *CR.Ref.Path);
-  else if (CR.Ref.VD)
-    narrowVarWithAliases(NS, CR.Ref.VD);
+  SmallVector<PtrRef, 4> Work{CR.Ref};
+  llvm::SmallPtrSet<const VarDecl *, 4> Seen;
+  while (!Work.empty()) {
+    PtrRef R = Work.pop_back_val();
+    if (R.Path) {
+      narrowMemberPath(NS, *R.Path);
+      continue;
+    }
+    if (!R.VD)
+      continue;
+    narrowVarWithAliases(NS, R.VD);
+    if (!R.VD->getType()->isPointerType() || !Seen.insert(R.VD).second)
+      continue;
+    auto It = NS.BoolGuards.find(R.VD);
+    if (It == NS.BoolGuards.end())
+      continue;
+    for (const ConditionResult &Implied : It->second)
+      if (!Implied.Negated)
+        Work.push_back(Implied.Ref);
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -1747,6 +1763,7 @@ private:
     }
     recordPointerSource(VD, VD->getInit());
     recordTernaryPointerGuard(VD, VD->getInit());
+    recordPointerImplication(VD, VD->getInit());
     storeToVar(VD, VD->getInit(), VD->getInit());
   }
 
@@ -1860,6 +1877,40 @@ private:
     // the block entry state never compares equal and never converges.
     if (!llvm::is_contained(Facts, CR))
       Facts.push_back(CR);
+  }
+
+  void recordPointerImplication(const VarDecl *PtrVD, const Expr *Init) {
+    if (!Init || !PtrVD->getType()->isPointerType())
+      return;
+    State.BoolGuards.erase(PtrVD);
+    const auto *CO =
+        dyn_cast<AbstractConditionalOperator>(Init->IgnoreParenImpCasts());
+    if (!CO)
+      return;
+    auto IsNullArm = [&](const Expr *Arm) {
+      return Arm->IgnoreParenCasts()->isNullPointerConstant(
+          Ctx, Expr::NPC_ValueDependentIsNotNull);
+    };
+    bool TrueIsNull = IsNullArm(CO->getTrueExpr());
+    if (TrueIsNull == IsNullArm(CO->getFalseExpr()))
+      return;
+    SmallVector<ConditionResult, 4> Facts;
+    decomposeChain(CO->getCond(), TrueIsNull ? BO_LOr : BO_LAnd, Ctx, Facts,
+                   &State.BoolGuards);
+    ExprMutationAnalyzer MutationAnalyzer(*CO, Ctx);
+    SmallVector<ConditionResult, 2> Implied;
+    for (ConditionResult CR : Facts) {
+      if (CR.Negated != TrueIsNull)
+        continue;
+      const VarDecl *Root = CR.Ref.VD ? CR.Ref.VD : CR.Ref.Path->Root;
+      if (Root == PtrVD || (Root && MutationAnalyzer.isMutated(Root)))
+        continue;
+      CR.Negated = false;
+      if (!llvm::is_contained(Implied, CR))
+        Implied.push_back(std::move(CR));
+    }
+    if (!Implied.empty())
+      State.BoolGuards[PtrVD] = std::move(Implied);
   }
 
   /// __builtin_assume(cond) narrows pointers mentioned in cond.
@@ -2255,6 +2306,7 @@ private:
     if (BO->getOpcode() == BO_Assign) {
       recordPointerSource(VD, BO->getRHS());
       recordTernaryPointerGuard(VD, BO->getRHS());
+      recordPointerImplication(VD, BO->getRHS());
       storeToVar(VD, BO->getRHS(), BO);
     }
   }
@@ -2653,6 +2705,7 @@ private:
   void forgetFactsAbout(const VarDecl *VD) {
     invalidateMembersFor(VD);
     invalidateBoolGuardsFor(VD);
+    State.BoolGuards.erase(VD);
     invalidateAliasesFor(VD);
     State.Aliases.erase(VD);
     State.MemberAliases.erase(VD);
