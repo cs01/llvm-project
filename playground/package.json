@@ -7,16 +7,11 @@
     "serve": "python3 serve.py",
     "dev": "python3 serve.py"
   },
-  "dependencies": {
-    "monaco-editor": "^0.45.0"
-  },
   "devDependencies": {},
   "keywords": [
     "clang",
     "null-safety",
-    "webassembly",
-    "monaco",
-    "language-server"
+    "webassembly"
   ],
   "author": "Chad Smith",
   "license": "Apache-2.0"
