@@ -5,7 +5,7 @@ name: Create Clang Release
 
 on:
   workflow_run:
-    workflows: ["Build Null-Safe Clang Binaries"]
+    workflows: ["Build Clang Nullability Safety Binaries"]
     types:
       - completed
 
@@ -26,7 +26,7 @@ jobs:
         with:
           workflow: build-clang.yml
           run_id: ${{ github.event.workflow_run.id }}
-          name: clang-nullsafe-linux-x86_64
+          name: clang-nullability-safety-linux-x86_64
           path: artifacts/
 
       - name: Download macOS artifact
@@ -34,7 +34,7 @@ jobs:
         with:
           workflow: build-clang.yml
           run_id: ${{ github.event.workflow_run.id }}
-          name: clang-nullsafe-macos-universal
+          name: clang-nullability-safety-macos-universal
           path: artifacts/
 
       - name: Download WASM artifact
@@ -42,7 +42,7 @@ jobs:
         with:
           workflow: build-clang.yml
           run_id: ${{ github.event.workflow_run.id }}
-          name: clang-nullsafe-wasm
+          name: clang-nullability-safety-wasm
           path: artifacts/
 
       - name: Determine release type
@@ -79,23 +79,23 @@ jobs:
           name: ${{ steps.release-info.outputs.release_name }}
           make_latest: true
           files: |
-            artifacts/clang-nullsafe-linux-x86_64.tar.gz
-            artifacts/clang-nullsafe-macos-universal.tar.gz
-            artifacts/clang-nullsafe-wasm.tar.gz
+            artifacts/clang-nullability-safety-linux-x86_64.tar.gz
+            artifacts/clang-nullability-safety-macos-universal.tar.gz
+            artifacts/clang-nullability-safety-wasm.tar.gz
           body: |
-            ## Nullsafe Clang — ${{ steps.release-info.outputs.tag_name }}
+            ## Clang Nullability Safety — ${{ steps.release-info.outputs.tag_name }}
 
             Built from commit ${{ github.event.workflow_run.head_sha }}
 
             ### What's included:
 
             **Native Binaries (Linux/macOS):**
-            - `clang` - The Nullsafe Clang compiler
+            - `clang` - The Clang Nullability Safety compiler
             - `clangd` - Language server for IDE integration (VSCode, vim, etc.)
 
             **WebAssembly:**
-            - `clang-nullsafe.wasm` - WebAssembly compiler for browser playground
-            - `clang-nullsafe.js` - JavaScript glue code
+            - `clang.wasm` - WebAssembly compiler for browser playground
+            - `clang.js` - JavaScript glue code
 
             ### Installation:
 
@@ -106,7 +106,7 @@ jobs:
 
             **Manual install:**
             ```bash
-            tar -xzf clang-nullsafe-<platform>.tar.gz
+            tar -xzf clang-nullability-safety-<platform>.tar.gz
             export PATH=$PWD/bin:$PATH
             clang --version
             ```
@@ -138,11 +138,11 @@ jobs:
           name: ${{ steps.release-info.outputs.release_name }}
           make_latest: true
           files: |
-            artifacts/clang-nullsafe-linux-x86_64.tar.gz
-            artifacts/clang-nullsafe-macos-universal.tar.gz
-            artifacts/clang-nullsafe-wasm.tar.gz
+            artifacts/clang-nullability-safety-linux-x86_64.tar.gz
+            artifacts/clang-nullability-safety-macos-universal.tar.gz
+            artifacts/clang-nullability-safety-wasm.tar.gz
           body: |
-            ## Nullsafe Clang — Latest Build
+            ## Clang Nullability Safety — Latest Build
 
             Built from commit ${{ github.event.workflow_run.head_sha }}
 
@@ -151,12 +151,12 @@ jobs:
             ### What's included:
 
             **Native Binaries (Linux/macOS):**
-            - `clang` - The Nullsafe Clang compiler
+            - `clang` - The Clang Nullability Safety compiler
             - `clangd` - Language server for IDE integration (VSCode, vim, etc.)
 
             **WebAssembly:**
-            - `clang-nullsafe.wasm` - WebAssembly compiler for browser playground
-            - `clang-nullsafe.js` - JavaScript glue code
+            - `clang.wasm` - WebAssembly compiler for browser playground
+            - `clang.js` - JavaScript glue code
 
             ### Installation:
 
@@ -167,7 +167,7 @@ jobs:
 
             **Manual install:**
             ```bash
-            tar -xzf clang-nullsafe-<platform>.tar.gz
+            tar -xzf clang-nullability-safety-<platform>.tar.gz
             export PATH=$PWD/bin:$PATH
             clang --version
             ```

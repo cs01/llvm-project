@@ -6,7 +6,7 @@ REPO="cs01/llvm-project"
 BRANCH="nullability-safety"
 INSTALLER_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/install-interactive.sh"
 
-echo "Downloading Nullsafe Clang installer..."
+echo "Downloading Clang Nullability Safety installer..."
 TMPFILE=$(mktemp)
 trap 'rm -f "$TMPFILE"' EXIT
 

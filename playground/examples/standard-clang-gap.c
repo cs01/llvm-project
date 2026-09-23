@@ -1,5 +1,5 @@
 // Bug patterns standard Clang misses entirely.
-// Nullsafe Clang catches them all flow-sensitively.
+// Nullability Safety catches them all flow-sensitively.
 
 typedef struct {
     int x, y;

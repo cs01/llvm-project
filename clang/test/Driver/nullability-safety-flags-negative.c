@@ -1,4 +1,4 @@
-// Negative driver tests for nullsafe flags.
+// Negative driver tests for nullability safety flags.
 // Verifies flag interaction patterns and valid/invalid combinations.
 
 // === -fnullability-safety without -fnullability-default ===

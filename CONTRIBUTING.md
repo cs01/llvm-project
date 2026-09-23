@@ -1,4 +1,4 @@
-# Contributing to Null-Safe Clang
+# Contributing to Clang Nullability Safety
 
 Development branch: `nullability-safety`
 

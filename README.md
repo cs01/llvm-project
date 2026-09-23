@@ -66,7 +66,7 @@ The design is discussed in the [RFC on Discourse](https://discourse.llvm.org/t/r
 curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullability-safety/install.sh | bash
 ```
 
-This installs the fork's `clang` and `clangd` to `~/.local/null-safe-clang/bin` and offers to add that directory to your `PATH`. Prebuilt archives for Linux x86_64 and macOS are also on the [releases page](https://github.com/cs01/llvm-project/releases).
+This installs the fork's `clang` and `clangd` to `~/.local/clang-nullability-safety/bin` and offers to add that directory to your `PATH`. Prebuilt archives for Linux x86_64 and macOS are also on the [releases page](https://github.com/cs01/llvm-project/releases).
 
 In the rest of this document, `clang` means the fork's `clang`.
 
@@ -171,7 +171,7 @@ With `-fnullability-safety`, Clang's type-based `-Wnullable-to-nonnull-conversio
 | Cross-function reasoning | none | inlines callees it can see | within the translation unit (call graph and annotations) |
 | Cost | none | [1.95x baseline on 24 LLVM files, 41x slower than Nullability Safety on `ExprConstant.cpp`](PERFORMANCE.md#csa-comparison-on-real-code) | [0.2-8% of compile time](PERFORMANCE.md#direct-measurement-via--ftime-trace) |
 
-The analysis works like `-Wthread-safety` and `-Wuninitialized`: one forward pass over each function's control flow graph, part of ordinary compilation. The Static Analyzer explores paths separately, so it can find bugs that depend on how two variables relate to each other, but it is too slow to run on every build. The [playground](https://cs01.github.io/llvm-project/) runs all three side by side, and [nullability-safety-vs-csa.md](nullsafe-playground/nullability-safety-vs-csa.md) explains the difference in detail.
+The analysis works like `-Wthread-safety` and `-Wuninitialized`: one forward pass over each function's control flow graph, part of ordinary compilation. The Static Analyzer explores paths separately, so it can find bugs that depend on how two variables relate to each other, but it is too slow to run on every build. The [playground](https://cs01.github.io/llvm-project/) runs all three side by side, and [nullability-safety-vs-csa.md](playground/nullability-safety-vs-csa.md) explains the difference in detail.
 
 ASan and UBSan complement this. They are runtime sanitizers: they need a test that actually reaches the bug, add roughly 2x overhead, and report the crash when it happens instead of at compile time.
 
@@ -284,13 +284,13 @@ The release includes `clangd`, so warnings show up in your editor as you type.
 
 **VS Code:** install the clangd extension, then set:
 ```json
-{ "clangd.path": "/home/you/.local/null-safe-clang/bin/clangd" }
+{ "clangd.path": "/home/you/.local/clang-nullability-safety/bin/clangd" }
 ```
 
 **Neovim**, with lspconfig:
 ```lua
 require('lspconfig').clangd.setup({
-  cmd = { vim.fn.expand('~/.local/null-safe-clang/bin/clangd') }
+  cmd = { vim.fn.expand('~/.local/clang-nullability-safety/bin/clangd') }
 })
 ```
 

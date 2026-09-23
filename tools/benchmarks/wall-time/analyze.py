@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Paired statistics for the real-TU benchmark. Accepts either the JSON written by
-# real_tu_bench.py or a streamed run log (real_tu_run.log). Reports the nullsafe
+# real_tu_bench.py or a streamed run log (real_tu_run.log). Reports the Nullability Safety
 # and analyzer overhead with a proper significance test on the log-ratio scale
 # (correct because TU sizes span orders of magnitude and overhead is multiplicative).
 import re, math, sys, os, json
@@ -12,7 +12,7 @@ def load(path):
     rows = []
     if path.endswith(".json"):
         for r in json.loads(txt):
-            rows.append((r["file"], r["baseline"]*1000, r["nullsafe"]*1000, r["analyzer"]*1000))
+            rows.append((r["file"], r["baseline"]*1000, r["nullability_safety"]*1000, r["analyzer"]*1000))
     else:  # streamed log lines: "[i/N] file  base=..ms ns=..ms anlz=..ms"
         for m in re.finditer(r'\]\s+(\S+)\s+base=\s*([\d.]+)ms\s+ns=\s*([\d.]+)ms\s+anlz=\s*([\d.]+)ms', txt):
             rows.append((m.group(1), float(m.group(2)), float(m.group(3)), float(m.group(4))))
@@ -33,7 +33,7 @@ def main():
     n = len(rows)
     print(f"REAL clang/LLVM TUs (paired): n={n}   source={os.path.basename(path)}\n")
     print("== overhead on log-ratio scale (primary test) ==")
-    logratio_test([(b, ns) for _, b, ns, _ in rows], "NULLSAFE vs baseline")
+    logratio_test([(b, ns) for _, b, ns, _ in rows], "NULLABILITY SAFETY vs baseline")
     logratio_test([(b, a) for _, b, _, a in rows], "ANALYZER vs baseline")
     print("\n== worst analyzer slowdowns ==")
     for f, b, ns, a in sorted(rows, key=lambda r: -r[3]/r[1])[:4]:

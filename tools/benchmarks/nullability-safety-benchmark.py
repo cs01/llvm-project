@@ -219,7 +219,7 @@ def analyze_trace(trace_path):
     return durations
 
 
-def compile_once(clang, source_path, trace_path, enable_nullsafe):
+def compile_once(clang, source_path, trace_path, enable_nullability_safety):
     """Compile a source file once and return timing info."""
     cmd = [
         clang, "-c", "-o", "/dev/null",
@@ -227,7 +227,7 @@ def compile_once(clang, source_path, trace_path, enable_nullsafe):
         "-std=c++17",
         source_path,
     ]
-    if enable_nullsafe:
+    if enable_nullability_safety:
         # Keep warnings enabled so the analysis actually runs (the analysis
         # is gated on !Diags.isIgnored), but we don't care about the output.
         cmd.extend(["-fnullability-safety", "-fnullability-default=nullable"])
@@ -243,24 +243,24 @@ def compile_once(clang, source_path, trace_path, enable_nullsafe):
     return analyze_trace(trace_path)
 
 
-def measure(clang, source_path, output_dir, name, n, enable_nullsafe,
+def measure(clang, source_path, output_dir, name, n, enable_nullability_safety,
             warmup, iterations):
     """
     Run warmup + iterations compilations and return lists of timing samples.
     Returns (total_ms_samples, analysis_ms_samples).
     """
-    tag = "ns" if enable_nullsafe else "base"
+    tag = "ns" if enable_nullability_safety else "base"
     trace_path = os.path.join(output_dir, f"{name}_{n}_{tag}.json")
 
     # Warmup runs (discarded)
     for _ in range(warmup):
-        compile_once(clang, source_path, trace_path, enable_nullsafe)
+        compile_once(clang, source_path, trace_path, enable_nullability_safety)
 
     # Measured runs
     total_samples = []
     analysis_samples = []
     for _ in range(iterations):
-        result = compile_once(clang, source_path, trace_path, enable_nullsafe)
+        result = compile_once(clang, source_path, trace_path, enable_nullability_safety)
         if result:
             total_samples.append(result["total_us"] / 1000.0)
             analysis_samples.append(result["analysis_us"] / 1000.0)
@@ -292,7 +292,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Benchmark flow-sensitive nullability analysis compile-time overhead.")
     parser.add_argument("--clang-binary", required=True, help="Path to clang")
-    parser.add_argument("--output-dir", default="nullsafe_benchmark_results",
+    parser.add_argument("--output-dir", default="nullability_safety_benchmark_results",
                         help="Directory for output files")
     parser.add_argument("--iterations", type=int, default=10,
                         help="Number of measured iterations per data point (default: 10)")
@@ -368,8 +368,8 @@ def main():
             base_mean, base_ci = confidence_interval(base_total)
             print(f"{human_time(base_mean)} ± {human_time(base_ci)}")
 
-            # Measure with nullsafe
-            print(f"    nullsafe: {args.warmup}w+{args.iterations}i...", end=" ", flush=True)
+            # Measure with Nullability Safety
+            print(f"    nullability_safety: {args.warmup}w+{args.iterations}i...", end=" ", flush=True)
             ns_total, ns_analysis = measure(
                 args.clang_binary, src, args.output_dir, name, n,
                 True, args.warmup, args.iterations)
@@ -463,7 +463,7 @@ def generate_report(all_results, args):
     for name, data in all_results.items():
         lines.append(f"## {data['title']}")
         lines.append("")
-        lines.append("| N | Baseline | Nullsafe | Analysis | Overhead | p-value | Sig |")
+        lines.append("| N | Baseline | Nullability Safety | Analysis | Overhead | p-value | Sig |")
         lines.append("|--:|---------:|---------:|---------:|---------:|--------:|:---:|")
 
         for r in data["results"]:

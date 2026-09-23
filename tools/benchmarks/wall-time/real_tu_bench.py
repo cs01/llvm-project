@@ -9,7 +9,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BUILD = os.environ.get("BUILD_DIR", os.path.join(HERE, "..", "..", "..", "build"))
 CC = os.environ.get("COMPILE_COMMANDS", os.path.join(BUILD, "compile_commands.json"))
 FORK = os.environ.get("CLANG", os.path.join(BUILD, "bin", "clang"))
-NULLSAFE = ["-fnullability-safety", "-fnullability-default=nullable"]
+NULLABILITY_SAFETY = ["-fnullability-safety", "-fnullability-default=nullable"]
 PIN = ["taskset", "-c", "4"]
 N_TU = int(sys.argv[1]) if len(sys.argv) > 1 else 40
 K = int(sys.argv[2]) if len(sys.argv) > 2 else 3   # reps per TU per mode (take min)
@@ -48,9 +48,9 @@ def build_cmds(directory, args):
     base = [FORK] + flags
     # frontend-only isolation: syntax-only
     syn = base + ["-fsyntax-only", src]
-    syn_ns = base + ["-fsyntax-only"] + NULLSAFE + [src]
+    syn_ns = base + ["-fsyntax-only"] + NULLABILITY_SAFETY + [src]
     analyze = base + ["--analyze", "-Xclang", "-analyzer-output=text", src]
-    return dict(baseline=syn, nullsafe=syn_ns, analyzer=analyze)
+    return dict(baseline=syn, nullability_safety=syn_ns, analyzer=analyze)
 
 def timed(directory, cmd, k):
     best=None
@@ -76,14 +76,14 @@ def main():
         b,rc=timed(directory,cmds["baseline"],1)
         if rc!=0: continue
         row={"file":os.path.basename(f)}
-        for mode in ("baseline","nullsafe","analyzer"):
+        for mode in ("baseline","nullability_safety","analyzer"):
             reps = 1 if mode=="analyzer" else K   # analyzer is expensive; 1 rep
             t,rc=timed(directory,cmds[mode],reps)
             row[mode]=t
             row[mode+"_rc"]=rc
         picked.append(f); results.append(row)
         print(f"[{len(picked)}/{N_TU}] {row['file']:<28} "
-              f"base={row['baseline']*1000:7.1f}ms  ns={row['nullsafe']*1000:7.1f}ms  "
+              f"base={row['baseline']*1000:7.1f}ms  ns={row['nullability_safety']*1000:7.1f}ms  "
               f"anlz={row['analyzer']*1000:7.1f}ms", flush=True)
     outp = os.path.join(HERE, "real_tu.json")
     json.dump(results, open(outp, "w"), indent=1)

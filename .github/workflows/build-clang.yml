@@ -1,4 +1,4 @@
-name: Build Null-Safe Clang Binaries
+name: Build Clang Nullability Safety Binaries
 
 on:
   push:
@@ -64,13 +64,13 @@ jobs:
       - name: Package binaries
         run: |
           cd install
-          tar -czf clang-nullsafe-linux-x86_64.tar.gz bin/ lib/
+          tar -czf clang-nullability-safety-linux-x86_64.tar.gz bin/ lib/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: clang-nullsafe-linux-x86_64
-          path: install/clang-nullsafe-linux-x86_64.tar.gz
+          name: clang-nullability-safety-linux-x86_64
+          path: install/clang-nullability-safety-linux-x86_64.tar.gz
 
   build-macos:
     runs-on: macos-latest
@@ -121,13 +121,13 @@ jobs:
       - name: Package binaries
         run: |
           cd install
-          tar -czf clang-nullsafe-macos-universal.tar.gz bin/ lib/
+          tar -czf clang-nullability-safety-macos-universal.tar.gz bin/ lib/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: clang-nullsafe-macos-universal
-          path: install/clang-nullsafe-macos-universal.tar.gz
+          name: clang-nullability-safety-macos-universal
+          path: install/clang-nullability-safety-macos-universal.tar.gz
 
   build-wasm:
     runs-on: ubuntu-latest
@@ -187,15 +187,15 @@ jobs:
       - name: Package WASM artifacts
         run: |
           mkdir -p wasm-artifacts
-          cp build-wasm/bin/clang.wasm wasm-artifacts/clang-nullsafe.wasm
-          cp build-wasm/bin/clang.js wasm-artifacts/clang-nullsafe.js
-          gzip -k wasm-artifacts/clang-nullsafe.wasm
-          gzip -k wasm-artifacts/clang-nullsafe.js
+          cp build-wasm/bin/clang.wasm wasm-artifacts/clang.wasm
+          cp build-wasm/bin/clang.js wasm-artifacts/clang.js
+          gzip -k wasm-artifacts/clang.wasm
+          gzip -k wasm-artifacts/clang.js
           cd wasm-artifacts
-          tar -czf clang-nullsafe-wasm.tar.gz *.wasm *.js *.gz
+          tar -czf clang-nullability-safety-wasm.tar.gz *.wasm *.js *.gz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: clang-nullsafe-wasm
-          path: wasm-artifacts/clang-nullsafe-wasm.tar.gz
+          name: clang-nullability-safety-wasm
+          path: wasm-artifacts/clang-nullability-safety-wasm.tar.gz

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Microbenchmarks: baseline vs nullsafe vs analyzer on (1) pointer-dense synthetic C
+# Microbenchmarks: baseline vs Nullability Safety vs analyzer on (1) pointer-dense synthetic C
 # and (2) a realistic STL-heavy C++ TU. Uses hyperfine + taskset for stable timing.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -34,11 +34,11 @@ EOF
 echo "===== GROUP A: synthetic pointer-dense C, -fsyntax-only (worst case) ====="
 $PIN hyperfine --shell=none --warmup 5 --runs 50 --export-json "$here/A_synth.json" \
   -n baseline "$CLANG -fsyntax-only $tmp/synth.c" \
-  -n nullsafe "$CLANG -fsyntax-only $NS $tmp/synth.c" \
+  -n nullability_safety "$CLANG -fsyntax-only $NS $tmp/synth.c" \
   -n analyzer "$CLANG --analyze -Xclang -analyzer-output=text $tmp/synth.c"
 
 echo "===== GROUP B: realistic STL-heavy C++ (.ii), -fsyntax-only ====="
 $PIN hyperfine --shell=none --warmup 5 --runs 40 --export-json "$here/B_real.json" \
   -n baseline "$CLANG -std=c++17 -fsyntax-only $tmp/real.ii" \
-  -n nullsafe "$CLANG -std=c++17 -fsyntax-only $NS $tmp/real.ii" \
+  -n nullability_safety "$CLANG -std=c++17 -fsyntax-only $NS $tmp/real.ii" \
   -n analyzer "$CLANG -std=c++17 --analyze -Xclang -analyzer-output=text $tmp/real.ii"

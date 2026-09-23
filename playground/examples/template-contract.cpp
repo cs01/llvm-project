@@ -3,7 +3,7 @@
 // template is later instantiated. CSA only reasons about concrete instantiations
 // and feasible paths, so with a non-null argument it sees no bug to report.
 //
-// Run nullsafe fork (WARNS at the template body):
+// Run this fork (WARNS at the template body):
 //   ../build/bin/clang -fsyntax-only -std=c++17 -fnullability-safety \
 //       -fnullability-default=nullable template-contract.cpp
 //

@@ -2,7 +2,7 @@
 // CSA's path-sensitivity proves this is SAFE; our flow analysis does not
 // correlate `ok` with `p != 0`, so it emits a (rare) false positive here.
 //
-// Run nullsafe fork (WARNS — false positive):
+// Run this fork (WARNS — false positive):
 //   ../build/bin/clang -fsyntax-only -fnullability-safety \
 //       -fnullability-default=nullable csa-wins-correlated.c
 //
