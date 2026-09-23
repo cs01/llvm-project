@@ -210,22 +210,38 @@ The analysis looks at one function at a time, but it uses the following to reaso
 
 Across translation units, contracts come from `_Nonnull`/`_Nullable` annotations in headers.
 
-### Evidence remarks
+### Inferring annotations
 
-`-Rnullsafe-evidence` emits remarks, not warnings, describing what the analysis saw:
+The analysis can infer `_Nonnull` and `_Nullable` for parameters, fields and function returns across a whole program and write them into the source. This uses Clang's Scalable Static Analysis Framework (SSAF):
 
 ```bash
-clang -fnullability-safety -fnullability-default=nullable -Rnullsafe-evidence file.cpp
+# 1. For each translation unit: record evidence and pointer flow.
+clang -fsyntax-only -fnullability-default=nonnull a.c \
+  --ssaf-extract-summaries=PointerFlow,NullabilitySafety \
+  --ssaf-compilation-unit-id=a --ssaf-tu-summary-file=a.json
+# 2. Link the summaries and infer.
+clang-ssaf-linker a.json b.json -o lu.json
+clang-ssaf-analyzer lu.json -o wpa.json -a NullabilityInferenceAnalysisResult
+# 3. For each translation unit: write edits and a SARIF report.
+clang -fsyntax-only -fnullability-default=nonnull a.c \
+  --ssaf-source-transformation=nullability-annotations \
+  --ssaf-global-scope-analysis-result=wpa.json \
+  --ssaf-src-edit-file=edits/a.yaml --ssaf-transformation-report-file=a.sarif \
+  --ssaf-compilation-unit-id=a --ssaf-link-unit-id=lu
+# 4. Merge the edits (a shared header is edited once) and apply them.
+clang-ssaf-src-edit-merge edits/*.yaml -o merged/merged.yaml
+clang-apply-replacements merged
 ```
 
-| Evidence | Remark text |
-|---|---|
-| Member assignment | `member 'X' of 'Y' (declared at ...) assigned from nonnull source` (or `nullable source`) |
-| Function return | `function 'X' of 'Y' (declared at ...) returns nonnull` (or `returns nullable`) |
-| All returns | `function 'X' always returns a non-null pointer` |
-| Call argument | `parameter 'X' of 'Y' (declared at ...) called with nonnull argument` (or `nullable argument`) |
+`--ssaf-link-unit-id` must be the stem of the linker's output file (`lu` for `lu.json`).
 
-Tools can combine these remarks across a whole codebase to suggest annotations. For example, if every caller in every file passes a non-null argument, the parameter can be marked `_Nonnull`. The remarks are expected to be replaced by summaries from Clang's Scalable Static Analysis Framework, and the flag will change when that happens.
+A pointer is inferred `_Nullable` when some code provably stores, passes or returns a nullable value into it, and `_Nonnull` when every observed value is non-null and no nullable value can reach it through pointer flow. The pointer-flow graph does not see null checks, so it can only cancel a `_Nonnull` inference, never create a `_Nullable` one. Pointers that a nullable value may reach, and declarations the tool cannot rewrite (spelled through a macro, `auto`, inner pointer levels), are listed in the SARIF report instead.
+
+Caveats:
+
+- An inferred `_Nullable` is accurate but can add many warnings where code relies on invariants the analysis cannot see, for example a field that is null only before initialization. Review the `_Nullable` edits before applying them.
+- Once a header has some nullability annotations, compilers that don't use `-fnullability-default` warn about the remaining unannotated pointers in it (`-Wnullability-completeness`).
+- Evidence observed inside Objective-C method bodies is not recorded: SSAF has no entities for Objective-C methods.
 
 ## Standard library knowledge
 

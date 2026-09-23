@@ -2,7 +2,12 @@
 // The TU-level call-graph analysis processes callees before callers, so a
 // function defined AFTER its caller still gets analyzed first.
 //
-// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 -Rnullsafe-evidence %s -verify
+// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 %s -verify
+// RUN: rm -f %t.json
+// RUN: %clang_cc1 -fsyntax-only -fnullability-default=nullable -std=c++17 %s \
+// RUN:   --ssaf-extract-summaries=NullabilitySafety \
+// RUN:   --ssaf-compilation-unit-id=tu --ssaf-tu-summary-file=%t.json
+// RUN: %python %S/../Analysis/Scalable/NullabilitySafety/Inputs/decode-summary.py %t.json | FileCheck %s --check-prefix=EVIDENCE
 
 // ===----------------------------------------------------------------------===//
 // Common types
@@ -27,8 +32,8 @@ void use_widget() {
 }
 
 // Callee defined after its caller.
-Widget *make_widget() { // expected-remark{{function 'make_widget' always returns a non-null pointer}}
-    return new Widget(); // expected-remark-re{{function 'make_widget' of global scope (declared at {{.*}}) returns nonnull}}
+Widget *make_widget() {
+    return new Widget();
 }
 
 // ===----------------------------------------------------------------------===//
@@ -44,12 +49,12 @@ void top_level_user() {
     w->x = 1; // OK - transitive nonnull through call graph
 }
 
-Widget *wrap_create() { // expected-remark{{function 'wrap_create' always returns a non-null pointer}}
-    return create(); // expected-remark-re{{function 'wrap_create' of global scope (declared at {{.*}}) returns nonnull}}
+Widget *wrap_create() {
+    return create();
 }
 
-Widget *create() { // expected-remark{{function 'create' always returns a non-null pointer}}
-    return new Widget(); // expected-remark-re{{function 'create' of global scope (declared at {{.*}}) returns nonnull}}
+Widget *create() {
+    return new Widget();
 }
 
 // ===----------------------------------------------------------------------===//
@@ -65,8 +70,8 @@ struct Factory {
         w->x = 10; // OK - getWidget always returns nonnull
     }
 
-    Widget *getWidget() { // expected-remark{{function 'getWidget' always returns a non-null pointer}}
-        return &widget; // expected-remark-re{{function 'getWidget' of Factory (declared at {{.*}}) returns nonnull}}
+    Widget *getWidget() {
+        return &widget;
     }
 };
 
@@ -81,9 +86,9 @@ void early_caller() {
     w->x = 1; // OK
 }
 
-Widget *singleton() { // expected-remark{{function 'singleton' always returns a non-null pointer}}
+Widget *singleton() {
     static Widget instance;
-    return &instance; // expected-remark-re{{function 'singleton' of global scope (declared at {{.*}}) returns nonnull}}
+    return &instance;
 }
 
 void late_caller() {
@@ -104,8 +109,8 @@ void caller_of_maybe_null() {
 
 Widget *maybe_null(bool flag) {
     if (flag)
-        return new Widget(); // expected-remark{{returns nonnull}}
-    return nullptr; // expected-remark{{returns nullable}}
+        return new Widget();
+    return nullptr;
 }
 
 // ===----------------------------------------------------------------------===//
@@ -123,20 +128,20 @@ ListNode *find_even(ListNode *_Nullable head);
 ListNode *find_odd(ListNode *_Nullable head);
 
 ListNode *find_even(ListNode *_Nullable head) {
-    if (!head) return nullptr; // expected-remark{{returns nullable}}
-    if (head->val % 2 == 0) return head; // expected-remark{{returns nonnull}}
-    return find_odd(head->next); // expected-remark-re{{parameter 'head' of 'find_odd' (declared at {{.*}}) called with nullable argument}}
+    if (!head) return nullptr;
+    if (head->val % 2 == 0) return head;
+    return find_odd(head->next);
 }
 
 ListNode *find_odd(ListNode *_Nullable head) {
-    if (!head) return nullptr; // expected-remark{{returns nullable}}
-    if (head->val % 2 != 0) return head; // expected-remark{{returns nonnull}}
-    return find_even(head->next); // expected-remark-re{{parameter 'head' of 'find_even' (declared at {{.*}}) called with nullable argument}}
+    if (!head) return nullptr;
+    if (head->val % 2 != 0) return head;
+    return find_even(head->next);
 }
 
 // Callers of recursive functions should still warn
 void use_recursive(ListNode *_Nullable head) {
-    ListNode *n = find_even(head); // expected-remark-re{{parameter 'head' of 'find_even' (declared at {{.*}}) called with nullable argument}}
+    ListNode *n = find_even(head);
     n->val = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
@@ -165,25 +170,25 @@ void test_constructor_param_evidence_nullable() {
 // even when every explicit caller passes nonnull.
 // ===----------------------------------------------------------------------===//
 
-void takes_optional_ptr(Widget *w = nullptr) { // expected-remark-re{{parameter 'w' of 'takes_optional_ptr' (declared at {{.*}}) called with nullable argument}}
+void takes_optional_ptr(Widget *w = nullptr) {
     if (w)
         w->x = 1;
 }
 
 void test_nullptr_default_evidence() {
     Widget w;
-    takes_optional_ptr(&w); // expected-remark-re{{parameter 'w' of 'takes_optional_ptr' (declared at {{.*}}) called with nonnull argument}}
+    takes_optional_ptr(&w);
 }
 
 // nullptr default with integer literal 0
-void takes_ptr_zero_default(Widget *w = 0) { // expected-remark-re{{parameter 'w' of 'takes_ptr_zero_default' (declared at {{.*}}) called with nullable argument}}
+void takes_ptr_zero_default(Widget *w = 0) {
     if (w)
         w->x = 2;
 }
 
 void test_zero_default_evidence() {
     Widget w;
-    takes_ptr_zero_default(&w); // expected-remark-re{{parameter 'w' of 'takes_ptr_zero_default' (declared at {{.*}}) called with nonnull argument}}
+    takes_ptr_zero_default(&w);
 }
 
 // Non-null default should NOT emit nullable evidence
@@ -195,5 +200,31 @@ void takes_ptr_nonnull_default(Widget *w = &g_widget) {
 
 void test_nonnull_default_evidence() {
     Widget w;
-    takes_ptr_nonnull_default(&w); // expected-remark-re{{parameter 'w' of 'takes_ptr_nonnull_default' (declared at {{.*}}) called with nonnull argument}}
+    takes_ptr_nonnull_default(&w);
 }
+
+// EVIDENCE:      c:@F@create# AllReturnsNonnull c:@F@create# return
+// EVIDENCE-NEXT: c:@F@create# NonnullEvidence c:@F@create# return
+// EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NonnullEvidence c:@F@find_even#*$@S@ListNode# return
+// EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NullableEvidence c:@F@find_even#*$@S@ListNode# return
+// EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NullableEvidence c:@F@find_odd#*$@S@ListNode# param 1
+// EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# NonnullEvidence c:@F@find_odd#*$@S@ListNode# return
+// EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# NullableEvidence c:@F@find_even#*$@S@ListNode# param 1
+// EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# NullableEvidence c:@F@find_odd#*$@S@ListNode# return
+// EVIDENCE-NEXT: c:@F@make_widget# AllReturnsNonnull c:@F@make_widget# return
+// EVIDENCE-NEXT: c:@F@make_widget# NonnullEvidence c:@F@make_widget# return
+// EVIDENCE-NEXT: c:@F@maybe_null#b# NonnullEvidence c:@F@maybe_null#b# return
+// EVIDENCE-NEXT: c:@F@maybe_null#b# NullableEvidence c:@F@maybe_null#b# return
+// EVIDENCE-NEXT: c:@F@singleton# AllReturnsNonnull c:@F@singleton# return
+// EVIDENCE-NEXT: c:@F@singleton# NonnullEvidence c:@F@singleton# return
+// EVIDENCE-NEXT: c:@F@test_nonnull_default_evidence# NonnullEvidence c:@F@takes_ptr_nonnull_default#*$@S@Widget# param 1
+// EVIDENCE-NEXT: c:@F@test_nullptr_default_evidence# NonnullEvidence c:@F@takes_optional_ptr#*$@S@Widget# param 1
+// EVIDENCE-NEXT: c:@F@test_nullptr_default_evidence# NullableEvidence c:@F@takes_optional_ptr#*$@S@Widget# param 1
+// EVIDENCE-NEXT: c:@F@test_zero_default_evidence# NonnullEvidence c:@F@takes_ptr_zero_default#*$@S@Widget# param 1
+// EVIDENCE-NEXT: c:@F@test_zero_default_evidence# NullableEvidence c:@F@takes_ptr_zero_default#*$@S@Widget# param 1
+// EVIDENCE-NEXT: c:@F@use_recursive#*$@S@ListNode# NullableEvidence c:@F@find_even#*$@S@ListNode# param 1
+// EVIDENCE-NEXT: c:@F@wrap_create# AllReturnsNonnull c:@F@wrap_create# return
+// EVIDENCE-NEXT: c:@F@wrap_create# NonnullEvidence c:@F@wrap_create# return
+// EVIDENCE-NEXT: c:@S@Factory@F@getWidget# AllReturnsNonnull c:@S@Factory@F@getWidget# return
+// EVIDENCE-NEXT: c:@S@Factory@F@getWidget# NonnullEvidence c:@S@Factory@F@getWidget# return
+// EVIDENCE-NOT:  {{.}}

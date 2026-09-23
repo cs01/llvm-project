@@ -542,7 +542,6 @@ def NullabilitySafetyArgument : DiagGroup<"nullability-safety-argument">;
 def NullabilitySafety : DiagGroup<"nullability-safety", [
   NullabilitySafetyDereference, NullabilitySafetyArithmetic, NullabilitySafetyReturn,
   NullabilitySafetyAssignment, NullabilitySafetyArgument]>;
-def NullsafeEvidence : DiagGroup<"nullsafe-evidence">;
 def FourByteMultiChar : DiagGroup<"four-char-constants">;
 def GlobalConstructors : DiagGroup<"global-constructors"> {
  code Documentation = [{
