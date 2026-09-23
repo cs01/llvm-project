@@ -12,13 +12,14 @@
 // NullabilitySafety summary.
 //
 // NullabilityInferenceAnalysisResult combines it with the pointer-flow graph.
-// Pointer-flow edges map an assignee to the values assigned to it; a nullable
-// value makes its assignee nullable, so nullable and maybe-null evidence is
-// propagated along the edges in reverse. The graph is flow-insensitive (it does
-// not see null checks), so propagation only vetoes: Nullable is the direct
-// nullable evidence, Nonnull is the nonnull evidence that no nullable value
-// reaches, and NullableReachable is what propagation reached, for reporting
-// only.
+// Nonnull is a must-property: an entity is inferred Nonnull only when every
+// value stored to it is proven non-null. Each store contributes one piece of
+// evidence: Nonnull (proven), Nullable or MaybeNull (vetoes), Unknown (vetoes),
+// or Conditional on the entities it was copied from (proven once all of those
+// are). Nonnull is the least fixpoint over the Conditional dependencies, so a
+// cycle with no proven store is not inferred. Pointer-flow edges only spread
+// the Nullable and MaybeNull vetoes to assignees; NullableReachable is what
+// that reached, for reporting.
 //
 //===----------------------------------------------------------------------===//
 
@@ -26,6 +27,7 @@
 #define LLVM_CLANG_SCALABLESTATICANALYSIS_ANALYSES_NULLABILITYSAFETY_NULLABILITYSAFETYANALYSIS_H
 
 #include "clang/ScalableStaticAnalysis/Analyses/EntityPointerLevel/EntityPointerLevel.h"
+#include "clang/ScalableStaticAnalysis/Analyses/PointerFlow/PointerFlow.h"
 #include "clang/ScalableStaticAnalysis/Core/WholeProgramAnalysis/AnalysisName.h"
 #include "clang/ScalableStaticAnalysis/Core/WholeProgramAnalysis/AnalysisResult.h"
 #include "llvm/ADT/StringRef.h"
@@ -46,6 +48,8 @@ struct NullabilityEvidenceAnalysisResult final : AnalysisResult {
   EntityPointerLevelSet NullableEvidence;
   EntityPointerLevelSet AllReturnsNonnull;
   EntityPointerLevelSet MaybeNullEvidence;
+  EntityPointerLevelSet UnknownEvidence;
+  EdgeSet ConditionalEvidence;
 };
 
 struct NullabilityInferenceAnalysisResult final : AnalysisResult {

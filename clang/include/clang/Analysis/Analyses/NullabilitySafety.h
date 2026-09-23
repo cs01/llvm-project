@@ -30,7 +30,7 @@ class ParmVarDecl;
 class TranslationUnitDecl;
 class VarDecl;
 
-enum class NullabilityEvidence { Nonnull, Nullable, MaybeNull };
+enum class NullabilityEvidence { Nonnull, Nullable, MaybeNull, Unknown };
 
 /// Receives the diagnostics and evidence produced by
 /// runNullabilitySafetyAnalysis. Only handleNullableDereference is required;

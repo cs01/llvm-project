@@ -151,15 +151,18 @@ int *return_tainted_nonnull() {
 // EVIDENCE:      c:@F@assign_nonnull#*$@S@S#*I# NonnullEvidence c:@S@S@FI@field
 // EVIDENCE-NEXT: c:@F@assign_nullable#*$@S@S#*I# NullableEvidence c:@S@S@FI@field
 // EVIDENCE-NEXT: c:@F@assign_nullptr#*$@S@S# NullableEvidence c:@S@S@FI@field
+// EVIDENCE-NEXT: c:@F@assign_unannotated#*$@S@S#*I# ConditionalEvidence c:@S@S@FI@field <- c:@F@assign_unannotated#*$@S@S#*I# param 2
 // EVIDENCE-NEXT: c:@F@call_two_params#*I# NonnullEvidence c:@F@two_params#*I#S0_# param 1
 // EVIDENCE-NEXT: c:@F@call_two_params#*I# NonnullEvidence c:@F@two_params#*I#S0_# param 2
 // EVIDENCE-NEXT: c:@F@pass_explicit_nullable#*I# NullableEvidence c:@F@takes_ptr#*I# param 1
 // EVIDENCE-NEXT: c:@F@pass_nonnull#*I# NonnullEvidence c:@F@takes_ptr#*I# param 1
 // EVIDENCE-NEXT: c:@F@pass_nullptr# NullableEvidence c:@F@takes_ptr#*I# param 1
 // EVIDENCE-NEXT: c:@F@pass_tainted_nonnull# NullableEvidence c:@F@takes_ptr#*I# param 1
+// EVIDENCE-NEXT: c:@F@pass_unannotated#*I# ConditionalEvidence c:@F@takes_ptr#*I# param 1 <- c:@F@pass_unannotated#*I# param 1
 // EVIDENCE-NEXT: c:@F@return_explicit_nullable# NullableEvidence c:@F@return_explicit_nullable# return
 // EVIDENCE-NEXT: c:@F@return_nonnull#*I# AllReturnsNonnull c:@F@return_nonnull#*I# return
 // EVIDENCE-NEXT: c:@F@return_nonnull#*I# NonnullEvidence c:@F@return_nonnull#*I# return
 // EVIDENCE-NEXT: c:@F@return_nullptr# NullableEvidence c:@F@return_nullptr# return
 // EVIDENCE-NEXT: c:@F@return_tainted_nonnull# NullableEvidence c:@F@return_tainted_nonnull# return
+// EVIDENCE-NEXT: c:@F@return_unannotated# ConditionalEvidence c:@F@return_unannotated# return <- c:@F@get_unannotated# return
 // EVIDENCE-NOT:  {{.}}

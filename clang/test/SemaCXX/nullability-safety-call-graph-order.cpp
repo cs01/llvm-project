@@ -206,10 +206,12 @@ void test_nonnull_default_evidence() {
 // EVIDENCE-NOT:  {{.}}
 // EVIDENCE:      c:@F@create# AllReturnsNonnull c:@F@create# return
 // EVIDENCE-NEXT: c:@F@create# NonnullEvidence c:@F@create# return
+// EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# ConditionalEvidence c:@F@find_even#*$@S@ListNode# return <- c:@F@find_odd#*$@S@ListNode# return
 // EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# MaybeNullEvidence c:@F@find_even#*$@S@ListNode# param 1
 // EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NonnullEvidence c:@F@find_even#*$@S@ListNode# return
 // EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NullableEvidence c:@F@find_even#*$@S@ListNode# return
 // EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NullableEvidence c:@F@find_odd#*$@S@ListNode# param 1
+// EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# ConditionalEvidence c:@F@find_odd#*$@S@ListNode# return <- c:@F@find_even#*$@S@ListNode# return
 // EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# MaybeNullEvidence c:@F@find_odd#*$@S@ListNode# param 1
 // EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# NonnullEvidence c:@F@find_odd#*$@S@ListNode# return
 // EVIDENCE-NEXT: c:@F@find_odd#*$@S@ListNode# NullableEvidence c:@F@find_even#*$@S@ListNode# param 1
@@ -233,4 +235,5 @@ void test_nonnull_default_evidence() {
 // EVIDENCE-NEXT: c:@F@wrap_create# NonnullEvidence c:@F@wrap_create# return
 // EVIDENCE-NEXT: c:@S@Factory@F@getWidget# AllReturnsNonnull c:@S@Factory@F@getWidget# return
 // EVIDENCE-NEXT: c:@S@Factory@F@getWidget# NonnullEvidence c:@S@Factory@F@getWidget# return
+// EVIDENCE-NEXT: c:@S@Holder@F@Holder#*$@S@Widget# ConditionalEvidence c:@S@Holder@FI@ptr <- c:@S@Holder@F@Holder#*$@S@Widget# param 1
 // EVIDENCE-NOT:  {{.}}

@@ -227,6 +227,7 @@ void direct_new_deref() {
 // EVIDENCE-NEXT: c:@F@caller_multi_return#*$@S@Widget# NonnullEvidence c:@F@getNodeOrNew#*$@S@Widget#b# param 1
 // EVIDENCE-NEXT: c:@F@caller_narrowed# NullableEvidence c:@F@getNarrowed#*$@S@Node# param 1
 // EVIDENCE-NEXT: c:@F@caller_nullable_still_warns#*$@S@Widget# NonnullEvidence c:@F@getNodeOrNull#*$@S@Widget#b# param 1
+// EVIDENCE-NEXT: c:@F@caller_unknown_still_warns#*$@S@Widget#*$@S@Node# ConditionalEvidence c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# param 2 <- c:@F@caller_unknown_still_warns#*$@S@Widget#*$@S@Node# param 2
 // EVIDENCE-NEXT: c:@F@caller_unknown_still_warns#*$@S@Widget#*$@S@Node# NonnullEvidence c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# param 1
 // EVIDENCE-NEXT: c:@F@caller_via_var#*$@S@Widget# NonnullEvidence c:@F@getNode#*$@S@Widget# param 1
 // EVIDENCE-NEXT: c:@F@getAlreadyAnnotated#*$@S@Widget# AllReturnsNonnull c:@F@getAlreadyAnnotated#*$@S@Widget# return
@@ -242,6 +243,7 @@ void direct_new_deref() {
 // EVIDENCE-NEXT: c:@F@getNodeOrNew#*$@S@Widget#b# NonnullEvidence c:@F@getNodeOrNew#*$@S@Widget#b# return
 // EVIDENCE-NEXT: c:@F@getNodeOrNull#*$@S@Widget#b# NonnullEvidence c:@F@getNodeOrNull#*$@S@Widget#b# return
 // EVIDENCE-NEXT: c:@F@getNodeOrNull#*$@S@Widget#b# NullableEvidence c:@F@getNodeOrNull#*$@S@Widget#b# return
+// EVIDENCE-NEXT: c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# ConditionalEvidence c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# return <- c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# param 2
 // EVIDENCE-NEXT: c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# NonnullEvidence c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# return
 // EVIDENCE-NEXT: c:@F@makeNode# AllReturnsNonnull c:@F@makeNode# return
 // EVIDENCE-NEXT: c:@F@makeNode# NonnullEvidence c:@F@makeNode# return
