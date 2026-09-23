@@ -723,6 +723,10 @@ static bool isSmartPointerType(QualType Ty) {
   return Name == "unique_ptr" || Name == "shared_ptr" || Name == "weak_ptr";
 }
 
+static bool isSmartPointerObject(const Expr *Obj) {
+  return Obj && isSmartPointerType(Obj->IgnoreParenImpCasts()->getType());
+}
+
 /// Strip implicit wrappers that real standard library headers introduce
 /// around expressions (ExprWithCleanups, CXXBindTemporaryExpr,
 /// MaterializeTemporaryExpr) plus the usual parens and implicit casts.
@@ -990,6 +994,32 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
 // Condition analysis
 //===----------------------------------------------------------------------===//
 
+/// The smart pointer receiver of an sp.get() call, or nullptr when CE is
+/// not such a call.
+static const Expr *smartPtrGetReceiver(const CallExpr *CE) {
+  const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE);
+  if (!MCE)
+    return nullptr;
+  const auto *MD = MCE->getMethodDecl();
+  if (!MD || !MD->getDeclName().isIdentifier() || MD->getName() != "get")
+    return nullptr;
+  const Expr *Obj = MCE->getImplicitObjectArgument();
+  if (!isSmartPointerObject(Obj))
+    return nullptr;
+  return Obj;
+}
+
+static std::optional<PtrRef> smartPtrGetRef(const Expr *E) {
+  const auto *CE = dyn_cast<CallExpr>(E->IgnoreParenImpCasts());
+  const Expr *Obj = CE ? smartPtrGetReceiver(CE) : nullptr;
+  if (!Obj)
+    return std::nullopt;
+  auto R = PtrRef::fromExpr(Obj);
+  if (R && (R->VD || isSmartPointerType(R->getType())))
+    return R;
+  return std::nullopt;
+}
+
 // Forward declaration: decomposeChain calls analyzeCondition on leaves.
 static void
 analyzeCondition(const Expr *Cond, ASTContext &Ctx,
@@ -1114,6 +1144,11 @@ static bool analyzeNullCompare(const BinaryOperator *BO, bool Negated,
       // Mirror the read-side cast see-through: (T*)p != nullptr narrows p.
       PtrExpr = lookThroughPtrToPtrCasts(PtrExpr);
 
+      if (auto R = smartPtrGetRef(PtrExpr)) {
+        Results.push_back({std::move(*R), EqNegated});
+        return true;
+      }
+
       if (auto R = PtrRef::fromExpr(PtrExpr))
         if (R->getType()->isPointerType())
           Results.push_back({std::move(*R), EqNegated});
@@ -1164,7 +1199,7 @@ analyzeSmartPtrBoolConversion(const CXXMemberCallExpr *MCE, bool Negated,
           dyn_cast_or_null<CXXConversionDecl>(MCE->getMethodDecl())) {
     if (CD->getConversionType()->isBooleanType()) {
       const Expr *Obj = MCE->getImplicitObjectArgument();
-      if (Obj && isSmartPointerType(Obj->getType())) {
+      if (isSmartPointerObject(Obj)) {
         // Obj's type was already checked above, so a variable needs no
         // further type test; only a path's leaf field does.
         if (auto R = PtrRef::fromExpr(Obj)) {
@@ -1245,6 +1280,11 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   if (const auto *AssignBO = dyn_cast<BinaryOperator>(E)) {
     if (AssignBO->getOpcode() == BO_Assign)
       E = AssignBO->getLHS()->IgnoreParenImpCasts();
+  }
+
+  if (auto R = smartPtrGetRef(E)) {
+    Results.push_back({std::move(*R), Negated});
+    return;
   }
 
   if (auto R = PtrRef::fromExpr(E)) {
@@ -1354,21 +1394,6 @@ static void applyNarrowing(NullState &NS, const ConditionResult &CR) {
 //===----------------------------------------------------------------------===//
 // Transfer functions
 //===----------------------------------------------------------------------===//
-
-/// The smart pointer receiver of an sp.get() call, or nullptr when CE is
-/// not such a call.
-static const Expr *smartPtrGetReceiver(const CallExpr *CE) {
-  const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE);
-  if (!MCE)
-    return nullptr;
-  const auto *MD = MCE->getMethodDecl();
-  if (!MD || !MD->getDeclName().isIdentifier() || MD->getName() != "get")
-    return nullptr;
-  const Expr *Obj = MCE->getImplicitObjectArgument();
-  if (!Obj || !isSmartPointerType(Obj->getType()))
-    return nullptr;
-  return Obj;
-}
 
 /// Unwrap explicit casts and pointer arithmetic to the original pointer
 /// expression. Template instantiations can bake _Nullable into a cast's
@@ -1604,7 +1629,7 @@ public:
       // *sp through operator* is checked like operator->.
       if (OCE->getOperator() == OO_Star && OCE->getNumArgs() >= 1) {
         const Expr *Obj = OCE->getArg(0);
-        if (isSmartPointerType(Obj->getType()))
+        if (isSmartPointerObject(Obj))
           checkSmartPtrDeref(CE, Obj);
       }
     }
@@ -1968,7 +1993,7 @@ private:
   /// Handle sp.reset() / sp.reset(ptr), a CXXMemberCallExpr.
   void handleSmartPtrReset(const CXXMemberCallExpr *MCE) {
     const Expr *Obj = MCE->getImplicitObjectArgument();
-    if (Obj && isSmartPointerType(Obj->getType())) {
+    if (isSmartPointerObject(Obj)) {
       if (const auto *MD = MCE->getMethodDecl()) {
         if (MD->getDeclName().isIdentifier() && MD->getName() == "reset") {
           // reset(nullptr) makes it null; reset(proven_nonnull) narrows it;
@@ -2005,8 +2030,7 @@ private:
   void handleSmartPtrReleaseOrSwap(const CXXMemberCallExpr *MCE) {
     const Expr *Obj = MCE->getImplicitObjectArgument();
     const auto *MD = MCE->getMethodDecl();
-    if (!Obj || !MD || !isSmartPointerType(Obj->getType()) ||
-        !MD->getDeclName().isIdentifier())
+    if (!MD || !isSmartPointerObject(Obj) || !MD->getDeclName().isIdentifier())
       return;
     if (MD->getName() == "release") {
       if (auto R = smartPtrRef(Obj)) {
@@ -2023,8 +2047,8 @@ private:
     if (!Callee || CE->getNumArgs() != 2 || !Callee->isInStdNamespace() ||
         !Callee->getDeclName().isIdentifier() || Callee->getName() != "swap")
       return;
-    if (isSmartPointerType(CE->getArg(0)->getType()) &&
-        isSmartPointerType(CE->getArg(1)->getType()))
+    if (isSmartPointerObject(CE->getArg(0)) &&
+        isSmartPointerObject(CE->getArg(1)))
       swapSmartPtrFacts(CE->getArg(0), CE->getArg(1));
   }
 
@@ -2359,7 +2383,7 @@ private:
       return false;
     if (OCE->getNumArgs() >= 1) {
       const Expr *Obj = OCE->getArg(0);
-      if (isSmartPointerType(Obj->getType()))
+      if (isSmartPointerObject(Obj))
         checkSmartPtrDeref(DerefExpr, Obj);
     }
     return true;

@@ -64,7 +64,8 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | 5a | API: options struct, summary oracle split from the handler, drop the unused `SrcExpr` parameter, one Sema opt-in predicate | done (below) |
 | F0 | Reduced real-bug regression tests (`SemaCXX/nullability-safety-reduced-real-bugs.cpp`); must keep passing through every F step | done |
 | F1 | Smart pointers: in nonnull mode an unchecked smart pointer takes the declared default like a raw pointer; explicit taint for default construction, `= nullptr`, `release()`, `swap()` | done (below) |
-| F1b | libstdc++ `shared_ptr`: `s->` / `*s` resolve to the base class `__shared_ptr_access`, whose type is not a smart pointer, so no dereference is checked (both modes, predates F1; libc++ and `unique_ptr` are fine) | todo |
+| F1b | libstdc++ `shared_ptr`: `s->` / `*s` resolve to the base class `__shared_ptr_access`, whose type is not a smart pointer, so no dereference is checked (both modes, predates F1; libc++ and `unique_ptr` are fine) | done (below) |
+| W1 | Wording: warnings name the internal `_Null_unspecified` tag in nullable mode, and an unnamed nonnull parameter prints as `''` | done (below) |
 | F4 | Output parameters: a pointer escaping as `&p` to `T **` or binding to `T *&` / `const T *&` loses its nullable facts and guards (reuse `invalidateBoolGuardsFor` / `invalidateMembersFor`); narrowing is kept | done (below) |
 | F5 | Lambdas: drop the call-site `IsLambdaCall` nonnull promotion; argument check only for `_Nonnull` or `nonnull(N)` (first parameter is `nonnull(2)`) | done, nonnull mode only (below) |
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | done (below) |
@@ -245,6 +246,28 @@ and default-then-assigned are silent; default, `release`, both swaps,
 moved-from and `reset` warn. sqlite: no change (C). Re-scan the internal
 codebases to measure the effect; the worksheet predicts most of the 729
 smart-pointer sites disappear.
+
+## F1b results
+
+`isSmartPointerObject` looks through implicit derived-to-base casts before
+the type test at every receiver site (`->`, `*`, `get()`, `operator bool`,
+`reset`, `release`, member and `std::swap`). libstdc++ declares those on
+`__shared_ptr_access` / `__shared_ptr`, so before this `s->x` was never
+checked, `s.reset(); s->x` was silent, and `if (s) { S *p = s.get(); p->x; }`
+warned. Also new, for every smart pointer: `if (sp.get())`,
+`sp.get() != nullptr` and their negations narrow `sp` (`smartPtrGetRef`);
+`unique_ptr` had the same false positive. Checked against real libstdc++
+`<memory>`. sqlite: no change (C).
+
+## W1 results
+
+Dereference and arithmetic warnings strip `_Null_unspecified` from every
+pointer level of the printed type (a tag the user wrote, like `_Nullable`,
+stays); qualifiers are kept. An unnamed nonnull parameter prints as
+`parameter 1`. Clang's own diagnostics (`nullability-safety-default-tagging.c`)
+and function-pointer parameter lists still show the tag. sqlite nullable:
+22335 lines change text only; with the tag and pointer spacing normalized the
+lists are identical. Other lists unchanged.
 
 ## F4 results
 
