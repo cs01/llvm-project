@@ -1881,9 +1881,6 @@ private:
         const ParmVarDecl *Param = Callee->getParamDecl(I);
         if (!Param->getType()->isPointerType())
           continue;
-        // Skip unnamed parameters: no useful evidence without a name.
-        if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
-          continue;
         const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
         bool ArgIsNonnull = !isExprNullable(Arg);
         if (!ArgIsNonnull && !isExprNullable(Arg, /*ExplicitOnly=*/true))
@@ -1899,8 +1896,6 @@ private:
         if (!Param->getType()->isPointerType() || !Param->hasDefaultArg())
           continue;
         if (Param->hasUninstantiatedDefaultArg())
-          continue;
-        if (!Param->getDeclName().isIdentifier() || Param->getName().empty())
           continue;
         const Expr *DefArg = Param->getDefaultArg();
         if (DefArg && DefArg->isNullPointerConstant(

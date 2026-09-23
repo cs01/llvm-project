@@ -1,10 +1,10 @@
 #!/bin/bash
 # Gates for nullability analysis changes (see docs/nullability-safety-plan.md).
-# Builds clang, runs the nullability lit tests, writes sorted sqlite warning
-# and evidence lists tagged <tag>, checks that the NullabilitySafety SSAF
-# summaries match the evidence remarks, and checks clang-format. Exits nonzero
-# if any gate fails. Compare two tags with --diff to see every gained or lost
-# warning.
+# Builds clang, runs the nullability lit tests, writes sorted sqlite lists
+# tagged <tag> (warnings in both modes, decoded NullabilitySafety SSAF
+# evidence, and the lines the nullability-annotations transformation
+# annotates), and checks clang-format. Exits nonzero if any gate fails.
+# Compare two tags with --diff to see every gained or lost line.
 #
 # Usage:
 #   tools/nullability-gates.sh [--skip-sqlite] <tag>         # working tree
@@ -36,7 +36,7 @@ done
 set -- "${ARGS[@]}"
 
 if [[ "${1:-}" == "--diff" ]]; then
-  for m in nonnull nullable evidence; do
+  for m in nonnull nullable evidence annotations; do
     old="$OUT/sqlite-$m-$2.txt" new="$OUT/sqlite-$m-$3.txt"
     echo "=== $m: lost $(comm -23 "$old" "$new" | wc -l) gained $(comm -13 "$old" "$new" | wc -l)"
     comm -3 "$old" "$new" | sed "s|$(dirname "$SQLITE")/||" | head -40
@@ -113,14 +113,42 @@ elif [[ -f "$SQLITE" ]]; then
     { grep 'warning:' "$f.raw" || true; } | sort >"$f"
     echo "sqlite $mode: $(wc -l <"$f")"
   done
+  SRC="$OUT/sqlite-src-$TAG"
+  rm -rf "$SRC" && mkdir -p "$SRC/edits" "$SRC/merged" && cp "$SQLITE" "$SRC/sqlite3.c"
+  SSAF=(-fnullability-default=nonnull --ssaf-compilation-unit-id=sqlite)
   f="$OUT/sqlite-evidence-$TAG.txt"
-  run_sqlite "$f" -fnullability-default=nonnull -Rnullsafe-evidence \
-    --ssaf-extract-summaries=NullabilitySafety,EntitySourceLocations \
-    --ssaf-compilation-unit-id=sqlite --ssaf-tu-summary-file="$f.json" ||
+  if SQLITE="$SRC/sqlite3.c" run_sqlite "$f" "${SSAF[@]}" \
+    --ssaf-extract-summaries=PointerFlow,NullabilitySafety \
+    --ssaf-tu-summary-file="$SRC/tu.json"; then
+    python3 clang/test/Analysis/Scalable/NullabilitySafety/Inputs/decode-summary.py \
+      "$SRC/tu.json" >"$f"
+  else
     FAILED+=(sqlite-evidence)
-  { grep 'remark:' "$f.raw" || true; } | sort >"$f"
+    : >"$f"
+  fi
   echo "sqlite evidence: $(wc -l <"$f")"
-  python3 tools/nullability-ssaf-parity.py "$f.raw" "$f.json" || FAILED+=(ssaf-parity)
+  f="$OUT/sqlite-annotations-$TAG.txt"
+  : >"$f"
+  if [[ ! -x "$BUILD_DIR/bin/clang-apply-replacements" ]]; then
+    echo "sqlite annotations SKIPPED (no clang-apply-replacements)"
+  elif "$BUILD_DIR/bin/clang-ssaf-linker" "$SRC/tu.json" -o "$SRC/lu.json" &&
+    "$BUILD_DIR/bin/clang-ssaf-analyzer" "$SRC/lu.json" -o "$SRC/wpa.json" \
+      -a NullabilityInferenceAnalysisResult &&
+    SQLITE="$SRC/sqlite3.c" run_sqlite "$f" "${SSAF[@]}" \
+      --ssaf-source-transformation=nullability-annotations \
+      --ssaf-global-scope-analysis-result="$SRC/wpa.json" \
+      --ssaf-src-edit-file="$SRC/edits/sqlite.yaml" \
+      --ssaf-transformation-report-file="$SRC/report.sarif" \
+      --ssaf-link-unit-id=lu &&
+    "$BUILD_DIR/bin/clang-ssaf-src-edit-merge" "$SRC/edits/sqlite.yaml" \
+      -o "$SRC/merged/merged.yaml" &&
+    "$BUILD_DIR/bin/clang-apply-replacements" "$SRC/merged"; then
+    { diff "$SQLITE" "$SRC/sqlite3.c" | grep '^>' || true; } | sort >"$f"
+    echo "sqlite annotations: $(wc -l <"$f")"
+    SQLITE="$SRC/sqlite3.c" run_sqlite "$SRC/annotated" || FAILED+=(sqlite-annotated-build)
+  else
+    FAILED+=(sqlite-annotations)
+  fi
 else
   echo "sqlite not found: $SQLITE (cd sqlite && ./configure && make sqlite3.c)"
   FAILED+=(sqlite-missing)

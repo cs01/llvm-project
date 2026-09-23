@@ -1535,8 +1535,9 @@ adoption one function at a time.
 The diagnostics are grouped under `-Wnullability-safety`, with the subgroups
 `-Wnullability-safety-dereference`, `-Wnullability-safety-arithmetic`,
 `-Wnullability-safety-return`, `-Wnullability-safety-assignment`, and
-`-Wnullability-safety-argument`. `-Rnullsafe-evidence` emits remarks describing
-the inferred nullability for consumption by annotation-migration tooling.
+`-Wnullability-safety-argument`. The `nullability-annotations` Scalable Static
+Analysis Framework transformation infers `_Nonnull` and `_Nullable` across a
+whole program and inserts them (see Language Extensions).
 
 ```console
 $ cat deref.c

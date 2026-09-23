@@ -3055,9 +3055,8 @@ class NullabilitySafetyReporter : public NullabilitySafetyHandler {
   // ThreadSafetyReporter).
   DiagList Warnings;
   // Dedupe key: (diag ID, location, distinguishing argument). One location
-  // can legitimately be reported more than once per function: a nullptr
-  // default argument yields parameter evidence at the default's location from
-  // every call site that omits it, and `p - p` reports p for both operands.
+  // can legitimately be reported more than once per function: `p - p`
+  // reports p for both operands.
   llvm::DenseSet<std::tuple<unsigned, SourceLocation, const void *>>
       SeenDiags;
 
@@ -3155,91 +3154,6 @@ public:
         Loc, S.PDiag(diag::warn_nullability_safety_argument) << Param);
     PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_argument_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
-  }
-
-  /// Format a declaration's source location as "file:line:col" for evidence
-  /// remarks. The column lets downstream tools pinpoint exact insertion
-  /// positions when multiple declarations share the same line.
-  std::string getDeclLocStr(const Decl *D) {
-    SourceManager &SM = S.getSourceManager();
-    PresumedLoc PLoc = SM.getPresumedLoc(D->getLocation());
-    if (PLoc.isValid())
-      return std::string(PLoc.getFilename()) + ":" +
-             std::to_string(PLoc.getLine()) + ":" +
-             std::to_string(PLoc.getColumn());
-    return "<unknown>";
-  }
-
-  /// Get a printable name for a DeclContext (class name, namespace, or
-  /// "global scope"). Avoids passing a DeclContext* directly to S.Diag()
-  /// which crashes for TranslationUnitDecl.
-  std::string getParentName(const DeclContext *DC) {
-    if (!DC)
-      return "global scope";
-    if (const auto *ND = dyn_cast<NamedDecl>(DC)) {
-      std::string Name = ND->getQualifiedNameAsString();
-      if (!Name.empty())
-        return Name;
-    }
-    if (isa<TranslationUnitDecl>(DC))
-      return "global scope";
-    return "anonymous scope";
-  }
-
-  void handleMemberAssignEvidence(const Expr *AssignExpr,
-                                  const FieldDecl *Member,
-                                  bool IsNonnull) override {
-    unsigned DiagID = IsNonnull
-                          ? diag::remark_nullsafe_member_evidence_nonnull
-                          : diag::remark_nullsafe_member_evidence_nullable;
-    SourceLocation Loc = AssignExpr->getExprLoc();
-    if (!isFirst(DiagID, Loc, Member))
-      return;
-    PartialDiagnosticAt Remark(Loc, S.PDiag(DiagID)
-                                        << Member->getName()
-                                        << getParentName(Member->getParent())
-                                        << getDeclLocStr(Member));
-    Warnings.emplace_back(std::move(Remark), OptionalNotes());
-  }
-
-  void handleReturnEvidence(const Expr *RetExpr, const FunctionDecl *Func,
-                            bool IsNonnull) override {
-    unsigned DiagID = IsNonnull
-                          ? diag::remark_nullsafe_return_evidence_nonnull
-                          : diag::remark_nullsafe_return_evidence_nullable;
-    SourceLocation Loc = RetExpr->getExprLoc();
-    if (!isFirst(DiagID, Loc, Func))
-      return;
-    PartialDiagnosticAt Remark(Loc, S.PDiag(DiagID)
-                                        << Func->getNameAsString()
-                                        << getParentName(Func->getParent())
-                                        << getDeclLocStr(Func));
-    Warnings.emplace_back(std::move(Remark), OptionalNotes());
-  }
-
-  void handleParameterEvidence(const Expr *ArgExpr, const ParmVarDecl *Param,
-                               const FunctionDecl *Func,
-                               bool IsNonnull) override {
-    unsigned DiagID = IsNonnull ? diag::remark_nullsafe_param_evidence_nonnull
-                                : diag::remark_nullsafe_param_evidence_nullable;
-    SourceLocation Loc = ArgExpr->getExprLoc();
-    if (!isFirst(DiagID, Loc, Param))
-      return;
-    PartialDiagnosticAt Remark(Loc, S.PDiag(DiagID)
-                                        << Param->getName()
-                                        << Func->getNameAsString()
-                                        << getDeclLocStr(Param));
-    Warnings.emplace_back(std::move(Remark), OptionalNotes());
-  }
-
-  void handleAllReturnsNonnull(const FunctionDecl *Func) override {
-    SourceLocation Loc = Func->getLocation();
-    if (!isFirst(diag::remark_nullsafe_all_returns_nonnull, Loc, Func))
-      return;
-    PartialDiagnosticAt Remark(
-        Loc, S.PDiag(diag::remark_nullsafe_all_returns_nonnull)
-                 << Func->getNameAsString());
-    Warnings.emplace_back(std::move(Remark), OptionalNotes());
   }
 };
 

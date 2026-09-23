@@ -3,7 +3,12 @@
 // function's return as implicitly _Nonnull. Callers within the same TU then
 // narrow the returned pointer, suppressing false-positive nullable warnings.
 //
-// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 -Rnullsafe-evidence %s -verify
+// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 %s -verify
+// RUN: rm -f %t.json
+// RUN: %clang_cc1 -fsyntax-only -fnullability-default=nullable -std=c++17 %s \
+// RUN:   --ssaf-extract-summaries=NullabilitySafety \
+// RUN:   --ssaf-compilation-unit-id=tu --ssaf-tu-summary-file=%t.json
+// RUN: %python %S/../Analysis/Scalable/NullabilitySafety/Inputs/decode-summary.py %t.json | FileCheck %s --check-prefix=EVIDENCE
 
 // ===----------------------------------------------------------------------===//
 // Common types
@@ -26,27 +31,27 @@ struct Widget {
 // ===----------------------------------------------------------------------===//
 
 // --- Pattern 1: return address-of member (free function) ---
-Node *getNode(Widget *_Nonnull w) { // expected-remark{{function 'getNode' always returns a non-null pointer}}
-    return &w->node; // expected-remark-re{{function 'getNode' of global scope (declared at {{.*}}) returns nonnull}}
+Node *getNode(Widget *_Nonnull w) {
+    return &w->node;
 }
 
 // --- Pattern 2: return this ---
 struct Self {
     int val;
-    Self *getSelf() { // expected-remark{{function 'getSelf' always returns a non-null pointer}}
-        return this; // expected-remark-re{{function 'getSelf' of Self (declared at {{.*}}) returns nonnull}}
+    Self *getSelf() {
+        return this;
     }
 };
 
 // --- Pattern 3: return new ---
-Node *makeNode() { // expected-remark{{function 'makeNode' always returns a non-null pointer}}
-    return new Node(); // expected-remark-re{{function 'makeNode' of global scope (declared at {{.*}}) returns nonnull}}
+Node *makeNode() {
+    return new Node();
 }
 
 // --- Pattern 4: return address-of local ---
-int *getLocal() { // expected-remark{{function 'getLocal' always returns a non-null pointer}}
+int *getLocal() {
     static int storage = 42;
-    return &storage; // expected-remark-re{{function 'getLocal' of global scope (declared at {{.*}}) returns nonnull}}
+    return &storage;
 }
 
 // --- Pattern 5: return static_cast<T*>(this) ---
@@ -54,8 +59,8 @@ struct Base {
     int v;
 };
 struct Derived : Base {
-    Base *asBase() { // expected-remark{{function 'asBase' always returns a non-null pointer}}
-        return static_cast<Base *>(this); // expected-remark-re{{function 'asBase' of Derived (declared at {{.*}}) returns nonnull}}
+    Base *asBase() {
+        return static_cast<Base *>(this);
     }
 };
 
@@ -63,10 +68,10 @@ struct Derived : Base {
 // Multi-return: all paths nonnull
 // ===----------------------------------------------------------------------===//
 
-Node *getNodeOrNew(Widget *_Nonnull w, bool flag) { // expected-remark{{function 'getNodeOrNew' always returns a non-null pointer}}
+Node *getNodeOrNew(Widget *_Nonnull w, bool flag) {
     if (flag)
-        return &w->node; // expected-remark{{returns nonnull}}
-    return new Node(); // expected-remark{{returns nonnull}}
+        return &w->node;
+    return new Node();
 }
 
 // ===----------------------------------------------------------------------===//
@@ -75,20 +80,20 @@ Node *getNodeOrNew(Widget *_Nonnull w, bool flag) { // expected-remark{{function
 
 Node *getNodeOrNull(Widget *_Nonnull w, bool flag) {
     if (flag)
-        return &w->node; // expected-remark{{returns nonnull}}
-    return nullptr; // expected-remark{{returns nullable}}
+        return &w->node;
+    return nullptr;
 }
 
 // An unannotated return is unknown: it emits no cross-TU evidence, but must
 // still invalidate the local all-returns-nonnull summary.
 Node *getNodeOrUnknown(Widget *_Nonnull w, Node *unknown, bool flag) {
     if (flag)
-        return &w->node; // expected-remark{{returns nonnull}}
+        return &w->node;
     return unknown;
 }
 
 void caller_unknown_still_warns(Widget *_Nonnull w, Node *unknown) {
-    Node *n = getNodeOrUnknown(w, unknown, true); // expected-remark-re{{parameter 'w' of 'getNodeOrUnknown' (declared at {{.*}}) called with nonnull argument}}
+    Node *n = getNodeOrUnknown(w, unknown, true);
     n->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
@@ -106,13 +111,13 @@ int getInt() { return 42; }
 
 // Free function call via variable init
 void caller_via_var(Widget *_Nonnull w) {
-    Node *n = getNode(w); // expected-remark-re{{parameter 'w' of 'getNode' (declared at {{.*}}) called with nonnull argument}}
+    Node *n = getNode(w);
     n->value = 1; // OK - getNode always returns nonnull
 }
 
 // Free function call, direct arrow deref (no intermediate variable)
 void caller_direct_arrow(Widget *_Nonnull w) {
-    getNode(w)->value = 1; // OK - getNode always returns nonnull // expected-remark-re{{parameter 'w' of 'getNode' (declared at {{.*}}) called with nonnull argument}}
+    getNode(w)->value = 1; // OK - getNode always returns nonnull
 }
 
 // Method returning this
@@ -130,13 +135,13 @@ void caller_new() {
 
 // Multi-return, all nonnull
 void caller_multi_return(Widget *_Nonnull w) {
-    Node *n = getNodeOrNew(w, true); // expected-remark-re{{parameter 'w' of 'getNodeOrNew' (declared at {{.*}}) called with nonnull argument}}
+    Node *n = getNodeOrNew(w, true);
     n->value = 1; // OK - all returns are nonnull
 }
 
 // NOT all-returns-nonnull — should still warn
 void caller_nullable_still_warns(Widget *_Nonnull w) {
-    Node *n = getNodeOrNull(w, true); // expected-remark-re{{parameter 'w' of 'getNodeOrNull' (declared at {{.*}}) called with nonnull argument}}
+    Node *n = getNodeOrNull(w, true);
     n->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
@@ -152,20 +157,20 @@ struct Config {
     Widget widget;
     int flags;
 
-    Node *getA() { // expected-remark{{function 'getA' always returns a non-null pointer}}
-        return &node_a; // expected-remark{{returns nonnull}}
+    Node *getA() {
+        return &node_a;
     }
-    Node *getB() { // expected-remark{{function 'getB' always returns a non-null pointer}}
-        return &node_b; // expected-remark{{returns nonnull}}
+    Node *getB() {
+        return &node_b;
     }
-    Node *getC() { // expected-remark{{function 'getC' always returns a non-null pointer}}
-        return &node_c; // expected-remark{{returns nonnull}}
+    Node *getC() {
+        return &node_c;
     }
-    Widget *getWidget() { // expected-remark{{function 'getWidget' always returns a non-null pointer}}
-        return &widget; // expected-remark{{returns nonnull}}
+    Widget *getWidget() {
+        return &widget;
     }
-    int *getFlags() { // expected-remark{{function 'getFlags' always returns a non-null pointer}}
-        return &flags; // expected-remark{{returns nonnull}}
+    int *getFlags() {
+        return &flags;
     }
 };
 
@@ -195,19 +200,19 @@ void use_config_via_vars(Config *_Nonnull cfg) {
 // ===----------------------------------------------------------------------===//
 
 // Redundant annotation — inference + annotation should not clash
-Node *_Nonnull getAlreadyAnnotated(Widget *_Nonnull w) { // expected-remark{{function 'getAlreadyAnnotated' always returns a non-null pointer}}
-    return &w->node; // expected-remark{{returns nonnull}}
+Node *_Nonnull getAlreadyAnnotated(Widget *_Nonnull w) {
+    return &w->node;
 }
 
 // Narrowed variable: all paths return non-null via narrowing
-Node *getNarrowed(Node *p) { // expected-remark{{function 'getNarrowed' always returns a non-null pointer}}
+Node *getNarrowed(Node *p) {
     if (!p)
-        return new Node(); // expected-remark{{returns nonnull}}
-    return p; // expected-remark{{returns nonnull}}
+        return new Node();
+    return p;
 }
 
 void caller_narrowed() {
-    Node *n = getNarrowed(nullptr); // expected-remark-re{{parameter 'p' of 'getNarrowed' (declared at {{.*}}) called with nullable argument}}
+    Node *n = getNarrowed(nullptr);
     n->value = 1; // OK - getNarrowed always returns nonnull
 }
 
@@ -216,3 +221,40 @@ void caller_narrowed() {
 void direct_new_deref() {
     (new Node())->value = 1; // OK - new never returns null
 }
+
+// EVIDENCE:      c:@F@caller_direct_arrow#*$@S@Widget# NonnullEvidence c:@F@getNode#*$@S@Widget# param 1
+// EVIDENCE-NEXT: c:@F@caller_multi_return#*$@S@Widget# NonnullEvidence c:@F@getNodeOrNew#*$@S@Widget#b# param 1
+// EVIDENCE-NEXT: c:@F@caller_narrowed# NullableEvidence c:@F@getNarrowed#*$@S@Node# param 1
+// EVIDENCE-NEXT: c:@F@caller_nullable_still_warns#*$@S@Widget# NonnullEvidence c:@F@getNodeOrNull#*$@S@Widget#b# param 1
+// EVIDENCE-NEXT: c:@F@caller_unknown_still_warns#*$@S@Widget#*$@S@Node# NonnullEvidence c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# param 1
+// EVIDENCE-NEXT: c:@F@caller_via_var#*$@S@Widget# NonnullEvidence c:@F@getNode#*$@S@Widget# param 1
+// EVIDENCE-NEXT: c:@F@getAlreadyAnnotated#*$@S@Widget# AllReturnsNonnull c:@F@getAlreadyAnnotated#*$@S@Widget# return
+// EVIDENCE-NEXT: c:@F@getAlreadyAnnotated#*$@S@Widget# NonnullEvidence c:@F@getAlreadyAnnotated#*$@S@Widget# return
+// EVIDENCE-NEXT: c:@F@getLocal# AllReturnsNonnull c:@F@getLocal# return
+// EVIDENCE-NEXT: c:@F@getLocal# NonnullEvidence c:@F@getLocal# return
+// EVIDENCE-NEXT: c:@F@getNarrowed#*$@S@Node# AllReturnsNonnull c:@F@getNarrowed#*$@S@Node# return
+// EVIDENCE-NEXT: c:@F@getNarrowed#*$@S@Node# NonnullEvidence c:@F@getNarrowed#*$@S@Node# return
+// EVIDENCE-NEXT: c:@F@getNode#*$@S@Widget# AllReturnsNonnull c:@F@getNode#*$@S@Widget# return
+// EVIDENCE-NEXT: c:@F@getNode#*$@S@Widget# NonnullEvidence c:@F@getNode#*$@S@Widget# return
+// EVIDENCE-NEXT: c:@F@getNodeOrNew#*$@S@Widget#b# AllReturnsNonnull c:@F@getNodeOrNew#*$@S@Widget#b# return
+// EVIDENCE-NEXT: c:@F@getNodeOrNew#*$@S@Widget#b# NonnullEvidence c:@F@getNodeOrNew#*$@S@Widget#b# return
+// EVIDENCE-NEXT: c:@F@getNodeOrNull#*$@S@Widget#b# NonnullEvidence c:@F@getNodeOrNull#*$@S@Widget#b# return
+// EVIDENCE-NEXT: c:@F@getNodeOrNull#*$@S@Widget#b# NullableEvidence c:@F@getNodeOrNull#*$@S@Widget#b# return
+// EVIDENCE-NEXT: c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# NonnullEvidence c:@F@getNodeOrUnknown#*$@S@Widget#*$@S@Node#b# return
+// EVIDENCE-NEXT: c:@F@makeNode# AllReturnsNonnull c:@F@makeNode# return
+// EVIDENCE-NEXT: c:@F@makeNode# NonnullEvidence c:@F@makeNode# return
+// EVIDENCE-NEXT: c:@S@Config@F@getA# AllReturnsNonnull c:@S@Config@F@getA# return
+// EVIDENCE-NEXT: c:@S@Config@F@getA# NonnullEvidence c:@S@Config@F@getA# return
+// EVIDENCE-NEXT: c:@S@Config@F@getB# AllReturnsNonnull c:@S@Config@F@getB# return
+// EVIDENCE-NEXT: c:@S@Config@F@getB# NonnullEvidence c:@S@Config@F@getB# return
+// EVIDENCE-NEXT: c:@S@Config@F@getC# AllReturnsNonnull c:@S@Config@F@getC# return
+// EVIDENCE-NEXT: c:@S@Config@F@getC# NonnullEvidence c:@S@Config@F@getC# return
+// EVIDENCE-NEXT: c:@S@Config@F@getFlags# AllReturnsNonnull c:@S@Config@F@getFlags# return
+// EVIDENCE-NEXT: c:@S@Config@F@getFlags# NonnullEvidence c:@S@Config@F@getFlags# return
+// EVIDENCE-NEXT: c:@S@Config@F@getWidget# AllReturnsNonnull c:@S@Config@F@getWidget# return
+// EVIDENCE-NEXT: c:@S@Config@F@getWidget# NonnullEvidence c:@S@Config@F@getWidget# return
+// EVIDENCE-NEXT: c:@S@Derived@F@asBase# AllReturnsNonnull c:@S@Derived@F@asBase# return
+// EVIDENCE-NEXT: c:@S@Derived@F@asBase# NonnullEvidence c:@S@Derived@F@asBase# return
+// EVIDENCE-NEXT: c:@S@Self@F@getSelf# AllReturnsNonnull c:@S@Self@F@getSelf# return
+// EVIDENCE-NEXT: c:@S@Self@F@getSelf# NonnullEvidence c:@S@Self@F@getSelf# return
+// EVIDENCE-NOT:  {{.}}

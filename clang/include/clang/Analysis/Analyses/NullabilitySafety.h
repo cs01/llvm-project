@@ -32,7 +32,8 @@ class VarDecl;
 
 /// Receives the diagnostics and evidence produced by
 /// runNullabilitySafetyAnalysis. Only handleNullableDereference is required;
-/// the rest default to no-ops.
+/// the rest default to no-ops. Evidence feeds the NullabilitySafety SSAF
+/// summary extractor.
 class NullabilitySafetyHandler {
 public:
   virtual ~NullabilitySafetyHandler();

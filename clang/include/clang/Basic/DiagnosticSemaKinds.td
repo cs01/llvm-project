@@ -13176,27 +13176,6 @@ def warn_nullability_safety_argument : Warning<
 def note_nullable_argument_fix : Note<
   "add a null check before the call, or change the parameter type to "
   "'_Nullable'">;
-def remark_nullsafe_member_evidence_nonnull : Remark<
-  "member '%0' of %1 (declared at %2) assigned from nonnull source">,
-  InGroup<NullsafeEvidence>;
-def remark_nullsafe_member_evidence_nullable : Remark<
-  "member '%0' of %1 (declared at %2) assigned from nullable source">,
-  InGroup<NullsafeEvidence>;
-def remark_nullsafe_return_evidence_nonnull : Remark<
-  "function '%0' of %1 (declared at %2) returns nonnull">,
-  InGroup<NullsafeEvidence>;
-def remark_nullsafe_return_evidence_nullable : Remark<
-  "function '%0' of %1 (declared at %2) returns nullable">,
-  InGroup<NullsafeEvidence>;
-def remark_nullsafe_param_evidence_nonnull : Remark<
-  "parameter '%0' of '%1' (declared at %2) called with nonnull argument">,
-  InGroup<NullsafeEvidence>;
-def remark_nullsafe_param_evidence_nullable : Remark<
-  "parameter '%0' of '%1' (declared at %2) called with nullable argument">,
-  InGroup<NullsafeEvidence>;
-def remark_nullsafe_all_returns_nonnull : Remark<
-  "function '%0' always returns a non-null pointer">,
-  InGroup<NullsafeEvidence>;
 def warn_zero_as_null_pointer_constant : Warning<
   "zero as null pointer constant">,
   InGroup<DiagGroup<"zero-as-null-pointer-constant">>, DefaultIgnore;

@@ -27,18 +27,23 @@ stash is a no-op and the pop restores an unrelated older stash. `--base`
 stashes only when there is something to stash and pops that entry by name.
 
 1. Build clang (`BUILD_DIR`, default `build-arm` if present, else `build`).
-2. Lit: every `clang/test/*/nullability-safety*` and
-   `clang/test/SemaCXX/nullability-default*` test passes.
+2. Lit: every `clang/test/*/nullability-safety*`,
+   `clang/test/SemaCXX/nullability-default*` and
+   `clang/test/Analysis/Scalable/NullabilitySafety` test passes.
 3. sqlite differential (`SQLITE`, default `~/git/sqlite/sqlite3.c`; build it
    with `./configure && make sqlite3.c`): sorted warning lists in
-   `-fnullability-default=nonnull` and `=nullable` modes plus the sorted
-   evidence remark list. Every gained or lost line is explained in this file
+   `-fnullability-default=nonnull` and `=nullable` modes, the decoded
+   NullabilitySafety SSAF evidence (`Inputs/decode-summary.py`), and the
+   lines the `nullability-annotations` transformation changes in a copy of
+   sqlite3.c (the annotated copy must compile). Every gained or lost line is explained in this file
    (commit messages are one line). Counts depend on the sqlite version and
    platform headers, so compare runs on one machine only. Reference counts
    after step 2 (macOS, `build-arm`): nonnull 131, nullable 22849, evidence
    19620. After the rebase (Linux devserver, `build`, node's vendored sqlite
    3.53.1 at `~/git/node/deps/sqlite/sqlite3.c`): nonnull 139, nullable
-   22642, evidence 19385.
+   22642, evidence 19385. After 5d (same machine; evidence now counts
+   decoded summary lines, not remarks): nonnull 107, nullable 22642,
+   evidence 15367, annotations 2617.
 4. `git clang-format --diff HEAD -- clang` is empty (C++ under `clang/`
    only; the playground's JS and demo files keep their own layout).
 
@@ -64,7 +69,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | F5 | Lambdas: drop the call-site `IsLambdaCall` nonnull promotion; argument check only for `_Nonnull` or `nonnull(N)` (first parameter is `nonnull(2)`) | done, nonnull mode only (below) |
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | done (below) |
 | 5c | SSAF whole-program propagation (below) | done, veto-only (below) |
-| 5d | SSAF source transformation; then delete the remarks, the `handle*Evidence` callbacks, and the remark-scraping loop | todo |
+| 5d | SSAF source transformation; then delete the remarks and the remark-scraping loop | done; the `handle*Evidence` callbacks stay, the extractor needs them (below) |
 | F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | todo |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | todo |
 
@@ -91,8 +96,8 @@ before step 6 fails; use a checkout of the old script for such baselines.
 - Lit: `Analysis/Scalable/NullabilitySafety/{extraction.c,
   tu-summary-serialization.test}`, in the gates' lit set.
 - `tools/sync-upstream.sh` now carries `clang/{include,lib}/ScalableStaticAnalysis/`
-  so the extractor travels with its tests. Revert that if the llvm PR should
-  stay remarks-only (then exclude the tests too). Run `git fetch llvm` first:
+  so the extractor travels with its tests; since 5d the remarks are gone, so
+  it is required. Run `git fetch llvm` first:
   with a stale `llvm/main` the merge base is old and the allowlist sweeps in
   unrelated upstream files.
 
@@ -120,6 +125,62 @@ nullable 656; inferred `Nonnull` 1364, `Nullable` 656, `NullableReachable`
 candidates. Lit: `Analysis/Scalable/NullabilitySafety/propagation.c` (two
 TUs, link, analyze; a VETO check verified to fail without the veto). The
 gates now also build `clang-ssaf-linker` and `clang-ssaf-analyzer`.
+
+## Step 5d results
+
+- Review follow-up (before the transformation): the opt-in rule is one
+  function, `isNullabilitySafetyOptedIn`, applied inside
+  `runNullabilitySafetyOnTU` (Sema's predicate delegates to it); the
+  caller's filter only skips system headers. The stateful `ShouldAnalyze` /
+  `AfterFunction` pair became handler hooks `startFunction` /
+  `finishFunction` (Sema flushes diagnostics, the extractor sets its
+  contributor). sqlite 0 / 0 on every list, parity 0 / 0.
+- C++ contributors (`extraction.cpp`): method, constructor initializer,
+  lambda body, template instantiation and block all land in a summary.
+  Objective-C methods do not: SSAF's `getEntityName` has no entities for
+  `ObjCMethodDecl`, so evidence observed inside an ObjC method body has no
+  contributor and is dropped. The remarks did report it, so deleting them
+  loses ObjC evidence until SSAF grows ObjC entities (upstream work).
+- Extraction tests decode summaries with `Inputs/decode-summary.py`
+  (`<contributor> <set> <entity>` lines): SSAF entity ids follow `Decl *`
+  hash order and reshuffled after an unrelated change, so no test pins ids.
+- `nullability-annotations` transformation
+  (`SourceTransformation/Transformations/NullabilityAnnotations.cpp`):
+  inserts the keyword after the outermost `*` of parameters, fields and
+  returns (covers `T **`, `int (*p)`, function pointers, trailing return
+  types), or after a typedef name. Skips silently when the type already
+  carries `_Nonnull` / `_Nullable` or a nullability keyword follows the
+  `*` (a written `_Null_unspecified`). Reports to SARIF: macro spelling,
+  unrewritable types (`auto`, arrays, references), inner-level-only
+  inferences, and `NullableReachable` entities. Per-TU edits must go
+  through `clang-ssaf-src-edit-merge` (otherwise a header edited by two TUs
+  gets the keyword twice); `--ssaf-link-unit-id` must be the linker output
+  file stem. Lit: `annotations.cpp` (two TUs, shared header, compiles with
+  `-Werror` afterwards).
+- Remarks deleted: diagnostics, `-Rnullsafe-evidence` group, Sema
+  overrides, `tools/nullability-ssaf-parity.py`. The seven remark tests:
+  `warnings-off` deleted (the extractor does not depend on warning flags),
+  `ctor-init` and `fixpoint` moved to `Analysis/Scalable/NullabilitySafety`,
+  the other four keep `-verify` for their warnings and check decoded
+  evidence. Every old remark maps to a summary line except per-site
+  duplicates (summaries are sets). `fixpoint` gained `loop_return_only`:
+  summaries cannot show two polarities for one return site, but a spurious
+  nonnull from an unconverged visit still shows there.
+- Unnamed parameters now get evidence (the skip existed because a remark
+  needed a name; SSAF keys parameters by index). sqlite evidence 0 lost /
+  1570 gained, all parameters of unnamed prototypes; lit
+  `nullability-safety-dynamic-cast.cpp` gains `takesNonnull`'s evidence.
+  Annotations 21 lost / 141 gained (the 21 are lines that gained a second
+  keyword).
+- Open question, not decided here: applying every annotation to sqlite
+  raises nonnull-mode warnings from 107 to 2668. 938 of the 2617 changed
+  lines carry `_Nullable`, 170 of them fields such as `Table::aCol`,
+  `Expr::pLeft` / `pRight`, `Vdbe::aOp`: nullable in some states, but
+  dereferenced under invariants the analysis cannot see. The annotations
+  are true; the warnings are mostly false positives under the governing
+  rule. Options: write `_Nonnull` only and report `_Nullable` in SARIF;
+  write `_Nullable` for parameters and returns but not fields; or keep
+  both and rely on review.
 
 ## False-positive track (F steps)
 
@@ -248,8 +309,8 @@ Renamed per the Naming table, plus: `FlowNullabilityReporter` /
 `FlowNullabilityTUAnalysis` in `AnalysisBasedWarnings.cpp`, `DEBUG_TYPE`
 `nullability-safety`, every `flow-nullability-*` test and doc file, and
 `Driver/nullsafe-flags*.c` -> `Driver/nullability-safety-flags*.c`. The
-`nullsafe` product names (playground, headers, `-Rnullsafe-evidence`,
-`remark_nullsafe_*`) are unchanged; the remarks go away in 5d.
+`nullsafe` product names (playground, headers) are unchanged; the
+`-Rnullsafe-evidence` remarks were removed in 5d.
 
 sqlite (group names in the baseline normalized to the new spelling): nonnull
 0 lost / 0 gained, nullable 0 / 0, evidence 0 / 0; counts unchanged (139,
@@ -311,7 +372,7 @@ either; both document their limitations, and so must we.
 | Flag / langopt | `-fflow-sensitive-nullability` / `FlowSensitiveNullability` | `-fnullability-safety` / `NullabilitySafety` |
 | Warnings | `-Wflow-nullability`, `-Wflow-nullable-*` | `-Wnullability-safety`, `-Wnullability-safety-*` |
 | Diag IDs | `warn_flow_nullable_*`, `warn_null_init_nonnull` | `warn_nullability_safety_*` |
-| Evidence | `-Rnullsafe-evidence` remarks | SSAF summaries (below) |
+| Evidence | `-Rnullsafe-evidence` remarks | SSAF summaries (below; remarks removed in 5d) |
 | C library list | `-fnullability-stdlib-annotations` | `-fnullability-libc-nullable-returns` (it never covered the C++ STL list, which has no flag) |
 | Unchanged | `-fnullability-default=` | |
 

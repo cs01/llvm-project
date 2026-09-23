@@ -5726,12 +5726,15 @@ The results of C library functions that return null on failure (`malloc`,
 headers declare them. Only functions at global or `std` scope match.
 `-fno-nullability-libc-nullable-returns` disables this.
 
-### Migration evidence
+### Annotation inference
 
-`-Rnullsafe-evidence` emits remarks describing the nullability the analysis
-inferred for parameters, members, and return values (including
-`always returns non-null`). These remarks are intended to be consumed by
-migration tooling that proposes annotations; they are not user-facing warnings.
+The analysis records the nullability it observes for parameters, members, and
+return values as Scalable Static Analysis Framework summaries
+(`--ssaf-extract-summaries=NullabilitySafety`). The
+`NullabilityInferenceAnalysisResult` whole-program analysis combines them with
+pointer flow, and the `nullability-annotations` source transformation
+(`--ssaf-source-transformation=nullability-annotations`) inserts the inferred
+`_Nonnull` and `_Nullable` annotations.
 
 ## Extensions for Dynamic Analysis
 

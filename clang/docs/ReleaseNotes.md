@@ -309,8 +309,9 @@ features cannot lower the translation-unit ABI level;
   recognizes common narrowing idioms and models `std::unique_ptr` /
   `shared_ptr` / `weak_ptr`, and is opt-in per function (via
   `#pragma clang assume_nonnull` regions, explicit annotations, or
-  `-fnullability-default=`). `-Rnullsafe-evidence` emits remarks for
-  annotation-migration tooling. See the User's Manual and Language Extensions
+  `-fnullability-default=`). The `NullabilitySafety` SSAF summaries and the
+  `nullability-annotations` source transformation infer and insert
+  annotations across a whole program. See the User's Manual and Language Extensions
   documentation for details.
 
 - `-Wfortify-source` now diagnoses when `strlcat`, `__builtin_strlcat`, `strlcpy`, or

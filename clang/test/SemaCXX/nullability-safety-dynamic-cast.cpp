@@ -2,8 +2,13 @@
 // result is nullable in both nullability-default modes. Shared expectations
 // use the expected prefix; mode-specific ones use nullable / nonnull.
 //
-// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 -Rnullsafe-evidence %s -verify=expected,nullable
-// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nonnull -Wno-nullable-to-nonnull-conversion -std=c++17 -Rnullsafe-evidence %s -verify=expected,nonnull
+// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 %s -verify=expected,nullable
+// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nonnull -Wno-nullable-to-nonnull-conversion -std=c++17 %s -verify=expected,nonnull
+// RUN: rm -f %t.json
+// RUN: %clang_cc1 -fsyntax-only -fnullability-default=nullable -std=c++17 %s \
+// RUN:   --ssaf-extract-summaries=NullabilitySafety \
+// RUN:   --ssaf-compilation-unit-id=tu --ssaf-tu-summary-file=%t.json
+// RUN: %python %S/../Analysis/Scalable/NullabilitySafety/Inputs/decode-summary.py %t.json | FileCheck %s --check-prefix=EVIDENCE
 
 struct Base {
   virtual ~Base();
@@ -15,11 +20,11 @@ struct Derived : Base {
 void takesNonnull(Derived *_Nonnull);
 
 Derived *returnDynamic(Base *_Nonnull p) {
-  return dynamic_cast<Derived *>(p); // expected-remark{{returns nullable}}
+  return dynamic_cast<Derived *>(p);
 }
 
-Derived *returnStatic(Derived *_Nonnull p) { // expected-remark{{function 'returnStatic' always returns a non-null pointer}}
-  return static_cast<Derived *>(p); // expected-remark{{returns nonnull}}
+Derived *returnStatic(Derived *_Nonnull p) {
+  return static_cast<Derived *>(p);
 }
 
 void dynamicCastPropagation(Base *_Nonnull p) {
@@ -42,7 +47,7 @@ void narrowedDynamicCastIsSafe(Base *_Nonnull p) {
 // returnDynamic's unannotated return type is what the caller sees, so only the
 // nullable default reports this dereference.
 void callerStillWarns(Base *_Nonnull p) {
-  returnDynamic(p)->value = 1; // nullable-warning{{dereference of nullable pointer}} nullable-note{{add a null check}} expected-remark-re{{parameter 'p' of 'returnDynamic' (declared at {{.*}}) called with nonnull argument}}
+  returnDynamic(p)->value = 1; // nullable-warning{{dereference of nullable pointer}} nullable-note{{add a null check}}
 }
 
 // ===----------------------------------------------------------------------===//
@@ -92,7 +97,7 @@ struct Holder {
 };
 
 void memberAssignFromDynamicCastWarns(Holder &h, Base *_Nonnull p) {
-  h.d = dynamic_cast<Derived *>(p); // expected-remark-re{{member 'd' of Holder (declared at {{.*}}) assigned from nullable source}}
+  h.d = dynamic_cast<Derived *>(p);
   h.d->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 
@@ -130,3 +135,12 @@ void narrowedDynamicCastArithmeticIsSafe(Base *_Nonnull p) {
     static_cast<Derived *>(q + 1)->value = 3;
   }
 }
+
+// EVIDENCE:      c:@F@callerStillWarns#*$@S@Base# NonnullEvidence c:@F@returnDynamic#*$@S@Base# param 1
+// EVIDENCE-NEXT: c:@F@dynamicCastPropagation#*$@S@Base# NullableEvidence c:@F@takesNonnull#*$@S@Derived# param 1
+// EVIDENCE-NEXT: c:@F@memberAssignFromDynamicCastWarns#&$@S@Holder#*$@S@Base# NullableEvidence c:@S@Holder@FI@d
+// EVIDENCE-NEXT: c:@F@preservingCastControls#*$@S@Derived# NonnullEvidence c:@F@takesNonnull#*$@S@Derived# param 1
+// EVIDENCE-NEXT: c:@F@returnDynamic#*$@S@Base# NullableEvidence c:@F@returnDynamic#*$@S@Base# return
+// EVIDENCE-NEXT: c:@F@returnStatic#*$@S@Derived# AllReturnsNonnull c:@F@returnStatic#*$@S@Derived# return
+// EVIDENCE-NEXT: c:@F@returnStatic#*$@S@Derived# NonnullEvidence c:@F@returnStatic#*$@S@Derived# return
+// EVIDENCE-NOT:  {{.}}

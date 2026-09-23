@@ -2,7 +2,11 @@
 // Constructor initializers (': field(expr)') are CXXCtorInitializer nodes,
 // not BinaryOperator assignments, so they need dedicated evidence emission.
 //
-// RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nullable -Wno-nullable-to-nonnull-conversion -std=c++17 -Rnullsafe-evidence %s -verify
+// RUN: rm -f %t.json
+// RUN: %clang_cc1 -fsyntax-only -fnullability-default=nullable -std=c++17 %s \
+// RUN:   --ssaf-extract-summaries=NullabilitySafety \
+// RUN:   --ssaf-compilation-unit-id=tu --ssaf-tu-summary-file=%t.json
+// RUN: %python %S/Inputs/decode-summary.py %t.json | FileCheck %s --check-prefix=EVIDENCE
 
 // ===----------------------------------------------------------------------===//
 // Basic: nullable parameter -> nullable member evidence
@@ -22,7 +26,7 @@ struct Basic {
 
 struct ExplicitNullable {
     int *ptr;
-    ExplicitNullable(int * _Nullable p) : ptr(p) {} // expected-remark-re{{member 'ptr' of ExplicitNullable (declared at {{.*}}) assigned from nullable source}}
+    ExplicitNullable(int * _Nullable p) : ptr(p) {}
 };
 
 // ===----------------------------------------------------------------------===//
@@ -31,7 +35,7 @@ struct ExplicitNullable {
 
 struct NonnullParam {
     int *ptr;
-    NonnullParam(int * _Nonnull p) : ptr(p) {} // expected-remark-re{{member 'ptr' of NonnullParam (declared at {{.*}}) assigned from nonnull source}}
+    NonnullParam(int * _Nonnull p) : ptr(p) {}
 };
 
 // ===----------------------------------------------------------------------===//
@@ -44,7 +48,7 @@ struct Multi {
     int *c;
     Multi(int *x, int * _Nonnull y, int *z)
         : a(x),  // unannotated — no evidence
-          b(y),  // expected-remark-re{{member 'b' of Multi (declared at {{.*}}) assigned from nonnull source}}
+          b(y),
           c(z) {} // unannotated — no evidence
 };
 
@@ -67,7 +71,7 @@ struct NonPointer {
 struct AddrOf {
     int *ptr;
     int x;
-    AddrOf() : ptr(&x) {} // expected-remark-re{{member 'ptr' of AddrOf (declared at {{.*}}) assigned from nonnull source}}
+    AddrOf() : ptr(&x) {}
 };
 
 // ===----------------------------------------------------------------------===//
@@ -76,7 +80,7 @@ struct AddrOf {
 
 struct NewExpr {
     int *ptr;
-    NewExpr() : ptr(new int(42)) {} // expected-remark-re{{member 'ptr' of NewExpr (declared at {{.*}}) assigned from nonnull source}}
+    NewExpr() : ptr(new int(42)) {}
 };
 
 // ===----------------------------------------------------------------------===//
@@ -89,7 +93,7 @@ struct Base {
 
 struct UsesThis : Base {
     Base *self;
-    UsesThis() : self(this) {} // expected-remark-re{{member 'self' of UsesThis (declared at {{.*}}) assigned from nonnull source}}
+    UsesThis() : self(this) {}
 };
 
 // ===----------------------------------------------------------------------===//
@@ -99,7 +103,7 @@ struct UsesThis : Base {
 struct AttrNonnull {
     int *ptr;
     __attribute__((nonnull))
-    AttrNonnull(int *p) : ptr(p) {} // expected-remark-re{{member 'ptr' of AttrNonnull (declared at {{.*}}) assigned from nonnull source}}
+    AttrNonnull(int *p) : ptr(p) {}
 };
 
 // ===----------------------------------------------------------------------===//
@@ -108,7 +112,7 @@ struct AttrNonnull {
 
 struct NullInit {
     int *ptr;
-    NullInit() : ptr(nullptr) {} // expected-remark-re{{member 'ptr' of NullInit (declared at {{.*}}) assigned from nullable source}}
+    NullInit() : ptr(nullptr) {}
 };
 
 // ===----------------------------------------------------------------------===//
@@ -128,3 +132,13 @@ void test_instantiations() {
     AttrNonnull an(&x);
     NullInit ni;
 }
+
+// EVIDENCE:      c:@S@AddrOf@F@AddrOf# NonnullEvidence c:@S@AddrOf@FI@ptr
+// EVIDENCE-NEXT: c:@S@AttrNonnull@F@AttrNonnull#*I# NonnullEvidence c:@S@AttrNonnull@FI@ptr
+// EVIDENCE-NEXT: c:@S@ExplicitNullable@F@ExplicitNullable#*I# NullableEvidence c:@S@ExplicitNullable@FI@ptr
+// EVIDENCE-NEXT: c:@S@Multi@F@Multi#*I#S0_#S0_# NonnullEvidence c:@S@Multi@FI@b
+// EVIDENCE-NEXT: c:@S@NewExpr@F@NewExpr# NonnullEvidence c:@S@NewExpr@FI@ptr
+// EVIDENCE-NEXT: c:@S@NonnullParam@F@NonnullParam#*I# NonnullEvidence c:@S@NonnullParam@FI@ptr
+// EVIDENCE-NEXT: c:@S@NullInit@F@NullInit# NullableEvidence c:@S@NullInit@FI@ptr
+// EVIDENCE-NEXT: c:@S@UsesThis@F@UsesThis# NonnullEvidence c:@S@UsesThis@FI@self
+// EVIDENCE-NOT:  {{.}}
