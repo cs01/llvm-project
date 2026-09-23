@@ -2337,9 +2337,13 @@ private:
   }
 
   bool isSmartPointerMaybeNull(const Expr *Obj) const {
-    if (isSmartPointerNullable(Obj) || isSmartPointerDeclaredNullable(Obj))
+    if (isSmartPointerNullable(Obj))
       return true;
-    if (isSmartPointerNarrowed(Obj) || isSmartPointerDeclaredNonnull(Obj))
+    if (isSmartPointerNarrowed(Obj))
+      return false;
+    if (isSmartPointerDeclaredNullable(Obj))
+      return true;
+    if (isSmartPointerDeclaredNonnull(Obj))
       return false;
     return StrictNonnull ||
            Options.DefaultNullability != NullabilityKind::NonNull;
