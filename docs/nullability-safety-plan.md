@@ -156,6 +156,12 @@ copy an unproven entity (mostly a caller passing its own parameter or a call
 result), 51 locals (never annotated), 1 opaque unknown store. Annotated lines
 1026 -> 663; warnings unchanged. Evidence lines grow with the new kinds.
 
+Null-test veto through copy chains (also from the review): `collectVetoes`
+followed one copy (`a = p; if (!a)`); `a = p; b = a; if (!b)` now vetoes `p`
+too (local-to-local copies, resolved with a visited set). sqlite: 29 new veto
+lines, mostly list links (`pNext = pIter->pNext; pIter = pNext` in a loop
+testing `pIter`); inferred Nonnull 528 -> 521, none gained.
+
 Still open (from the same review): callers outside the link unit (a
 non-static function's parameters assume the link unit is the whole program),
 indirect calls beyond the address-taken veto, fields written through zeroed

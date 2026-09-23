@@ -96,6 +96,8 @@ void collectVetoes(const NamedDecl *Contributor, const ASTContext &Ctx,
     addPointerParams(Func, Unknown);
   llvm::DenseMap<const VarDecl *, llvm::SmallVector<const NamedDecl *, 2>>
       CopyOf;
+  llvm::DenseMap<const VarDecl *, llvm::SmallVector<const VarDecl *, 2>>
+      LocalCopyOf;
   llvm::SmallPtrSet<const DeclRefExpr *, 16> Callees;
   std::vector<const DeclRefExpr *> FunctionRefs;
   std::vector<const Expr *> Tested;
@@ -119,8 +121,14 @@ void collectVetoes(const NamedDecl *Contributor, const ASTContext &Ctx,
     const auto *VD = dyn_cast_or_null<VarDecl>(D);
     if (!VD || isa<ParmVarDecl>(VD) || !VD->getType()->isPointerType() || !From)
       return;
-    if (const NamedDecl *Source = SourceOf(From))
+    if (const NamedDecl *Source = SourceOf(From)) {
       CopyOf[VD].push_back(Source);
+      return;
+    }
+    const auto *DRE = dyn_cast<DeclRefExpr>(From->IgnoreParenCasts());
+    const auto *Local = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (Local && Local != VD && !isa<ParmVarDecl>(Local))
+      LocalCopyOf[VD].push_back(Local);
   };
 
   auto NoteTest = [&](const Expr *P, SourceLocation Loc) {
@@ -181,10 +189,20 @@ void collectVetoes(const NamedDecl *Contributor, const ASTContext &Ctx,
       MaybeNull.push_back(createDeclPointerLevel(Source));
       continue;
     }
-    if (const auto *DRE = dyn_cast<DeclRefExpr>(P))
-      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        for (const NamedDecl *Source : CopyOf.lookup(VD))
-          MaybeNull.push_back(createDeclPointerLevel(Source));
+    const auto *DRE = dyn_cast<DeclRefExpr>(P);
+    const auto *TestedVD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (!TestedVD)
+      continue;
+    llvm::SmallPtrSet<const VarDecl *, 8> Seen;
+    llvm::SmallVector<const VarDecl *, 8> Work{TestedVD};
+    while (!Work.empty()) {
+      const VarDecl *VD = Work.pop_back_val();
+      if (!Seen.insert(VD).second)
+        continue;
+      for (const NamedDecl *Source : CopyOf.lookup(VD))
+        MaybeNull.push_back(createDeclPointerLevel(Source));
+      llvm::append_range(Work, LocalCopyOf.lookup(VD));
+    }
   }
 }
 
