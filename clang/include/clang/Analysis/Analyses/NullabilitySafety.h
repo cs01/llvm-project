@@ -15,6 +15,7 @@
 #define LLVM_CLANG_ANALYSIS_ANALYSES_NULLABILITYSAFETY_H
 
 #include "clang/AST/Type.h"
+#include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 
@@ -61,6 +62,11 @@ public:
   /// __attribute__((nonnull))) parameter.
   virtual void handleNullableArgument(const Expr *ArgExpr,
                                       const ParmVarDecl *Param) {}
+
+  /// A _Nonnull smart pointer member of this object is null on every path
+  /// to the end of a method (reset, released, or moved from).
+  virtual void handleNullableMemberAtExit(SourceLocation Loc,
+                                          const FieldDecl *Member) {}
 
   /// Evidence collection: a pointer member is assigned, a function returns
   /// a pointer, or a pointer argument is passed to a parameter.
