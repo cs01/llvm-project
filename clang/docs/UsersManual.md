@@ -1536,8 +1536,8 @@ The diagnostics are grouped under `-Wnullability-safety`, with the subgroups
 `-Wnullability-safety-dereference`, `-Wnullability-safety-arithmetic`,
 `-Wnullability-safety-return`, `-Wnullability-safety-assignment`, and
 `-Wnullability-safety-argument`. The `nullability-annotations` Scalable Static
-Analysis Framework transformation infers `_Nonnull` and `_Nullable` across a
-whole program and inserts them (see Language Extensions).
+Analysis Framework transformation infers `_Nonnull` across a whole program and
+inserts it (see Language Extensions).
 
 ```console
 $ cat deref.c

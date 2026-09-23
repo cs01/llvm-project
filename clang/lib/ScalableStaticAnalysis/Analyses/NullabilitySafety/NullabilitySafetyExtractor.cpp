@@ -28,6 +28,7 @@ struct DeclEvidence {
   std::vector<DeclPointerLevel> Nonnull;
   std::vector<DeclPointerLevel> Nullable;
   std::vector<DeclPointerLevel> AllReturnsNonnull;
+  std::vector<DeclPointerLevel> MaybeNull;
 };
 
 const Decl *contributorOf(const Decl *Def) {
@@ -48,18 +49,19 @@ public:
   void handleNullableDereference(const Expr *, QualType) override {}
 
   void handleMemberAssignEvidence(const Expr *, const FieldDecl *Member,
-                                  bool IsNonnull) override {
-    record(createDeclPointerLevel(Member), IsNonnull);
+                                  NullabilityEvidence Kind) override {
+    record(createDeclPointerLevel(Member), Kind);
   }
 
   void handleReturnEvidence(const Expr *, const FunctionDecl *Func,
-                            bool IsNonnull) override {
-    record(createDeclPointerLevel(Func, /*IsFunRet=*/true), IsNonnull);
+                            NullabilityEvidence Kind) override {
+    record(createDeclPointerLevel(Func, /*IsFunRet=*/true), Kind);
   }
 
   void handleParameterEvidence(const Expr *, const ParmVarDecl *Param,
-                               const FunctionDecl *, bool IsNonnull) override {
-    record(createDeclPointerLevel(Param), IsNonnull);
+                               const FunctionDecl *,
+                               NullabilityEvidence Kind) override {
+    record(createDeclPointerLevel(Param), Kind);
   }
 
   void handleAllReturnsNonnull(const FunctionDecl *Func) override {
@@ -71,11 +73,21 @@ public:
 private:
   const Decl *Contributor = nullptr;
 
-  void record(DeclPointerLevel DPL, bool IsNonnull) {
+  void record(DeclPointerLevel DPL, NullabilityEvidence Kind) {
     if (!Contributor)
       return;
     DeclEvidence &E = ByContributor[Contributor];
-    (IsNonnull ? E.Nonnull : E.Nullable).push_back(DPL);
+    switch (Kind) {
+    case NullabilityEvidence::Nonnull:
+      E.Nonnull.push_back(DPL);
+      break;
+    case NullabilityEvidence::Nullable:
+      E.Nullable.push_back(DPL);
+      break;
+    case NullabilityEvidence::MaybeNull:
+      E.MaybeNull.push_back(DPL);
+      break;
+    }
   }
 };
 } // namespace
@@ -114,7 +126,7 @@ NullabilitySafetyTUSummaryExtractor::summarize(const DeclEvidence &E,
                                                ASTContext &Ctx) {
   return std::make_unique<NullabilitySafetyEntitySummary>(
       translate(E.Nonnull, Ctx), translate(E.Nullable, Ctx),
-      translate(E.AllReturnsNonnull, Ctx));
+      translate(E.AllReturnsNonnull, Ctx), translate(E.MaybeNull, Ctx));
 }
 
 void NullabilitySafetyTUSummaryExtractor::HandleTranslationUnit(

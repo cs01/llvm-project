@@ -8,8 +8,9 @@
 //
 // Per-contributor nullability evidence observed by the nullability safety
 // analysis: which parameters, fields and function returns received a
-// provably non-null or provably nullable value, and which functions return a
-// non-null pointer on every path.
+// provably non-null value, a value null on every path, or a value null on
+// some path only, and which functions return a non-null pointer on every
+// path.
 //
 //===----------------------------------------------------------------------===//
 
@@ -25,16 +26,19 @@ class NullabilitySafetyEntitySummary final : public EntitySummary {
   EntityPointerLevelSet NonnullEvidence;
   EntityPointerLevelSet NullableEvidence;
   EntityPointerLevelSet AllReturnsNonnull;
+  EntityPointerLevelSet MaybeNullEvidence;
 
 public:
   static constexpr llvm::StringLiteral Name = "NullabilitySafety";
 
   NullabilitySafetyEntitySummary(EntityPointerLevelSet NonnullEvidence,
                                  EntityPointerLevelSet NullableEvidence,
-                                 EntityPointerLevelSet AllReturnsNonnull)
+                                 EntityPointerLevelSet AllReturnsNonnull,
+                                 EntityPointerLevelSet MaybeNullEvidence)
       : NonnullEvidence(std::move(NonnullEvidence)),
         NullableEvidence(std::move(NullableEvidence)),
-        AllReturnsNonnull(std::move(AllReturnsNonnull)) {}
+        AllReturnsNonnull(std::move(AllReturnsNonnull)),
+        MaybeNullEvidence(std::move(MaybeNullEvidence)) {}
 
   SummaryName getSummaryName() const override { return summaryName(); }
 
@@ -47,16 +51,20 @@ public:
   const EntityPointerLevelSet &getAllReturnsNonnull() const {
     return AllReturnsNonnull;
   }
+  const EntityPointerLevelSet &getMaybeNullEvidence() const {
+    return MaybeNullEvidence;
+  }
 
   bool operator==(const NullabilitySafetyEntitySummary &Other) const {
     return NonnullEvidence == Other.NonnullEvidence &&
            NullableEvidence == Other.NullableEvidence &&
-           AllReturnsNonnull == Other.AllReturnsNonnull;
+           AllReturnsNonnull == Other.AllReturnsNonnull &&
+           MaybeNullEvidence == Other.MaybeNullEvidence;
   }
 
   bool empty() const {
     return NonnullEvidence.empty() && NullableEvidence.empty() &&
-           AllReturnsNonnull.empty();
+           AllReturnsNonnull.empty() && MaybeNullEvidence.empty();
   }
 
   static SummaryName summaryName() { return SummaryName{Name.str()}; }

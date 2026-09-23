@@ -5734,7 +5734,7 @@ return values as Scalable Static Analysis Framework summaries
 `NullabilityInferenceAnalysisResult` whole-program analysis combines them with
 pointer flow, and the `nullability-annotations` source transformation
 (`--ssaf-source-transformation=nullability-annotations`) inserts the inferred
-`_Nonnull` and `_Nullable` annotations.
+`_Nonnull` annotations and reports inferred `_Nullable` ones for review.
 
 ## Extensions for Dynamic Analysis
 

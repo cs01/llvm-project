@@ -136,6 +136,7 @@ void narrowedDynamicCastArithmeticIsSafe(Base *_Nonnull p) {
   }
 }
 
+// EVIDENCE-NOT:  {{.}}
 // EVIDENCE:      c:@F@callerStillWarns#*$@S@Base# NonnullEvidence c:@F@returnDynamic#*$@S@Base# param 1
 // EVIDENCE-NEXT: c:@F@dynamicCastPropagation#*$@S@Base# NullableEvidence c:@F@takesNonnull#*$@S@Derived# param 1
 // EVIDENCE-NEXT: c:@F@memberAssignFromDynamicCastWarns#&$@S@Holder#*$@S@Base# NullableEvidence c:@S@Holder@FI@d

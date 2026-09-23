@@ -20,6 +20,7 @@ using Object = llvm::json::Object;
 static constexpr llvm::StringLiteral NonnullKey = "NonnullEvidence";
 static constexpr llvm::StringLiteral NullableKey = "NullableEvidence";
 static constexpr llvm::StringLiteral AllReturnsNonnullKey = "AllReturnsNonnull";
+static constexpr llvm::StringLiteral MaybeNullKey = "MaybeNullEvidence";
 
 static Object serialize(const EntitySummary &S,
                         JSONFormat::EntityIdToJSONFn Fn) {
@@ -31,7 +32,8 @@ static Object serialize(const EntitySummary &S,
   return Object{
       {NonnullKey.data(), toJSON(NS.getNonnullEvidence())},
       {NullableKey.data(), toJSON(NS.getNullableEvidence())},
-      {AllReturnsNonnullKey.data(), toJSON(NS.getAllReturnsNonnull())}};
+      {AllReturnsNonnullKey.data(), toJSON(NS.getAllReturnsNonnull())},
+      {MaybeNullKey.data(), toJSON(NS.getMaybeNullEvidence())}};
 }
 
 static llvm::Expected<EntityPointerLevelSet>
@@ -58,8 +60,13 @@ deserialize(const Object &Data, EntityIdTable &,
       readSet(Data, AllReturnsNonnullKey, Fn);
   if (!AllReturnsNonnull)
     return AllReturnsNonnull.takeError();
+  llvm::Expected<EntityPointerLevelSet> MaybeNull =
+      readSet(Data, MaybeNullKey, Fn);
+  if (!MaybeNull)
+    return MaybeNull.takeError();
   return std::make_unique<NullabilitySafetyEntitySummary>(
-      std::move(*Nonnull), std::move(*Nullable), std::move(*AllReturnsNonnull));
+      std::move(*Nonnull), std::move(*Nullable), std::move(*AllReturnsNonnull),
+      std::move(*MaybeNull));
 }
 
 namespace {

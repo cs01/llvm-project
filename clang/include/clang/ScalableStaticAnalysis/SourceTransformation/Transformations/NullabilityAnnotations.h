@@ -8,10 +8,13 @@
 //
 // The nullability-annotations transformation writes the whole-program
 // nullability inference (NullabilityInferenceAnalysisResult) back into the
-// source: it inserts _Nonnull or _Nullable on the outermost pointer of each
-// inferred parameter, field and function return. Inferred declarators that
-// cannot be annotated, and declarators a nullable value may reach through
-// pointer flow without being inferred _Nullable, are reported instead.
+// source: it inserts _Nonnull on the outermost pointer of each parameter,
+// field and function return inferred non-null. Inferred _Nullable is not
+// written, since it adds warnings wherever code relies on invariants the
+// analysis cannot see: parameters and returns are reported as suggestions,
+// and for fields each store of null is reported. Declarators that cannot be
+// annotated, and declarators a nullable value may reach through pointer
+// flow, are reported too.
 //
 //===----------------------------------------------------------------------===//
 

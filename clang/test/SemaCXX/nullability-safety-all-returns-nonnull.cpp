@@ -222,6 +222,7 @@ void direct_new_deref() {
     (new Node())->value = 1; // OK - new never returns null
 }
 
+// EVIDENCE-NOT:  {{.}}
 // EVIDENCE:      c:@F@caller_direct_arrow#*$@S@Widget# NonnullEvidence c:@F@getNode#*$@S@Widget# param 1
 // EVIDENCE-NEXT: c:@F@caller_multi_return#*$@S@Widget# NonnullEvidence c:@F@getNodeOrNew#*$@S@Widget#b# param 1
 // EVIDENCE-NEXT: c:@F@caller_narrowed# NullableEvidence c:@F@getNarrowed#*$@S@Node# param 1

@@ -133,6 +133,7 @@ void test_instantiations() {
     NullInit ni;
 }
 
+// EVIDENCE-NOT:  {{.}}
 // EVIDENCE:      c:@S@AddrOf@F@AddrOf# NonnullEvidence c:@S@AddrOf@FI@ptr
 // EVIDENCE-NEXT: c:@S@AttrNonnull@F@AttrNonnull#*I# NonnullEvidence c:@S@AttrNonnull@FI@ptr
 // EVIDENCE-NEXT: c:@S@ExplicitNullable@F@ExplicitNullable#*I# NullableEvidence c:@S@ExplicitNullable@FI@ptr

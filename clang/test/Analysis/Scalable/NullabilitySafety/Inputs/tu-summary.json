@@ -13,6 +13,7 @@
                 1
               ]
             ],
+            "MaybeNullEvidence": [],
             "NonnullEvidence": [
               [
                 {
@@ -28,6 +29,7 @@
           "entity_id": 5,
           "entity_summary": {
             "AllReturnsNonnull": [],
+            "MaybeNullEvidence": [],
             "NonnullEvidence": [
               [
                 {

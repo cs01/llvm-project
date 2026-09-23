@@ -1,6 +1,7 @@
-// End to end: extract, link, infer, write _Nonnull / _Nullable back, merge the
-// per-TU edits (the shared header is edited once), apply. Fields are never
-// written _Nullable; stores of null into them are reported.
+// End to end: extract, link, infer, write annotations back, merge the
+// per-TU edits (the shared header is edited once), apply. Only _Nonnull is
+// written: inferred _Nullable parameters and returns are reported as
+// suggestions, and stores of null into fields are reported.
 
 // REQUIRES: clang-apply-replacements
 // RUN: rm -rf %t && split-file %s %t && mkdir -p %t/edits %t/merged
@@ -40,14 +41,14 @@
 
 // HEADER:      struct S { int *_Nonnull nonnull_field; int *nullable_field; int *reachable; };
 // HEADER-NEXT: void take(int *_Nonnull p);
-// HEADER-NEXT: void take_nullable(int *_Nullable p);
+// HEADER-NEXT: void take_nullable(int *p);
 // HEADER-NEXT: int *_Nonnull get(void);
-// HEADER-NEXT: void set_reachable(struct S *_Nonnull s, int *_Nullable p);
+// HEADER-NEXT: void set_reachable(struct S *_Nonnull s, int *p);
 
 // A:      void take(int *_Nonnull p) { (void)*p; }
-// A-NEXT: void take_nullable(int *_Nullable p) {}
+// A-NEXT: void take_nullable(int *p) {}
 // A-NEXT: int *_Nonnull get() { static int v; return &v; }
-// A-NEXT: void set_reachable(S *_Nonnull s, int *_Nullable p) { s->reachable = p; }
+// A-NEXT: void set_reachable(S *_Nonnull s, int *p) { s->reachable = p; }
 // A-NEXT: void spelled_tight(int*_Nonnull q);
 // A-NEXT: void pointer_to_pointer(int **_Nonnull pp);
 // A-NEXT: void parenthesized(int (*_Nonnull p));
@@ -63,6 +64,7 @@
 // REPORT-DAG: "text": "a nullable value may reach this pointer through pointer flow; left unannotated"
 // REPORT-DAG: "text": "pointer spelled through a macro is not annotated"
 // REPORT-DAG: "text": "the declared type is not spelled with a '*' or a typedef name"
+// REPORT-DAG: "text": "a null value reaches this pointer on every path from some caller or store; consider _Nullable (not written)"
 
 // A field that receives null keeps its default (a field is typically null
 // only in some lifecycle state); each null store is reported instead.

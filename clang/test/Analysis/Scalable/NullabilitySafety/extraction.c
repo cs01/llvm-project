@@ -12,6 +12,7 @@ void g(struct S *s, int *_Nullable q) {
   s->f = 0;
 }
 
+// CHECK-NOT:  {{.}}
 // CHECK:      c:@F@g NonnullEvidence c:@F@take param 1
 // CHECK-NEXT: c:@F@g NullableEvidence c:@F@get param 1
 // CHECK-NEXT: c:@F@g NullableEvidence c:@F@take param 1
