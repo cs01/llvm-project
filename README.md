@@ -62,15 +62,7 @@ The design is discussed in the [RFC on Discourse](https://discourse.llvm.org/t/r
 
 ## Installation
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullability-safety/install.sh | bash
-```
-
-This installs the fork's `clang` and `clangd` to `~/.local/clang-nullability-safety/bin` and offers to add that directory to your `PATH`. Prebuilt archives for Linux x86_64 and macOS are also on the [releases page](https://github.com/cs01/llvm-project/releases).
-
-In the rest of this document, `clang` means the fork's `clang`.
-
-### Build from source
+Try it without installing in the [online playground](https://cs01.github.io/llvm-project/), or build from source:
 
 ```bash
 git clone git@github.com:cs01/llvm-project.git
@@ -83,6 +75,8 @@ cmake -S llvm -B build -G Ninja \
   -DLLVM_USE_LINKER=lld
 ninja -C build clang clangd
 ```
+
+In the rest of this document, `clang` means the fork's `clang` (`build/bin/clang`).
 
 ## Usage
 
@@ -280,17 +274,17 @@ The analysis prefers missing a bug over reporting a false one. Known gaps:
 
 ## Editor integration
 
-The release includes `clangd`, so warnings show up in your editor as you type.
+The build includes `clangd`, so warnings show up in your editor as you type.
 
 **VS Code:** install the clangd extension, then set:
 ```json
-{ "clangd.path": "/home/you/.local/clang-nullability-safety/bin/clangd" }
+{ "clangd.path": "/path/to/llvm-project/build/bin/clangd" }
 ```
 
 **Neovim**, with lspconfig:
 ```lua
 require('lspconfig').clangd.setup({
-  cmd = { vim.fn.expand('~/.local/clang-nullability-safety/bin/clangd') }
+  cmd = { vim.fn.expand('/path/to/llvm-project/build/bin/clangd') }
 })
 ```
 

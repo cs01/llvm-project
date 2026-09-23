@@ -99,12 +99,6 @@ jobs:
 
             ### Installation:
 
-            **Quick install (Linux/macOS):**
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullability-safety/install.sh | bash
-            ```
-
-            **Manual install:**
             ```bash
             tar -xzf clang-nullability-safety-<platform>.tar.gz
             export PATH=$PWD/bin:$PATH
@@ -160,12 +154,6 @@ jobs:
 
             ### Installation:
 
-            **Quick install (Linux/macOS):**
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/cs01/llvm-project/nullability-safety/install.sh | bash
-            ```
-
-            **Manual install:**
             ```bash
             tar -xzf clang-nullability-safety-<platform>.tar.gz
             export PATH=$PWD/bin:$PATH
