@@ -71,6 +71,8 @@ caveats, and a reproducible harness live in
 ## Architecture
 
 - **index.html** - Main playground interface
+- **playground.js** - Loads examples, drives the compiler worker, renders the three output panels
+- **editor.js** - Dependency-free code editor (syntax highlighting, line numbers, diagnostic underlines); nothing is loaded from a CDN
 - **clang.wasm** - Clang compiler compiled to WebAssembly (generated, not committed)
 - **clang.js** - Emscripten-generated JavaScript glue code (generated, not committed)
 - **build.sh** - Script to build WASM files from Clang source
@@ -87,7 +89,7 @@ The WASM files are built from the fork's Clang with Emscripten:
 ## Development
 
 To modify the playground:
-1. Edit `index.html` or `playground.js`
+1. Edit `index.html`, `playground.js` or `editor.js`
 2. Refresh your browser (no rebuild needed)
 3. Changes to the compiler require rebuilding WASM files
 
