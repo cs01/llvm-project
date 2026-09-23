@@ -72,7 +72,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | 5c | SSAF whole-program propagation (below) | done; Nonnull is a must-property since the must-nonnull step (below) |
 | 5d | SSAF source transformation; then delete the remarks and the remark-scraping loop | done; the `handle*Evidence` callbacks stay, the extractor needs them (below) |
 | F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | done (below) |
-| 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | todo |
+| 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | done for `NullabilitySafety.cpp` (moved two doc comments that sat on the wrong function, dropped a stale 'local-var sources only' note and history references); SSAF files checked |
 
 ## Step 5b results
 

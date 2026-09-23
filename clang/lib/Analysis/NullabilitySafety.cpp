@@ -128,8 +128,8 @@ struct MemberAccessPath {
 
 } // end anonymous namespace
 
-// DenseMap no longer uses sentinel keys, so DenseMapInfo needs only a hash and
-// an equality predicate (llvm/llvm-project#201281).
+// DenseMapInfo needs only a hash and an equality predicate; DenseMap has no
+// sentinel keys.
 template <> struct llvm::DenseMapInfo<MemberAccessPath> {
   static unsigned getHashValue(const MemberAccessPath &P) {
     unsigned H = DenseMapInfo<const VarDecl *>::getHashValue(P.Root);
@@ -812,9 +812,8 @@ static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
     if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
       ContainerType = FD->getType().getNonReferenceType();
   }
-  // A pointer to a container (auto it = v->begin()) has never matched here,
-  // and getSugaredTemplateArgType would look through the pointer, so reject
-  // it up front.
+  // A pointer to a container (auto it = v->begin()) is rejected:
+  // getSugaredTemplateArgType would look through the pointer.
   if (ContainerType.isNull() || ContainerType->isPointerType())
     return false;
 
@@ -1672,7 +1671,9 @@ public:
     }
   }
 
-  /// Check aggregate init lists: S{nullptr, &x} where a field is _Nonnull.
+  /// Aggregate init lists: evidence for every pointer field (never Nonnull,
+  /// so an aggregate alone cannot make a field a candidate), and a warning
+  /// for a null value in a _Nonnull field (S{nullptr, &x}).
   void VisitInitListExpr(const InitListExpr *ILE) {
     const auto *RT = ILE->getType()->getAs<RecordType>();
     if (!RT)
@@ -1774,9 +1775,8 @@ private:
     storeToVar(VD, VD->getInit(), VD->getInit());
   }
 
-  /// Track smart pointer initialization: narrow if constructed from a
-  /// provably non-null source (make_unique, make_shared, new), or inherit
-  /// the source's state from auto x = std::move(other).
+  /// Whether a smart pointer initializer leaves it null: nullptr, default
+  /// construction, or a _Nullable-returning call.
   bool isNullSmartPtrInit(const Expr *Init) const {
     if (Init->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
       return true;
@@ -1792,6 +1792,9 @@ private:
     return false;
   }
 
+  /// Track smart pointer initialization: narrow if constructed from a
+  /// provably non-null source (make_unique, make_shared, new), taint if
+  /// null, or inherit the source's state from auto x = std::move(other).
   void handleSmartPtrVarInit(const VarDecl *VD) {
     // Strip reference: range-for loop variables have type const T&.
     if (isSmartPointerType(VD->getType().getNonReferenceType()) &&
@@ -2155,7 +2158,6 @@ private:
         } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
           if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
             // sp = std::move(other): LHS inherits source's state.
-            // Source tracking only implemented for local-var sources.
             auto Src = smartPtrRef(RhsCE->getArg(0));
             if (Src && Src->VD) {
               if (isNarrowed(Src->VD))
@@ -2509,7 +2511,6 @@ private:
       }
     }
 
-    // If the origin is inherently non-null, skip.
     if (isa<CXXThisExpr>(Origin))
       return;
     if (const auto *UO = dyn_cast<UnaryOperator>(Origin))
@@ -2867,17 +2868,6 @@ private:
     return !isExprNullable(E);
   }
 
-  /// Whether E may be null, considering flow. This is the one judgment used
-  /// at every site (initializer, assignment, argument, return, dereference of
-  /// a ternary), so a tracked pointer is judged by its flow state before its
-  /// declared type: narrowing overrides a declared _Nullable and taint
-  /// (assigned null, reset, moved-from) overrides a declared _Nonnull.
-  /// With ExplicitOnly (used for evidence emission) only provably nullable
-  /// sources count: an explicit _Nullable annotation, a null constant, or
-  /// flow-tracked nullable state (with MustOnly, only state nullable on every
-  /// incoming path). Unannotated pointers merely defaulted to
-  /// nullable do not, so no _Nullable is ever inferred from them, and a
-  /// ternary is judged by its merged type.
   NullabilityEvidence classifyEvidence(const Expr *E, bool IsNonnull) const {
     if (IsNonnull)
       return NullabilityEvidence::Nonnull;
@@ -2895,6 +2885,17 @@ private:
                : NullabilityEvidence::MaybeNull;
   }
 
+  /// Whether E may be null, considering flow. This is the one judgment used
+  /// at every site (initializer, assignment, argument, return, dereference of
+  /// a ternary), so a tracked pointer is judged by its flow state before its
+  /// declared type: narrowing overrides a declared _Nullable and taint
+  /// (assigned null, reset, moved-from) overrides a declared _Nonnull.
+  /// With ExplicitOnly (used for evidence emission) only provably nullable
+  /// sources count: an explicit _Nullable annotation, a null constant, or
+  /// flow-tracked nullable state (with MustOnly, only state nullable on every
+  /// incoming path). Unannotated pointers merely defaulted to
+  /// nullable do not, so no _Nullable is ever inferred from them, and a
+  /// ternary is judged by its merged type.
   bool isExprNullable(const Expr *E, bool ExplicitOnly = false,
                       bool MustOnly = false) const {
     if (!E)
@@ -3170,15 +3171,14 @@ static bool functionHasNullabilityAnnotations(const FunctionDecl *FD) {
   // whole redeclaration chain, otherwise a function that opted in via its
   // prototype would be silently skipped by the flow analysis.
   for (const FunctionDecl *Redecl : FD->redecls()) {
-    // Check return type
     QualType ReturnType = Redecl->getReturnType();
     if (!ReturnType.isNull() && !ReturnType->isDependentType()) {
       if (ReturnType->getNullability())
         return true;
     }
 
-    // Check parameters — during early function processing, parameters might
-    // not be fully set up, so guard with param_empty().
+    // During early function processing parameters might not be set up yet,
+    // so guard with param_empty().
     if (!Redecl->param_empty()) {
       for (const ParmVarDecl *Param : Redecl->parameters()) {
         if (!Param)
