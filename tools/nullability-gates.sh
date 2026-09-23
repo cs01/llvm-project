@@ -76,7 +76,10 @@ fi
 TAG="${1:?usage: nullability-gates.sh [--skip-sqlite] <tag> | --base <tag> | --diff <old> <new>}"
 FAILED=()
 
-if ! cmake --build "$BUILD_DIR" --target clang clang-ssaf-format clang-ssaf-linker clang-ssaf-analyzer -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >"$OUT/build-$TAG.log" 2>&1; then
+TARGETS=(clang clang-ssaf-format clang-ssaf-linker clang-ssaf-analyzer clang-ssaf-src-edit-merge)
+grep -q '^LLVM_ENABLE_PROJECTS:STRING=.*clang-tools-extra' "$BUILD_DIR/CMakeCache.txt" &&
+  TARGETS+=(clang-apply-replacements)
+if ! cmake --build "$BUILD_DIR" --target "${TARGETS[@]}" -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" >"$OUT/build-$TAG.log" 2>&1; then
   grep -E "error:" "$OUT/build-$TAG.log" | head -20
   echo "BUILD FAILED (log: $OUT/build-$TAG.log)"
   exit 1
