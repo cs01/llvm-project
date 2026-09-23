@@ -163,6 +163,18 @@ public:
     }
     for (const EntityPointerLevel &EPL : R.NullableReachable)
       R.Nonnull.erase(EPL);
+    Worklist.assign(R.Nonnull.begin(), R.Nonnull.end());
+    while (!Worklist.empty()) {
+      EntityPointerLevel Value = Worklist.back();
+      Worklist.pop_back();
+      auto It = AssigneesOf.find(Value);
+      if (It == AssigneesOf.end())
+        continue;
+      for (const EntityPointerLevel &Assignee : It->second)
+        if (!R.NullableReachable.count(Assignee) &&
+            R.Nonnull.insert(Assignee).second)
+          Worklist.push_back(Assignee);
+    }
     return false;
   }
 };

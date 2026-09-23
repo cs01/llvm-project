@@ -43,12 +43,12 @@
 // HEADER-NEXT: void take(int *_Nonnull p);
 // HEADER-NEXT: void take_nullable(int *p);
 // HEADER-NEXT: int *_Nonnull get(void);
-// HEADER-NEXT: void set_reachable(struct S *_Nonnull s, int *p);
+// HEADER-NEXT: void set_reachable(struct S *s, int *p);
 
 // A:      void take(int *_Nonnull p) { (void)*p; }
 // A-NEXT: void take_nullable(int *p) {}
 // A-NEXT: int *_Nonnull get() { static int v; return &v; }
-// A-NEXT: void set_reachable(S *_Nonnull s, int *p) { s->reachable = p; }
+// A-NEXT: void set_reachable(S *s, int *p) { s->reachable = p; }
 // A-NEXT: void spelled_tight(int*_Nonnull q);
 // A-NEXT: void pointer_to_pointer(int **_Nonnull pp);
 // A-NEXT: void parenthesized(int (*_Nonnull p));
