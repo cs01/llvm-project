@@ -147,6 +147,7 @@ int *return_tainted_nonnull() {
     return a;
 }
 
+// EVIDENCE-NOT:  {{.}}
 // EVIDENCE:      c:@F@assign_nonnull#*$@S@S#*I# NonnullEvidence c:@S@S@FI@field
 // EVIDENCE-NEXT: c:@F@assign_nullable#*$@S@S#*I# NullableEvidence c:@S@S@FI@field
 // EVIDENCE-NEXT: c:@F@assign_nullptr#*$@S@S# NullableEvidence c:@S@S@FI@field

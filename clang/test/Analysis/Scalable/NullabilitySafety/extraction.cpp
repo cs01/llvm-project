@@ -17,6 +17,7 @@ template <class T> T *tmpl() { static T v; return &v; }
 int *inst() { return tmpl<int>(); }
 void with_block() { ^{ static int v; sink(&v); }(); }
 
+// CHECK-NOT:  {{.}}
 // CHECK:      c:@F@inst# AllReturnsNonnull c:@F@inst# return
 // CHECK-NEXT: c:@F@inst# NonnullEvidence c:@F@inst# return
 // CHECK-NEXT: c:@F@tmpl<#I># AllReturnsNonnull c:@F@tmpl<#I># return

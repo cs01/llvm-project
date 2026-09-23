@@ -13,11 +13,12 @@
 //
 // NullabilityInferenceAnalysisResult combines it with the pointer-flow graph.
 // Pointer-flow edges map an assignee to the values assigned to it; a nullable
-// value makes its assignee nullable, so nullable evidence is propagated along
-// the edges in reverse. The graph is flow-insensitive (it does not see null
-// checks), so propagation only vetoes: Nullable is the direct nullable
-// evidence, Nonnull is the nonnull evidence that no nullable value reaches,
-// and NullableReachable is what propagation reached, for reporting only.
+// value makes its assignee nullable, so nullable and maybe-null evidence is
+// propagated along the edges in reverse. The graph is flow-insensitive (it does
+// not see null checks), so propagation only vetoes: Nullable is the direct
+// nullable evidence, Nonnull is the nonnull evidence that no nullable value
+// reaches, and NullableReachable is what propagation reached, for reporting
+// only.
 //
 //===----------------------------------------------------------------------===//
 
@@ -44,6 +45,7 @@ struct NullabilityEvidenceAnalysisResult final : AnalysisResult {
   EntityPointerLevelSet NonnullEvidence;
   EntityPointerLevelSet NullableEvidence;
   EntityPointerLevelSet AllReturnsNonnull;
+  EntityPointerLevelSet MaybeNullEvidence;
 };
 
 struct NullabilityInferenceAnalysisResult final : AnalysisResult {

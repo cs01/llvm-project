@@ -251,6 +251,8 @@ struct NullState {
   /// Member access paths known to be nullable at runtime (e.g., smart pointer
   /// members after reset() or std::move()). Parallels NarrowedMembers.
   llvm::DenseSet<MemberAccessPath> NullableMembers;
+  llvm::DenseSet<const VarDecl *> MustNullableVars;
+  llvm::DenseSet<MemberAccessPath> MustNullableMembers;
 
   /// Maps integer-typed guard variables (bool or int flags) to the null-check
   /// facts they capture, e.g. bool valid = (p != nullptr) stores
@@ -291,6 +293,7 @@ struct NullState {
   void markNullable(const VarDecl *VD) {
     NarrowedVars.erase(VD);
     NullableVars.insert(VD);
+    MustNullableVars.insert(VD);
   }
   void markNarrowed(const MemberAccessPath &P) {
     NarrowedMembers.insert(P);
@@ -299,6 +302,7 @@ struct NullState {
   void markNullable(const MemberAccessPath &P) {
     NarrowedMembers.erase(P);
     NullableMembers.insert(P);
+    MustNullableMembers.insert(P);
   }
 
   bool isNarrowed(const PtrRef &R) const {
@@ -308,6 +312,10 @@ struct NullState {
   bool isNullable(const PtrRef &R) const {
     return R.VD ? NullableVars.contains(R.VD)
                 : NullableMembers.contains(*R.Path);
+  }
+  bool isMustNullable(const PtrRef &R) const {
+    return isNullable(R) && (R.VD ? MustNullableVars.contains(R.VD)
+                                  : MustNullableMembers.contains(*R.Path));
   }
   void markNarrowed(const PtrRef &R) {
     if (R.VD)
@@ -337,6 +345,8 @@ struct NullState {
            NarrowedMembers == Other.NarrowedMembers &&
            NullableVars == Other.NullableVars &&
            NullableMembers == Other.NullableMembers &&
+           MustNullableVars == Other.MustNullableVars &&
+           MustNullableMembers == Other.MustNullableMembers &&
            BoolGuards == Other.BoolGuards && Aliases == Other.Aliases &&
            MemberAliases == Other.MemberAliases &&
            AddrOfTargets == Other.AddrOfTargets;
@@ -364,6 +374,14 @@ static NullState join(const NullState &A, const NullState &B) {
     Result.NullableMembers.insert(Path);
   for (const auto &Path : B.NullableMembers)
     Result.NullableMembers.insert(Path);
+  for (const auto *VD : A.MustNullableVars)
+    if (A.NullableVars.contains(VD) && B.NullableVars.contains(VD) &&
+        B.MustNullableVars.contains(VD))
+      Result.MustNullableVars.insert(VD);
+  for (const auto &Path : A.MustNullableMembers)
+    if (A.NullableMembers.contains(Path) && B.NullableMembers.contains(Path) &&
+        B.MustNullableMembers.contains(Path))
+      Result.MustNullableMembers.insert(Path);
   // Maps intersect with value equality: an entry survives only when both
   // sides map the key to the same fact.
   for (const auto &[BoolVD, GuardInfo] : A.BoolGuards) {
@@ -1656,8 +1674,8 @@ public:
     Returns.HasPointerReturn = true;
     Returns.AllNonnull &= RetIsNonnull;
     if (EnclosingFunc->getDeclName().isIdentifier()) {
-      if (RetIsNonnull || isExprNullable(RetVal, /*ExplicitOnly=*/true))
-        Handler.handleReturnEvidence(RetVal, EnclosingFunc, RetIsNonnull);
+      if (auto Kind = classifyEvidence(RetVal, RetIsNonnull))
+        Handler.handleReturnEvidence(RetVal, EnclosingFunc, *Kind);
     }
 
     if (isNonnullType(RetType) && !RetIsNonnull) {
@@ -1683,9 +1701,9 @@ public:
       bool IsNonnull =
           V == StoredValue::Nonnull ||
           (V == StoredValue::Unknown && isNonnullType(FD->getType()));
-      if (IsNonnull || isExprNullable(Init, /*ExplicitOnly=*/true))
+      if (auto Kind = classifyEvidence(Init, IsNonnull))
         Handler.handleMemberAssignEvidence(Init->IgnoreParenImpCasts(), FD,
-                                           IsNonnull);
+                                           *Kind);
     }
   }
 
@@ -1882,11 +1900,9 @@ private:
         if (!Param->getType()->isPointerType())
           continue;
         const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
-        bool ArgIsNonnull = !isExprNullable(Arg);
-        if (!ArgIsNonnull && !isExprNullable(Arg, /*ExplicitOnly=*/true))
-          continue;
-        Handler.handleParameterEvidence(CE->getArg(I + ArgOffset), Param,
-                                        Callee, ArgIsNonnull);
+        if (auto Kind = classifyEvidence(Arg, !isExprNullable(Arg)))
+          Handler.handleParameterEvidence(CE->getArg(I + ArgOffset), Param,
+                                          Callee, *Kind);
       }
       // Parameters with nullptr default arguments are nullable evidence
       // even when callers always pass nonnull explicitly: the function
@@ -1901,7 +1917,7 @@ private:
         if (DefArg && DefArg->isNullPointerConstant(
                           Ctx, Expr::NPC_ValueDependentIsNotNull))
           Handler.handleParameterEvidence(DefArg, Param, Callee,
-                                          /*IsNonnull=*/false);
+                                          NullabilityEvidence::Nullable);
       }
     }
   }
@@ -2166,9 +2182,9 @@ private:
     if (BO->getOpcode() != BO_Assign || !FD->getType()->isPointerType())
       return;
     bool Narrowed = storePointer(PtrRef{nullptr, LhsPath}, BO->getRHS(), BO);
-    if (Reporting &&
-        (Narrowed || isExprNullable(BO->getRHS(), /*ExplicitOnly=*/true)))
-      Handler.handleMemberAssignEvidence(BO, FD, Narrowed);
+    if (Reporting)
+      if (auto Kind = classifyEvidence(BO->getRHS(), Narrowed))
+        Handler.handleMemberAssignEvidence(BO, FD, *Kind);
   }
 
   /// Assignment to a local or parameter: guard flags re-capture their
@@ -2758,10 +2774,30 @@ private:
   /// (assigned null, reset, moved-from) overrides a declared _Nonnull.
   /// With ExplicitOnly (used for evidence emission) only provably nullable
   /// sources count: an explicit _Nullable annotation, a null constant, or
-  /// flow-tracked nullable state. Unannotated pointers merely defaulted to
+  /// flow-tracked nullable state (with MustOnly, only state nullable on every
+  /// incoming path). Unannotated pointers merely defaulted to
   /// nullable do not, so no _Nullable is ever inferred from them, and a
   /// ternary is judged by its merged type.
-  bool isExprNullable(const Expr *E, bool ExplicitOnly = false) const {
+  std::optional<NullabilityEvidence> classifyEvidence(const Expr *E,
+                                                      bool IsNonnull) const {
+    if (IsNonnull)
+      return NullabilityEvidence::Nonnull;
+    if (!isExprNullable(E, /*ExplicitOnly=*/true)) {
+      if (const auto *CO =
+              dyn_cast<AbstractConditionalOperator>(E->IgnoreParenImpCasts()))
+        for (const Expr *Arm : {CO->getTrueExpr(), CO->getFalseExpr()})
+          if (Arm->IgnoreParenCasts()->isNullPointerConstant(
+                  Ctx, Expr::NPC_ValueDependentIsNotNull))
+            return NullabilityEvidence::MaybeNull;
+      return std::nullopt;
+    }
+    return isExprNullable(E, /*ExplicitOnly=*/true, /*MustOnly=*/true)
+               ? NullabilityEvidence::Nullable
+               : NullabilityEvidence::MaybeNull;
+  }
+
+  bool isExprNullable(const Expr *E, bool ExplicitOnly = false,
+                      bool MustOnly = false) const {
     if (!E)
       return false;
     E = E->IgnoreParenImpCasts();
@@ -2785,7 +2821,7 @@ private:
         if (DCE->getType()->isPointerType())
           return true;
       if (Origin != E)
-        return isExprNullable(Origin, ExplicitOnly);
+        return isExprNullable(Origin, ExplicitOnly, MustOnly);
     }
     // Pointer dynamic_cast is nullable even when its source is non-null, and
     // under the nonnull default its unannotated result type says nothing, so
@@ -2795,7 +2831,7 @@ private:
         return true;
     // Other casts preserve null-ness (static_cast<Base*>(this) is non-null).
     if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
-      return isExprNullable(CE->getSubExpr(), ExplicitOnly);
+      return isExprNullable(CE->getSubExpr(), ExplicitOnly, MustOnly);
     // Ternary: nullable iff some arm is nullable and the condition does not
     // guard that arm (p ? p : &x is non-null even though p is nullable,
     // because the true arm is only selected when p tested non-null). The
@@ -2817,7 +2853,7 @@ private:
     if (auto R = PtrRef::fromExpr(E)) {
       if (State.isNarrowed(*R))
         return false;
-      if (State.isNullable(*R))
+      if (MustOnly ? State.isMustNullable(*R) : State.isNullable(*R))
         return true;
       return isNullableByType(R->getType(), ExplicitOnly);
     }
@@ -2864,7 +2900,7 @@ private:
         return isExprNullable(BO->getLHS()->getType()->isPointerType()
                                   ? BO->getLHS()
                                   : BO->getRHS(),
-                              ExplicitOnly);
+                              ExplicitOnly, MustOnly);
     // For non-variable expressions, fall back to the declared type.
     return isNullableByType(E->getType(), ExplicitOnly);
   }
@@ -3138,17 +3174,17 @@ public:
   }
   void handleMemberAssignEvidence(const Expr *AssignExpr,
                                   const FieldDecl *Member,
-                                  bool IsNonnull) override {
-    Inner.handleMemberAssignEvidence(AssignExpr, Member, IsNonnull);
+                                  NullabilityEvidence Kind) override {
+    Inner.handleMemberAssignEvidence(AssignExpr, Member, Kind);
   }
   void handleReturnEvidence(const Expr *RetExpr, const FunctionDecl *Func,
-                            bool IsNonnull) override {
-    Inner.handleReturnEvidence(RetExpr, Func, IsNonnull);
+                            NullabilityEvidence Kind) override {
+    Inner.handleReturnEvidence(RetExpr, Func, Kind);
   }
   void handleParameterEvidence(const Expr *ArgExpr, const ParmVarDecl *Param,
                                const FunctionDecl *Func,
-                               bool IsNonnull) override {
-    Inner.handleParameterEvidence(ArgExpr, Param, Func, IsNonnull);
+                               NullabilityEvidence Kind) override {
+    Inner.handleParameterEvidence(ArgExpr, Param, Func, Kind);
   }
   void handleAllReturnsNonnull(const FunctionDecl *Func) override {
     if (InRecursiveSCC)

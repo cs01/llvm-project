@@ -2,8 +2,9 @@
 // dataflow states. A loop body is first visited before its back-edge taint
 // arrives, when a pointer still looks non-null; reporting from that visit
 // emitted nonnull evidence as well as nullable evidence for the same use.
-// loop_return_only returns p on every path, so it must have nullable return
-// evidence only and no all-returns-nonnull summary.
+// loop_return_only returns p on every path, so it must have no nonnull
+// return evidence and no all-returns-nonnull summary. The null only arrives
+// over the back edge, so every use here is maybe-null, not nullable.
 //
 // RUN: rm -f %t.json
 // RUN: %clang_cc1 -fsyntax-only -std=c++17 %s \
@@ -53,9 +54,10 @@ void loop_member(S &s, int *_Nonnull a, int n) {
   }
 }
 
-// CHECK:      c:@F@loop_argument#*I#I# NullableEvidence c:@F@sink#*I# param 1
-// CHECK-NEXT: c:@F@loop_member#&$@S@S#*I#I# NullableEvidence c:@S@S@FI@f
+// CHECK-NOT:  {{.}}
+// CHECK:      c:@F@loop_argument#*I#I# MaybeNullEvidence c:@F@sink#*I# param 1
+// CHECK-NEXT: c:@F@loop_member#&$@S@S#*I#I# MaybeNullEvidence c:@S@S@FI@f
+// CHECK-NEXT: c:@F@loop_return#*I#I# MaybeNullEvidence c:@F@loop_return#*I#I# return
 // CHECK-NEXT: c:@F@loop_return#*I#I# NonnullEvidence c:@F@loop_return#*I#I# return
-// CHECK-NEXT: c:@F@loop_return#*I#I# NullableEvidence c:@F@loop_return#*I#I# return
-// CHECK-NEXT: c:@F@loop_return_only#*I#I# NullableEvidence c:@F@loop_return_only#*I#I# return
+// CHECK-NEXT: c:@F@loop_return_only#*I#I# MaybeNullEvidence c:@F@loop_return_only#*I#I# return
 // CHECK-NOT:  {{.}}

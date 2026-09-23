@@ -30,6 +30,8 @@ class ParmVarDecl;
 class TranslationUnitDecl;
 class VarDecl;
 
+enum class NullabilityEvidence { Nonnull, Nullable, MaybeNull };
+
 /// Receives the diagnostics and evidence produced by
 /// runNullabilitySafetyAnalysis. Only handleNullableDereference is required;
 /// the rest default to no-ops. Evidence feeds the NullabilitySafety SSAF
@@ -60,24 +62,18 @@ public:
   virtual void handleNullableArgument(const Expr *ArgExpr,
                                       const ParmVarDecl *Param) {}
 
-  /// Evidence collection: called when a pointer member is assigned.
-  /// \p IsNonnull is true if the RHS is provably non-null.
+  /// Evidence collection: a pointer member is assigned, a function returns
+  /// a pointer, or a pointer argument is passed to a parameter.
   virtual void handleMemberAssignEvidence(const Expr *AssignExpr,
                                           const FieldDecl *Member,
-                                          bool IsNonnull) {}
-
-  /// Evidence collection: called when a function returns a pointer.
-  /// \p IsNonnull is true if the returned expression is provably non-null.
+                                          NullabilityEvidence Kind) {}
   virtual void handleReturnEvidence(const Expr *RetExpr,
-                                    const FunctionDecl *Func, bool IsNonnull) {}
-
-  /// Evidence collection: called when a pointer argument is passed to a
-  /// function parameter. \p IsNonnull is true if the argument is provably
-  /// non-null at the call site.
+                                    const FunctionDecl *Func,
+                                    NullabilityEvidence Kind) {}
   virtual void handleParameterEvidence(const Expr *ArgExpr,
                                        const ParmVarDecl *Param,
                                        const FunctionDecl *Func,
-                                       bool IsNonnull) {}
+                                       NullabilityEvidence Kind) {}
 
   /// Summary evidence: called after the dataflow fixpoint when every
   /// return path in the function returns a provably non-null expression

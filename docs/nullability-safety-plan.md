@@ -183,14 +183,32 @@ gates now also build `clang-ssaf-linker` and `clang-ssaf-analyzer`.
   it is reported (`nullability-null-store-to-field`, 357 on sqlite);
   the checker itself does not warn on those stores unless the field is
   declared `_Nonnull`. Annotated sqlite: 447 warnings.
-- Next (not done): the remaining 340 new warnings come from `_Nullable`
-  parameters and returns. Two samples were both false positives:
-  `sqlite3_step` guards NULL through a helper (`vdbeSafetyNotNull`, needs
-  interprocedural facts), and `vdbeCommit` "passes null" to
-  `sqlite3OsDeviceCharacteristics` only on a path that already returned on
-  an error code (pointer / `rc` correlation, a false evidence claim). A
-  larger sample should decide whether parameter `_Nullable` is worth
-  writing by default.
+- Parameter `_Nullable` had the same problem. Of about eight sampled
+  warnings none was a real bug: pointer / `rc` correlations (`vdbeCommit`,
+  `pager_delsuper`), pointer / flag correlations (`getIntArg`,
+  `sqlite3Reindex`, `checkTreePage`), a grammar invariant
+  (`sqlite3Analyze`), a guard in a helper (`sqlite3_step`), an API
+  contract (`sqlite3_vtab_collation`). Two changes:
+  - Three-way evidence (`NullabilityEvidence`: Nonnull, Nullable,
+    MaybeNull). `NullState` keeps must-nullable sets next to the may sets
+    (intersected at joins); a value is Nullable evidence only when null on
+    every incoming path, MaybeNull when null on some path only, and a
+    ternary with a literal null arm is MaybeNull. MaybeNull
+    (`MaybeNullEvidence` in the summary) seeds the veto propagation but
+    never produces `_Nullable`. Warnings unaffected (they use the may sets).
+    Dropping may-null evidence outright was tried first and is wrong: it
+    lifted the veto and inferred `BtShared::pLock` (a list head)
+    `_Nonnull`. The null-arm rule removed a wrong `_Nonnull` on
+    `sqlite3ErrorWithMsg`'s `zFormat` (callers pass `x ? "%s" : 0`).
+  - The transformation writes `_Nonnull` only; inferred `_Nullable`
+    parameters and returns are SARIF suggestions
+    (`nullability-nullable-suggestion`).
+  sqlite: nonnull / nullable warnings 0 / 0; evidence 15418 lines (639
+  Nullable-inferred entities become suggestions, 330 null stores to fields
+  reported); annotated copy: 107 warnings, identical to the unannotated
+  baseline.
+- Decoded-summary tests start with `CHECK-NOT: {{.}}`: without it FileCheck
+  skips unexpected lines before the first match.
 
 ## False-positive track (F steps)
 

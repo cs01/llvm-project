@@ -41,6 +41,8 @@ static constexpr llvm::StringLiteral ReachableRuleId =
     "nullability-nullable-reachable";
 static constexpr llvm::StringLiteral NullStoreRuleId =
     "nullability-null-store-to-field";
+static constexpr llvm::StringLiteral NullableSuggestionRuleId =
+    "nullability-nullable-suggestion";
 
 namespace {
 
@@ -114,8 +116,9 @@ public:
 
   void handleMemberAssignEvidence(const Expr *AssignExpr,
                                   const FieldDecl *Member,
-                                  bool IsNonnull) override {
-    if (!IsNonnull && Seen.insert({AssignExpr, Member}).second)
+                                  NullabilityEvidence Kind) override {
+    if (Kind == NullabilityEvidence::Nullable &&
+        Seen.insert({AssignExpr, Member}).second)
       Stores.push_back({AssignExpr, Member});
   }
 
@@ -161,10 +164,14 @@ private:
         SM.isInSystemHeader(D->getLocation()))
       return;
     EntityFacts F = Inference.factsFor(Name);
-    if (F.Nullable && isa<FieldDecl>(D))
+    if (F.Nullable) {
+      if (!isa<FieldDecl>(D))
+        report(TL, NullableSuggestionRuleId,
+               "a null value reaches this pointer on every path from some "
+               "caller or store; consider _Nullable (not written)");
       return;
-    const char *Keyword =
-        F.Nullable ? "_Nullable" : (F.Nonnull ? "_Nonnull" : nullptr);
+    }
+    const char *Keyword = F.Nonnull ? "_Nonnull" : nullptr;
     if (!Keyword) {
       if (F.InnerLevel)
         report(TL, SkippedRuleId,

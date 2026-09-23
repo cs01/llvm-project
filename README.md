@@ -235,11 +235,18 @@ clang-apply-replacements merged
 
 `--ssaf-link-unit-id` must be the stem of the linker's output file (`lu` for `lu.json`).
 
-A pointer is inferred `_Nullable` when some code provably stores, passes or returns a nullable value into it, and `_Nonnull` when every observed value is non-null and no nullable value can reach it through pointer flow. The pointer-flow graph does not see null checks, so it can only cancel a `_Nonnull` inference, never create a `_Nullable` one. Pointers that a nullable value may reach, and declarations the tool cannot rewrite (spelled through a macro, `auto`, inner pointer levels), are listed in the SARIF report instead.
+Only `_Nonnull` is written: on each parameter, field and function return where every observed value is non-null and no value that may be null can reach it through pointer flow. Evidence distinguishes a value that is null on every path to the use (for example `f(NULL)`) from one that is null on some path only (for example a local set on the success path, with the error path returning first). The second kind never supports `_Nullable`, but it still rules out `_Nonnull`.
+
+The SARIF report lists what is not written:
+
+- parameters and returns inferred `_Nullable`, as suggestions to review
+- every store of null into a field (a field is typically null only before setup or after teardown, so `_Nullable` on it would warn at every use)
+- pointers a nullable value may reach through pointer flow, and declarations the tool cannot rewrite (spelled through a macro, `auto`, inner pointer levels)
+
+On sqlite, applying every edit leaves the `-fnullability-default=nonnull` warnings unchanged.
 
 Caveats:
 
-- An inferred `_Nullable` is accurate but can add many warnings where code relies on invariants the analysis cannot see, for example a field that is null only before initialization. Review the `_Nullable` edits before applying them.
 - Once a header has some nullability annotations, compilers that don't use `-fnullability-default` warn about the remaining unannotated pointers in it (`-Wnullability-completeness`).
 - Evidence observed inside Objective-C method bodies is not recorded: SSAF has no entities for Objective-C methods.
 

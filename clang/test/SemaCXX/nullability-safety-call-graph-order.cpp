@@ -203,6 +203,7 @@ void test_nonnull_default_evidence() {
     takes_ptr_nonnull_default(&w);
 }
 
+// EVIDENCE-NOT:  {{.}}
 // EVIDENCE:      c:@F@create# AllReturnsNonnull c:@F@create# return
 // EVIDENCE-NEXT: c:@F@create# NonnullEvidence c:@F@create# return
 // EVIDENCE-NEXT: c:@F@find_even#*$@S@ListNode# NonnullEvidence c:@F@find_even#*$@S@ListNode# return

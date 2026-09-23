@@ -48,7 +48,8 @@ json::Object serializeEvidence(const NullabilityEvidenceAnalysisResult &R,
   return json::Object{
       {"NonnullEvidence", writeSet(R.NonnullEvidence, IdToJSON)},
       {"NullableEvidence", writeSet(R.NullableEvidence, IdToJSON)},
-      {"AllReturnsNonnull", writeSet(R.AllReturnsNonnull, IdToJSON)}};
+      {"AllReturnsNonnull", writeSet(R.AllReturnsNonnull, IdToJSON)},
+      {"MaybeNullEvidence", writeSet(R.MaybeNullEvidence, IdToJSON)}};
 }
 
 Expected<std::unique_ptr<AnalysisResult>>
@@ -58,7 +59,8 @@ deserializeEvidence(const json::Object &Obj,
   for (auto [Key, Set] :
        {std::pair{"NonnullEvidence", &Ret->NonnullEvidence},
         std::pair{"NullableEvidence", &Ret->NullableEvidence},
-        std::pair{"AllReturnsNonnull", &Ret->AllReturnsNonnull}}) {
+        std::pair{"AllReturnsNonnull", &Ret->AllReturnsNonnull},
+        std::pair{"MaybeNullEvidence", &Ret->MaybeNullEvidence}}) {
     Expected<EntityPointerLevelSet> EPLs = readSet(Obj, Key, IdFromJSON);
     if (!EPLs)
       return EPLs.takeError();
@@ -83,6 +85,8 @@ public:
                               Summary.getNullableEvidence().end());
     R.AllReturnsNonnull.insert(Summary.getAllReturnsNonnull().begin(),
                                Summary.getAllReturnsNonnull().end());
+    R.MaybeNullEvidence.insert(Summary.getMaybeNullEvidence().begin(),
+                               Summary.getMaybeNullEvidence().end());
     return Error::success();
   }
 };
@@ -135,6 +139,8 @@ public:
     NullabilityInferenceAnalysisResult &R = getResult();
     R.Nullable = Evidence.NullableEvidence;
     R.NullableReachable = Evidence.NullableEvidence;
+    R.NullableReachable.insert(Evidence.MaybeNullEvidence.begin(),
+                               Evidence.MaybeNullEvidence.end());
     R.Nonnull = Evidence.NonnullEvidence;
     R.Nonnull.insert(Evidence.AllReturnsNonnull.begin(),
                      Evidence.AllReturnsNonnull.end());
