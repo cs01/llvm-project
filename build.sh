@@ -61,6 +61,7 @@ emcmake cmake -S "$ROOT/llvm" -B "$BUILD_DIR" -G Ninja \
   -DLLVM_ENABLE_THREADS=OFF \
   -DLLVM_ENABLE_EH=OFF \
   -DLLVM_ENABLE_RTTI=OFF \
+  -DLLVM_ENABLE_PIC=OFF \
   -DLLVM_BUILD_TOOLS=OFF \
   -DLLVM_BUILD_UTILS=OFF \
   -DLLVM_INCLUDE_TESTS=OFF \
@@ -71,5 +72,5 @@ emcmake cmake -S "$ROOT/llvm" -B "$BUILD_DIR" -G Ninja \
   "${LAUNCHER[@]}" \
   -DCMAKE_EXE_LINKER_FLAGS="-sEXPORTED_RUNTIME_METHODS=callMain -sEXIT_RUNTIME=0 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=33554432 -sINITIAL_MEMORY=268435456 $EMBED_FLAGS"
 ninja -C "$BUILD_DIR" clang
-cp "$BUILD_DIR/bin/clang.wasm" "$BUILD_DIR/bin/clang.js" "$ROOT/nullsafe-playground/"
+cp "$BUILD_DIR/bin/clang.wasm" "$BUILD_DIR/bin/clang.js" "$ROOT/playground/"
 ls -lh "$BUILD_DIR/bin/clang.wasm" "$BUILD_DIR/bin/clang.js"

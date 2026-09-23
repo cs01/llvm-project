@@ -34,7 +34,7 @@ The playground can be deployed to GitHub Pages. The WASM files are generated fro
 
 For deployment:
 1. Build the WASM files using `build.sh`
-2. Deploy the `nullsafe-playground` directory to GitHub Pages
+2. Deploy the `playground` directory to GitHub Pages
 3. The WASM files will need to be hosted separately or built as part of CI/CD
 
 ## Comparison with the Clang Static Analyzer

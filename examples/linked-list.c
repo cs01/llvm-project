@@ -1,4 +1,4 @@
-// Nullsafe Clang tracks struct member nullability through
+// Nullability Safety tracks struct member nullability through
 // control flow — not just local variables.
 
 typedef struct Node {
