@@ -15,9 +15,37 @@ set -euo pipefail
 DEV_BRANCH="nullability-safety"
 # default to -wip so we don't accidentally update the llvm PR
 UPSTREAM_BRANCH="nullsafe-upstream-wip"
-# Use the commit where nullability-safety diverged from llvm/main.
-# This ensures CI builds against the same upstream code we developed on.
-BASE_REF="$(git merge-base llvm/main "$DEV_BRANCH")"
+# The dev branch is kept linear on top of upstream (rebase-upstream.yml), so
+# the base is the newest first-parent commit that is upstream: written by
+# someone else, or squash-merged from an llvm PR (subject ends in "(#N)").
+# This needs no fetch: a stale local llvm/main would otherwise yield an old
+# merge-base and drag thousands of unrelated upstream files into the PR.
+FORK_AUTHORS="${FORK_AUTHORS:-Chad Smith,cs01}"
+MAX_INCLUDE_FILES="${MAX_INCLUDE_FILES:-300}"
+BASE_REF="$(git rev-list --first-parent --max-count=5000 --format='%H%x09%an%x09%s' "$DEV_BRANCH" |
+    awk -F'\t' -v authors="$FORK_AUTHORS" '
+        BEGIN { n = split(authors, a, ","); for (i = 1; i <= n; i++) fork[a[i]] = 1 }
+        /^commit / { next }
+        !found && (!($2 in fork) || $3 ~ /\(#[0-9]+\)$/) { print $1; found = 1 }')"
+if [[ -z "$BASE_REF" ]]; then
+    echo "ERROR: no upstream commit within 5000 first-parent commits of $DEV_BRANCH (FORK_AUTHORS=$FORK_AUTHORS)"
+    exit 1
+fi
+OTHER_AUTHORS=$(git log --format='%an%x09%s' "$BASE_REF..$DEV_BRANCH" |
+    awk -F'\t' -v authors="$FORK_AUTHORS" '
+        BEGIN { n = split(authors, a, ","); for (i = 1; i <= n; i++) fork[a[i]] = 1 }
+        !($1 in fork) || $2 ~ /\(#[0-9]+\)$/' | sort -u)
+if [[ -n "$OTHER_AUTHORS" ]]; then
+    echo "ERROR: $BASE_REF..$DEV_BRANCH contains upstream-looking commits:"
+    echo "$OTHER_AUTHORS" | head -20
+    echo "Set FORK_AUTHORS (comma-separated) or rebase $DEV_BRANCH onto upstream."
+    exit 1
+fi
+echo "=== Base: $(git log -1 --format='%h %ci %s' "$BASE_REF") ($(git rev-list --count "$BASE_REF..$DEV_BRANCH") fork commits)"
+if git rev-parse -q --verify llvm/main >/dev/null &&
+    ! git merge-base --is-ancestor "$BASE_REF" llvm/main; then
+    echo "note: local llvm/main does not contain the base; it is stale (ignored)"
+fi
 
 DRY_RUN=false
 NO_PUSH=false
@@ -52,7 +80,7 @@ EXCLUDE_PATHS=(
 )
 
 # get list of changed files relative to upstream
-ALL_FILES=$(git diff --name-only "$BASE_REF"...HEAD)
+ALL_FILES=$(git diff --name-only "$BASE_REF" "$DEV_BRANCH")
 
 INCLUDE_FILES=()
 LEFT_OUT=()
@@ -77,6 +105,16 @@ echo ""
 echo "=== Files to include in upstream PR (${#INCLUDE_FILES[@]}) ==="
 printf '%s\n' "${INCLUDE_FILES[@]}"
 echo ""
+
+if [[ ${#INCLUDE_FILES[@]} -eq 0 ]]; then
+    echo "ERROR: no files to include; check FORK_AUTHORS ($FORK_AUTHORS)"
+    exit 1
+fi
+if [[ ${#INCLUDE_FILES[@]} -gt $MAX_INCLUDE_FILES ]]; then
+    echo "ERROR: ${#INCLUDE_FILES[@]} files would be included (limit $MAX_INCLUDE_FILES); the base is probably wrong."
+    echo "Rerun with MAX_INCLUDE_FILES=<n> if this is intended."
+    exit 1
+fi
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "(dry run — no branch created)"
