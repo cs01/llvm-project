@@ -12,6 +12,7 @@
 #include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
+#include "clang/Analysis/Analyses/NullabilitySafety.h"
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Frontend/SSAFOptions.h"
@@ -24,6 +25,8 @@
 #include "clang/ScalableStaticAnalysis/Core/Model/EntityName.h"
 #include "clang/ScalableStaticAnalysis/SourceTransformation/TransformationRegistry.h"
 #include "clang/Tooling/Core/Replacement.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include <map>
 #include <optional>
@@ -36,6 +39,8 @@ static constexpr llvm::StringLiteral SkippedRuleId =
     "nullability-annotation-skipped";
 static constexpr llvm::StringLiteral ReachableRuleId =
     "nullability-nullable-reachable";
+static constexpr llvm::StringLiteral NullStoreRuleId =
+    "nullability-null-store-to-field";
 
 namespace {
 
@@ -101,6 +106,23 @@ TypeLoc stripQualifiersAndAttributes(TypeLoc TL) {
   return TL;
 }
 
+class NullStoreCollector final : public NullabilitySafetyHandler {
+public:
+  llvm::SmallVector<std::pair<const Expr *, const FieldDecl *>, 16> Stores;
+
+  void handleNullableDereference(const Expr *, QualType) override {}
+
+  void handleMemberAssignEvidence(const Expr *AssignExpr,
+                                  const FieldDecl *Member,
+                                  bool IsNonnull) override {
+    if (!IsNonnull && Seen.insert({AssignExpr, Member}).second)
+      Stores.push_back({AssignExpr, Member});
+  }
+
+private:
+  llvm::DenseSet<std::pair<const Expr *, const FieldDecl *>> Seen;
+};
+
 class AnnotateVisitor : public DynamicRecursiveASTVisitor {
 public:
   AnnotateVisitor(ASTContext &Ctx, const InferenceMap &Inference,
@@ -139,6 +161,8 @@ private:
         SM.isInSystemHeader(D->getLocation()))
       return;
     EntityFacts F = Inference.factsFor(Name);
+    if (F.Nullable && isa<FieldDecl>(D))
+      return;
     const char *Keyword =
         F.Nullable ? "_Nullable" : (F.Nonnull ? "_Nonnull" : nullptr);
     if (!Keyword) {
@@ -248,6 +272,30 @@ void NullabilityAnnotations::HandleTranslationUnit(ASTContext &Ctx) {
       NestedBuildNamespace::makeLinkUnit(Opts.LinkUnitId);
   AnnotateVisitor(Ctx, Inference, TUNamespace, LUNamespace, Edits, Report)
       .TraverseDecl(Ctx.getTranslationUnitDecl());
+
+  const SourceManager &SM = Ctx.getSourceManager();
+  NullStoreCollector Collector;
+  runNullabilitySafetyOnTU(
+      Ctx.getTranslationUnitDecl(), Collector,
+      NullabilitySafetyOptions::fromLangOptions(Ctx.getLangOpts()),
+      [&](const Decl *Def) {
+        return !SM.isInSystemHeader(Def->getLocation());
+      });
+  for (const auto &[Store, Field] : Collector.Stores) {
+    if (SM.isInSystemHeader(Field->getLocation()) ||
+        !Inference
+             .factsFor(getQualifiedEntityName(Field, TUNamespace, LUNamespace))
+             .Nullable)
+      continue;
+    CharSourceRange Range = Lexer::getAsCharRange(
+        CharSourceRange::getTokenRange(Store->getSourceRange()), SM,
+        Ctx.getLangOpts());
+    Report.addResult(NullStoreRuleId, SarifResultLevel::Note, Range,
+                     ("stores null into field '" + Field->getName() +
+                      "', which is left unannotated and treated as non-null; "
+                      "check that it is not read while null")
+                         .str());
+  }
 }
 
 } // namespace clang::ssaf

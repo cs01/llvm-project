@@ -1,5 +1,6 @@
 // End to end: extract, link, infer, write _Nonnull / _Nullable back, merge the
-// per-TU edits (the shared header is edited once), apply.
+// per-TU edits (the shared header is edited once), apply. Fields are never
+// written _Nullable; stores of null into them are reported.
 
 // REQUIRES: clang-apply-replacements
 // RUN: rm -rf %t && split-file %s %t && mkdir -p %t/edits %t/merged
@@ -33,10 +34,11 @@
 // RUN: FileCheck --check-prefix=HEADER --match-full-lines --input-file=%t/shared.h %s
 // RUN: FileCheck --check-prefix=A --match-full-lines --input-file=%t/a.cpp %s
 // RUN: FileCheck --check-prefix=REPORT --input-file=%t/a.sarif %s
+// RUN: FileCheck --check-prefix=STORE --input-file=%t/b.sarif %s
 // RUN: %{cc} -fnullability-safety -Werror %t/a.cpp
 // RUN: %{cc} -fnullability-safety -Werror %t/b.cpp
 
-// HEADER:      struct S { int *_Nonnull nonnull_field; int *_Nullable nullable_field; int *reachable; };
+// HEADER:      struct S { int *_Nonnull nonnull_field; int *nullable_field; int *reachable; };
 // HEADER-NEXT: void take(int *_Nonnull p);
 // HEADER-NEXT: void take_nullable(int *_Nullable p);
 // HEADER-NEXT: int *_Nonnull get(void);
@@ -61,6 +63,10 @@
 // REPORT-DAG: "text": "a nullable value may reach this pointer through pointer flow; left unannotated"
 // REPORT-DAG: "text": "pointer spelled through a macro is not annotated"
 // REPORT-DAG: "text": "the declared type is not spelled with a '*' or a typedef name"
+
+// A field that receives null keeps its default (a field is typically null
+// only in some lifecycle state); each null store is reported instead.
+// STORE: "text": "stores null into field 'nullable_field', which is left unannotated and treated as non-null; check that it is not read while null"
 
 //--- shared.h
 struct S { int *nonnull_field; int *nullable_field; int *reachable; };
