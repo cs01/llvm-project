@@ -172,15 +172,25 @@ gates now also build `clang-ssaf-linker` and `clang-ssaf-analyzer`.
   `nullability-safety-dynamic-cast.cpp` gains `takesNonnull`'s evidence.
   Annotations 21 lost / 141 gained (the 21 are lines that gained a second
   keyword).
-- Open question, not decided here: applying every annotation to sqlite
-  raises nonnull-mode warnings from 107 to 2668. 938 of the 2617 changed
-  lines carry `_Nullable`, 170 of them fields such as `Table::aCol`,
-  `Expr::pLeft` / `pRight`, `Vdbe::aOp`: nullable in some states, but
-  dereferenced under invariants the analysis cannot see. The annotations
-  are true; the warnings are mostly false positives under the governing
-  rule. Options: write `_Nonnull` only and report `_Nullable` in SARIF;
-  write `_Nullable` for parameters and returns but not fields; or keep
-  both and rely on review.
+- Fields are never written `_Nullable`. Applying every annotation to
+  sqlite raised nonnull-mode warnings from 107 to 2668; 170 of the
+  `_Nullable` lines were fields such as `Vdbe::aOp` (64 new warnings) and
+  `Table::aCol` (137), null only in a lifecycle state (before setup, after
+  teardown) and dereferenced under invariants the analysis cannot see. Of
+  187 fields with nullable evidence only 91 also had nonnull evidence, so a
+  "contested" rule would miss half (for example `BtShared::pPage1`). Now a
+  field inferred `_Nullable` keeps its default and each store of null into
+  it is reported (`nullability-null-store-to-field`, 357 on sqlite);
+  the checker itself does not warn on those stores unless the field is
+  declared `_Nonnull`. Annotated sqlite: 447 warnings.
+- Next (not done): the remaining 340 new warnings come from `_Nullable`
+  parameters and returns. Two samples were both false positives:
+  `sqlite3_step` guards NULL through a helper (`vdbeSafetyNotNull`, needs
+  interprocedural facts), and `vdbeCommit` "passes null" to
+  `sqlite3OsDeviceCharacteristics` only on a path that already returned on
+  an error code (pointer / `rc` correlation, a false evidence claim). A
+  larger sample should decide whether parameter `_Nullable` is worth
+  writing by default.
 
 ## False-positive track (F steps)
 

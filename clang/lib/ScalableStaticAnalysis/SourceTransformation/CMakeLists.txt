@@ -10,6 +10,7 @@ add_clang_library(clangScalableStaticAnalysisSourceTransformation
   YAMLSourceEditFormat.cpp
 
   LINK_LIBS
+  clangAnalysis
   clangAST
   clangBasic
   clangLex
