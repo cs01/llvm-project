@@ -3085,8 +3085,29 @@ public:
     SeenDiags.clear();
   }
 
+  QualType withoutUnspecifiedTag(QualType T) const {
+    Qualifiers Quals = T.getLocalQualifiers();
+    QualType U = T.getLocalUnqualifiedType();
+    bool Changed = false;
+    QualType Stripped = U;
+    if (AttributedType::stripOuterNullability(Stripped) ==
+        NullabilityKind::Unspecified) {
+      U = Stripped;
+      Changed = true;
+    }
+    if (const auto *PT = U->getAs<PointerType>()) {
+      QualType Pointee = withoutUnspecifiedTag(PT->getPointeeType());
+      if (Pointee != PT->getPointeeType()) {
+        U = S.Context.getPointerType(Pointee);
+        Changed = true;
+      }
+    }
+    return Changed ? S.Context.getQualifiedType(U, Quals) : T;
+  }
+
   void handleNullableDereference(const Expr *DerefExpr,
                                  QualType PtrType) override {
+    PtrType = withoutUnspecifiedTag(PtrType);
     SourceLocation Loc = DerefExpr->getExprLoc();
     if (!isFirst(diag::warn_nullability_safety_dereference, Loc,
                  PtrType.getAsOpaquePtr()))
@@ -3100,6 +3121,7 @@ public:
 
   void handleNullableArithmetic(const Expr *ArithExpr, QualType PtrType,
                                 const VarDecl *VD) override {
+    PtrType = withoutUnspecifiedTag(PtrType);
     SourceLocation Loc = ArithExpr->getExprLoc();
     // Keyed on the variable, not the type: `a - b` faults both operands at one
     // location, and they usually share a type.
@@ -3150,8 +3172,10 @@ public:
     SourceLocation Loc = ArgExpr->getExprLoc();
     if (!isFirst(diag::warn_nullability_safety_argument, Loc, Param))
       return;
-    PartialDiagnosticAt Warning(
-        Loc, S.PDiag(diag::warn_nullability_safety_argument) << Param);
+    PartialDiagnosticAt Warning(Loc,
+                                S.PDiag(diag::warn_nullability_safety_argument)
+                                    << Param->getDeclName().isEmpty() << Param
+                                    << Param->getFunctionScopeIndex() + 1);
     PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_argument_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }

@@ -13171,7 +13171,7 @@ def note_nullable_assignment_fix : Note<
   "add a null check before assigning, or change the variable type to "
   "'_Nullable'">;
 def warn_nullability_safety_argument : Warning<
-  "passing nullable pointer to nonnull parameter %0">,
+  "passing nullable pointer to nonnull parameter %select{%1|%2}0">,
   InGroup<NullabilitySafetyArgument>;
 def note_nullable_argument_fix : Note<
   "add a null check before the call, or change the parameter type to "
