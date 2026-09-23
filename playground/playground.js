@@ -6,6 +6,7 @@
         const status = document.getElementById('status');
         const examplesSelect = document.getElementById('examplesSelect');
         const nullabilityDefaultSelect = document.getElementById('nullabilityDefaultSelect');
+        const nullabilityHint = document.getElementById('nullabilityHint');
         const shareBtn = document.getElementById('shareBtn');
         const loadingBar = document.getElementById('loadingBar');
         const toast = document.getElementById('toast');
@@ -163,12 +164,14 @@ async function loadExamples() {
             element.appendChild(fragment);
         }
 
-        function renderCompilerOutput(element, command, output) {
+        function renderCompilerOutput(element, args, output, callout = null) {
+            const command = formatCompilerCommand(args);
             const commandRow = document.createElement('div');
             commandRow.className = 'compiler-command';
 
             const commandText = document.createElement('code');
-            commandText.textContent = '$ ' + command;
+            commandText.textContent = '$ ' + formatCompilerCommand(displayArgs(args));
+            commandText.title = 'Browser-only flags (target, sysroot, colors) are hidden; Copy gives the full command';
 
             const copyButton = document.createElement('button');
             copyButton.type = 'button';
@@ -195,6 +198,66 @@ async function loadExamples() {
             diagnostics.className = 'compiler-diagnostics';
             appendAnsiText(diagnostics, output);
             element.appendChild(diagnostics);
+
+            if (callout) {
+                const box = document.createElement('div');
+                box.className = 'missed-callout';
+                box.textContent = callout;
+                element.appendChild(box);
+            }
+        }
+
+        function displayArgs(args) {
+            const shown = [];
+            for (let i = 0; i < args.length; i++) {
+                const arg = args[i];
+                if (arg === '-resource-dir' || arg === '-isystem') {
+                    i++;
+                } else if (!arg.startsWith('--target=') && arg !== '-fcolor-diagnostics') {
+                    shown.push(arg);
+                }
+            }
+            return shown;
+        }
+
+        function countDiagnostics(output) {
+            const counts = { warning: 0, error: 0 };
+            for (const match of stripAnsi(output).matchAll(/^input\.(?:cpp|c):\d+:\d+:\s+(warning|error):/gm)) {
+                counts[match[1]]++;
+            }
+            return counts;
+        }
+
+        function plural(n, word) {
+            return `${n} ${word}${n === 1 ? '' : 's'}`;
+        }
+
+        function setSectionHeader(header, label, summary, tone) {
+            const infoIcon = header.querySelector('.info-icon');
+            header.replaceChildren();
+            const title = document.createElement('span');
+            title.className = 'section-title';
+            title.textContent = label;
+            const version = document.createElement('span');
+            version.className = 'section-version';
+            version.textContent = clangVersion;
+            header.append(title, version);
+            if (infoIcon) header.appendChild(infoIcon);
+            const badge = document.createElement('span');
+            badge.className = `section-summary ${tone}`;
+            badge.textContent = summary;
+            const chevron = document.createElement('span');
+            chevron.className = 'section-chevron';
+            chevron.setAttribute('aria-hidden', 'true');
+            chevron.textContent = '▾';
+            header.append(badge, chevron);
+        }
+
+        function summarize(counts, missed) {
+            if (counts.error > 0) return [plural(counts.error, 'error'), 'tone-error'];
+            if (counts.warning > 0) return [plural(counts.warning, 'warning'), 'tone-warning'];
+            if (missed > 0) return [`missed ${missed}`, 'tone-missed'];
+            return ['no warnings', 'tone-ok'];
         }
 
         function formatCompilerCommand(args) {
@@ -336,7 +399,33 @@ async function loadExamples() {
             }
         });
 
+        const nullabilityHints = {
+            nullable: 'Every unannotated pointer may be null (strictest)',
+            nonnull: 'Unannotated pointers are non-null; annotate what can be null',
+            unspecified: 'Only annotated code is checked (the compiler default)',
+        };
+
+        function updateNullabilityHint() {
+            nullabilityHint.textContent = nullabilityHints[getNullabilityDefault()];
+        }
+
+        document.querySelectorAll('.output-section-header').forEach(header => {
+            const toggle = () => {
+                const section = header.parentElement;
+                section.classList.toggle('collapsed');
+                header.setAttribute('aria-expanded', String(!section.classList.contains('collapsed')));
+            };
+            header.addEventListener('click', toggle);
+            header.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle();
+                }
+            });
+        });
+
         nullabilityDefaultSelect.addEventListener('change', () => {
+            updateNullabilityHint();
             const url = new URL(window.location);
             url.searchParams.set('nullability', getNullabilityDefault());
             window.history.replaceState({}, '', url);
@@ -462,6 +551,7 @@ async function loadExamples() {
             if (validNullabilityDefaults.has(nullabilityDefault)) {
                 nullabilityDefaultSelect.value = nullabilityDefault;
             }
+            updateNullabilityHint();
 
             // Priority 1: Load from ?code= (user shared code)
             const encodedCode = urlParams.get('code');
@@ -665,60 +755,39 @@ async function loadExamples() {
 
                 const duration = (performance.now() - startTime).toFixed(0);
 
-                const safetyCmd = formatCompilerCommand(safetyResult.args);
-                const mainlineCmd = formatCompilerCommand(mainlineResult.args);
-                const analyzerCmd = formatCompilerCommand(analyzerResult.args);
+                const safetyOutput = safetyResult.stderr + safetyResult.stdout;
+                const mainlineOutput = mainlineResult.stderr + mainlineResult.stdout;
+                const analyzerOutput = analyzerResult.stderr + analyzerResult.stdout;
+                const safetyCounts = countDiagnostics(safetyOutput);
+                const mainlineCounts = countDiagnostics(mainlineOutput);
+                const analyzerCounts = countDiagnostics(analyzerOutput);
 
-                // Update headers with version and timing
-                const headers = document.querySelectorAll('.output-section-header');
-                // Update header text while preserving info icons
-                const headerLabels = [
-                    `Nullability Safety ${clangVersion}`,
-                    `Standard Clang ${clangVersion}`,
-                    `Static Analyzer ${clangVersion}`,
-                ];
-                for (let i = 0; i < 3; i++) {
-                    const infoIcon = headers[i].querySelector('.info-icon');
-                    headers[i].innerHTML = `${headerLabels[i]} <span style="float: right; font-size: 11px; opacity: 0.6;">${duration}ms</span>`;
-                    if (infoIcon) headers[i].insertBefore(infoIcon, headers[i].querySelector('span'));
-                }
-
-                // Count nullability warnings to detect missed bugs
                 const nullWarningCount = (stripAnsi(safetyResult.stderr).match(/\[-Wnullability(?:-safety-[a-z-]+)?\]/g) || []).length;
+                const missedMessage = tool => `${tool} missed ${plural(nullWarningCount, 'null pointer bug')} that Nullability Safety caught.`;
+                const mainlineMissed = mainlineCounts.warning + mainlineCounts.error === 0 ? nullWarningCount : 0;
+                const analyzerMissed = analyzerCounts.warning + analyzerCounts.error === 0 ? nullWarningCount : 0;
 
                 editor.setMarkers(parseDiagnostics(safetyResult.stderr));
 
-                // Display Nullability Safety results with command
-                if (safetyResult.stdout || safetyResult.stderr) {
-                    renderCompilerOutput(outputSafety, safetyCmd, safetyResult.stderr + safetyResult.stdout);
-                } else {
-                    renderCompilerOutput(outputSafety, safetyCmd, '✓ No errors or warnings');
-                }
+                const headers = document.querySelectorAll('.output-section-header');
+                setSectionHeader(headers[0], 'Nullability Safety', ...summarize(safetyCounts, 0));
+                setSectionHeader(headers[1], 'Standard Clang', ...summarize(mainlineCounts, mainlineMissed));
+                setSectionHeader(headers[2], 'Static Analyzer', ...summarize(analyzerCounts, analyzerMissed));
 
-                // Display mainline results with command and comparison
-                if (mainlineResult.stdout || mainlineResult.stderr) {
-                    renderCompilerOutput(outputMainline, mainlineCmd, mainlineResult.stderr + mainlineResult.stdout);
-                } else {
-                    if (nullWarningCount > 0) {
-                        renderCompilerOutput(outputMainline, mainlineCmd, '✓ No errors or warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' (see Nullability Safety panel)');
-                    } else {
-                        renderCompilerOutput(outputMainline, mainlineCmd, '✓ No errors or warnings');
-                    }
-                }
+                renderCompilerOutput(outputSafety, safetyResult.args, safetyOutput || '✓ No errors or warnings');
+                renderCompilerOutput(outputMainline, mainlineResult.args, mainlineOutput || 'No errors or warnings',
+                    mainlineMissed ? missedMessage('Standard Clang') : null);
+                renderCompilerOutput(outputAnalyzer, analyzerResult.args, analyzerOutput || 'No warnings',
+                    analyzerMissed ? missedMessage('The static analyzer') : null);
 
-                // Display analyzer results
-                if (analyzerResult.stdout || analyzerResult.stderr) {
-                    renderCompilerOutput(outputAnalyzer, analyzerCmd, analyzerResult.stderr + analyzerResult.stdout);
+                const seconds = (duration / 1000).toFixed(2);
+                if (safetyCounts.error > 0) {
+                    status.textContent = `${plural(safetyCounts.error, 'error')} · ${seconds}s`;
+                    status.className = 'status error';
                 } else {
-                    if (nullWarningCount > 0) {
-                        renderCompilerOutput(outputAnalyzer, analyzerCmd, '✓ No warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' that Nullability Safety caught');
-                    } else {
-                        renderCompilerOutput(outputAnalyzer, analyzerCmd, '✓ No warnings');
-                    }
+                    status.textContent = `${plural(safetyCounts.warning, 'warning')} · ${seconds}s`;
+                    status.className = safetyCounts.warning > 0 ? 'status found' : 'status ready';
                 }
-
-                status.textContent = 'Ready to compile';
-                status.className = 'status ready';
             } catch (error) {
                 const errorMsg = error.message || String(error);
                 outputSafety.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
