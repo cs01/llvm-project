@@ -11,7 +11,7 @@ on:
     branches:
       - nullability-safety
     paths:
-      - 'nullsafe-playground/**'
+      - 'playground/**'
   workflow_dispatch:
 
 permissions:
@@ -56,8 +56,8 @@ jobs:
           cd /tmp/wasm-files
 
           # Download the compressed individual files from the release
-          curl -L -f -o clang.wasm.gz "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/clang-nullsafe.wasm.gz"
-          curl -L -f -o clang.js.gz "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/clang-nullsafe.js.gz"
+          curl -L -f -o clang.wasm.gz "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/clang.wasm.gz"
+          curl -L -f -o clang.js.gz "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/clang.js.gz"
 
           # Decompress
           gzip -d clang.wasm.gz
@@ -80,9 +80,9 @@ jobs:
 
           git rm -rf . 2>/dev/null || true
 
-          git checkout nullability-safety -- nullsafe-playground
-          mv nullsafe-playground/* .
-          rm -rf nullsafe-playground
+          git checkout nullability-safety -- playground
+          mv playground/* .
+          rm -rf playground
 
           cp /tmp/wasm-files/* .
 

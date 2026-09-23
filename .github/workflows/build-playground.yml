@@ -25,9 +25,9 @@ jobs:
               - 'clang/**'
               - 'llvm/**'
               - '.github/workflows/build-playground.yml'
-              - 'nullsafe-playground/build.sh'
+              - 'playground/build.sh'
             playground:
-              - 'nullsafe-playground/**'
+              - 'playground/**'
 
   build-wasm:
     needs: check-changes
@@ -59,17 +59,17 @@ jobs:
             ccache-wasm-
 
       - name: Build clang.wasm
-        run: nullsafe-playground/build.sh
+        run: playground/build.sh
 
       - name: Prepare artifacts
         run: |
           mkdir -p artifacts
-          cp build-wasm/bin/clang.wasm artifacts/clang-nullsafe.wasm
-          cp build-wasm/bin/clang.js artifacts/clang-nullsafe.js
+          cp build-wasm/bin/clang.wasm artifacts/
+          cp build-wasm/bin/clang.js artifacts/
 
           # Compress for better download speeds
-          gzip -k artifacts/clang-nullsafe.wasm
-          gzip -k artifacts/clang-nullsafe.js
+          gzip -k artifacts/clang.wasm
+          gzip -k artifacts/clang.js
 
           echo "=== Artifact sizes ==="
           ls -lh artifacts/
@@ -87,12 +87,12 @@ jobs:
           name: Playground WASM (latest)
           prerelease: true
           files: |
-            artifacts/clang-nullsafe.wasm
-            artifacts/clang-nullsafe.js
-            artifacts/clang-nullsafe.wasm.gz
-            artifacts/clang-nullsafe.js.gz
+            artifacts/clang.wasm
+            artifacts/clang.js
+            artifacts/clang.wasm.gz
+            artifacts/clang.js.gz
           body: |
-            ## Null-Safe Clang Playground WASM (auto-updated)
+            ## Nullability Safety Playground WASM (auto-updated)
 
             Built from ${{ github.sha }} on ${{ github.ref_name }}.
             This release is automatically updated on every push that changes compiler source.
@@ -101,8 +101,8 @@ jobs:
             `#include <vector>`, `#include <cassert>`, etc. all work in the playground.
 
             ### Files:
-            - `clang-nullsafe.wasm` - WebAssembly compiler binary
-            - `clang-nullsafe.js` - Emscripten JavaScript glue code
+            - `clang.wasm` - WebAssembly compiler binary
+            - `clang.js` - Emscripten JavaScript glue code
             - `*.gz` - Compressed versions for faster downloads
 
             ### Usage:

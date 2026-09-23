@@ -137,7 +137,7 @@
       ]
     },
     {
-      "command": "nullsafe",
+      "command": "nullability_safety",
       "mean": 0.6526989225250002,
       "stddev": 0.0710241734161546,
       "median": 0.6214136865000001,

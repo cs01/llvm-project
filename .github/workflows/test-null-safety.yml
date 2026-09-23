@@ -1,4 +1,4 @@
-name: Test Null-Safety
+name: Test Nullability Safety
 
 on:
   push:
@@ -59,7 +59,7 @@ jobs:
           cd build
           ninja clang FileCheck count not llvm-config
 
-      - name: Run null-safety tests
+      - name: Run nullability safety tests
         run: |
           cd build
           ./bin/llvm-lit -v ../clang/test/Sema/nullability-safety-*.cpp ../clang/test/Sema/nullability-safety-*.c ../clang/test/Driver/nullability-safety-flags.c
@@ -67,4 +67,4 @@ jobs:
       - name: Test results
         if: success()
         run: |
-          echo "All null-safety tests passed"
+          echo "All nullability safety tests passed"

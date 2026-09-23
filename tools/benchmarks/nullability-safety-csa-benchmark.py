@@ -264,7 +264,7 @@ CONFIGS = [
         "flags": ["-c", "-o", "/dev/null", "-w", "-std=c++17"],
     },
     {
-        "name": "nullsafe",
+        "name": "nullability_safety",
         "label": "Flow-nullability",
         "flags": [
             "-c", "-o", "/dev/null", "-std=c++17",
@@ -401,13 +401,13 @@ def main():
                     print(f"      {config['label']:38s} "
                           f"{pct:+7.1f}%  p={p_val:.4f} {sig}")
 
-            # CSA/nullsafe ratio
-            if "csa" in results and "nullsafe" in results:
-                ratio = results["csa"]["mean"] / results["nullsafe"]["mean"]
+            # CSA/Nullability Safety ratio
+            if "csa" in results and "nullability_safety" in results:
+                ratio = results["csa"]["mean"] / results["nullability_safety"]["mean"]
                 print(f"\n    CSA / nullability-safety ratio: {ratio:.1f}x")
 
-            if "csa_all" in results and "nullsafe" in results:
-                ratio = results["csa_all"]["mean"] / results["nullsafe"]["mean"]
+            if "csa_all" in results and "nullability_safety" in results:
+                ratio = results["csa_all"]["mean"] / results["nullability_safety"]["mean"]
                 print(f"    CSA (all checkers) / nullability-safety ratio: {ratio:.1f}x")
 
             all_results[wl_name][n] = results
@@ -477,7 +477,7 @@ def generate_report(all_results, args, workloads):
         lines.append(f"## {workload['label']}")
         lines.append("")
         lines.append("| N | Baseline | Flow-Nullability | CSA (null only) "
-                     "| CSA (all checkers) | CSA/Nullsafe ratio |")
+                     "| CSA (all checkers) | CSA/Nullability Safety ratio |")
         lines.append("|--:|---------:|-----------------:|"
                      "----------------:|-------------------:|-------------------:|")
 
@@ -492,14 +492,14 @@ def generate_report(all_results, args, workloads):
                 r = results[name]
                 return f"{human_time(r['mean'])} ± {human_time(r['ci'])}"
 
-            # CSA/nullsafe ratio
-            if "csa" in results and "nullsafe" in results:
-                ratio = f"{results['csa']['mean'] / results['nullsafe']['mean']:.1f}x"
+            # CSA/Nullability Safety ratio
+            if "csa" in results and "nullability_safety" in results:
+                ratio = f"{results['csa']['mean'] / results['nullability_safety']['mean']:.1f}x"
             else:
                 ratio = "—"
 
             lines.append(
-                f"| {n} | {fmt('baseline')} | {fmt('nullsafe')} "
+                f"| {n} | {fmt('baseline')} | {fmt('nullability_safety')} "
                 f"| {fmt('csa')} | {fmt('csa_all')} | {ratio} |")
 
         lines.append("")

@@ -337,8 +337,11 @@ Renamed per the Naming table, plus: `FlowNullabilityReporter` /
 `FlowNullabilityTUAnalysis` in `AnalysisBasedWarnings.cpp`, `DEBUG_TYPE`
 `nullability-safety`, every `flow-nullability-*` test and doc file, and
 `Driver/nullsafe-flags*.c` -> `Driver/nullability-safety-flags*.c`. The
-`nullsafe` product names (playground, headers) are unchanged; the
-`-Rnullsafe-evidence` remarks were removed in 5d.
+playground (`nullsafe-playground/` -> `playground/`), release archives
+(`clang-nullsafe-*` -> `clang-nullability-safety-*`), installer
+(`~/.local/null-safe-clang` -> `~/.local/clang-nullability-safety`) and
+benchmark scripts were renamed later; the `-Rnullsafe-evidence` remarks were
+removed in 5d.
 
 sqlite (group names in the baseline normalized to the new spelling): nonnull
 0 lost / 0 gained, nullable 0 / 0, evidence 0 / 0; counts unchanged (139,

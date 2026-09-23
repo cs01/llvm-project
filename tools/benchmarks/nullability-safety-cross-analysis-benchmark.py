@@ -282,14 +282,14 @@ CONFIGS = [
         "source_key": "thread_safety",
     },
     {
-        "name": "nullsafe",
+        "name": "nullability_safety",
         "label": "-fnullability-safety",
         "flags": ["-fnullability-safety", "-fnullability-default=nullable"],
         "source_key": "nullability",
     },
     {
-        "name": "uninit_plus_nullsafe",
-        "label": "-Wuninitialized + nullsafe",
+        "name": "uninit_plus_nullability_safety",
+        "label": "-Wuninitialized + Nullability Safety",
         "flags": ["-Wuninitialized", "-fnullability-safety", "-fnullability-default=nullable"],
         "source_key": "nullability",
     },
@@ -382,7 +382,7 @@ def main():
                 f.write(code)
             sources[key] = path
 
-        # Also generate the realistic mixed source for nullsafe
+        # Also generate the realistic mixed source for Nullability Safety
         mixed_code = generate_mixed_realistic_code(n)
         mixed_path = os.path.join(args.output_dir, f"source_mixed_{n}.cpp")
         with open(mixed_path, "w") as f:
@@ -408,18 +408,18 @@ def main():
             print(f"{human_time(mean)} \u00b1 {human_time(ci)}")
             results[name] = {"samples": samples, "mean": mean, "ci": ci}
 
-        # Also measure mixed realistic for nullsafe
-        print(f"\n  Nullsafe (realistic mixed):", end=" ", flush=True)
+        # Also measure mixed realistic for Nullability Safety
+        print(f"\n  Nullability Safety (realistic mixed):", end=" ", flush=True)
         mixed_samples = measure(
             args.clang_binary, mixed_path, args.output_dir,
-            "nullsafe_mixed", n,
+            "nullability_safety_mixed", n,
             ["-fnullability-safety", "-fnullability-default=nullable"],
             args.warmup, args.iterations)
 
         if mixed_samples:
             mean, ci = confidence_interval(mixed_samples)
             print(f"{human_time(mean)} \u00b1 {human_time(ci)}")
-            results["nullsafe_mixed"] = {"samples": mixed_samples, "mean": mean, "ci": ci}
+            results["nullability_safety_mixed"] = {"samples": mixed_samples, "mean": mean, "ci": ci}
 
         # Compute overhead vs baseline for each analysis
         if "baseline" in results:
@@ -439,9 +439,9 @@ def main():
                 print(f"    {config['label']:40s} {pct:+6.1f}% \u00b1 {pct_ci:5.1f}%  p={p_val:.4f} {sig}")
 
         # Marginal cost: combined vs uninit alone
-        if "uninit" in results and "uninit_plus_nullsafe" in results:
+        if "uninit" in results and "uninit_plus_nullability_safety" in results:
             uninit = results["uninit"]
-            combined = results["uninit_plus_nullsafe"]
+            combined = results["uninit_plus_nullability_safety"]
             pair_n = min(len(uninit["samples"]), len(combined["samples"]))
             _, p_val, mean_diff, diff_ci = paired_t_test(
                 combined["samples"][:pair_n],
@@ -449,7 +449,7 @@ def main():
             pct = (mean_diff / uninit["mean"] * 100) if uninit["mean"] > 0 else 0
             pct_ci = (diff_ci / uninit["mean"] * 100) if uninit["mean"] > 0 else 0
             sig = significance_stars(p_val)
-            print(f"\n  Marginal cost (nullsafe on top of -Wuninitialized):")
+            print(f"\n  Marginal cost (Nullability Safety on top of -Wuninitialized):")
             print(f"    {pct:+6.1f}% \u00b1 {pct_ci:5.1f}%  p={p_val:.4f} {sig}")
 
         all_results[n] = results
@@ -500,7 +500,7 @@ def generate_report(all_results, args, n_values):
     lines.append("Each configuration compiles N functions with patterns that exercise the")
     lines.append("respective analysis. The baseline compiles the same code with `-w` (all")
     lines.append("warnings suppressed). Source files are tailored to each analysis's annotation")
-    lines.append("requirements (nullability annotations for nullsafe, thread-safety attributes")
+    lines.append("requirements (nullability annotations for nullability_safety, thread-safety attributes")
     lines.append("for thread-safety). Paired t-tests compare each analysis to baseline on")
     lines.append("matched iterations.")
     lines.append("")
@@ -541,10 +541,10 @@ def generate_report(all_results, args, n_values):
 
     # Marginal cost table: combined vs uninit alone
     has_marginal = any(
-        "uninit" in all_results[n] and "uninit_plus_nullsafe" in all_results[n]
+        "uninit" in all_results[n] and "uninit_plus_nullability_safety" in all_results[n]
         for n in n_values if n in all_results)
     if has_marginal:
-        lines.append("## Marginal Cost (nullsafe on top of `-Wuninitialized`)")
+        lines.append("## Marginal Cost (Nullability Safety on top of `-Wuninitialized`)")
         lines.append("")
         lines.append("Measures the additional cost of enabling nullability-safety when")
         lines.append("`-Wuninitialized` is already active (CFG already built).")
@@ -555,10 +555,10 @@ def generate_report(all_results, args, n_values):
             if n not in all_results:
                 continue
             results = all_results[n]
-            if "uninit" not in results or "uninit_plus_nullsafe" not in results:
+            if "uninit" not in results or "uninit_plus_nullability_safety" not in results:
                 continue
             uninit = results["uninit"]
-            combined = results["uninit_plus_nullsafe"]
+            combined = results["uninit_plus_nullability_safety"]
             uninit_str = f"{human_time(uninit['mean'])} \u00b1 {human_time(uninit['ci'])}"
             combined_str = f"{human_time(combined['mean'])} \u00b1 {human_time(combined['ci'])}"
             pair_n = min(len(uninit["samples"]), len(combined["samples"]))

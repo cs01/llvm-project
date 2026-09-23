@@ -9,9 +9,9 @@ the same C/C++ code:
 - **analyzer** — `clang --analyze` (the Clang Static Analyzer, CSA)
 
 For *what each tool catches* (correctness, not speed) see
-[`nullsafe-playground/examples/standard-clang-gap.c`](../../../nullsafe-playground/examples/standard-clang-gap.c)
+[`playground/examples/standard-clang-gap.c`](../../../playground/examples/standard-clang-gap.c)
 and the architecture note
-[`nullability-safety-vs-csa.md`](../../../nullsafe-playground/nullability-safety-vs-csa.md). This doc is
+[`nullability-safety-vs-csa.md`](../../../playground/nullability-safety-vs-csa.md). This doc is
 purely about **cost**.
 
 ## Headline

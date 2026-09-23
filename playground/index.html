@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nullsafe Clang Playground</title>
+    <title>Nullability Safety Playground</title>
 
     <!-- Monaco Editor from CDN (cached by browser) -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -451,7 +451,7 @@
             display: block;
         }
 
-        /* Green accent for nullsafe panel */
+        /* Green accent for Nullability Safety panel */
         .output-section:nth-child(1) .output-section-header {
             border-left: 3px solid var(--success);
             padding-left: 13px;
@@ -682,7 +682,7 @@
 
     <div class="header">
         <div class="header-content">
-            <h1>Nullsafe Clang Playground</h1>
+            <h1>Nullability Safety Playground</h1>
             <p>An experimental Clang fork with strict null checking</p>
         </div>
         <div class="header-links">
@@ -693,7 +693,7 @@
                 </svg>
                 Report Bug
             </button>
-            <a href="https://github.com/cs01/llvm-project/" target="_blank" class="header-link" title="View the Nullsafe Clang source code on GitHub">
+            <a href="https://github.com/cs01/llvm-project/" target="_blank" class="header-link" title="View the Nullability Safety source code on GitHub">
                 <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16" style="vertical-align: text-bottom;">
                     <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
                 </svg>
@@ -707,7 +707,7 @@
             <span>▶</span> Compile
         </button>
 
-        <select id="examplesSelect" class="examples-select" title="Load example code to see Nullsafe Clang in action">
+        <select id="examplesSelect" class="examples-select" title="Load example code to see Nullability Safety in action">
             <option value="" disabled hidden>Custom Code</option>
             <option value="hero-bug" selected>1. The Simplest Bug</option>
             <option value="flow-narrowing">2. Flow-Sensitive Narrowing</option>
@@ -718,7 +718,7 @@
             <option value="late-init">7. Late Initialization (C++)</option>
         </select>
 
-        <select id="nullabilityDefaultSelect" class="examples-select nullability-select" aria-label="Default nullability" title="Choose how Nullsafe Clang treats pointers without explicit nullability">
+        <select id="nullabilityDefaultSelect" class="examples-select nullability-select" aria-label="Default nullability" title="Choose how Nullability Safety treats pointers without explicit nullability">
             <option value="nullable" selected>Pointer default: nullable</option>
             <option value="nonnull">Pointer default: nonnull</option>
             <option value="unspecified">Pointer default: unspecified</option>
@@ -758,8 +758,8 @@
             </div>
             <div class="output-container">
                 <div class="output-section">
-                    <div class="output-section-header">Nullsafe Clang <span class="info-icon">&#9432;<span class="tooltip">This Clang fork uses flow-sensitive nullability analysis and the selected pointer default. It runs as part of the normal compile — fast enough for every build and supported in clangd/IDEs.</span></span></div>
-                    <div id="output-nullsafe" class="output-content"></div>
+                    <div class="output-section-header">Nullability Safety <span class="info-icon">&#9432;<span class="tooltip">This Clang fork uses flow-sensitive nullability analysis and the selected pointer default. It runs as part of the normal compile — fast enough for every build and supported in clangd/IDEs.</span></span></div>
+                    <div id="output-safety" class="output-content"></div>
                 </div>
                 <div class="output-divider" id="outputDivider"></div>
                 <div class="output-section">

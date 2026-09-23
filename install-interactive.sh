@@ -3,7 +3,7 @@
 set -e
 
 REPO="cs01/llvm-project"
-DEFAULT_INSTALL_DIR="$HOME/.local/null-safe-clang"
+DEFAULT_INSTALL_DIR="$HOME/.local/clang-nullability-safety"
 
 GREEN='\033[0;32m'
 NC='\033[0m'
@@ -71,11 +71,11 @@ detect_shell_profile() {
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 
 echo ""
-printf "${GREEN}Welcome to Nullsafe Clang installer${NC}\n"
+printf "${GREEN}Welcome to Clang Nullability Safety installer${NC}\n"
 echo ""
 
 if [ -z "$SKIP_PROMPTS" ]; then
-    echo "This will download and install Nullsafe Clang to:"
+    echo "This will download and install Clang Nullability Safety to:"
     echo "  $INSTALL_DIR"
     echo ""
 
@@ -105,10 +105,10 @@ OS=$(uname -s)
 ARCH=$(uname -m)
 
 if [ "$OS" = "Linux" ] && [ "$ARCH" = "x86_64" ]; then
-    RELEASE_FILE="clang-nullsafe-linux-x86_64.tar.gz"
+    RELEASE_FILE="clang-nullability-safety-linux-x86_64.tar.gz"
     echo "Detected: Linux x86_64"
 elif [ "$OS" = "Darwin" ]; then
-    RELEASE_FILE="clang-nullsafe-macos-universal.tar.gz"
+    RELEASE_FILE="clang-nullability-safety-macos-universal.tar.gz"
     echo "Detected: macOS (Universal)"
 
     if [ ! -f "/opt/homebrew/opt/zstd/lib/libzstd.1.dylib" ] && [ ! -f "/usr/local/opt/zstd/lib/libzstd.1.dylib" ]; then
@@ -149,7 +149,7 @@ fi
 
 URL="https://github.com/$REPO/releases/download/$VERSION/$RELEASE_FILE"
 
-echo "Downloading Nullsafe Clang $VERSION..."
+echo "Downloading Clang Nullability Safety $VERSION..."
 echo "   $URL"
 
 mkdir -p "$INSTALL_DIR"
@@ -234,7 +234,7 @@ SHELL_PROFILE=$(detect_shell_profile)
 PATH_EXPORT="export PATH=\"$INSTALL_DIR/bin:\$PATH\""
 
 if [ -z "$SKIP_PROMPTS" ]; then
-    echo "To use Nullsafe Clang, we need to add it to your PATH."
+    echo "To use Clang Nullability Safety, we need to add it to your PATH."
     echo "Detected shell profile: $SHELL_PROFILE"
     echo ""
 
@@ -244,9 +244,9 @@ if [ -z "$SKIP_PROMPTS" ]; then
         echo "If you just configured it, reload your shell:"
         echo "    source $SHELL_PROFILE"
     else
-        if prompt_yn "Add Nullsafe Clang to PATH in $SHELL_PROFILE?" "y"; then
+        if prompt_yn "Add Clang Nullability Safety to PATH in $SHELL_PROFILE?" "y"; then
             echo "" >> "$SHELL_PROFILE"
-            echo "# Nullsafe Clang" >> "$SHELL_PROFILE"
+            echo "# Clang Nullability Safety" >> "$SHELL_PROFILE"
             echo "$PATH_EXPORT" >> "$SHELL_PROFILE"
             printf "${GREEN}Added to $SHELL_PROFILE${NC}\n"
             echo ""
@@ -270,7 +270,7 @@ if [ -z "$SKIP_PROMPTS" ]; then
 
     if prompt_yn "Verify installation now?" "y"; then
         echo ""
-        echo "Testing Nullsafe Clang..."
+        echo "Testing Clang Nullability Safety..."
 
         if command -v clang >/dev/null 2>&1 && clang --version 2>&1 | grep -q "cs01/llvm-project"; then
             PATH_ACTIVE=true
@@ -301,7 +301,7 @@ if [ -z "$SKIP_PROMPTS" ]; then
         fi
     fi
 else
-    echo "To use Nullsafe Clang, add this to $SHELL_PROFILE:"
+    echo "To use Clang Nullability Safety, add this to $SHELL_PROFILE:"
     echo "    $PATH_EXPORT"
 fi
 

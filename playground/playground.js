@@ -1,5 +1,5 @@
         const editorElement = document.getElementById('editor');
-        const outputNullsafe = document.getElementById('output-nullsafe');
+        const outputSafety = document.getElementById('output-safety');
         const outputMainline = document.getElementById('output-mainline');
         const outputAnalyzer = document.getElementById('output-analyzer');
         const compileBtn = document.getElementById('compileBtn');
@@ -399,7 +399,7 @@ async function loadExamples() {
         const reportBugBtn = document.getElementById('reportBugBtn');
         reportBugBtn.addEventListener('click', () => {
             // Check if compiler is loaded and code has been compiled
-            if (!clangVersion || outputNullsafe.textContent === '' || outputNullsafe.textContent === '(no output yet)') {
+            if (!clangVersion || outputSafety.textContent === '' || outputSafety.textContent === '(no output yet)') {
                 if (!confirm('You haven\'t compiled any code yet. The bug report will be incomplete. Continue anyway?')) {
                     return;
                 }
@@ -407,7 +407,7 @@ async function loadExamples() {
 
             const code = getEditorValue();
             const codeLang = isCppCode(code) ? 'cpp' : 'c';
-            const nullsafeOutput = outputNullsafe.textContent || '(no output yet)';
+            const safetyOutput = outputSafety.textContent || '(no output yet)';
             const mainlineOutput = outputMainline.textContent || '(no output yet)';
             const analyzerOutput = outputAnalyzer.textContent || '(no output yet)';
 
@@ -458,7 +458,7 @@ async function loadExamples() {
                 '### Compiler Output\n\n' +
                 '#### With Null Warnings\n' +
                 '\x60\x60\x60\n' +
-                nullsafeOutput + '\x60\x60\x60\n' +
+                safetyOutput + '\x60\x60\x60\n' +
                 '#### Without Null Warnings\n' +
                 '\x60\x60\x60\n' +
                 mainlineOutput + '\x60\x60\x60\n' +
@@ -653,7 +653,7 @@ async function loadExamples() {
         async function compile() {
             if (isCompiling) return;
             if (!scriptUrl) {
-                outputNullsafe.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
+                outputSafety.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
                 outputMainline.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
                 outputAnalyzer.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
                 return;
@@ -664,14 +664,14 @@ async function loadExamples() {
             nullabilityDefaultSelect.disabled = true;
             status.textContent = 'Compiling...';
             status.className = 'status compiling';
-            outputNullsafe.innerHTML = '';
+            outputSafety.innerHTML = '';
             outputMainline.innerHTML = '';
             outputAnalyzer.innerHTML = '';
             loadingBar.classList.add('active');
 
             const startTime = performance.now();
 
-            // Base flags for the static analyzer: no nullsafe features, all
+            // Base flags for the static analyzer: no Nullability Safety, all
             // null-related checkers turned on. This simulates what a careful
             // user of standard clang would get if they ran --analyze.
             const analyzerBaseFlags = [
@@ -695,7 +695,7 @@ async function loadExamples() {
                 monaco.editor.setModelLanguage(editor.getModel(), lang);
 
                 // Compile all three versions in parallel
-                const [nullsafeResult, mainlineResult, analyzerResult] = await Promise.all([
+                const [safetyResult, mainlineResult, analyzerResult] = await Promise.all([
                     compileCode(code, [], null, inputFile, nullabilityDefault),
                     compileCode(code, [], mainlineBaseFlags, inputFile),
                     compileCode(code, [], analyzerBaseFlags, inputFile)
@@ -703,7 +703,7 @@ async function loadExamples() {
 
                 const duration = (performance.now() - startTime).toFixed(0);
 
-                const nullsafeCmd = formatCompilerCommand(nullsafeResult.args);
+                const safetyCmd = formatCompilerCommand(safetyResult.args);
                 const mainlineCmd = formatCompilerCommand(mainlineResult.args);
                 const analyzerCmd = formatCompilerCommand(analyzerResult.args);
 
@@ -711,7 +711,7 @@ async function loadExamples() {
                 const headers = document.querySelectorAll('.output-section-header');
                 // Update header text while preserving info icons
                 const headerLabels = [
-                    `Nullsafe Clang ${clangVersion}`,
+                    `Nullability Safety ${clangVersion}`,
                     `Standard Clang ${clangVersion}`,
                     `Static Analyzer ${clangVersion}`,
                 ];
@@ -722,13 +722,13 @@ async function loadExamples() {
                 }
 
                 // Count nullability warnings to detect missed bugs
-                const nullWarningCount = (stripAnsi(nullsafeResult.stderr).match(/\[-W(?:flow-)?null(?:ability|able-dereference)\]/g) || []).length;
+                const nullWarningCount = (stripAnsi(safetyResult.stderr).match(/\[-Wnullability(?:-safety-[a-z-]+)?\]/g) || []).length;
 
-                // Display null-safe results with command
-                if (nullsafeResult.stdout || nullsafeResult.stderr) {
-                    renderCompilerOutput(outputNullsafe, nullsafeCmd, nullsafeResult.stderr + nullsafeResult.stdout);
+                // Display Nullability Safety results with command
+                if (safetyResult.stdout || safetyResult.stderr) {
+                    renderCompilerOutput(outputSafety, safetyCmd, safetyResult.stderr + safetyResult.stdout);
                 } else {
-                    renderCompilerOutput(outputNullsafe, nullsafeCmd, '✓ No errors or warnings');
+                    renderCompilerOutput(outputSafety, safetyCmd, '✓ No errors or warnings');
                 }
 
                 // Display mainline results with command and comparison
@@ -736,7 +736,7 @@ async function loadExamples() {
                     renderCompilerOutput(outputMainline, mainlineCmd, mainlineResult.stderr + mainlineResult.stdout);
                 } else {
                     if (nullWarningCount > 0) {
-                        renderCompilerOutput(outputMainline, mainlineCmd, '✓ No errors or warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' (see Nullsafe panel)');
+                        renderCompilerOutput(outputMainline, mainlineCmd, '✓ No errors or warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' (see Nullability Safety panel)');
                     } else {
                         renderCompilerOutput(outputMainline, mainlineCmd, '✓ No errors or warnings');
                     }
@@ -747,7 +747,7 @@ async function loadExamples() {
                     renderCompilerOutput(outputAnalyzer, analyzerCmd, analyzerResult.stderr + analyzerResult.stdout);
                 } else {
                     if (nullWarningCount > 0) {
-                        renderCompilerOutput(outputAnalyzer, analyzerCmd, '✓ No warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' that Nullsafe Clang caught');
+                        renderCompilerOutput(outputAnalyzer, analyzerCmd, '✓ No warnings\n\n⚠️  Missed ' + nullWarningCount + ' null safety bug' + (nullWarningCount !== 1 ? 's' : '') + ' that Nullability Safety caught');
                     } else {
                         renderCompilerOutput(outputAnalyzer, analyzerCmd, '✓ No warnings');
                     }
@@ -757,7 +757,7 @@ async function loadExamples() {
                 status.className = 'status ready';
             } catch (error) {
                 const errorMsg = error.message || String(error);
-                outputNullsafe.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
+                outputSafety.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
                 outputMainline.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
                 outputAnalyzer.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
                 status.textContent = 'Compilation error';

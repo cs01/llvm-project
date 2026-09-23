@@ -1,5 +1,5 @@
 // Late initialization: fields start null and get set up later.
-// Nullsafe warns on every unguarded use — two ways to fix it.
+// Nullability Safety warns on every unguarded use — two ways to fix it.
 
 #include <cassert>
 

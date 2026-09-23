@@ -13,7 +13,7 @@ Configs:
   2. Default: compile with default warnings (what you get today)
   3. + -Wuninitialized
   4. + -Wthread-safety
-  5. + nullsafe (flow-sensitive nullability with default=nullable)
+  5. + Nullability Safety (flow-sensitive nullability with default=nullable)
   6. CSA: --analyze (separate pass, measured separately, added to baseline)
 
 For CSA, we measure the analyze-only time and report the total
@@ -208,11 +208,11 @@ def main():
                              cwd, args.warmup, args.iterations)
         r["configs"]["ThreadSafe"] = t
 
-        # 5. + nullsafe (only nullsafe analysis active)
-        t = benchmark_config("Nullsafe", base + quiet + [
+        # 5. + Nullability Safety (only Nullability Safety analysis active)
+        t = benchmark_config("Nullability Safety", base + quiet + [
             "-fnullability-safety", "-fnullability-default=nullable"],
                              cwd, args.warmup, args.iterations)
-        r["configs"]["Nullsafe"] = t
+        r["configs"]["NullabilitySafety"] = t
 
         if not args.skip_csa:
             # 6. CSA --analyze (separate pass, on top of normal compilation)
@@ -233,7 +233,7 @@ def main():
     print("=" * 110)
     print()
 
-    config_keys = ["Baseline", "Quiet", "Uninit", "ThreadSafe", "Nullsafe"]
+    config_keys = ["Baseline", "Quiet", "Uninit", "ThreadSafe", "NullabilitySafety"]
     if not args.skip_csa:
         config_keys.append("CSA")
     config_labels = {
@@ -241,7 +241,7 @@ def main():
         "Quiet": "Quiet",
         "Uninit": "-Wuninit",
         "ThreadSafe": "-Wthread",
-        "Nullsafe": "Nullsafe",
+        "NullabilitySafety": "Nullability Safety",
         "CSA": "CSA(all)",
     }
 
@@ -295,7 +295,7 @@ def main():
         print("### Overhead vs Quiet baseline (apples-to-apples)")
         print("    All configs use -Wno-everything. Measures PURE analysis cost.")
         print()
-        for k in ["Uninit", "ThreadSafe", "Nullsafe"]:
+        for k in ["Uninit", "ThreadSafe", "NullabilitySafety"]:
             if totals[k] > 0:
                 overhead = (totals[k] - quiet_total) / quiet_total * 100
                 print(f"  {config_labels[k]:<20s}: {overhead:+.1f}%")
@@ -304,7 +304,7 @@ def main():
     print("Note: All configs use -Wno-everything to suppress diagnostic emission,")
     print("isolating pure analysis overhead. 'Quiet' = -Wno-everything (analysis")
     print("infra active, no specific analysis). Each analysis config adds ONE flag")
-    print("on top of Quiet. Nullsafe uses -fnullability-default=nullable to exercise")
+    print("on top of Quiet. Nullability Safety uses -fnullability-default=nullable to exercise")
     print("analysis on ALL functions — the maximum possible workload.")
     if not args.skip_csa:
         print("CSA runs as a separate pass (--analyze). Total cost = compile + analyze.")
