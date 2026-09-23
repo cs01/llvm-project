@@ -747,11 +747,9 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
 }
 
 bool Sema::isNullabilitySafetyOptedIn(const Decl *D) const {
-  if (!getLangOpts().NullabilitySafety)
-    return false;
-  if (getLangOpts().getNullabilityDefault() != NullabilityKind::Unspecified)
-    return true;
-  return hasExplicitNullabilityAnnotations(D);
+  return getLangOpts().NullabilitySafety &&
+         clang::isNullabilitySafetyOptedIn(
+             D, NullabilitySafetyOptions::fromLangOptions(getLangOpts()));
 }
 
 // Generate diagnostics when adding or removing effects in a type conversion.

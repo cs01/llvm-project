@@ -3050,7 +3050,7 @@ static bool shouldSuggestUnsafeBufferUsageSuggestions(const Sema &S) {
 namespace {
 class NullabilitySafetyReporter : public NullabilitySafetyHandler {
   Sema &S;
-  // Buffered so emitDiagnostics() can sort by source location: the analysis
+  // Buffered so finishFunction() can sort by source location: the analysis
   // reports in CFG block order, not source order (same pattern as
   // ThreadSafetyReporter).
   DiagList Warnings;
@@ -3062,7 +3062,7 @@ class NullabilitySafetyReporter : public NullabilitySafetyHandler {
       SeenDiags;
 
   /// Returns true the first time this (ID, Loc, Arg) triple is seen since
-  /// the last emitDiagnostics().
+  /// the last finishFunction().
   bool isFirst(unsigned DiagID, SourceLocation Loc,
                const void *Arg = nullptr) {
     return SeenDiags.insert({DiagID, Loc, Arg}).second;
@@ -3071,9 +3071,9 @@ class NullabilitySafetyReporter : public NullabilitySafetyHandler {
 public:
   explicit NullabilitySafetyReporter(Sema &S) : S(S) {}
 
-  /// Emit all buffered diagnostics in source-location order, then reset the
-  /// buffers. Call after each runNullabilitySafetyAnalysis invocation.
-  void emitDiagnostics() {
+  /// Emit the function's buffered diagnostics in source-location order, then
+  /// reset the buffers.
+  void finishFunction(const Decl *) override {
     Warnings.sort(SortDiagBySourceLocation(S.getSourceManager()));
     for (const auto &Diag : Warnings) {
       S.Diag(Diag.first.first, Diag.first.second);
@@ -3248,19 +3248,13 @@ public:
 static void NullabilitySafetyTUAnalysis(Sema &S, TranslationUnitDecl *TU) {
   llvm::TimeTraceScope TimeProfile("NullabilitySafetyTUAnalysis");
   NullabilitySafetyReporter Reporter(S);
-  NullabilitySafetyOptions Options;
-  Options.DefaultNullability = S.getLangOpts().getNullabilityDefault();
-  Options.LibcNullableReturns = S.getLangOpts().NullabilityLibcNullableReturns;
   bool SkipSystemHeaders = S.getDiagnostics().getSuppressSystemWarnings();
   runNullabilitySafetyOnTU(
-      TU, Reporter, Options,
+      TU, Reporter, NullabilitySafetyOptions::fromLangOptions(S.getLangOpts()),
       [&](const Decl *Def) {
-        if (SkipSystemHeaders &&
-            S.SourceMgr.isInSystemHeader(Def->getLocation()))
-          return false;
-        return S.isNullabilitySafetyOptedIn(Def);
-      },
-      [&] { Reporter.emitDiagnostics(); });
+        return !SkipSystemHeaders ||
+               !S.SourceMgr.isInSystemHeader(Def->getLocation());
+      });
 }
 
 } // anonymous namespace

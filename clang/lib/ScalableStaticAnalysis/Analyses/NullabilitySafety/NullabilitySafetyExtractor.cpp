@@ -30,10 +30,20 @@ struct DeclEvidence {
   std::vector<DeclPointerLevel> AllReturnsNonnull;
 };
 
+const Decl *contributorOf(const Decl *Def) {
+  const Decl *D = isa<BlockDecl>(Def) ? Def->getNonClosureContext() : Def;
+  return D ? D->getCanonicalDecl() : nullptr;
+}
+
 class EvidenceCollector final : public NullabilitySafetyHandler {
 public:
   llvm::DenseMap<const Decl *, DeclEvidence> ByContributor;
-  const Decl *Contributor = nullptr;
+
+  void startFunction(const Decl *Def) override {
+    Contributor = contributorOf(Def);
+  }
+
+  void finishFunction(const Decl *) override { Contributor = nullptr; }
 
   void handleNullableDereference(const Expr *, QualType) override {}
 
@@ -59,6 +69,8 @@ public:
   }
 
 private:
+  const Decl *Contributor = nullptr;
+
   void record(DeclPointerLevel DPL, bool IsNonnull) {
     if (!Contributor)
       return;
@@ -66,11 +78,6 @@ private:
     (IsNonnull ? E.Nonnull : E.Nullable).push_back(DPL);
   }
 };
-
-const Decl *contributorOf(const Decl *Def) {
-  const Decl *D = isa<BlockDecl>(Def) ? Def->getNonClosureContext() : Def;
-  return D ? D->getCanonicalDecl() : nullptr;
-}
 } // namespace
 
 namespace clang::ssaf {
@@ -84,6 +91,8 @@ public:
 private:
   EntityPointerLevelSet translate(const std::vector<DeclPointerLevel> &DPLs,
                                   ASTContext &Ctx);
+  std::unique_ptr<NullabilitySafetyEntitySummary>
+  summarize(const DeclEvidence &E, ASTContext &Ctx);
 };
 } // namespace clang::ssaf
 
@@ -100,43 +109,34 @@ EntityPointerLevelSet NullabilitySafetyTUSummaryExtractor::translate(
   return Result;
 }
 
+std::unique_ptr<NullabilitySafetyEntitySummary>
+NullabilitySafetyTUSummaryExtractor::summarize(const DeclEvidence &E,
+                                               ASTContext &Ctx) {
+  return std::make_unique<NullabilitySafetyEntitySummary>(
+      translate(E.Nonnull, Ctx), translate(E.Nullable, Ctx),
+      translate(E.AllReturnsNonnull, Ctx));
+}
+
 void NullabilitySafetyTUSummaryExtractor::HandleTranslationUnit(
     ASTContext &Ctx) {
-  const LangOptions &LO = Ctx.getLangOpts();
-  NullabilitySafetyOptions Options;
-  Options.DefaultNullability = LO.getNullabilityDefault();
-  Options.LibcNullableReturns = LO.NullabilityLibcNullableReturns;
   bool SkipSystemHeaders = !getOptions().ExtractFromSystemHeaders;
   const SourceManager &SM = Ctx.getSourceManager();
 
   EvidenceCollector Collector;
   runNullabilitySafetyOnTU(
-      Ctx.getTranslationUnitDecl(), Collector, Options,
+      Ctx.getTranslationUnitDecl(), Collector,
+      NullabilitySafetyOptions::fromLangOptions(Ctx.getLangOpts()),
       [&](const Decl *Def) {
-        Collector.Contributor = nullptr;
-        if (SkipSystemHeaders && SM.isInSystemHeader(Def->getLocation()))
-          return false;
-        if (Options.DefaultNullability == NullabilityKind::Unspecified &&
-            !hasExplicitNullabilityAnnotations(Def))
-          return false;
-        Collector.Contributor = contributorOf(Def);
-        return true;
-      },
-      [] {});
+        return !SkipSystemHeaders || !SM.isInSystemHeader(Def->getLocation());
+      });
 
   extractAndAddSummaries(
       *this, SummaryBuilder, Ctx,
       [&](const std::vector<const NamedDecl *> &Decls) {
-        EntityPointerLevelSet Nonnull, Nullable, AllReturnsNonnull;
         auto It = Collector.ByContributor.find(Decls[0]->getCanonicalDecl());
-        if (It != Collector.ByContributor.end()) {
-          Nonnull = translate(It->second.Nonnull, Ctx);
-          Nullable = translate(It->second.Nullable, Ctx);
-          AllReturnsNonnull = translate(It->second.AllReturnsNonnull, Ctx);
-        }
-        return std::make_unique<NullabilitySafetyEntitySummary>(
-            std::move(Nonnull), std::move(Nullable),
-            std::move(AllReturnsNonnull));
+        if (It == Collector.ByContributor.end())
+          return summarize(DeclEvidence(), Ctx);
+        return summarize(It->second, Ctx);
       },
       NullabilitySafetyEntitySummary::Name);
 }
