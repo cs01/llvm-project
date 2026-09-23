@@ -142,7 +142,7 @@ self.onmessage = function(e) {
             ];
 
             // Run compiler
-            const exitCode = self.Module.callMain(args);
+            const exitCode = self.Module.callMain([...args]);
 
             // Clean up
             try {
