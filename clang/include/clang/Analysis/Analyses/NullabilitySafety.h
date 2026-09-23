@@ -25,6 +25,7 @@ class Decl;
 class Expr;
 class FieldDecl;
 class FunctionDecl;
+class LangOptions;
 class ParmVarDecl;
 class TranslationUnitDecl;
 class VarDecl;
@@ -82,6 +83,11 @@ public:
   /// (address-of, this, new, narrowed var, etc.). Enables callers to
   /// treat the function's return as implicitly _Nonnull.
   virtual void handleAllReturnsNonnull(const FunctionDecl *Func) {}
+
+  /// Bracket the callbacks for one function analyzed by
+  /// runNullabilitySafetyOnTU.
+  virtual void startFunction(const Decl *Def) {}
+  virtual void finishFunction(const Decl *Def) {}
 };
 
 /// Facts about other functions, consulted while analyzing one function.
@@ -99,6 +105,8 @@ struct NullabilitySafetyOptions {
   /// Enables the built-in list of C library functions that return null on
   /// failure (malloc, fopen, ...).
   bool LibcNullableReturns = true;
+
+  static NullabilitySafetyOptions fromLangOptions(const LangOptions &LO);
 };
 
 /// Run the flow-sensitive nullability analysis over the CFG of the function
@@ -110,13 +118,20 @@ void runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
 
 bool hasExplicitNullabilityAnnotations(const Decl *D);
 
+/// Whether \p D is checked: every function when a default nullability is
+/// set, otherwise only functions with explicit nullability annotations.
+bool isNullabilitySafetyOptedIn(const Decl *D,
+                                const NullabilitySafetyOptions &Options);
+
 const Decl *getNullabilitySafetyDefinition(const Decl *D);
 
-void runNullabilitySafetyOnTU(
-    TranslationUnitDecl *TU, NullabilitySafetyHandler &Handler,
-    const NullabilitySafetyOptions &Options,
-    llvm::function_ref<bool(const Decl *)> ShouldAnalyze,
-    llvm::function_ref<void()> AfterFunction);
+/// Analyze every opted-in function definition in \p TU that \p Filter
+/// accepts, callees before callers, so a caller sees which callees return
+/// non-null on every path. No inference happens inside recursive cycles.
+void runNullabilitySafetyOnTU(TranslationUnitDecl *TU,
+                              NullabilitySafetyHandler &Handler,
+                              const NullabilitySafetyOptions &Options,
+                              llvm::function_ref<bool(const Decl *)> Filter);
 
 } // namespace clang
 

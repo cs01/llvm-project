@@ -7,7 +7,6 @@ This is a fork of LLVM/Clang that adds compile-time null pointer dereference che
 ## Build
 
 ```bash
-cd /data/users/cssmith/git/llvm-nullsafe
 cmake -S llvm -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
@@ -29,8 +28,10 @@ ninja -C build check-clang-unit
 
 Run all Nullability Safety tests:
 ```bash
-build/bin/llvm-lit -v clang/test/SemaCXX/nullability-safety-*.cpp clang/test/Sema/nullability-safety-*.c clang/test/Driver/nullability-safety-flags.c
+build/bin/llvm-lit -v clang/test/SemaCXX/nullability-safety-*.cpp clang/test/SemaCXX/nullability-default*.cpp clang/test/Sema/nullability-safety-*.c clang/test/Driver/nullability-safety-flags.c clang/test/Analysis/Scalable/NullabilitySafety
 ```
+
+`tools/nullability-gates.sh` runs these plus the sqlite differential and clang-format; see `docs/nullability-safety-plan.md`.
 
 ## Key Custom Flags
 
@@ -47,7 +48,7 @@ The analysis follows the same pattern as Clang's ThreadSafety and UninitializedV
 
 ### Gradual adoption
 
-Flow-sensitive checking only activates per-function when inside a `#pragma clang assume_nonnull` region, when `-fnullability-default` is set to something other than `unspecified`, or when the function has explicit nullability annotations on its parameters or return type. This is computed locally in `AnalysisBasedWarnings.cpp:IssueWarnings` (not stored on Sema) to avoid scoping bugs when lambda bodies interleave with enclosing function processing.
+A function is checked when `-fnullability-default` is set to something other than `unspecified`, or when the function has explicit nullability annotations on its parameters or return type (including those inferred inside a `#pragma clang assume_nonnull` region). The rule is `isNullabilitySafetyOptedIn` in `lib/Analysis/NullabilitySafety.cpp`; `runNullabilitySafetyOnTU` applies it, so Sema and the SSAF extractor share it.
 
 ### Design decisions
 

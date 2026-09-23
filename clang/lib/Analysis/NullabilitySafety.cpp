@@ -67,6 +67,7 @@
 #include "clang/Analysis/CallGraph.h"
 #include "clang/Analysis/FlowSensitive/DataflowWorklist.h"
 #include "clang/Basic/Builtins.h"
+#include "clang/Basic/LangOptions.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SCCIterator.h"
@@ -3160,6 +3161,8 @@ public:
     AllReturnsNonnull.insert(Func->getCanonicalDecl());
     Inner.handleAllReturnsNonnull(Func);
   }
+  void startFunction(const Decl *Def) override { Inner.startFunction(Def); }
+  void finishFunction(const Decl *Def) override { Inner.finishFunction(Def); }
 
   bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const override {
     return Func && AllReturnsNonnull.contains(Func->getCanonicalDecl());
@@ -3167,11 +3170,24 @@ public:
 };
 } // namespace
 
+NullabilitySafetyOptions
+NullabilitySafetyOptions::fromLangOptions(const LangOptions &LO) {
+  NullabilitySafetyOptions Options;
+  Options.DefaultNullability = LO.getNullabilityDefault();
+  Options.LibcNullableReturns = LO.NullabilityLibcNullableReturns;
+  return Options;
+}
+
+bool clang::isNullabilitySafetyOptedIn(
+    const Decl *D, const NullabilitySafetyOptions &Options) {
+  return Options.DefaultNullability != NullabilityKind::Unspecified ||
+         hasExplicitNullabilityAnnotations(D);
+}
+
 void clang::runNullabilitySafetyOnTU(
     TranslationUnitDecl *TU, NullabilitySafetyHandler &Handler,
     const NullabilitySafetyOptions &Options,
-    llvm::function_ref<bool(const Decl *)> ShouldAnalyze,
-    llvm::function_ref<void()> AfterFunction) {
+    llvm::function_ref<bool(const Decl *)> Filter) {
   CallGraph CG;
   CG.addToCallGraph(TU);
   TUDriverHandler Driver(Handler);
@@ -3179,14 +3195,15 @@ void clang::runNullabilitySafetyOnTU(
     Driver.InRecursiveSCC = SCCI.hasCycle();
     for (CallGraphNode *Node : *SCCI) {
       const Decl *Def = getNullabilitySafetyDefinition(Node->getDecl());
-      if (!Def || !ShouldAnalyze(Def))
+      if (!Def || !isNullabilitySafetyOptedIn(Def, Options) || !Filter(Def))
         continue;
       AnalysisDeclContext AC(nullptr, Def);
       AC.getCFGBuildOptions().setAllAlwaysAdd();
       if (!AC.getCFG())
         continue;
+      Driver.startFunction(Def);
       runNullabilitySafetyAnalysis(AC, Driver, Options, &Driver);
-      AfterFunction();
+      Driver.finishFunction(Def);
     }
   }
 }
