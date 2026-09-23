@@ -34,6 +34,8 @@ struct DeclEvidence {
   std::vector<DeclPointerLevel> Nullable;
   std::vector<DeclPointerLevel> AllReturnsNonnull;
   std::vector<DeclPointerLevel> MaybeNull;
+  std::vector<DeclPointerLevel> Unknown;
+  std::vector<std::pair<DeclPointerLevel, DeclPointerLevelVec>> Conditional;
 };
 
 const Decl *contributorOf(const Decl *Def) {
@@ -74,9 +76,24 @@ const Expr *nullTestedPointer(const Expr *E, const ASTContext &Ctx) {
   return nullptr;
 }
 
+void addPointerParams(const FunctionDecl *FD,
+                      std::vector<DeclPointerLevel> &Out) {
+  for (const ParmVarDecl *PVD : FD->parameters())
+    if (PVD->getType()->isPointerType())
+      Out.push_back(createDeclPointerLevel(PVD));
+}
+
+bool isVirtualMethod(const FunctionDecl *FD) {
+  const auto *MD = dyn_cast_or_null<CXXMethodDecl>(FD);
+  return MD && MD->isVirtual();
+}
+
 void collectVetoes(const NamedDecl *Contributor, const ASTContext &Ctx,
-                   std::vector<DeclPointerLevel> &MaybeNull) {
+                   std::vector<DeclPointerLevel> &MaybeNull,
+                   std::vector<DeclPointerLevel> &Unknown) {
   const auto *Func = dyn_cast<FunctionDecl>(Contributor);
+  if (isVirtualMethod(Func))
+    addPointerParams(Func, Unknown);
   llvm::DenseMap<const VarDecl *, llvm::SmallVector<const NamedDecl *, 2>>
       CopyOf;
   llvm::SmallPtrSet<const DeclRefExpr *, 16> Callees;
@@ -156,10 +173,7 @@ void collectVetoes(const NamedDecl *Contributor, const ASTContext &Ctx,
   for (const DeclRefExpr *DRE : FunctionRefs) {
     if (Callees.contains(DRE))
       continue;
-    const auto *FD = cast<FunctionDecl>(DRE->getDecl());
-    for (const ParmVarDecl *PVD : FD->parameters())
-      if (PVD->getType()->isPointerType())
-        MaybeNull.push_back(createDeclPointerLevel(PVD));
+    addPointerParams(cast<FunctionDecl>(DRE->getDecl()), MaybeNull);
   }
 
   for (const Expr *P : Tested) {
@@ -178,6 +192,9 @@ class EvidenceCollector final : public NullabilitySafetyHandler {
 public:
   llvm::DenseMap<const Decl *, DeclEvidence> ByContributor;
 
+  EvidenceCollector(ASTContext &Ctx, TUSummaryExtractor &Extractor)
+      : Ctx(Ctx), Extractor(Extractor) {}
+
   void startFunction(const Decl *Def) override {
     Contributor = contributorOf(Def);
   }
@@ -186,20 +203,24 @@ public:
 
   void handleNullableDereference(const Expr *, QualType) override {}
 
-  void handleMemberAssignEvidence(const Expr *, const FieldDecl *Member,
+  void handleMemberAssignEvidence(const Expr *E, const FieldDecl *Member,
                                   NullabilityEvidence Kind) override {
-    record(createDeclPointerLevel(Member), Kind);
+    if (const auto *BO = dyn_cast<BinaryOperator>(E))
+      E = BO->getRHS();
+    record(createDeclPointerLevel(Member), Kind, E);
   }
 
-  void handleReturnEvidence(const Expr *, const FunctionDecl *Func,
+  void handleReturnEvidence(const Expr *E, const FunctionDecl *Func,
                             NullabilityEvidence Kind) override {
-    record(createDeclPointerLevel(Func, /*IsFunRet=*/true), Kind);
+    record(createDeclPointerLevel(Func, /*IsFunRet=*/true), Kind, E);
   }
 
-  void handleParameterEvidence(const Expr *, const ParmVarDecl *Param,
-                               const FunctionDecl *,
+  void handleParameterEvidence(const Expr *E, const ParmVarDecl *Param,
+                               const FunctionDecl *Func,
                                NullabilityEvidence Kind) override {
-    record(createDeclPointerLevel(Param), Kind);
+    if (isVirtualMethod(Func))
+      Kind = NullabilityEvidence::Unknown, E = nullptr;
+    record(createDeclPointerLevel(Param), Kind, E);
   }
 
   void handleAllReturnsNonnull(const FunctionDecl *Func) override {
@@ -209,13 +230,29 @@ public:
   }
 
 private:
+  ASTContext &Ctx;
+  TUSummaryExtractor &Extractor;
   const Decl *Contributor = nullptr;
 
-  void record(DeclPointerLevel DPL, NullabilityEvidence Kind) {
+  void record(DeclPointerLevel DPL, NullabilityEvidence Kind,
+              const Expr *Value) {
     if (!Contributor)
       return;
     DeclEvidence &E = ByContributor[Contributor];
     switch (Kind) {
+    case NullabilityEvidence::Unknown:
+      if (Value) {
+        Expected<DeclPointerLevelVec> Sources =
+            translateDeclPointerLevel(Value, Ctx, Extractor);
+        if (Sources && !Sources->empty()) {
+          E.Conditional.push_back({DPL, std::move(*Sources)});
+          break;
+        }
+        if (!Sources)
+          consumeError(Sources.takeError());
+      }
+      E.Unknown.push_back(DPL);
+      break;
     case NullabilityEvidence::Nonnull:
       E.Nonnull.push_back(DPL);
       break;
@@ -241,6 +278,10 @@ public:
 private:
   EntityPointerLevelSet translate(const std::vector<DeclPointerLevel> &DPLs,
                                   ASTContext &Ctx);
+  EdgeSet translateConditional(
+      const std::vector<std::pair<DeclPointerLevel, DeclPointerLevelVec>>
+          &Conditional,
+      ASTContext &Ctx, EntityPointerLevelSet &Unknown);
   std::unique_ptr<NullabilitySafetyEntitySummary>
   summarize(const DeclEvidence &E, ASTContext &Ctx);
 };
@@ -259,12 +300,40 @@ EntityPointerLevelSet NullabilitySafetyTUSummaryExtractor::translate(
   return Result;
 }
 
+EdgeSet NullabilitySafetyTUSummaryExtractor::translateConditional(
+    const std::vector<std::pair<DeclPointerLevel, DeclPointerLevelVec>>
+        &Conditional,
+    ASTContext &Ctx, EntityPointerLevelSet &Unknown) {
+  EdgeSet Result;
+  for (const auto &[Assignee, Sources] : Conditional) {
+    Expected<EntityPointerLevel> EPL =
+        toEntityPointerLevel(Assignee, Ctx, *this);
+    if (!EPL) {
+      logWarningFromError(EPL.takeError());
+      continue;
+    }
+    Expected<EntityPointerLevelSet> SourceEPLs =
+        toEntityPointerLevels(Sources, Ctx, *this);
+    if (!SourceEPLs || SourceEPLs->empty()) {
+      if (!SourceEPLs)
+        consumeError(SourceEPLs.takeError());
+      Unknown.insert(*EPL);
+      continue;
+    }
+    Result[*EPL].insert(SourceEPLs->begin(), SourceEPLs->end());
+  }
+  return Result;
+}
+
 std::unique_ptr<NullabilitySafetyEntitySummary>
 NullabilitySafetyTUSummaryExtractor::summarize(const DeclEvidence &E,
                                                ASTContext &Ctx) {
+  EntityPointerLevelSet Unknown = translate(E.Unknown, Ctx);
+  EdgeSet Conditional = translateConditional(E.Conditional, Ctx, Unknown);
   return std::make_unique<NullabilitySafetyEntitySummary>(
       translate(E.Nonnull, Ctx), translate(E.Nullable, Ctx),
-      translate(E.AllReturnsNonnull, Ctx), translate(E.MaybeNull, Ctx));
+      translate(E.AllReturnsNonnull, Ctx), translate(E.MaybeNull, Ctx),
+      std::move(Unknown), std::move(Conditional));
 }
 
 void NullabilitySafetyTUSummaryExtractor::HandleTranslationUnit(
@@ -272,7 +341,7 @@ void NullabilitySafetyTUSummaryExtractor::HandleTranslationUnit(
   bool SkipSystemHeaders = !getOptions().ExtractFromSystemHeaders;
   const SourceManager &SM = Ctx.getSourceManager();
 
-  EvidenceCollector Collector;
+  EvidenceCollector Collector(Ctx, *this);
   runNullabilitySafetyOnTU(
       Ctx.getTranslationUnitDecl(), Collector,
       NullabilitySafetyOptions::fromLangOptions(Ctx.getLangOpts()),
@@ -288,7 +357,7 @@ void NullabilitySafetyTUSummaryExtractor::HandleTranslationUnit(
         if (It != Collector.ByContributor.end())
           E = It->second;
         for (const NamedDecl *D : Decls)
-          collectVetoes(D, Ctx, E.MaybeNull);
+          collectVetoes(D, Ctx, E.MaybeNull, E.Unknown);
         return summarize(E, Ctx);
       },
       NullabilitySafetyEntitySummary::Name);

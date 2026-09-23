@@ -18,6 +18,7 @@
 #define LLVM_CLANG_SCALABLESTATICANALYSIS_ANALYSES_NULLABILITYSAFETY_NULLABILITYSAFETY_H
 
 #include "clang/ScalableStaticAnalysis/Analyses/EntityPointerLevel/EntityPointerLevel.h"
+#include "clang/ScalableStaticAnalysis/Analyses/PointerFlow/PointerFlow.h"
 #include "clang/ScalableStaticAnalysis/Core/Model/SummaryName.h"
 #include "clang/ScalableStaticAnalysis/Core/TUSummary/EntitySummary.h"
 
@@ -27,6 +28,8 @@ class NullabilitySafetyEntitySummary final : public EntitySummary {
   EntityPointerLevelSet NullableEvidence;
   EntityPointerLevelSet AllReturnsNonnull;
   EntityPointerLevelSet MaybeNullEvidence;
+  EntityPointerLevelSet UnknownEvidence;
+  EdgeSet ConditionalEvidence;
 
 public:
   static constexpr llvm::StringLiteral Name = "NullabilitySafety";
@@ -34,11 +37,15 @@ public:
   NullabilitySafetyEntitySummary(EntityPointerLevelSet NonnullEvidence,
                                  EntityPointerLevelSet NullableEvidence,
                                  EntityPointerLevelSet AllReturnsNonnull,
-                                 EntityPointerLevelSet MaybeNullEvidence)
+                                 EntityPointerLevelSet MaybeNullEvidence,
+                                 EntityPointerLevelSet UnknownEvidence,
+                                 EdgeSet ConditionalEvidence)
       : NonnullEvidence(std::move(NonnullEvidence)),
         NullableEvidence(std::move(NullableEvidence)),
         AllReturnsNonnull(std::move(AllReturnsNonnull)),
-        MaybeNullEvidence(std::move(MaybeNullEvidence)) {}
+        MaybeNullEvidence(std::move(MaybeNullEvidence)),
+        UnknownEvidence(std::move(UnknownEvidence)),
+        ConditionalEvidence(std::move(ConditionalEvidence)) {}
 
   SummaryName getSummaryName() const override { return summaryName(); }
 
@@ -54,17 +61,24 @@ public:
   const EntityPointerLevelSet &getMaybeNullEvidence() const {
     return MaybeNullEvidence;
   }
+  const EntityPointerLevelSet &getUnknownEvidence() const {
+    return UnknownEvidence;
+  }
+  const EdgeSet &getConditionalEvidence() const { return ConditionalEvidence; }
 
   bool operator==(const NullabilitySafetyEntitySummary &Other) const {
     return NonnullEvidence == Other.NonnullEvidence &&
            NullableEvidence == Other.NullableEvidence &&
            AllReturnsNonnull == Other.AllReturnsNonnull &&
-           MaybeNullEvidence == Other.MaybeNullEvidence;
+           MaybeNullEvidence == Other.MaybeNullEvidence &&
+           UnknownEvidence == Other.UnknownEvidence &&
+           ConditionalEvidence == Other.ConditionalEvidence;
   }
 
   bool empty() const {
     return NonnullEvidence.empty() && NullableEvidence.empty() &&
-           AllReturnsNonnull.empty() && MaybeNullEvidence.empty();
+           AllReturnsNonnull.empty() && MaybeNullEvidence.empty() &&
+           UnknownEvidence.empty() && ConditionalEvidence.empty();
   }
 
   static SummaryName summaryName() { return SummaryName{Name.str()}; }

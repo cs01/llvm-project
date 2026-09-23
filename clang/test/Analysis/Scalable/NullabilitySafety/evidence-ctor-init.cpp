@@ -136,9 +136,13 @@ void test_instantiations() {
 // EVIDENCE-NOT:  {{.}}
 // EVIDENCE:      c:@S@AddrOf@F@AddrOf# NonnullEvidence c:@S@AddrOf@FI@ptr
 // EVIDENCE-NEXT: c:@S@AttrNonnull@F@AttrNonnull#*I# NonnullEvidence c:@S@AttrNonnull@FI@ptr
+// EVIDENCE-NEXT: c:@S@Basic@F@Basic#*I# ConditionalEvidence c:@S@Basic@FI@ptr <- c:@S@Basic@F@Basic#*I# param 1
 // EVIDENCE-NEXT: c:@S@ExplicitNullable@F@ExplicitNullable#*I# NullableEvidence c:@S@ExplicitNullable@FI@ptr
+// EVIDENCE-NEXT: c:@S@Multi@F@Multi#*I#S0_#S0_# ConditionalEvidence c:@S@Multi@FI@a <- c:@S@Multi@F@Multi#*I#S0_#S0_# param 1
+// EVIDENCE-NEXT: c:@S@Multi@F@Multi#*I#S0_#S0_# ConditionalEvidence c:@S@Multi@FI@c <- c:@S@Multi@F@Multi#*I#S0_#S0_# param 3
 // EVIDENCE-NEXT: c:@S@Multi@F@Multi#*I#S0_#S0_# NonnullEvidence c:@S@Multi@FI@b
 // EVIDENCE-NEXT: c:@S@NewExpr@F@NewExpr# NonnullEvidence c:@S@NewExpr@FI@ptr
+// EVIDENCE-NEXT: c:@S@NonPointer@F@NonPointer#I#*I# ConditionalEvidence c:@S@NonPointer@FI@ptr <- c:@S@NonPointer@F@NonPointer#I#*I# param 2
 // EVIDENCE-NEXT: c:@S@NonnullParam@F@NonnullParam#*I# NonnullEvidence c:@S@NonnullParam@FI@ptr
 // EVIDENCE-NEXT: c:@S@NullInit@F@NullInit# NullableEvidence c:@S@NullInit@FI@ptr
 // EVIDENCE-NEXT: c:@S@UsesThis@F@UsesThis# NonnullEvidence c:@S@UsesThis@FI@self

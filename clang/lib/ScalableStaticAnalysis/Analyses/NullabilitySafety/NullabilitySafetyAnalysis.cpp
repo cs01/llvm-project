@@ -12,6 +12,7 @@
 #include "clang/ScalableStaticAnalysis/Analyses/NullabilitySafety/NullabilitySafety.h"
 #include "clang/ScalableStaticAnalysis/Analyses/PointerFlow/PointerFlow.h"
 #include "clang/ScalableStaticAnalysis/Analyses/PointerFlow/PointerFlowAnalysis.h"
+#include "clang/ScalableStaticAnalysis/Analyses/PointerFlow/PointerFlowFormat.h"
 #include "clang/ScalableStaticAnalysis/Core/Serialization/JSONFormat.h"
 #include "clang/ScalableStaticAnalysis/Core/WholeProgramAnalysis/AnalysisRegistry.h"
 #include "clang/ScalableStaticAnalysis/Core/WholeProgramAnalysis/DerivedAnalysis.h"
@@ -49,7 +50,12 @@ json::Object serializeEvidence(const NullabilityEvidenceAnalysisResult &R,
       {"NonnullEvidence", writeSet(R.NonnullEvidence, IdToJSON)},
       {"NullableEvidence", writeSet(R.NullableEvidence, IdToJSON)},
       {"AllReturnsNonnull", writeSet(R.AllReturnsNonnull, IdToJSON)},
-      {"MaybeNullEvidence", writeSet(R.MaybeNullEvidence, IdToJSON)}};
+      {"MaybeNullEvidence", writeSet(R.MaybeNullEvidence, IdToJSON)},
+      {"UnknownEvidence", writeSet(R.UnknownEvidence, IdToJSON)},
+      {"ConditionalEvidence",
+       edgeSetToJSON(make_range(R.ConditionalEvidence.begin(),
+                                R.ConditionalEvidence.end()),
+                     IdToJSON)}};
 }
 
 Expected<std::unique_ptr<AnalysisResult>>
@@ -60,12 +66,21 @@ deserializeEvidence(const json::Object &Obj,
        {std::pair{"NonnullEvidence", &Ret->NonnullEvidence},
         std::pair{"NullableEvidence", &Ret->NullableEvidence},
         std::pair{"AllReturnsNonnull", &Ret->AllReturnsNonnull},
-        std::pair{"MaybeNullEvidence", &Ret->MaybeNullEvidence}}) {
+        std::pair{"MaybeNullEvidence", &Ret->MaybeNullEvidence},
+        std::pair{"UnknownEvidence", &Ret->UnknownEvidence}}) {
     Expected<EntityPointerLevelSet> EPLs = readSet(Obj, Key, IdFromJSON);
     if (!EPLs)
       return EPLs.takeError();
     *Set = std::move(*EPLs);
   }
+  const json::Array *Conditional = Obj.getArray("ConditionalEvidence");
+  if (!Conditional)
+    return makeSawButExpectedError(Obj, "an object with a key %s",
+                                   "ConditionalEvidence");
+  Expected<EdgeSet> Edges = edgeSetFromJSON(*Conditional, IdFromJSON);
+  if (!Edges)
+    return Edges.takeError();
+  Ret->ConditionalEvidence = std::move(*Edges);
   return std::move(Ret);
 }
 
@@ -87,6 +102,10 @@ public:
                                Summary.getAllReturnsNonnull().end());
     R.MaybeNullEvidence.insert(Summary.getMaybeNullEvidence().begin(),
                                Summary.getMaybeNullEvidence().end());
+    R.UnknownEvidence.insert(Summary.getUnknownEvidence().begin(),
+                             Summary.getUnknownEvidence().end());
+    for (const auto &[Assignee, Sources] : Summary.getConditionalEvidence())
+      R.ConditionalEvidence[Assignee].insert(Sources.begin(), Sources.end());
     return Error::success();
   }
 };
@@ -127,6 +146,9 @@ class NullabilityInferenceAnalysis final
                              PointerFlowAnalysisResult,
                              NullabilityEvidenceAnalysisResult> {
   std::map<EntityPointerLevel, std::vector<EntityPointerLevel>> AssigneesOf;
+  EntityPointerLevelSet Candidates;
+  EntityPointerLevelSet Unknown;
+  EdgeSet Conditional;
 
 public:
   Error initialize(const PointerFlowAnalysisResult &PointerFlow,
@@ -141,9 +163,13 @@ public:
     R.NullableReachable = Evidence.NullableEvidence;
     R.NullableReachable.insert(Evidence.MaybeNullEvidence.begin(),
                                Evidence.MaybeNullEvidence.end());
-    R.Nonnull = Evidence.NonnullEvidence;
-    R.Nonnull.insert(Evidence.AllReturnsNonnull.begin(),
-                     Evidence.AllReturnsNonnull.end());
+    Candidates = Evidence.NonnullEvidence;
+    Candidates.insert(Evidence.AllReturnsNonnull.begin(),
+                      Evidence.AllReturnsNonnull.end());
+    for (const auto &[Assignee, Sources] : Evidence.ConditionalEvidence)
+      Candidates.insert(Assignee);
+    Unknown = Evidence.UnknownEvidence;
+    Conditional = Evidence.ConditionalEvidence;
     return Error::success();
   }
 
@@ -161,19 +187,32 @@ public:
         if (R.NullableReachable.insert(Assignee).second)
           Worklist.push_back(Assignee);
     }
-    for (const EntityPointerLevel &EPL : R.NullableReachable)
-      R.Nonnull.erase(EPL);
-    Worklist.assign(R.Nonnull.begin(), R.Nonnull.end());
-    while (!Worklist.empty()) {
-      EntityPointerLevel Value = Worklist.back();
-      Worklist.pop_back();
-      auto It = AssigneesOf.find(Value);
-      if (It == AssigneesOf.end())
+
+    std::map<EntityPointerLevel, unsigned> Pending;
+    std::map<EntityPointerLevel, std::vector<EntityPointerLevel>> DependentsOf;
+    for (const EntityPointerLevel &EPL : Candidates) {
+      if (R.NullableReachable.count(EPL) || Unknown.count(EPL))
         continue;
-      for (const EntityPointerLevel &Assignee : It->second)
-        if (!R.NullableReachable.count(Assignee) &&
-            R.Nonnull.insert(Assignee).second)
-          Worklist.push_back(Assignee);
+      auto It = Conditional.find(EPL);
+      unsigned N = It == Conditional.end() ? 0 : It->second.size();
+      Pending[EPL] = N;
+      if (N == 0) {
+        R.Nonnull.insert(EPL);
+        Worklist.push_back(EPL);
+        continue;
+      }
+      for (const EntityPointerLevel &Source : It->second)
+        DependentsOf[Source].push_back(EPL);
+    }
+    while (!Worklist.empty()) {
+      EntityPointerLevel Source = Worklist.back();
+      Worklist.pop_back();
+      auto It = DependentsOf.find(Source);
+      if (It == DependentsOf.end())
+        continue;
+      for (const EntityPointerLevel &Dependent : It->second)
+        if (--Pending[Dependent] == 0 && R.Nonnull.insert(Dependent).second)
+          Worklist.push_back(Dependent);
     }
     return false;
   }

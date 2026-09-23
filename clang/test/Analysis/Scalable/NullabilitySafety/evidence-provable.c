@@ -73,13 +73,17 @@ void unused_ctx(void) {
 }
 
 // CHECK-NOT: {{.}}
-// CHECK:      c:@F@from_field MaybeNullEvidence c:@S@Db@FI@head
+// CHECK:      c:@F@from_field ConditionalEvidence c:@F@take_arg param 1 <- c:@S@Db@FI@arg
+// CHECK-NEXT: c:@F@from_field MaybeNullEvidence c:@S@Db@FI@head
 // CHECK-NEXT: c:@F@from_field NonnullEvidence c:@F@take_node param 1
+// CHECK-NEXT: c:@F@from_param ConditionalEvidence c:@F@take_deref param 1 <- c:@F@from_param param 1
 // CHECK-NEXT: c:@F@from_param MaybeNullEvidence c:@F@from_param param 1
 // CHECK-NEXT: c:@F@list_walk MaybeNullEvidence c:@S@Node@FI@next
 // CHECK-NEXT: c:@F@loop_copy MaybeNullEvidence c:@F@loop_copy param 1
 // CHECK-NEXT: c:@F@loop_copy MaybeNullEvidence c:@S@Node@FI@next
+// CHECK-NEXT: c:@F@proven ConditionalEvidence c:@F@take_call param 1 <- c:@F@make return
 // CHECK-NEXT: c:@F@proven NonnullEvidence c:@F@take_addr param 1
+// CHECK-NEXT: c:@F@returns_field ConditionalEvidence c:@F@returns_field return <- c:@S@Db@FI@arg
 // CHECK-NEXT: c:@F@returns_param AllReturnsNonnull c:@F@returns_param return
 // CHECK-NEXT: c:@F@returns_param MaybeNullEvidence c:@F@returns_param param 1
 // CHECK-NEXT: c:@F@returns_param NonnullEvidence c:@F@returns_param return

@@ -69,7 +69,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | F4 | Output parameters: a pointer escaping as `&p` to `T **` or binding to `T *&` / `const T *&` loses its nullable facts and guards (reuse `invalidateBoolGuardsFor` / `invalidateMembersFor`); narrowing is kept | done (below) |
 | F5 | Lambdas: drop the call-site `IsLambdaCall` nonnull promotion; argument check only for `_Nonnull` or `nonnull(N)` (first parameter is `nonnull(2)`) | done, nonnull mode only (below) |
 | 5b | SSAF extractor alongside the remarks; parity check: every remark has a matching summary entry on sqlite; argument evidence assumes callee contracts (below) | done (below) |
-| 5c | SSAF whole-program propagation (below) | done, veto-only (below) |
+| 5c | SSAF whole-program propagation (below) | done; Nonnull is a must-property since the must-nonnull step (below) |
 | 5d | SSAF source transformation; then delete the remarks and the remark-scraping loop | done; the `handle*Evidence` callbacks stay, the extractor needs them (below) |
 | F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | done (below) |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | todo |
@@ -126,6 +126,41 @@ nullable 656; inferred `Nonnull` 1364, `Nullable` 656, `NullableReachable`
 candidates. Lit: `Analysis/Scalable/NullabilitySafety/propagation.c` (two
 TUs, link, analyze; a VETO check verified to fail without the veto). The
 gates now also build `clang-ssaf-linker` and `clang-ssaf-analyzer`.
+
+## Must-nonnull inference
+
+Review finding (reproduced): `s->x = &v; s->x = mystery();` inferred and
+wrote `_Nonnull` for `S::x`, because a store the flow analysis could not
+classify left no evidence and inference needed only one nonnull observation
+plus no nullable reachability. Nonnull is now a must-property:
+
+- `NullabilityEvidence::Unknown`: `classifyEvidence` always returns a kind.
+  The extractor turns an Unknown store into `ConditionalEvidence` (assignee
+  <- the entities `translateDeclPointerLevel` finds in the value) or, when
+  the value names no entity, `UnknownEvidence` (a hard veto).
+- Inference: candidates are nonnull, all-returns-nonnull and conditional
+  assignees; minus nullable-reachable and unknown; then the least fixpoint
+  over the conditional dependencies (a copy cycle with no proven store is not
+  inferred). The existential nonnull propagation along pointer-flow edges is
+  gone; edges only spread the nullable veto.
+- Virtual methods: their pointer parameters are Unknown (overriders are
+  called through the base, where the evidence names the base's parameter).
+- Aggregate initializers report their stores against the whole init list:
+  non-Nonnull kinds veto (Unknown is opaque), Nonnull is not reported, so an
+  aggregate never makes a field a candidate. Without this sqlite gained 31
+  public API fields (`sqlite3_vfs::xDlOpen`, ...) from its own static
+  tables, which user code outside the link unit also fills in.
+
+sqlite: inferred Nonnull 842 -> 528, none gained. Lost: 262 whose stores
+copy an unproven entity (mostly a caller passing its own parameter or a call
+result), 51 locals (never annotated), 1 opaque unknown store. Annotated lines
+1026 -> 663; warnings unchanged. Evidence lines grow with the new kinds.
+
+Still open (from the same review): callers outside the link unit (a
+non-static function's parameters assume the link unit is the whole program),
+indirect calls beyond the address-taken veto, fields written through zeroed
+allocations or `memset`, ObjC evidence, and multi-TU tests for libraries.
+Annotation output stays experimental.
 
 ## Step 5d results
 

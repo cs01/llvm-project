@@ -1686,12 +1686,19 @@ public:
       const FieldDecl *FD = *FI;
       if (!FD->getType()->isPointerType())
         continue;
+      const Expr *Init = ILE->getInit(I);
+      if (Reporting) {
+        NullabilityEvidence Kind =
+            classifyEvidence(Init, isProvablyNonnull(Init));
+        if (Kind != NullabilityEvidence::Nonnull)
+          Handler.handleMemberAssignEvidence(ILE, FD, Kind);
+      }
       if (!isNonnullType(FD->getType()))
         continue;
-      if (classifyStoredValue(ILE->getInit(I)) == StoredValue::Nullable) {
+      if (classifyStoredValue(Init) == StoredValue::Nullable) {
         if (Reporting) {
           ++NumAssignmentWarnings;
-          Handler.handleNullableMemberAssignment(ILE->getInit(I), FD);
+          Handler.handleNullableMemberAssignment(Init, FD);
         }
       }
     }
@@ -1718,8 +1725,9 @@ public:
     Returns.HasPointerReturn = true;
     Returns.AllNonnull &= RetIsProvablyNonnull;
     if (EnclosingFunc->getDeclName().isIdentifier()) {
-      if (auto Kind = classifyEvidence(RetVal, RetIsProvablyNonnull))
-        Handler.handleReturnEvidence(RetVal, EnclosingFunc, *Kind);
+      Handler.handleReturnEvidence(
+          RetVal, EnclosingFunc,
+          classifyEvidence(RetVal, RetIsProvablyNonnull));
     }
 
     if (isNonnullType(RetType) && !RetIsNonnull) {
@@ -1745,9 +1753,8 @@ public:
       bool IsNonnull =
           V == StoredValue::Nonnull ||
           (V == StoredValue::Unknown && isNonnullType(FD->getType()));
-      if (auto Kind = classifyEvidence(Init, IsNonnull))
-        Handler.handleMemberAssignEvidence(Init->IgnoreParenImpCasts(), FD,
-                                           *Kind);
+      Handler.handleMemberAssignEvidence(Init->IgnoreParenImpCasts(), FD,
+                                         classifyEvidence(Init, IsNonnull));
     }
   }
 
@@ -1979,9 +1986,9 @@ private:
         if (!Param->getType()->isPointerType())
           continue;
         const Expr *Arg = CE->getArg(I + ArgOffset)->IgnoreParenImpCasts();
-        if (auto Kind = classifyEvidence(Arg, isProvablyNonnull(Arg)))
-          Handler.handleParameterEvidence(CE->getArg(I + ArgOffset), Param,
-                                          Callee, *Kind);
+        Handler.handleParameterEvidence(
+            CE->getArg(I + ArgOffset), Param, Callee,
+            classifyEvidence(Arg, isProvablyNonnull(Arg)));
       }
       // Parameters with nullptr default arguments are nullable evidence
       // even when callers always pass nonnull explicitly: the function
@@ -2261,8 +2268,8 @@ private:
       return;
     bool Narrowed = storePointer(PtrRef{nullptr, LhsPath}, BO->getRHS(), BO);
     if (Reporting)
-      if (auto Kind = classifyEvidence(BO->getRHS(), Narrowed))
-        Handler.handleMemberAssignEvidence(BO, FD, *Kind);
+      Handler.handleMemberAssignEvidence(
+          BO, FD, classifyEvidence(BO->getRHS(), Narrowed));
   }
 
   /// Assignment to a local or parameter: guard flags re-capture their
@@ -2871,8 +2878,7 @@ private:
   /// incoming path). Unannotated pointers merely defaulted to
   /// nullable do not, so no _Nullable is ever inferred from them, and a
   /// ternary is judged by its merged type.
-  std::optional<NullabilityEvidence> classifyEvidence(const Expr *E,
-                                                      bool IsNonnull) const {
+  NullabilityEvidence classifyEvidence(const Expr *E, bool IsNonnull) const {
     if (IsNonnull)
       return NullabilityEvidence::Nonnull;
     if (!isExprNullable(E, /*ExplicitOnly=*/true)) {
@@ -2882,7 +2888,7 @@ private:
           if (Arm->IgnoreParenCasts()->isNullPointerConstant(
                   Ctx, Expr::NPC_ValueDependentIsNotNull))
             return NullabilityEvidence::MaybeNull;
-      return std::nullopt;
+      return NullabilityEvidence::Unknown;
     }
     return isExprNullable(E, /*ExplicitOnly=*/true, /*MustOnly=*/true)
                ? NullabilityEvidence::Nullable

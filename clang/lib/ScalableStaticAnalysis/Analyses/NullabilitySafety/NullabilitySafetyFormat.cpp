@@ -9,6 +9,7 @@
 #include "SSAFAnalysesCommon.h"
 #include "clang/ScalableStaticAnalysis/Analyses/EntityPointerLevel/EntityPointerLevelFormat.h"
 #include "clang/ScalableStaticAnalysis/Analyses/NullabilitySafety/NullabilitySafety.h"
+#include "clang/ScalableStaticAnalysis/Analyses/PointerFlow/PointerFlowFormat.h"
 #include "clang/ScalableStaticAnalysis/Core/Serialization/JSONFormat.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/JSON.h"
@@ -21,6 +22,8 @@ static constexpr llvm::StringLiteral NonnullKey = "NonnullEvidence";
 static constexpr llvm::StringLiteral NullableKey = "NullableEvidence";
 static constexpr llvm::StringLiteral AllReturnsNonnullKey = "AllReturnsNonnull";
 static constexpr llvm::StringLiteral MaybeNullKey = "MaybeNullEvidence";
+static constexpr llvm::StringLiteral UnknownKey = "UnknownEvidence";
+static constexpr llvm::StringLiteral ConditionalKey = "ConditionalEvidence";
 
 static Object serialize(const EntitySummary &S,
                         JSONFormat::EntityIdToJSONFn Fn) {
@@ -33,7 +36,12 @@ static Object serialize(const EntitySummary &S,
       {NonnullKey.data(), toJSON(NS.getNonnullEvidence())},
       {NullableKey.data(), toJSON(NS.getNullableEvidence())},
       {AllReturnsNonnullKey.data(), toJSON(NS.getAllReturnsNonnull())},
-      {MaybeNullKey.data(), toJSON(NS.getMaybeNullEvidence())}};
+      {MaybeNullKey.data(), toJSON(NS.getMaybeNullEvidence())},
+      {UnknownKey.data(), toJSON(NS.getUnknownEvidence())},
+      {ConditionalKey.data(),
+       edgeSetToJSON(llvm::make_range(NS.getConditionalEvidence().begin(),
+                                      NS.getConditionalEvidence().end()),
+                     Fn)}};
 }
 
 static llvm::Expected<EntityPointerLevelSet>
@@ -64,9 +72,20 @@ deserialize(const Object &Data, EntityIdTable &,
       readSet(Data, MaybeNullKey, Fn);
   if (!MaybeNull)
     return MaybeNull.takeError();
+  llvm::Expected<EntityPointerLevelSet> Unknown = readSet(Data, UnknownKey, Fn);
+  if (!Unknown)
+    return Unknown.takeError();
+  const llvm::json::Array *ConditionalArr =
+      Data.getArray(ConditionalKey.data());
+  if (!ConditionalArr)
+    return makeSawButExpectedError(Object(Data), "an Object with a key %s",
+                                   ConditionalKey.data());
+  llvm::Expected<EdgeSet> Conditional = edgeSetFromJSON(*ConditionalArr, Fn);
+  if (!Conditional)
+    return Conditional.takeError();
   return std::make_unique<NullabilitySafetyEntitySummary>(
       std::move(*Nonnull), std::move(*Nullable), std::move(*AllReturnsNonnull),
-      std::move(*MaybeNull));
+      std::move(*MaybeNull), std::move(*Unknown), std::move(*Conditional));
 }
 
 namespace {

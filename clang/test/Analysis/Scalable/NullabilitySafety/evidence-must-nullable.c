@@ -46,6 +46,7 @@ void null_arm(const char *e) {
 // CHECK-NOT:  {{.}}
 // CHECK:      c:@F@correlated MaybeNullEvidence c:@F@error_path param 1
 // CHECK-NEXT: c:@F@correlated NonnullEvidence c:@F@open_it param 1
+// CHECK-NEXT: c:@F@null_arm ConditionalEvidence c:@F@ternary_arm param 2 <- c:@F@null_arm param 1
 // CHECK-NEXT: c:@F@null_arm MaybeNullEvidence c:@F@null_arm param 1
 // CHECK-NEXT: c:@F@null_arm MaybeNullEvidence c:@F@ternary_arm param 1
 // CHECK-NEXT: c:@F@null_on_both NullableEvidence c:@F@every_path param 1

@@ -4,7 +4,8 @@ entity ids:
     <contributor> <set> <entity>
 
 Entities are USRs; a parameter is followed by " param <n>" and a function
-return by " return".
+return by " return". ConditionalEvidence prints one line per source as
+"<assignee> <- <source>".
 """
 import json
 import sys
@@ -28,12 +29,20 @@ def main():
             continue
         for s in data["summary_data"]:
             contributor = ids[s["entity_id"]]
+            def epl(e):
+                entity, level = e
+                suffix = "" if level == 1 else " level %d" % level
+                return ids[entity["@"]] + suffix
+
             for key, epls in s["entity_summary"].items():
-                for entity, level in epls:
-                    level_suffix = "" if level == 1 else " level %d" % level
-                    lines.append("%s %s %s%s" % (contributor, key,
-                                                 ids[entity["@"]],
-                                                 level_suffix))
+                if key == "ConditionalEvidence":
+                    for assignee, *sources in epls:
+                        for source in sources:
+                            lines.append("%s %s %s <- %s" % (
+                                contributor, key, epl(assignee), epl(source)))
+                    continue
+                for e in epls:
+                    lines.append("%s %s %s" % (contributor, key, epl(e)))
     print("\n".join(sorted(lines)))
 
 

@@ -315,4 +315,4 @@ volatile int NullabilityAnnotationsAnchorSource = 0;
 static clang::ssaf::TransformationRegistry::Add<NullabilityAnnotations>
     RegisterNullabilityAnnotations(
         "nullability-annotations",
-        "Inserts inferred _Nonnull and _Nullable annotations");
+        "Inserts inferred _Nonnull annotations (experimental)");
