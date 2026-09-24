@@ -194,6 +194,35 @@ static bool pathHasPrefix(const MemberAccessPath &Path,
 // Lattice
 //===----------------------------------------------------------------------===//
 
+static bool isSmartPointerType(QualType Ty);
+
+/// The variable a local smart pointer reference is bound to (auto &a = p or
+/// auto &&a = std::move(p)), followed through references to references, or VD
+/// itself. A reference is the same object as its referent, so resolving it
+/// lets every fact reach both names. Only variables are followed: a member
+/// path could name a different object once its root is reassigned.
+static const VarDecl *resolveSmartPtrReference(const VarDecl *VD) {
+  for (unsigned Depth = 0; Depth < 8; ++Depth) {
+    if (!VD->getType()->isReferenceType() || isa<ParmVarDecl>(VD) ||
+        !VD->hasLocalStorage() ||
+        !isSmartPointerType(VD->getType().getNonReferenceType()))
+      return VD;
+    const Expr *Init = VD->getInit();
+    if (!Init)
+      return VD;
+    Init = Init->IgnoreParenImpCasts();
+    if (const auto *CE = dyn_cast<CallExpr>(Init))
+      if (CE->isCallToStdMove() && CE->getNumArgs() == 1)
+        Init = CE->getArg(0)->IgnoreParenImpCasts();
+    const auto *DRE = dyn_cast<DeclRefExpr>(Init);
+    const auto *Target = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (!Target || Target == VD)
+      return VD;
+    VD = Target;
+  }
+  return VD;
+}
+
 namespace {
 
 /// A tracked pointer: a local variable or parameter, or a member access path
@@ -204,12 +233,13 @@ struct PtrRef {
 
   /// Resolve E (parens and implicit casts ignored) to a tracked pointer, or
   /// nullopt when it is neither a DeclRefExpr to a VarDecl nor a member
-  /// access chain rooted at a VarDecl or this.
+  /// access chain rooted at a VarDecl or this. A local smart pointer
+  /// reference resolves to its referent.
   static std::optional<PtrRef> fromExpr(const Expr *E) {
     E = E->IgnoreParenImpCasts();
     if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-        return PtrRef{VD, std::nullopt};
+        return PtrRef{resolveSmartPtrReference(VD), std::nullopt};
       return std::nullopt;
     }
     if (auto P = decomposeMemberAccess(E))
@@ -949,7 +979,8 @@ static const Expr *smartPtrCopySource(const Expr *E) {
 }
 
 /// Whether this std::move(sp) initializes or is assigned to a smart pointer
-/// (auto x = std::move(y); or x = std::move(y)). The transfer handler needs
+/// (auto x = std::move(y); or x = std::move(y)), or binds a reference to one
+/// (auto &&r = std::move(y), which moves nothing). The transfer handler needs
 /// the source's pre-move state, but the CFG visits the inner call before the
 /// enclosing DeclStmt or operator=, so the context is recovered from the
 /// function-scoped ParentMap rather than passed down.
@@ -964,7 +995,7 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
     for (const auto *D : DS->decls()) {
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
         if (VD->getInit() == Init)
-          return isSmartPointerType(VD->getType());
+          return isSmartPointerType(VD->getType().getNonReferenceType());
         if (VD->hasInit()) {
           ++NumInited;
           Sole = VD;
@@ -972,7 +1003,7 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
       }
     }
     if (NumInited == 1)
-      return isSmartPointerType(Sole->getType());
+      return isSmartPointerType(Sole->getType().getNonReferenceType());
     return false;
   };
 
@@ -1801,6 +1832,10 @@ private:
   /// the source's state from auto x = std::move(other). A copy owns its own
   /// reference, so it is not linked to the source afterwards.
   void handleSmartPtrVarInit(const VarDecl *VD) {
+    // A reference bound to a variable is that variable (see
+    // resolveSmartPtrReference): binding it neither copies nor moves.
+    if (resolveSmartPtrReference(VD) != VD)
+      return;
     // Strip reference: range-for loop variables have type const T&.
     if (isSmartPointerType(VD->getType().getNonReferenceType()) &&
         VD->hasInit()) {
@@ -1825,7 +1860,8 @@ private:
           if (CCE->getNumArgs() == 1)
             Inner = unwrapImplicitWrappers(CCE->getArg(0));
         if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
-          if (CE->isCallToStdMove() && CE->getNumArgs() >= 1) {
+          if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
+              !VD->getType()->isReferenceType()) {
             if (auto Src = smartPtrRef(CE->getArg(0))) {
               if (State.isNarrowed(*Src))
                 State.markNarrowed(VD);

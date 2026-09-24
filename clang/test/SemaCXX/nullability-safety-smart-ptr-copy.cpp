@@ -122,3 +122,64 @@ void self_assign_keeps_proof() {
   p = p;
   p->draw();
 }
+
+// A reference to a smart pointer is the source object under another name, so
+// every fact is shared: narrowing, reset() and moves through either name reach
+// both.
+
+void reference_deref_without_reset() {
+  auto p = std::make_shared<Widget>();
+  auto &alias = p;
+  alias->draw();
+}
+
+void reset_through_reference() {
+  auto p = std::make_shared<Widget>();
+  auto &alias = p;
+  alias.reset();
+  p->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void reset_through_reference_then_alias() {
+  auto p = std::make_shared<Widget>();
+  auto &alias = p;
+  alias.reset();
+  alias->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void reference_to_reference() {
+  auto p = std::make_shared<Widget>();
+  auto &a = p;
+  auto &b = a;
+  b->draw();
+  p.reset();
+  b->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void check_through_reference(std::shared_ptr<Widget> p) {
+  auto &alias = p;
+  if (!alias)
+    return;
+  p->draw();
+}
+
+void rvalue_reference_does_not_move() {
+  auto p = std::make_shared<Widget>();
+  auto &&r = std::move(p);
+  p->draw();
+  r->draw();
+}
+
+void reassign_through_reference(std::shared_ptr<Widget> p) {
+  auto &alias = p;
+  alias = std::make_shared<Widget>();
+  p->draw();
+}
+
+// Control: an alias to a maybe-null source warns with no reset anywhere. It is
+// what distinguishes "the fact propagated" from "the alias is untracked".
+void reference_to_nullable_source() {
+  auto nullable = maybe_widget();
+  auto &alias = nullable;
+  alias->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
