@@ -3130,6 +3130,45 @@ static NullState seedEntryState(const Decl *D) {
   return InitState;
 }
 
+/// Narrow every operand of a whole && / || branch condition: on the true edge
+/// of A && B all operands held, and on the false edge of A || B all failed.
+/// The CFG routes each operand's edge straight to the branch only when the
+/// && / || is the condition itself. Behind a bool cast (the C++ assert macro
+/// is static_cast<bool>(p && "why") ? ... : __assert_fail(...)) or a cleanup,
+/// the operands first merge into one value, and the per-operand narrowing is
+/// lost unless it is recovered here.
+static void narrowWholeCondition(const Expr *Cond, const NullState &State,
+                                 ASTContext &Ctx, NullState &TrueState,
+                                 NullState &FalseState) {
+  if (!Cond)
+    return;
+  const Expr *E = Cond;
+  while (true) {
+    const Expr *Next = ignoreExplicitBoolCast(E->IgnoreParenImpCasts());
+    if (const auto *EWC = dyn_cast<ExprWithCleanups>(Next))
+      Next = EWC->getSubExpr();
+    if (Next == E)
+      break;
+    E = Next;
+  }
+  const auto *BO = dyn_cast<BinaryOperator>(E);
+  if (!BO)
+    return;
+  if (BO->getOpcode() == BO_LAnd) {
+    SmallVector<ConditionResult, 2> AndResults;
+    decomposeChain(BO, BO_LAnd, Ctx, AndResults, &State.BoolGuards);
+    for (const auto &CR : AndResults)
+      if (!CR.Negated)
+        applyNarrowing(TrueState, CR);
+  } else if (BO->getOpcode() == BO_LOr) {
+    SmallVector<ConditionResult, 2> OrResults;
+    decomposeChain(BO, BO_LOr, Ctx, OrResults, &State.BoolGuards);
+    for (const auto &CR : OrResults)
+      if (CR.Negated)
+        applyNarrowing(FalseState, CR);
+  }
+}
+
 /// Apply branch-condition narrowing to a block's outgoing edges. TrueState
 /// and FalseState start as copies of the block's exit state; each fact from
 /// the terminator's condition (an if, loop, &&/||, or ?:) narrows its pointer
@@ -3141,49 +3180,25 @@ static void narrowOnTerminator(const CFGBlock *Block, const NullState &State,
   if (!Term)
     return;
 
+  const Expr *WholeCond = nullptr;
+  if (const auto *IS = dyn_cast<IfStmt>(Term))
+    WholeCond = IS->getCond();
+  else if (const auto *WS = dyn_cast<WhileStmt>(Term))
+    WholeCond = WS->getCond();
+  else if (const auto *FS = dyn_cast<ForStmt>(Term))
+    WholeCond = FS->getCond();
+  else if (const auto *DS = dyn_cast<DoStmt>(Term))
+    WholeCond = DS->getCond();
+  else if (const auto *CO = dyn_cast<AbstractConditionalOperator>(Term))
+    WholeCond = CO->getCond(); // Covers GNU p ?: q as well.
+  narrowWholeCondition(WholeCond, State, Ctx, TrueState, FalseState);
+
   const Expr *Cond = nullptr;
-  if (const auto *IS = dyn_cast<IfStmt>(Term)) {
-    const Expr *IfCond = IS->getCond();
-    if (IfCond)
-      IfCond = IfCond->IgnoreParenImpCasts();
-    if (IfCond) {
-      // A temporary with a destructor in a || operand wraps the whole
-      // condition in an ExprWithCleanups; look through it.
-      const Expr *IfCondInner = IfCond;
-      if (const auto *EWC = dyn_cast<ExprWithCleanups>(IfCondInner))
-        IfCondInner = EWC->getSubExpr()->IgnoreParenImpCasts();
-      if (const auto *BO = dyn_cast<BinaryOperator>(IfCondInner)) {
-        if (BO->getOpcode() == BO_LAnd) {
-          SmallVector<ConditionResult, 2> AndResults;
-          decomposeChain(BO, BO_LAnd, Ctx, AndResults, &State.BoolGuards);
-          for (const auto &CR : AndResults)
-            if (!CR.Negated)
-              applyNarrowing(TrueState, CR);
-        } else if (BO->getOpcode() == BO_LOr) {
-          // if (A || B): on the false edge, every operand was false.
-          SmallVector<ConditionResult, 2> OrResults;
-          decomposeChain(BO, BO_LOr, Ctx, OrResults, &State.BoolGuards);
-          for (const auto &CR : OrResults)
-            if (CR.Negated)
-              applyNarrowing(FalseState, CR);
-        }
-      }
-    }
-    Cond = getTerminalCondition(IS->getCond());
-  } else if (const auto *WS = dyn_cast<WhileStmt>(Term)) {
-    Cond = getTerminalCondition(WS->getCond());
-  } else if (const auto *FS = dyn_cast<ForStmt>(Term)) {
-    if (FS->getCond())
-      Cond = getTerminalCondition(FS->getCond());
-  } else if (const auto *DS = dyn_cast<DoStmt>(Term)) {
-    Cond = getTerminalCondition(DS->getCond());
-  } else if (const auto *BO = dyn_cast<BinaryOperator>(Term)) {
+  if (WholeCond)
+    Cond = getTerminalCondition(WholeCond);
+  else if (const auto *BO = dyn_cast<BinaryOperator>(Term))
     if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
       Cond = getTerminalCondition(BO->getLHS());
-  } else if (const auto *CO = dyn_cast<AbstractConditionalOperator>(Term)) {
-    // Covers GNU p ?: q (BinaryConditionalOperator) as well.
-    Cond = getTerminalCondition(CO->getCond());
-  }
 
   if (Cond) {
     SmallVector<ConditionResult, 2> Results;
