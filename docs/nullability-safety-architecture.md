@@ -163,8 +163,8 @@ How states combine at control-flow merge points.
 %%{init: {'theme': 'base', 'themeVariables': {'fontSize': '14px'}}}%%
 graph LR
     subgraph STATE["NullState Fields"]
-        N["🛡️ NarrowedVars<br>NarrowedMembers<br>NarrowedThisMembers"]
-        NB["⚠️ NullableVars<br>NullableThisMembers"]
+        N["🛡️ NarrowedVars<br>NarrowedMembers"]
+        NB["⚠️ NullableVars<br>NullableMembers"]
     end
 
     subgraph MERGE["At Merge Point"]

@@ -267,7 +267,7 @@ The analysis prefers missing a bug over reporting a false one. Known gaps:
 
 - **One translation unit at a time.** Inferred facts don't cross translation units; only annotations do.
 - **Calls don't reset null checks.** After `if (p)`, `p` stays non-null even if a call in between could have changed it. `-Wthread-safety` makes the same trade-off.
-- **Limited aliasing.** Only direct aliases (`q = p`) and direct address-taking (`T **pp = &p; *pp = ...`) are tracked. Longer alias chains are not.
+- **Limited aliasing.** Local copies (`q = p`, including chains like `r = q`), copies of members (`T *q = s->next`), and one level of address-taking (`T **pp = &p; *pp = ...`) are tracked. Aliases through deeper pointer-to-pointer chains are not.
 - **Lambdas.** Unannotated lambda parameters are treated as `_Nonnull`, whatever `-fnullability-default` says.
 - **Casts.** Pointer-to-pointer casts (C-style, `static_cast`, `reinterpret_cast`) keep the operand's nullability, and a check on a cast (`if ((T*)p)`) counts as a check on `p`. A cast from an integer gets the default nullability.
 - **Only null pointers.** Buffer overflows, use-after-free, and other memory bugs are out of scope.
@@ -303,18 +303,19 @@ At each program point the analysis keeps a `NullState`:
 
 - **Narrowed sets:** pointers proven non-null by the control flow (a null check, a non-null initializer, and so on)
 - **Nullable sets:** pointers known to hold a value that may be null
-- **Helper maps:** bool guards, aliases, and address-of targets
+- **Helper maps:** bool guards, aliases, member aliases, and address-of targets
 
 A pointer that is nullable (by type or because of a nullable set) and not narrowed produces a warning when it is dereferenced.
 
 There are two narrowed sets. `NarrowedVars` is a `DenseSet<const VarDecl*>` of local variables and parameters; `if (p)` adds `p` on the true branch. `NarrowedMembers` is a `DenseSet<MemberAccessPath>`. A `MemberAccessPath` is a root `const VarDecl*` plus a `SmallVector<const FieldDecl*>` of fields, so `s->x` is `{Root=s, Fields=[x]}` and `o.inner.x` is `{Root=o, Fields=[inner, x]}`. `this->field` uses a null root; that is safe because `this` doesn't change within one function.
 
-`NullableVars` is a `DenseSet<const VarDecl*>` of variables holding a value that may be null. `NullableThisMembers` is a `DenseSet<const FieldDecl*>` of `this->` smart pointer members that become null after `reset()` or `std::move()`.
+`NullableVars` is a `DenseSet<const VarDecl*>` of variables holding a value that may be null. `NullableMembers` is a `DenseSet<MemberAccessPath>` of member paths (such as `s->p` or `this->p`) that become null after `reset()` or `std::move()`.
 
-The helper maps cover three idioms:
+The helper maps cover four idioms:
 
-- **Bool guards:** `bool ok = (p != nullptr); if (ok) ...` narrows `p`.
-- **Aliases:** after `q = p`, narrowing either one narrows both.
+- **Bool guards:** `bool ok = (p != nullptr); if (ok) ...` narrows `p`. Integer flags work the same way.
+- **Aliases:** after `q = p`, narrowing either one narrows both. After `r = q`, `r` is recorded as an alias of `p` directly, so chains of copies work.
+- **Member aliases:** after `T *q = s->next`, narrowing `q` narrows `s->next` and the reverse.
 - **Address-of targets:** after `pp = &p`, a store through `*pp` drops what was known about `p`.
 
 ### Merging paths
@@ -350,9 +351,9 @@ The worst case is O(n · h), where n is the number of CFG blocks and h is the la
 | File | Role |
 |---|---|
 | `clang/lib/Analysis/NullabilitySafety.cpp` | The analysis: CFG walk, transfer functions, edge states, fixpoint |
-| `clang/include/clang/Analysis/Analyses/NullabilitySafety.h` | Handler interface (`NullabilitySafetyHandler`) and entry point |
+| `clang/include/clang/Analysis/Analyses/NullabilitySafety.h` | Handler interface (`NullabilitySafetyHandler`), options (`NullabilitySafetyOptions`), cross-function summaries (`NullabilitySafetySummaries`), and entry point |
 | `clang/lib/Sema/AnalysisBasedWarnings.cpp` | Builds CFGs, orders functions by call graph, runs the analysis, turns callbacks into diagnostics |
-| `clang/lib/Sema/SemaDecl.cpp` | Decides which functions are checked |
+| `clang/lib/Sema/Sema.cpp` | Decides which functions are checked (`isNullabilitySafetyOptedIn`) |
 
 ## License
 
