@@ -29,7 +29,9 @@
             '4': 'function-contracts',
             '5': 'standard-clang-gap',
             '6': 'smart-pointers',
-            '7': 'late-init'
+            '7': 'late-init',
+            '8': 'templates',
+            '9': 'smart-pointer-contracts'
         };
 
         // Reverse mapping from names to numbers
@@ -46,7 +48,9 @@ const exampleFiles = {
     'function-contracts': 'examples/function-contracts.c',
     'standard-clang-gap': 'examples/standard-clang-gap.c',
     'smart-pointers': 'examples/smart-pointers.cpp',
-    'late-init': 'examples/late-init.cpp'
+    'late-init': 'examples/late-init.cpp',
+    'templates': 'examples/templates.cpp',
+    'smart-pointer-contracts': 'examples/smart-pointer-contracts.cpp'
 };
 
 // Load all examples at startup
@@ -418,7 +422,7 @@ async function loadExamples() {
         const nullabilityHints = {
             nullable: 'Every unannotated pointer may be null (strictest)',
             nonnull: 'Unannotated pointers are non-null; annotate what can be null',
-            unspecified: 'Only annotated code is checked (the compiler default)',
+            unspecified: 'Only functions with _Nullable or _Nonnull in their own signature are checked (the compiler default)',
         };
 
         function updateNullabilityHint() {
