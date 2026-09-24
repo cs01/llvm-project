@@ -938,6 +938,19 @@ static std::optional<PtrRef> smartPtrRef(const Expr *E) {
   return std::nullopt;
 }
 
+/// The smart pointer a copy (T t = s, T t(s), t = s) reads from, seen through
+/// converting constructors (shared_ptr<Base> b = derived). Null when E is not
+/// a plain read of a smart pointer variable or member.
+static const Expr *smartPtrCopySource(const Expr *E) {
+  E = unwrapImplicitWrappers(E);
+  while (const auto *CCE = dyn_cast<CXXConstructExpr>(E)) {
+    if (CCE->getNumArgs() != 1)
+      return nullptr;
+    E = unwrapImplicitWrappers(CCE->getArg(0));
+  }
+  return smartPtrRef(E) ? E : nullptr;
+}
+
 /// True if this std::move(sp) is the init/RHS of a smart-pointer transfer
 /// (auto x = std::move(y); or x = std::move(y)). The transfer handler needs
 /// the source's pre-move state, and CFG order visits the inner call before the
@@ -1793,8 +1806,10 @@ private:
   }
 
   /// Track smart pointer initialization: narrow if constructed from a
-  /// provably non-null source (make_unique, make_shared, new), taint if
-  /// null, or inherit the source's state from auto x = std::move(other).
+  /// provably non-null source (make_unique, make_shared, new) or copied from
+  /// a smart pointer that is non-null right now, taint if null, or inherit
+  /// the source's state from auto x = std::move(other). A copy owns its own
+  /// reference, so it is not linked to the source afterwards.
   void handleSmartPtrVarInit(const VarDecl *VD) {
     // Strip reference: range-for loop variables have type const T&.
     if (isSmartPointerType(VD->getType().getNonReferenceType()) &&
@@ -1805,6 +1820,9 @@ private:
         State.markNarrowed(VD);
       } else if (isNullSmartPtrInit(Init)) {
         State.markNullable(VD);
+      } else if (const Expr *Src = smartPtrCopySource(Init)) {
+        if (!isSmartPointerMaybeNull(Src))
+          State.markNarrowed(VD);
       } else {
         // auto x = std::move(other); inherits the source's narrowed
         // state. The standalone std::move handler skipped the source
@@ -2135,7 +2153,8 @@ private:
     }
   }
 
-  /// Handle sp = nullptr / sp = make_unique(...) / sp = std::move(other).
+  /// Handle sp = nullptr / sp = make_unique(...) / sp = std::move(other) /
+  /// sp = other (a copy, non-null when other is non-null right now).
   /// LHS may be a local (VarDecl), a this-member, or a member access chain.
   void handleSmartPtrAssign(const CXXOperatorCallExpr *OCE) {
     if (OCE->getOperator() == OO_Equal && OCE->getNumArgs() >= 2) {
@@ -2167,6 +2186,9 @@ private:
           } else if (isNonnullType(RhsCE->getType())) {
             State.markNarrowed(*Lhs);
           }
+        } else if (const Expr *Src = smartPtrCopySource(RHS)) {
+          if (!isSmartPointerMaybeNull(Src))
+            State.markNarrowed(*Lhs);
         }
       } else if (auto StructPath = decomposeMemberAccess(LhsArg)) {
         // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
