@@ -32,8 +32,12 @@ void param_shared(std::shared_ptr<Widget> _Nonnull w) {
     w->draw();          // OK — declared _Nonnull
 }
 
-// --- Without _Nonnull, unchecked deref still warns.
+// --- Unannotated: no evidence either way, so no warning. _Nullable warns.
 void param_unannotated(std::unique_ptr<Widget> w) {
+    w->draw(); // no warning: no evidence this smart pointer can be null
+}
+
+void param_nullable(std::unique_ptr<Widget> _Nullable w) {
     w->draw();          // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 

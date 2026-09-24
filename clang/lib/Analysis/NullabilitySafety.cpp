@@ -227,7 +227,8 @@ static bool isSmartPointerType(QualType Ty);
 /// lets every fact reach both names. Only variables are followed: a member
 /// path could name a different object once its root is reassigned.
 static const VarDecl *resolveSmartPtrReference(const VarDecl *VD) {
-  for (unsigned Depth = 0; Depth < 8; ++Depth) {
+  llvm::SmallPtrSet<const VarDecl *, 4> Visited;
+  while (Visited.insert(VD).second) {
     if (!VD->getType()->isReferenceType() || isa<ParmVarDecl>(VD) ||
         !VD->hasLocalStorage() ||
         !isSmartPointerType(VD->getType().getNonReferenceType()))
@@ -939,38 +940,38 @@ static bool isNonnullSmartPtrInit(const Expr *E) {
   return false;
 }
 
-/// Whether a smart pointer VarDecl is initialized as *it with it =
-/// container.begin() (range-for desugaring or a manual loop) on a container
-/// whose element type carries _Nonnull. Instantiation strips _Nonnull from
-/// non-pointer types like unique_ptr, so the container's sugar type is the
-/// only place the annotation survives.
-static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
+/// The nullability written on the element type when a smart pointer VarDecl is
+/// initialized as *it with it = container.begin() (range-for desugaring or a
+/// manual loop). Instantiation strips nullability from non-pointer types like
+/// unique_ptr, so the container's sugar type is the only place the annotation
+/// survives.
+static NullabilityKindOrNone containerElementNullability(const VarDecl *VD) {
   if (!VD->hasInit())
-    return false;
+    return std::nullopt;
   const Expr *Init = unwrapImplicitWrappers(VD->getInit());
 
   const auto *OpCall = dyn_cast<CXXOperatorCallExpr>(Init);
   if (!OpCall || OpCall->getOperator() != OO_Star || OpCall->getNumArgs() < 1)
-    return false;
+    return std::nullopt;
 
   const Expr *IterExpr = OpCall->getArg(0)->IgnoreParenImpCasts();
   const auto *IterDRE = dyn_cast<DeclRefExpr>(IterExpr);
   if (!IterDRE)
-    return false;
+    return std::nullopt;
   const auto *IterVD = dyn_cast<VarDecl>(IterDRE->getDecl());
   if (!IterVD || !IterVD->hasInit())
-    return false;
+    return std::nullopt;
 
   const Expr *IterInit = unwrapImplicitWrappers(IterVD->getInit());
   const auto *BeginCall = dyn_cast<CXXMemberCallExpr>(IterInit);
   if (!BeginCall)
-    return false;
+    return std::nullopt;
 
   // Use the declared type: the implicit const cast on .begin()'s object arg
   // strips the sugar.
   const Expr *ObjArg = BeginCall->getImplicitObjectArgument();
   if (!ObjArg)
-    return false;
+    return std::nullopt;
   const Expr *ContainerExpr = ObjArg->IgnoreParenImpCasts();
   QualType ContainerType;
   if (const auto *DRE = dyn_cast<DeclRefExpr>(ContainerExpr)) {
@@ -983,12 +984,14 @@ static bool isInitFromNonnullContainerElement(const VarDecl *VD) {
   // A pointer to a container (auto it = v->begin()) is rejected:
   // getSugaredTemplateArgType would look through the pointer.
   if (ContainerType.isNull() || ContainerType->isPointerType())
-    return false;
+    return std::nullopt;
 
   QualType ElemType = getSugaredTemplateArgType(ContainerType, 0);
   if (ElemType.isNull())
-    return false;
-  return isSmartPointerType(ElemType) && isNonnullType(ElemType);
+    return std::nullopt;
+  if (!isSmartPointerType(ElemType))
+    return std::nullopt;
+  return ElemType->getNullability();
 }
 
 /// Allowlist of STL methods whose unannotated pointer returns are
@@ -1760,6 +1763,7 @@ namespace {
 struct ReturnSummary {
   bool HasPointerReturn = false;
   bool AllNonnull = true;
+  bool SmartPtrMayBeNull = false;
 };
 
 /// What a pointer store writes, as far as the analysis can tell.
@@ -1798,6 +1802,39 @@ public:
       : State(State), Handler(Handler), Returns(Returns), Ctx(Ctx),
         Options(Options), Summaries(Summaries), EnclosingFunc(EnclosingFunc),
         ParentMapPtr(PM), Reporting(Reporting) {}
+
+  bool isKnownSmartPtrMayReturnNull(const FunctionDecl *Callee) const {
+    return Callee && Summaries &&
+           Summaries->isKnownSmartPtrMayReturnNull(Callee);
+  }
+
+  /// Whether a smart pointer value can be null on evidence: nullptr or a
+  /// default-constructed value, a _Nullable call result, a call to a function
+  /// with a null return path, or a tracked pointer that flow marked nullable.
+  /// Anything else is treated as non-null: a smart pointer is never assumed
+  /// nullable just because it is unannotated.
+  bool smartPtrValueHasNullEvidence(const Expr *E) const {
+    E = unwrapImplicitWrappers(E);
+    if (isNullSmartPtrInit(E))
+      return true;
+    if (const Expr *Src = smartPtrCopySource(E))
+      return isSmartPointerNullable(Src);
+    while (true) {
+      if (const auto *CCE = dyn_cast<CXXConstructExpr>(E)) {
+        if (CCE->getNumArgs() != 1)
+          return false;
+        E = unwrapImplicitWrappers(CCE->getArg(0));
+      } else if (const auto *FCE = dyn_cast<CXXFunctionalCastExpr>(E)) {
+        E = unwrapImplicitWrappers(FCE->getSubExpr());
+      } else {
+        break;
+      }
+    }
+    if (getNullableSmartPtrCallResult(E))
+      return true;
+    const auto *CE = dyn_cast<CallExpr>(E);
+    return CE && isKnownSmartPtrMayReturnNull(CE->getDirectCallee());
+  }
 
   bool isKnownAllReturnsNonnull(const FunctionDecl *Callee) const {
     return Summaries && Summaries->isKnownAllReturnsNonnull(Callee);
@@ -2049,6 +2086,11 @@ public:
     if (!RetVal)
       return;
     QualType RetType = EnclosingFunc->getReturnType();
+    if (isSmartPointerType(RetType)) {
+      if (Reporting && smartPtrValueHasNullEvidence(RetVal))
+        Returns.SmartPtrMayBeNull = true;
+      return;
+    }
     if (!RetType->isPointerType())
       return;
 
@@ -2146,10 +2188,12 @@ private:
     if (isSmartPointerType(VD->getType().getNonReferenceType()) &&
         VD->hasInit()) {
       const Expr *Init = unwrapImplicitWrappers(VD->getInit());
-      if (isNonnullSmartPtrInit(Init) ||
-          isInitFromNonnullContainerElement(VD)) {
+      NullabilityKindOrNone Elem = containerElementNullability(VD);
+      if (isNonnullSmartPtrInit(Init) || Elem == NullabilityKind::NonNull) {
         State.markNarrowed(VD);
-      } else if (isNullSmartPtrInit(Init)) {
+      } else if (isNullSmartPtrInit(Init) || Elem == NullabilityKind::Nullable) {
+        State.markNullable(VD);
+      } else if (smartPtrValueHasNullEvidence(Init)) {
         State.markNullable(VD);
       } else if (const Expr *Src = smartPtrCopySource(Init)) {
         // A copy holds what the source holds. A reference binds to the
@@ -2462,6 +2506,17 @@ private:
     State.AddrOfTargets.erase(VD);
   }
 
+  /// Whether sp.reset(arg) stores a value that is explicitly nullable
+  /// (_Nullable, a flow-tracked null, a dynamic_cast) into a local that is not
+  /// declared _Nonnull. A member falls back to its declaration, and a _Nonnull
+  /// local keeps its contract: the bad store is the place to report, not every
+  /// later use.
+  bool isExplicitlyNullableResetOfLocal(const Expr *Obj, const Expr *Arg) const {
+    auto R = smartPtrRef(Obj);
+    return R && R->VD && !isNonnullType(R->VD->getType()) &&
+           isExprNullable(Arg, /*ExplicitOnly=*/true);
+  }
+
   /// Handle sp.reset() / sp.reset(ptr), a CXXMemberCallExpr.
   void handleSmartPtrReset(const CXXMemberCallExpr *MCE) {
     const Expr *Obj = MCE->getImplicitObjectArgument();
@@ -2483,6 +2538,8 @@ private:
                 Result = ResetNullability::Null;
               else if (isNonnullInit(Arg))
                 Result = ResetNullability::Nonnull;
+              else if (isExplicitlyNullableResetOfLocal(Obj, Arg))
+                Result = ResetNullability::Null;
               else
                 Result = ResetNullability::Unknown;
             }
@@ -2585,6 +2642,8 @@ private:
         if (isNonnullSmartPtrInit(RHS)) {
           State.markNarrowed(*Lhs);
         } else if (isNullSmartPtrInit(RHS)) {
+          State.markNullable(*Lhs);
+        } else if (!CopySrc && smartPtrValueHasNullEvidence(RHS)) {
           State.markNullable(*Lhs);
         } else if (const auto *RhsCE = dyn_cast<CallExpr>(
                        lookThroughNullPreservingConversions(RHS))) {
@@ -2896,6 +2955,14 @@ private:
   /// each path warns; a join keeps that only when every path dereferenced.
   /// Raw pointers keep warning at every dereference.
   void checkSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
+    // A temporary (f()->x) has no tracked name; judge the call itself.
+    if (!PtrRef::fromExpr(Obj)) {
+      if (getNullableSmartPtrCallResult(Obj))
+        warnSmartPtrDeref(DerefExpr, Obj);
+      else if (smartPtrValueHasNullEvidence(Obj))
+        reportDeref(DerefExpr, Obj->getType());
+      return;
+    }
     if (isSmartPointerMaybeNull(Obj))
       warnSmartPtrDeref(DerefExpr, Obj);
     if (auto R = smartPtrRef(Obj))
@@ -2922,8 +2989,10 @@ private:
       return true;
     if (isSmartPointerDeclaredNonnull(Obj))
       return false;
-    return StrictNonnull ||
-           Options.DefaultNullability != NullabilityKind::NonNull;
+    // No evidence either way. Unannotated smart pointers are overwhelmingly
+    // non-null by construction, so they are not assumed nullable under any
+    // default; only a proof of non-null (StrictNonnull) treats them as unknown.
+    return StrictNonnull;
   }
 
   /// Whether Base (of a -> access) is an overloaded operator-> call. The
@@ -3703,8 +3772,14 @@ static void narrowOnTerminator(const CFGBlock *Block, const NullState &State,
   if (Cond) {
     SmallVector<ConditionResult, 2> Results;
     analyzeCondition(Cond, Ctx, Results, &State.BoolGuards);
-    for (const auto &CR : Results)
+    for (const auto &CR : Results) {
       applyNarrowing(CR.Negated ? FalseState : TrueState, CR);
+      // The other edge is where the null test failed, so the pointer is null
+      // there. Only smart pointers need this: they carry no default
+      // nullability, so the program's own test is the evidence.
+      if (isSmartPointerType(CR.Ref.getType().getNonReferenceType()))
+        (CR.Negated ? TrueState : FalseState).markNullable(CR.Ref);
+    }
   }
 }
 
@@ -3724,6 +3799,20 @@ static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
   if (Returns.HasPointerReturn && Returns.AllNonnull &&
       !isExplicitlyNullableType(FD->getReturnType()))
     Handler.handleAllReturnsNonnull(FD);
+}
+
+/// After the fixpoint, record that an unannotated smart-pointer-returning
+/// function can return null. Skipped if the visit cap fired, and when the
+/// return type is annotated: the annotation already says what callers see.
+static void emitSmartPtrMayReturnNullSummary(const Decl *D, bool HitVisitCap,
+                                             const ReturnSummary &Returns,
+                                             NullabilitySafetyHandler &Handler) {
+  const auto *FD = dyn_cast_or_null<FunctionDecl>(D);
+  if (HitVisitCap || !FD || !Returns.SmartPtrMayBeNull ||
+      !isSmartPointerType(FD->getReturnType()) ||
+      FD->getReturnType()->getNullability())
+    return;
+  Handler.handleSmartPtrMayReturnNull(FD);
 }
 
 /// Whether a declared parameter or return type carries a nullability
@@ -4025,6 +4114,7 @@ class TUDriverHandler final : public NullabilitySafetyHandler,
   // Every caller of a function asks about the same parameters.
   mutable llvm::DenseMap<std::pair<const FunctionDecl *, unsigned>, bool>
       NullTestedParams;
+  llvm::DenseSet<const FunctionDecl *> SmartPtrMayReturnNull;
 
 public:
   bool InRecursiveSCC = false;
@@ -4078,6 +4168,10 @@ public:
     AllReturnsNonnull.insert(Func->getCanonicalDecl());
     Inner.handleAllReturnsNonnull(Func);
   }
+  void handleSmartPtrMayReturnNull(const FunctionDecl *Func) override {
+    SmartPtrMayReturnNull.insert(Func->getCanonicalDecl());
+    Inner.handleSmartPtrMayReturnNull(Func);
+  }
   void startFunction(const Decl *Def) override { Inner.startFunction(Def); }
   void finishFunction(const Decl *Def) override { Inner.finishFunction(Def); }
 
@@ -4090,6 +4184,9 @@ public:
     if (Inserted)
       It->second = functionNullTestsParam(Def, Index);
     return It->second;
+  }
+  bool isKnownSmartPtrMayReturnNull(const FunctionDecl *Func) const override {
+    return Func && SmartPtrMayReturnNull.contains(Func->getCanonicalDecl());
   }
 };
 } // namespace
@@ -4321,4 +4418,5 @@ void clang::runNullabilitySafetyAnalysis(
 
   reportNonnullMembersNullAtExit(AC.getDecl(), *Cfg, BlockEntryStates, Handler);
   emitAllReturnsNonnullSummary(AC.getDecl(), HitVisitCap, Returns, Handler);
+  emitSmartPtrMayReturnNullSummary(AC.getDecl(), HitVisitCap, Returns, Handler);
 }

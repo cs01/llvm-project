@@ -677,11 +677,11 @@ struct list {
 
 // --- Basic dereference warnings ---
 
-void smartptr_test_deref_warns(std::unique_ptr<Node> sp) {
+void smartptr_test_deref_warns(std::unique_ptr<Node> _Nullable sp) {
     sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
-void smartptr_test_shared_deref_warns(std::shared_ptr<Node> sp) {
+void smartptr_test_shared_deref_warns(std::shared_ptr<Node> _Nullable sp) {
     sp->value = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
@@ -972,7 +972,7 @@ class ContainerNonnullTest {
 
     void plain_range_for_warns() {
         for (const auto& entry : plain_list_) {
-            entry->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+            entry->value = 1; // no warning: no evidence this smart pointer can be null
         }
     }
 };
@@ -1038,7 +1038,7 @@ struct InnerSp { std::unique_ptr<Node> sp; };
 struct OuterSp { InnerSp inner; };
 
 void nested_sp_deref_warns(OuterSp &o) {
-    o.inner.sp->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    o.inner.sp->value = 1; // no warning: no evidence this smart pointer can be null
 }
 
 void nested_sp_narrowed_by_check(OuterSp &o) {
@@ -1108,7 +1108,7 @@ struct TwoSps { std::unique_ptr<Node> a; std::unique_ptr<Node> b; };
 void nested_sp_sibling_independence(TwoSps &t) {
     if (t.a) {
         t.a->value = 1; // OK -- t.a narrowed
-        t.b->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        t.b->value = 1; // no warning: no evidence this smart pointer can be null
     }
 }
 
@@ -1126,7 +1126,7 @@ void nested_sp_intermediate_invalidation(OuterSp &o) {
     o.inner.sp->value = 1; // OK
     InnerSp fresh;
     o.inner = std::move(fresh);
-    o.inner.sp->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    o.inner.sp->value = 1; // no warning: the null member arrives through a whole-struct move, which is not tracked
 }
 
 // --- this->nested smart pointer member ---

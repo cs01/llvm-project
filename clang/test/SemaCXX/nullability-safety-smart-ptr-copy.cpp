@@ -15,7 +15,7 @@ struct Widget {
 };
 struct Button : Widget {};
 
-std::shared_ptr<Widget> maybe_widget();
+std::shared_ptr<Widget> _Nullable maybe_widget();
 
 void copy_init() {
   auto s = std::make_shared<Widget>();
@@ -100,7 +100,7 @@ void copy_from_moved_from() {
 void copy_assign_overwrites_proof(std::shared_ptr<Widget> other) {
   auto t = std::make_shared<Widget>();
   t = other;
-  t->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  t->draw(); // no warning: no evidence this smart pointer can be null
 }
 
 void reference_is_not_a_copy() {
@@ -154,6 +154,15 @@ void reference_to_reference() {
   b->draw();
   p.reset();
   b->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void long_reference_chain() {
+  auto p = std::make_shared<Widget>();
+  auto &a1 = p; auto &a2 = a1; auto &a3 = a2; auto &a4 = a3; auto &a5 = a4;
+  auto &a6 = a5; auto &a7 = a6; auto &a8 = a7; auto &a9 = a8; auto &a10 = a9;
+  a10->draw();
+  p.reset();
+  a10->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 void check_through_reference(std::shared_ptr<Widget> p) {

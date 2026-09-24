@@ -1,3 +1,8 @@
+// Raw and smart pointers agree wherever there is evidence (null stores, reset,
+// moves, _Nullable). They deliberately differ on unannotated values: a raw
+// pointer follows -fnullability-default, a smart pointer without evidence is
+// never assumed nullable.
+//
 // RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nonnull -std=c++17 %s -verify=nonnull
 // RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nullable -std=c++17 %s -verify=nullable
 
@@ -32,7 +37,7 @@ int raw_factory() { V *v = makeRaw(); return v->x; } // nullable-warning {{deref
 
 int unique_factory_arrow() {
   std::unique_ptr<V> u = makeUnique();
-  return u->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return u->x; // no warning: no evidence this smart pointer can be null
 }
 
 int unique_factory_get_local() {
@@ -50,7 +55,7 @@ int comparison_does_not_taint() {
   std::unique_ptr<V> u = makeUnique();
   bool had = u != nullptr;
   (void)had;
-  return u->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return u->x; // no warning: no evidence this smart pointer can be null
 }
 
 int nullable_return_keeps_warning() {
@@ -116,7 +121,7 @@ int after_std_swap_with_empty() {
 int reset_to_factory_result() {
   std::unique_ptr<V> u;
   u.reset(makeRaw());
-  return u->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return u->x; // no warning: no evidence this smart pointer can be null
 }
 
 // A class deriving from a std smart pointer reaches operator->, operator*,
@@ -125,11 +130,13 @@ int reset_to_factory_result() {
 struct DerivedUnique : std::unique_ptr<V> {};
 
 int derived_arrow(DerivedUnique d) {
-  return d->x; // nullable-warning {{dereference of nullable pointer 'DerivedUnique'}} nullable-note {{add a null check}}
+  d.reset();
+  return d->x; // nonnull-warning {{dereference of nullable pointer 'DerivedUnique'}} nonnull-note {{add a null check}} nullable-warning {{dereference of nullable pointer 'DerivedUnique'}} nullable-note {{add a null check}}
 }
 
 int derived_star(DerivedUnique d) {
-  return (*d).x; // nullable-warning {{dereference of nullable pointer 'DerivedUnique'}} nullable-note {{add a null check}}
+  d.reset();
+  return (*d).x; // nonnull-warning {{dereference of nullable pointer 'DerivedUnique'}} nonnull-note {{add a null check}} nullable-warning {{dereference of nullable pointer 'DerivedUnique'}} nullable-note {{add a null check}}
 }
 
 int derived_checked(DerivedUnique d) {

@@ -28,12 +28,12 @@ public:
 
 struct S { int x; };
 
-int arrow(std::shared_ptr<S> s) {
-  return s->x; // nullable-warning {{dereference of nullable pointer 'std::shared_ptr<S>'}} nullable-note {{add a null check}}
+int arrow(std::shared_ptr<S> _Nullable s) {
+  return s->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
-int star(std::shared_ptr<S> s) {
-  return (*s).x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+int star(std::shared_ptr<S> _Nullable s) {
+  return (*s).x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 int checked(std::shared_ptr<S> s) {
@@ -66,7 +66,7 @@ int after_reset(std::shared_ptr<S> s) {
 int null_branch(std::shared_ptr<S> s) {
   if (s)
     return 0;
-  return s->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return s->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 int declared_nonnull(std::shared_ptr<S> _Nonnull s) {
@@ -97,7 +97,7 @@ int get_negated(std::shared_ptr<S> s) {
 
 int get_null_branch(std::shared_ptr<S> s) {
   if (s.get() == nullptr)
-    return s->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+    return s->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
   return 0;
 }
 
@@ -107,11 +107,13 @@ int get_null_branch(std::shared_ptr<S> s) {
 struct DerivedShared : std::shared_ptr<S> {};
 
 int derived_arrow(DerivedShared d) {
-  return d->x; // nullable-warning {{dereference of nullable pointer 'DerivedShared'}} nullable-note {{add a null check}}
+  d.reset();
+  return d->x; // expected-warning {{dereference of nullable pointer 'DerivedShared'}} expected-note {{add a null check}}
 }
 
-int derived_star(const DerivedShared &d) {
-  return (*d).x; // nullable-warning {{dereference of nullable pointer 'const DerivedShared &'}} nullable-note {{add a null check}}
+int derived_star(DerivedShared &d) {
+  d.reset();
+  return (*d).x; // expected-warning {{dereference of nullable pointer 'DerivedShared &'}} expected-note {{add a null check}}
 }
 
 int derived_checked(DerivedShared d) {

@@ -87,6 +87,12 @@ public:
   /// callers can treat the result as implicitly _Nonnull.
   virtual void handleAllReturnsNonnull(const FunctionDecl *Func) {}
 
+  /// Called after the fixpoint when an unannotated function returning a std
+  /// smart pointer has a return that can be null (nullptr, a default-constructed
+  /// value, a local that is null on some path, or a call to another such
+  /// function), so callers can treat the result as nullable.
+  virtual void handleSmartPtrMayReturnNull(const FunctionDecl *Func) {}
+
   /// Called before and after the callbacks for each function that
   /// runNullabilitySafetyOnTU analyzes.
   virtual void startFunction(const Decl *Def) {}
@@ -104,6 +110,12 @@ public:
   /// against null. The default computes it each time; a TU driver caches it.
   virtual bool definitionNullTestsParam(const FunctionDecl *Def,
                                         unsigned Index) const;
+  /// Whether \p Func, which returns a std smart pointer, has a return that can
+  /// be null. The only evidence that an unannotated smart pointer result is
+  /// nullable.
+  virtual bool isKnownSmartPtrMayReturnNull(const FunctionDecl *Func) const {
+    return false;
+  }
 };
 
 /// Whether the body of \p Def tests its parameter \p Index against null

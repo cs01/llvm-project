@@ -119,5 +119,5 @@ int assigned_from_nonnull_call(S *_Nonnull unused) {
 // Unannotated: judged by the default only (unspecified mode does not analyze
 // these functions at all).
 int plain_const_ref(const std::shared_ptr<S> &p) {
-  return p->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return p->x; // no warning: no evidence this smart pointer can be null
 }

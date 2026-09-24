@@ -259,7 +259,7 @@ Parameter contracts (for example, that `strcpy` needs non-null arguments) come f
 - `std::array<T, N>` with `N > 0`: `data()`, `begin()`, `end()`
 - `std::span`: `data()`, `begin()`, `end()`. An empty span can return null here; the analysis stays silent anyway, because warning on every span would be mostly noise
 
-`std::unique_ptr`, `std::shared_ptr`, and `std::weak_ptr` are tracked too: `make_unique`/`make_shared` produce non-null pointers, `reset()` and moving from a pointer make it nullable, and `if (sp)` counts as a null check.
+`std::unique_ptr`, `std::shared_ptr`, and `std::weak_ptr` are tracked too, but only on evidence that one can be null: it is default-constructed or set to `nullptr`, `reset()` or moved from, declared `_Nullable`, on the failing side of an `if (sp)` test, or returned by a function in the same file whose body can return null (`return nullptr;`, `return {};`, or a local that is null on some path). An unannotated smart pointer with no such evidence is never warned about, whatever `-fnullability-default` says.
 
 ## Limitations
 

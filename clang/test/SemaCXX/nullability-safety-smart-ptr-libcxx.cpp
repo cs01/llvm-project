@@ -3,7 +3,8 @@
 // nullptr == sp are rewritten comparisons, and operator->, operator* and
 // operator bool are members of shared_ptr itself. Most cases take a
 // _Nullable parameter so that they mean the same in both default modes; an
-// unannotated, unchecked smart pointer is trusted under the nonnull default.
+// unannotated smart pointer with no evidence it can be null is trusted under
+// either default.
 //
 // RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nullable -std=c++20 %s -verify=expected,nullable
 // RUN: %clang_cc1 -fsyntax-only -fnullability-safety -fnullability-default=nonnull -std=c++20 %s -verify=expected
@@ -67,7 +68,7 @@ void s0_sink(std::shared_ptr<S>);
 void s0_moved_at_end(int n) {
   for (int i = 0; i < n; ++i) {
     std::shared_ptr<S> p = s0_make();
-    p->x = i; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+    p->x = i; // no warning: no evidence this smart pointer can be null
     s0_sink(std::move(p));
   }
 }
@@ -239,11 +240,11 @@ int s2_unchecked_ref_member(RefHolder h) {
 }
 
 int s2_unannotated_ref_member(RefHolder h) {
-  return h.u->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return h.u->x; // no warning: no evidence this smart pointer can be null
 }
 
 int s2_unchecked_cref(const std::shared_ptr<S> &p) {
-  return p->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return p->x; // no warning: no evidence this smart pointer can be null
 }
 
 int s2_reset_ref(std::shared_ptr<S> &p) {
@@ -271,7 +272,7 @@ int s2_assign_unannotated_ref(std::shared_ptr<S> &p) {
   if (!p)
     return 0;
   p = lookup(1);
-  return p->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return p->x; // no warning: no evidence this smart pointer can be null
 }
 
 int s2_moved_from_ref(std::shared_ptr<S> &p) {
@@ -301,7 +302,7 @@ int s2_move_assign_between_refs(std::shared_ptr<S> &p, std::shared_ptr<S> &q) {
 // iteration does not reach the next one (S0).
 void s2_range_for_ref_moved(std::shared_ptr<S> (&arr)[4]) {
   for (auto &q : arr) {
-    q->x = 1; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+    q->x = 1; // no warning: no evidence this smart pointer can be null
     consume(std::move(q));
   }
 }
@@ -437,7 +438,7 @@ int s1_star_then_arrow(const std::shared_ptr<S> _Nullable &p) {
 }
 
 int s1_unannotated(std::shared_ptr<S> p) {
-  int a = p->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  int a = p->x; // no warning: no evidence this smart pointer can be null
   return a + p->x;
 }
 
@@ -610,12 +611,12 @@ int s6_static_cast_of_moved_assign(std::shared_ptr<Base> _Nullable p) {
 
 int s6_copy_unchecked(std::shared_ptr<S> p) {
   auto q = p;
-  return q->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return q->x; // no warning: no evidence this smart pointer can be null
 }
 
 int s6_static_cast_unchecked(std::shared_ptr<Base> p) {
   auto q = std::static_pointer_cast<Derived>(p);
-  return q->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return q->x; // no warning: no evidence this smart pointer can be null
 }
 
 int s6_dynamic_cast(std::shared_ptr<Base> _Nullable p) {
@@ -927,7 +928,7 @@ int s7a_chained_compared(std::shared_ptr<Node> _Nullable p) {
 int s7a_unannotated_member(std::shared_ptr<Node> _Nullable p) {
   if (!p)
     return 0;
-  return p->next->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return p->next->x; // no warning: no evidence this smart pointer can be null
 }
 
 int s7a_raw_member(std::shared_ptr<Node> _Nullable p) {
@@ -997,8 +998,7 @@ struct Tree {
 // S7b: a smart pointer returned by a call or by operator[] has no identity to
 // narrow, so a dereference of it warns only when it may be null by contract:
 // the callee declares a _Nullable return, or it is std::dynamic_pointer_cast.
-// An unannotated return is not reported (a local bound to it is, under the
-// nullable default).
+// An unannotated return is not reported, and neither is a local bound to it.
 //===----------------------------------------------------------------------===//
 
 struct Map {
