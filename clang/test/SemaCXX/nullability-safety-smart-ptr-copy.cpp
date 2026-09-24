@@ -102,3 +102,23 @@ void copy_assign_overwrites_proof(std::shared_ptr<Widget> other) {
   t = other;
   t->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
+
+void reference_is_not_a_copy() {
+  auto p = std::make_shared<Widget>();
+  auto &alias = p;
+  p.reset();
+  alias->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void const_reference_is_not_a_copy() {
+  auto p = std::make_shared<Widget>();
+  const std::shared_ptr<Widget> &alias = p;
+  p.reset();
+  alias->draw(); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+void self_assign_keeps_proof() {
+  auto p = std::make_shared<Widget>();
+  p = p;
+  p->draw();
+}

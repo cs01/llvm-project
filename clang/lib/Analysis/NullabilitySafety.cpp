@@ -1811,7 +1811,9 @@ private:
       } else if (isNullSmartPtrInit(Init)) {
         State.markNullable(VD);
       } else if (const Expr *Src = smartPtrCopySource(Init)) {
-        if (!isSmartPointerMaybeNull(Src))
+        // A reference binds to the source itself rather than copying it, so
+        // a later reset() of the source must reach it.
+        if (!VD->getType()->isReferenceType() && !isSmartPointerMaybeNull(Src))
           State.markNarrowed(VD);
       } else {
         // auto x = std::move(other); inherits the source's narrowed
@@ -2152,13 +2154,17 @@ private:
       std::optional<PtrRef> Lhs = smartPtrRef(LhsArg);
 
       if (Lhs) {
+        const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
+        // Judge a copy source before the LHS is cleared: in sp = sp the
+        // source is the LHS.
+        const Expr *CopySrc = smartPtrCopySource(RHS);
+        bool CopyIsNonnull = CopySrc && !isSmartPointerMaybeNull(CopySrc);
         // Clear the LHS's proof. A local only loses its narrowing; a member
         // path is additionally marked nullable.
         if (Lhs->VD)
           State.clear(*Lhs);
         else
           State.markNullable(*Lhs);
-        const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
 
         if (isNonnullSmartPtrInit(RHS)) {
           State.markNarrowed(*Lhs);
@@ -2176,9 +2182,8 @@ private:
           } else if (isNonnullType(RhsCE->getType())) {
             State.markNarrowed(*Lhs);
           }
-        } else if (const Expr *Src = smartPtrCopySource(RHS)) {
-          if (!isSmartPointerMaybeNull(Src))
-            State.markNarrowed(*Lhs);
+        } else if (CopyIsNonnull) {
+          State.markNarrowed(*Lhs);
         }
       } else if (auto StructPath = decomposeMemberAccess(LhsArg)) {
         // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
