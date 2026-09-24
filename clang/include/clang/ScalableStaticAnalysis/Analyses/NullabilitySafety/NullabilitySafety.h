@@ -8,9 +8,9 @@
 //
 // Per-contributor nullability evidence observed by the nullability safety
 // analysis: which parameters, fields and function returns received a
-// provably non-null value, a value null on every path, or a value null on
-// some path only, and which functions return a non-null pointer on every
-// path.
+// provably non-null value, a value that is null on every path, or one that is
+// null on only some paths, and which functions return a non-null pointer on
+// every path.
 //
 //===----------------------------------------------------------------------===//
 

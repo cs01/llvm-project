@@ -10,11 +10,11 @@
 // nullability inference (NullabilityInferenceAnalysisResult) back into the
 // source: it inserts _Nonnull on the outermost pointer of each parameter,
 // field and function return inferred non-null. Inferred _Nullable is not
-// written, since it adds warnings wherever code relies on invariants the
-// analysis cannot see: parameters and returns are reported as suggestions,
-// and for fields each store of null is reported. Declarators that cannot be
-// annotated, and declarators a nullable value may reach through pointer
-// flow, are reported too.
+// written, because it would add warnings wherever code relies on invariants
+// the analysis can't see. Instead, nullable parameters and returns are
+// reported as suggestions, and each null store to a field is reported.
+// Declarators that can't be annotated, and declarators a nullable value may
+// reach through pointer flow, are reported too.
 //
 //===----------------------------------------------------------------------===//
 
