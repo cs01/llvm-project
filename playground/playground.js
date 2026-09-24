@@ -72,6 +72,8 @@ async function loadExamples() {
 
             let diagnosticsTimeout;
             editor.onChange(() => {
+                editGeneration++;
+                clearResults();
                 clearTimeout(diagnosticsTimeout);
                 diagnosticsTimeout = setTimeout(async () => {
                     if (!scriptUrl || isCompiling) return;
@@ -253,6 +255,17 @@ async function loadExamples() {
             header.append(badge, chevron);
         }
 
+        function clearResults() {
+            outputSafety.replaceChildren();
+            outputMainline.replaceChildren();
+            outputAnalyzer.replaceChildren();
+            document.querySelectorAll('.output-section-header .section-summary').forEach(badge => badge.remove());
+            if (scriptUrl && !isCompiling) {
+                status.textContent = 'Ready to compile';
+                status.className = 'status ready';
+            }
+        }
+
         function summarize(counts, missed) {
             if (counts.error > 0) return [plural(counts.error, 'error'), 'tone-error'];
             if (counts.warning > 0) return [plural(counts.warning, 'warning'), 'tone-warning'];
@@ -292,6 +305,8 @@ async function loadExamples() {
 
         let clangVersion = '';
         let isCompiling = false;
+        let compileQueued = false;
+        let editGeneration = 0;
         let isDragging = false;
         let scriptUrl = null;
         let wasmBinary = null;
@@ -383,6 +398,7 @@ async function loadExamples() {
         examplesSelect.addEventListener('change', (e) => {
             const example = e.target.value;
             if (example && examples[example]) {
+                editor.setMarkers([]);
                 setEditorValue(examples[example]);
 
                 // Update URL with ?example= parameter using example number
@@ -707,7 +723,10 @@ async function loadExamples() {
         }
 
         async function compile() {
-            if (isCompiling) return;
+            if (isCompiling) {
+                compileQueued = true;
+                return;
+            }
             if (!scriptUrl) {
                 outputSafety.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
                 outputMainline.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
@@ -726,6 +745,7 @@ async function loadExamples() {
             loadingBar.classList.add('active');
 
             const startTime = performance.now();
+            const generation = editGeneration;
 
             // Base flags for the static analyzer: no Nullability Safety, all
             // null-related checkers turned on. This simulates what a careful
@@ -752,6 +772,8 @@ async function loadExamples() {
                     compileCode(code, [], mainlineBaseFlags, inputFile),
                     compileCode(code, [], analyzerBaseFlags, inputFile)
                 ]);
+
+                if (generation !== editGeneration) return;
 
                 const duration = (performance.now() - startTime).toFixed(0);
 
@@ -801,6 +823,11 @@ async function loadExamples() {
                 compileBtn.disabled = false;
                 nullabilityDefaultSelect.disabled = false;
                 loadingBar.classList.remove('active');
+                if (generation !== editGeneration) clearResults();
+                if (compileQueued) {
+                    compileQueued = false;
+                    compile();
+                }
             }
         }
 
