@@ -1,5 +1,5 @@
-// Regression test: warn_nullability_safety_null_init ("null assigned to a variable of
-// nonnull type") must NOT fire in a discarded `if constexpr` branch. The
+// Regression test: warn_nullability_safety_null_init ("initializing a variable of
+// nonnull type ... with null") must NOT fire in a discarded `if constexpr` branch. The
 // discarded branch is parsed inside a DiscardedStatement evaluation context,
 // so the type-based null-init check in SemaDecl is gated on that.
 
@@ -15,7 +15,7 @@ void plain_discarded() {
 
 void plain_live() {
   if constexpr (true) {
-    int *_Nonnull p = nullptr; // expected-warning{{null assigned to a variable of nonnull type}}
+    int *_Nonnull p = nullptr; // expected-warning{{initializing a variable of nonnull type}}
     (void)p;
   }
 }

@@ -3050,13 +3050,12 @@ static bool shouldSuggestUnsafeBufferUsageSuggestions(const Sema &S) {
 namespace {
 class NullabilitySafetyReporter : public NullabilitySafetyHandler {
   Sema &S;
-  // Buffered so finishFunction() can sort by source location: the analysis
-  // reports in CFG block order, not source order (same pattern as
-  // ThreadSafetyReporter).
+  // Buffered so finishFunction() can sort by source location. The analysis
+  // reports in CFG block order, not source order (as in ThreadSafetyReporter).
   DiagList Warnings;
-  // Dedupe key: (diag ID, location, distinguishing argument). One location
-  // can legitimately be reported more than once per function: `p - p`
-  // reports p for both operands.
+  // Dedupe key: (diag ID, location, distinguishing argument). The analysis
+  // can report the same location more than once per function; for example,
+  // `p - p` reports p once for each operand.
   llvm::DenseSet<std::tuple<unsigned, SourceLocation, const void *>>
       SeenDiags;
 
@@ -3080,8 +3079,8 @@ public:
         S.Diag(Note.first, Note.second);
     }
     Warnings.clear();
-    // Reset per-function so cross-function behavior (e.g. one warning per
-    // template instantiation) is unchanged.
+    // Dedupe only within a function, so each template instantiation still
+    // gets its own warning.
     SeenDiags.clear();
   }
 
@@ -3250,10 +3249,10 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   if (lifetimes::IsLifetimeSafetyEnabled(S, TU))
     LifetimeSafetyTUAnalysis(S, TU, LSStats);
 
-  // Analyze the whole TU in call-graph order whenever the language feature is
-  // enabled. Diagnostic state at an invalid SourceLocation only reflects the
-  // command line and cannot detect warnings re-enabled by a source pragma;
-  // emission at each real source location still applies all suppression rules.
+  // Run whenever -fnullability-safety is on, without first checking whether
+  // the warnings are enabled: diagnostic state at an invalid SourceLocation
+  // reflects only the command line and would miss warnings re-enabled by a
+  // pragma. Each diagnostic is still filtered at its own location.
   if (S.getLangOpts().NullabilitySafety)
     NullabilitySafetyTUAnalysis(S, TU);
 }
@@ -3413,9 +3412,9 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     Reporter.emitDiagnostics();
   }
 
-  // Flow-sensitive nullability now runs as a TU-level analysis in
-  // call-graph order (see NullabilitySafetyTUAnalysis). This ensures
-  // all-returns-nonnull inference works regardless of source order.
+  // Nullability safety runs separately as a TU-level analysis in call-graph
+  // order (see NullabilitySafetyTUAnalysis), so inferring a nonnull return
+  // from a callee's body works regardless of source order.
 
   // Check for violations of consumed properties.
   if (P.enableConsumedAnalysis) {

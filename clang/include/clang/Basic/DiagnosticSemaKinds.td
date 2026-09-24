@@ -13133,7 +13133,7 @@ def warn_nullability_safety_dereference : Warning<
   "dereference of nullable pointer %0">,
   InGroup<NullabilitySafetyDereference>;
 def warn_nullability_safety_null_init : Warning<
-  "null assigned to a variable of nonnull type %0">,
+  "initializing a variable of nonnull type %0 with null">,
   InGroup<NullabilitySafetyAssignment>;
 def note_nullable_dereference_fix : Note<
   "add a null check before dereferencing, or annotate as '_Nonnull' if this "

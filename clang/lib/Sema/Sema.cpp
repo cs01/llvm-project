@@ -711,27 +711,19 @@ void Sema::diagnoseNullableToNonnullConversion(QualType DstType,
   if (!TypeNullability || *TypeNullability != NullabilityKind::NonNull)
     return;
 
-  // When flow-sensitive nullability is enabled, the flow analysis provides
-  // strictly better coverage: it respects null checks (suppresses after
-  // narrowing), handles dynamic nullability (reset/move/reassignment), and
-  // works correctly under -fnullability-default=nullable. The type-based
-  // warning would only add false positives (e.g., after if (p) return p;
-  // where p's declared type is still _Nullable but the flow proves nonnull).
+  // The flow-sensitive analysis subsumes this type-based warning: it respects
+  // null checks, tracks reset/move/reassignment, and handles
+  // -fnullability-default=nullable. Warning here as well would only add false
+  // positives, e.g. on `if (p) return p;` where p is declared _Nullable but is
+  // known to be nonnull.
   //
-  // BUT the flow analysis only runs on a function that opted in: either a
-  // non-unspecified -fnullability-default is in effect, or the enclosing
-  // function carries explicit nullability annotations (see getAnalyzableDecl's
-  // opt-in gate in AnalysisBasedWarnings.cpp). If neither holds, the enclosing
-  // function is never analyzed, so suppressing here would leave the conversion
-  // unwarned by anyone. Only suppress when flow analysis will actually cover
-  // this expression; otherwise fall through to the legacy type-based warning.
+  // The flow analysis only covers functions that opted in, though (see
+  // isNullabilitySafetyOptedIn). Suppress only in that case; otherwise nothing
+  // else would report the conversion.
   if (getLangOpts().NullabilitySafety) {
-    // The enclosing decl the flow checker would analyze may be a block or an
-    // ObjC method, not just a function/lambda — getCurFunctionDecl is null in
-    // those contexts. Pick the innermost one (block, then method, then
-    // function) and apply the same opt-in gate as getAnalyzableDecl, otherwise
-    // an annotated ObjC method/block under an unspecified default would get
-    // both this legacy warning AND the flow warning.
+    // The enclosing decl may be a block or an ObjC method, where
+    // getCurFunctionDecl returns null. Use the innermost of block, method, and
+    // function so an annotated block or method doesn't get both warnings.
     const Decl *EnclosingDecl = nullptr;
     if (sema::BlockScopeInfo *BSI = getCurBlock())
       EnclosingDecl = BSI->TheDecl;

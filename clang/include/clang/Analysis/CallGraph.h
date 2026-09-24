@@ -147,20 +147,19 @@ public:
   // We are only collecting the declarations, so do not step into the bodies.
   bool TraverseStmt(Stmt *S) override { return true; }
 
-  // Mitigation for an upstream-latent RecursiveASTVisitor bug, NOT a
-  // nullability-specific concern. RAV's DEF_TRAVERSE_TMPL_SPEC_DECL
-  // (RecursiveASTVisitor.h, added by PR #110899 / d2ac21d328a4) asserts that a
-  // VarTemplateSpecializationDecl with non-null getTemplateArgsAsWritten() is
-  // not a TSK_ImplicitInstantiation. That invariant is violated for a variable
-  // template referenced with explicit args inside another template's SFINAE
-  // (e.g. enable_if_t<is_same_v<U, T>> in a constructor's default template
-  // arg): when the enclosing template is implicitly instantiated, the inner var
-  // spec is created TSK_ImplicitInstantiation yet instantiation still calls
-  // setTemplateArgsAsWritten (SemaTemplateInstantiateDecl.cpp:4675, :6502).
-  // Any full-TU CallGraph::addToCallGraph walk hits this in an asserts build —
-  // including upstream's own LifetimeSafetyTUAnalysis and the static analyzer,
-  // which is why this shared-header override also shields them. Remove once the
-  // upstream RAV/instantiation fix lands.
+  // Works around an upstream RecursiveASTVisitor bug unrelated to
+  // nullability. DEF_TRAVERSE_TMPL_SPEC_DECL (added in PR #110899,
+  // d2ac21d328a4) asserts that a VarTemplateSpecializationDecl with non-null
+  // getTemplateArgsAsWritten() is not an implicit instantiation. That doesn't
+  // hold for a variable template used with explicit arguments in another
+  // template's SFINAE, e.g. enable_if_t<is_same_v<U, T>> in a constructor's
+  // default template argument. When the enclosing template is implicitly
+  // instantiated, the inner specialization is TSK_ImplicitInstantiation, yet
+  // instantiation still calls setTemplateArgsAsWritten
+  // (SemaTemplateInstantiateDecl.cpp). Any full-TU CallGraph::addToCallGraph
+  // walk hits this in an asserts build, including upstream's
+  // LifetimeSafetyTUAnalysis and the static analyzer, so this override
+  // protects them too. Remove it once upstream fixes the bug.
   bool TraverseVarTemplateSpecializationDecl(
       VarTemplateSpecializationDecl *D) override {
     if (D->getTemplateSpecializationKind() == TSK_ImplicitInstantiation)

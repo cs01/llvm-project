@@ -68,8 +68,8 @@ public:
   virtual void handleNullableMemberAtExit(SourceLocation Loc,
                                           const FieldDecl *Member) {}
 
-  /// Evidence collection: a pointer member is assigned, a function returns
-  /// a pointer, or a pointer argument is passed to a parameter.
+  /// Evidence for annotation inference: a pointer member is assigned, a
+  /// function returns a pointer, or a pointer argument is passed.
   virtual void handleMemberAssignEvidence(const Expr *AssignExpr,
                                           const FieldDecl *Member,
                                           NullabilityEvidence Kind) {}
@@ -81,14 +81,13 @@ public:
                                        const FunctionDecl *Func,
                                        NullabilityEvidence Kind) {}
 
-  /// Summary evidence: called after the dataflow fixpoint when every
-  /// return path in the function returns a provably non-null expression
-  /// (address-of, this, new, narrowed var, etc.). Enables callers to
-  /// treat the function's return as implicitly _Nonnull.
+  /// Called after the fixpoint when every return in the function yields a
+  /// provably non-null value (&x, this, new, a narrowed variable, ...), so
+  /// callers can treat the result as implicitly _Nonnull.
   virtual void handleAllReturnsNonnull(const FunctionDecl *Func) {}
 
-  /// Bracket the callbacks for one function analyzed by
-  /// runNullabilitySafetyOnTU.
+  /// Called before and after the callbacks for each function that
+  /// runNullabilitySafetyOnTU analyzes.
   virtual void startFunction(const Decl *Def) {}
   virtual void finishFunction(const Decl *Def) {}
 };

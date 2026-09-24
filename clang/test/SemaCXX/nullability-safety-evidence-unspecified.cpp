@@ -138,12 +138,12 @@ void call_two_params(int *p) {
 // inferred.
 
 void pass_tainted_nonnull() {
-    int *_Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}}
+    int *_Nonnull a = nullptr; // expected-warning{{initializing a variable of nonnull type}}
     takes_ptr(a);
 }
 
 int *return_tainted_nonnull() {
-    int *_Nonnull a = nullptr; // expected-warning{{null assigned to a variable of nonnull type}}
+    int *_Nonnull a = nullptr; // expected-warning{{initializing a variable of nonnull type}}
     return a;
 }
 

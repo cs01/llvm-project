@@ -30,7 +30,7 @@
 // No annotations on the signature -> not opted in -> flow analysis skipped, so
 // only the type-based warn_nullability_safety_null_init fires here.
 void nullInitNonnull() {
-  int *_Nonnull p = nullptr; // warn-warning {{null assigned to a variable of nonnull type}} \
-                                werror-error {{null assigned to a variable of nonnull type}}
+  int *_Nonnull p = nullptr; // warn-warning {{initializing a variable of nonnull type}} \
+                                werror-error {{initializing a variable of nonnull type}}
   (void)p;
 }

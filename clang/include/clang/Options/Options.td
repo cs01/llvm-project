@@ -1762,8 +1762,8 @@ defm nullability_safety : BoolFOption<"nullability-safety",
 defm nullability_libc_nullable_returns : BoolFOption<"nullability-libc-nullable-returns",
   LangOpts<"NullabilityLibcNullableReturns">, DefaultTrue,
   NegFlag<SetFalse, [], [ClangOption, CC1Option],
-          "Disable treating C library functions that return null on "
-          "failure (malloc/fopen/...) as returning nullable pointers in "
+          "Don't treat C library functions that return null on failure "
+          "(malloc, fopen, ...) as returning nullable pointers in "
           "flow-sensitive nullability analysis">,
   PosFlag<SetTrue>>;
 defm xl_pragma_pack : BoolFOption<"xl-pragma-pack",

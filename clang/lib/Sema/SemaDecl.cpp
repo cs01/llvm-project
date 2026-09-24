@@ -14405,11 +14405,10 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
 
     Init = Result.getAs<Expr>();
 
-    // Skip discarded `if constexpr` branches: the non-taken branch is parsed
-    // inside a DiscardedStatement evaluation context (see ParseStmt.cpp), so a
-    // null-init of a _Nonnull var there is not a real initialization and must
-    // not warn. The flow analysis itself naturally skips these (they aren't in
-    // the CFG); this type-based check needs the explicit gate.
+    // Skip discarded `if constexpr` branches, which are parsed in a
+    // discarded-statement evaluation context: a null initializer there never
+    // runs. The flow analysis doesn't see these branches because they aren't
+    // in the CFG, but this type-based check has to test for them explicitly.
     if (VDecl && Init && getLangOpts().NullabilitySafety &&
         !ExprEvalContexts.empty() &&
         !ExprEvalContexts.back().isDiscardedStatementContext()) {

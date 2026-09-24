@@ -1351,7 +1351,7 @@ void constexpr_test_discarded() {
 // Live branch correctly warns
 void constexpr_test_live() {
     if constexpr (true) {
-        int * _Nonnull p = nullptr; // expected-warning{{null assigned to a variable of nonnull type}}
+        int * _Nonnull p = nullptr; // expected-warning{{initializing a variable of nonnull type}}
     }
 }
 
@@ -1375,7 +1375,7 @@ void constexpr_test_deref(int * _Nullable p) {
 template<bool B>
 void constexpr_template_branch() {
     if constexpr (B) {
-        int * _Nonnull p = nullptr; // expected-warning 2{{null assigned to a variable of nonnull type}}
+        int * _Nonnull p = nullptr; // expected-warning 2{{initializing a variable of nonnull type}}
     }
 }
 

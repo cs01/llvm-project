@@ -14,12 +14,12 @@
 // NullabilityInferenceAnalysisResult combines it with the pointer-flow graph.
 // Nonnull is a must-property: an entity is inferred Nonnull only when every
 // value stored to it is proven non-null. Each store contributes one piece of
-// evidence: Nonnull (proven), Nullable or MaybeNull (vetoes), Unknown (vetoes),
+// evidence: Nonnull (proven); Nullable, MaybeNull, or Unknown (each a veto);
 // or Conditional on the entities it was copied from (proven once all of those
 // are). Nonnull is the least fixpoint over the Conditional dependencies, so a
-// cycle with no proven store is not inferred. Pointer-flow edges only spread
-// the Nullable and MaybeNull vetoes to assignees; NullableReachable is what
-// that reached, for reporting.
+// cycle with no proven store is not inferred. Pointer-flow edges only
+// propagate the Nullable and MaybeNull vetoes to assignees; NullableReachable
+// records the entities they reach, for reporting.
 //
 //===----------------------------------------------------------------------===//
 
