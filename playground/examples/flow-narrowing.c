@@ -1,63 +1,69 @@
-// The compiler tracks null checks through control flow.
-// It catches bugs when you forget a check, AND knows
-// when a check makes further warnings unnecessary.
+// The compiler follows your null checks through control flow.
+// Once a pointer is checked, it's non-null on that path, so real
+// code with guards compiles clean and only the gaps get flagged.
+//
+// Two bugs below. Can you spot them before you hit Compile?
 
-// Can you spot the bug?
-typedef struct { int id; int score; } Player;
-Player* _Nullable lookup_player(int id);
+#include <assert.h>
+#include <stdio.h>
 
-int get_score(int id) {
-    Player* p = lookup_player(id);
+typedef struct Player {
+    int id;
+    int score;
+    const char* name;
+    struct Player* next;
+} Player;
+
+Player* _Nullable find_player(int id);
+Player* _Nullable find_rival(const Player* p);
+
+int score_gap(int id) {
+    Player* p = find_player(id);
     if (!p)
+        return 0;
+
+    Player* rival = find_rival(p);
+    if (!p)
+        return 0;
+
+    return p->score - rival->score;
+}
+
+int award_points(int id, int points) {
+    Player* p = find_player(id);
+    if (!p) {
+        fprintf(stderr, "no player %d (%s)\n", id, p->name);
         return -1;
-
-    Player* opponent = lookup_player(p->id + 1);
-    if (!p)          // BUG: copy-paste — checks p again instead of opponent
-        return -1;
-
-    return p->score - opponent->score;  // opponent might be NULL!
-}
-
-// --- Safe patterns the compiler recognizes ---
-
-void guard_clause(int* data) {
-    if (!data) return;
-
-    // data is proven non-null from here on
-    *data = 42;  // OK — no warning
-}
-
-void if_else(int* p) {
-    if (p) {
-        *p = 1;  // OK — p checked
-    } else {
-        // p is known NULL here — any use would warn
     }
+    p->score += points;
+    return p->score;
 }
 
-void and_pattern(int* p, int* q) {
-    if (p && q) {
-        *p = *q;  // OK — both checked
-    }
+// ---- Everything below is safe and compiles without a warning ----
+
+void reset(Player* p) {
+    if (!p)
+        return;
+    p->score = 0;
 }
 
-void ternary(int* p) {
-    int val = p ? *p : 0;  // OK — guarded by ternary
+int is_leader(Player* p) {
+    return p && p->score > 100;
 }
 
-// Pointer arithmetic is checked too
-void scan(int* buf, int n) {
-    int* end = buf + n;  // warning: arithmetic on nullable pointer
-    if (buf) {
-        int* end2 = buf + n;  // OK — buf was checked
-    }
+const char* display_name(Player* p) {
+    return p ? p->name : "(nobody)";
 }
 
-// Assertion macros work too — any [[noreturn]] function
-extern _Noreturn void abort(void);
-#define ASSERT(x) do { if (!(x)) abort(); } while(0)
+int total_score(Player* head) {
+    int total = 0;
+    for (Player* it = head; it; it = it->next)
+        total += it->score;
+    return total;
+}
 
-void with_assert(int* p) {
-    ASSERT(p);
-    *p = 42;  // OK — ASSERT proved p is non-null
+void promote(int id) {
+    Player* p = find_player(id);
+    assert(p && "promote() called with unknown id");
+    p->score *= 2;
 }
