@@ -1,0 +1,51 @@
+{
+  "projects": [
+    {
+      "name": "llvm-support",
+      "lang": "c++",
+      "root": "{repo}",
+      "compdb": "{build}/compile_commands.json",
+      "files": ["llvm/lib/Support/*.cpp"]
+    },
+    {
+      "name": "libuv",
+      "lang": "c",
+      "url": "https://github.com/libuv/libuv",
+      "commit": "4839e28d509b3c11fc86904e12abaa7212545fcf",
+      "root": "{corpus}/libuv",
+      "flags": ["-std=gnu11", "-D_GNU_SOURCE", "-Iinclude", "-Isrc"],
+      "files": [
+        "src/*.c",
+        "src/unix/async.c", "src/unix/core.c", "src/unix/dl.c",
+        "src/unix/fs.c", "src/unix/getaddrinfo.c", "src/unix/getnameinfo.c",
+        "src/unix/linux.c", "src/unix/loop-watcher.c", "src/unix/loop.c",
+        "src/unix/pipe.c", "src/unix/poll.c", "src/unix/process.c",
+        "src/unix/proctitle.c", "src/unix/signal.c", "src/unix/stream.c",
+        "src/unix/tcp.c", "src/unix/thread.c", "src/unix/tty.c",
+        "src/unix/udp.c"
+      ]
+    },
+    {
+      "name": "bdwgc",
+      "lang": "c",
+      "url": "https://github.com/bdwgc/bdwgc",
+      "commit": "ea7255d41e2a4cec49fef4320eb426542d193249",
+      "root": "{corpus}/bdwgc",
+      "flags": ["-std=gnu11", "-Iinclude"],
+      "files": [
+        "allchblk.c", "alloc.c", "blacklst.c", "dbg_mlc.c", "finalize.c",
+        "headers.c", "malloc.c", "mallocx.c", "mark.c", "mark_rts.c",
+        "misc.c", "new_hblk.c", "reclaim.c", "typd_mlc.c"
+      ]
+    },
+    {
+      "name": "cbmc-util",
+      "lang": "c++",
+      "url": "https://github.com/diffblue/cbmc",
+      "commit": "820ff0f555b43fb78e0cd9332e498461bd14244b",
+      "root": "{corpus}/cbmc",
+      "compdb": "{root}/build/compile_commands.json",
+      "files": ["src/util/*.cpp"]
+    }
+  ]
+}
