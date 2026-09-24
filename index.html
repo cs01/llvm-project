@@ -109,6 +109,15 @@
             letter-spacing: 0.2px;
         }
 
+        .header p code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+            color: #fff;
+            background: rgba(255,255,255,0.12);
+            padding: 1px 5px;
+            border-radius: 4px;
+        }
+
         .controls {
             padding: 12px 24px;
             background: var(--bg-secondary);
@@ -917,7 +926,7 @@
     <div class="header">
         <div class="header-content">
             <h1>Nullability Safety Playground</h1>
-            <p>A Clang fork that finds null pointer bugs in C and C++ at compile time</p>
+            <p>Try out <code>-fnullability-safety</code>, a proposed Clang flag for flow-sensitive null pointer analysis in C and C++</p>
         </div>
         <div class="header-links">
             <button id="reportBugBtn" class="header-link" style="background: none; border: none; cursor: pointer;" title="Report a bug or issue with the playground or compiler">
