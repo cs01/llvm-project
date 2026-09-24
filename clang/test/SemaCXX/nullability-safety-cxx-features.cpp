@@ -1391,7 +1391,7 @@ void constexpr_instantiate_both() {
 // ===----------------------------------------------------------------------===//
 
 // Tests that explicit _Nullable return types on template methods are caught.
-// Mimics the getComponent<T>() pattern from Clay ECS.
+// Mimics the getComponent<T>() pattern common in entity-component systems.
 
 struct Component {
     int value;
