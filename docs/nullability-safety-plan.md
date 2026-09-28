@@ -83,6 +83,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S6 | `std::static_pointer_cast` / `const_pointer_cast` / `reinterpret_pointer_cast` of a non-null smart pointer is non-null (the rvalue overloads move the source); `std::dynamic_pointer_cast` may yield null under either default | done (below) |
 | S3a | A guard built from a ternary with one constant false arm narrows (`p ? p->n : 0`, `p == nullptr ? false : X`) | done (below) |
 | S3b | A guard stored in a field (`d.ok = p != nullptr`, `this->ok`) narrows like a guard variable; assigning a struct as a whole drops every fact about paths under it | done (below) |
+| S9 | Smart pointer stores classify the value like raw pointer stores: a copy or move carries the source's nullability, and under the nonnull default an unannotated value stored in a member path is trusted, as in a local (found validating S7a) | done (below) |
 
 ## Step 5b results
 
@@ -407,8 +408,9 @@ against libc++ in C++20 mode (where `shared_ptr` declares only
 `operator==(const shared_ptr &, nullptr_t)`, so `!=` and reversed
 comparisons are rewritten) and against libstdc++ (inherited operators). Each
 defect has a target-behavior test; numbers follow the review, and the steps
-land in dependency order: S8, S4, S5, S0, S2, S3c, S1, S6, S3a, S3b, S7a, S7b
-(S0 was found while validating S2 and is not in the review).
+land in dependency order: S8, S4, S5, S0, S2, S3c, S1, S6, S3a, S3b, S9, S7a,
+S7b (S0 and S9 were found while validating S2 and S7a and are not in the
+review).
 libc++-shaped cases live in `SemaCXX/nullability-safety-smart-ptr-libcxx.cpp`
 (added with S4),
 libstdc++-shaped ones in `nullability-safety-smart-ptr-base-access.cpp`.
@@ -560,13 +562,9 @@ lost line is a repeat of a dereference that still warns earlier on its path
 (for example `Interpreter.cpp:363` stays, 369-394 go; `LLJIT.cpp:1020` stays,
 1027-1053 go).
 
-Not changed, noted for a decision: under the nonnull default a smart pointer
-member assigned a value that is not provably non-null (an unannotated call,
-a move from an unchecked parameter) stays nullable, because
-`handleSmartPtrAssign` marks a member path nullable before looking at the
-value; `m = make(); m->x` warns while the same code on a local does not
-(F1). The two nonnull warnings left at `Interpreter.cpp:363` are this
-(`CI = std::move(Instance)`, `Act = TSCtx->withContextDo(...)`).
+The two nonnull warnings left at `Interpreter.cpp:363` were a member
+assigned an unannotated value (`CI = std::move(Instance)`,
+`Act = TSCtx->withContextDo(...)`), removed by S9.
 
 ## S6 results
 
@@ -589,11 +587,7 @@ warns under both defaults. This adds nonnull-mode warnings for unchecked
 them), verified to fail before and to pass with real libstdc++ and libc++
 `<memory>`. sqlite: no change (C). LLVM differential: no change.
 
-Not changed, noted for a decision: a copy only inherits narrowing, never
-nullability. `std::shared_ptr<T> q = p;` with `p` declared `_Nullable` or
-flow-nullable is not nullable under the nonnull default (`auto q = p` is,
-through the deduced type), while `T *q = p` on raw pointers is
-(`storePointer`).
+A copy then only inherited narrowing, never nullability; S9 changes that.
 
 ## S3a results
 
@@ -628,6 +622,35 @@ runs `invalidateMembersFor`. As for member paths, a call is not assumed to
 change a field guard. Tests in `smart-ptr-libcxx.cpp` and
 `Sema/nullability-safety-guard-idioms.c`, verified to fail before. sqlite:
 no change. LLVM differential: no change.
+
+## S9 results
+
+Found validating S7a, which makes paths through smart pointers member paths
+(`AST->ModCache = f(); *AST->ModCache`) and gained two nonnull-mode LLVM
+warnings of one shape: `handleSmartPtrAssign` marked a member path nullable
+before looking at the value, so under the nonnull default
+`m = make(); m->x` warned where the same code on a local, and a raw member
+(`storePointer` leaves an unknown value unknown), did not. Now:
+
+- A member path assigned a value the transfer cannot classify is cleared,
+  like a local, under the nonnull default. Under the other defaults it is
+  still marked nullable: a `this->` smart pointer member is trusted unless
+  flow marks it (`warnSmartPtrDeref`), where a raw member would fall back to
+  its `_Null_unspecified` type.
+- Dropping that mark alone would lose `m = std::move(moved_from)`, so a
+  copy or move now carries the source's nullability as well as its
+  narrowing (`isSmartPointerKnownNullable`: flow-nullable, or `_Nullable`
+  and not narrowed), in initialization and assignment. This also makes
+  `std::shared_ptr<T> q = p;` nullable for a `_Nullable` `p` under the
+  nonnull default (`auto q = p` was, through the deduced type), as
+  `T *q = p` is.
+
+Tests in `smart-ptr-libcxx.cpp`, verified to fail before (nullable mode is
+unchanged by construction). sqlite: no change (C). LLVM differential:
+nonnull 9 -> 2, 0 gained (all seven a member assigned an unannotated value:
+`TrimmedGraph = OriginalGraph->trim(...)` in `BugReporter.cpp`, the two in
+`Interpreter.cpp`, four `LLJIT.cpp` members such as `ES = std::move(S.ES)`);
+nullable no change.
 
 ## Step 5a results
 

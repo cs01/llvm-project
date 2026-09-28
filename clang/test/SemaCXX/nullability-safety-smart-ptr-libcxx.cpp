@@ -801,3 +801,81 @@ int s3b_struct_overwritten_member(Info other) {
   d = other;
   return d.raw->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
 }
+
+//===----------------------------------------------------------------------===//
+// S9: a smart pointer store classifies the stored value as a raw pointer
+// store does. A copy or move carries the source's nullability as well as its
+// narrowing, and a value that is neither provably non-null nor nullable
+// leaves the target to the default: under the nonnull default, a member
+// path assigned an unannotated value is trusted, as a local is.
+//===----------------------------------------------------------------------===//
+
+int s9_copy_of_nullable(std::shared_ptr<S> _Nullable p) {
+  std::shared_ptr<S> q = p;
+  return q->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s9_copy_of_reset(std::shared_ptr<S> p) {
+  p.reset();
+  std::shared_ptr<S> q(p);
+  return q->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s9_copy_assign_of_nullable(std::shared_ptr<S> _Nullable p) {
+  std::shared_ptr<S> q = lookup(0);
+  q = p;
+  return q->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s9_move_of_nullable(std::shared_ptr<S> _Nullable p) {
+  std::shared_ptr<S> q = std::move(p);
+  return q->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s9_move_assign_of_moved_from(std::shared_ptr<S> p, std::shared_ptr<S> q) {
+  consume(std::move(p));
+  q = std::move(p);
+  return q->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s9_copy_of_checked(std::shared_ptr<S> _Nullable p) {
+  if (!p)
+    return 0;
+  std::shared_ptr<S> q = p;
+  return q->x;
+}
+
+struct Owner {
+  std::shared_ptr<S> m;
+
+  int assign_unannotated() {
+    m = lookup(1);
+    return m->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  }
+
+  int move_unannotated(std::shared_ptr<S> p) {
+    m = std::move(p);
+    return m->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  }
+
+  int assign_nullable() {
+    m = lookup_nullable(1);
+    return m->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  }
+
+  int move_nullable(std::shared_ptr<S> _Nullable p) {
+    m = std::move(p);
+    return m->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  }
+
+  int copy_reset(std::shared_ptr<S> p) {
+    p.reset();
+    m = p;
+    return m->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  }
+};
+
+int s9_member_of_variable(Owner &o) {
+  o.m = lookup(1);
+  return o.m->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+}

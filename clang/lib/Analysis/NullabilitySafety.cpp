@@ -1981,15 +1981,20 @@ private:
       } else if (isNullSmartPtrInit(Init)) {
         State.markNullable(VD);
       } else if (const Expr *Src = smartPtrCopySource(Init)) {
-        // A reference binds to the source itself rather than copying it, so
-        // a later reset() of the source must reach it.
-        if (!VD->getType()->isReferenceType() && !isSmartPointerMaybeNull(Src))
-          State.markNarrowed(VD);
+        // A copy holds what the source holds. A reference binds to the
+        // source itself rather than copying it, so a later reset() of the
+        // source must reach it.
+        if (!VD->getType()->isReferenceType()) {
+          if (!isSmartPointerMaybeNull(Src))
+            State.markNarrowed(VD);
+          else if (isSmartPointerKnownNullable(Src))
+            State.markNullable(VD);
+        }
       } else {
-        // auto x = std::move(other); inherits the source's narrowed
-        // state. The standalone std::move handler skipped the source
-        // erase (see isStdMoveInsideSmartPtrTransferCtx), so the
-        // source's pre-move state is still in NarrowedVars here.
+        // auto x = std::move(other); inherits the source's state. The
+        // standalone std::move handler skipped the source erase (see
+        // isStdMoveInsideSmartPtrTransferCtx), so the source's pre-move
+        // state is still there.
         const Expr *Inner = lookThroughNullPreservingConversions(Init);
         if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
           if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
@@ -1997,6 +2002,8 @@ private:
             if (auto Src = smartPtrRef(CE->getArg(0))) {
               if (State.isNarrowed(*Src))
                 State.markNarrowed(VD);
+              else if (isSmartPointerKnownNullable(CE->getArg(0)))
+                State.markNullable(VD);
               forgetSmartPtrFacts(*Src);
               State.markNullable(*Src);
             }
@@ -2337,10 +2344,15 @@ private:
           return;
         // Judge a copy source before the LHS is cleared.
         bool CopyIsNonnull = CopySrc && !isSmartPointerMaybeNull(CopySrc);
+        bool CopyIsNullable = CopySrc && isSmartPointerKnownNullable(CopySrc);
         forgetSmartPtrFacts(*Lhs);
-        // Clear the LHS's proof. A local only loses its narrowing; a member
-        // path is additionally marked nullable.
-        if (Lhs->VD)
+        // Clear the LHS's facts. A value the checks below cannot classify
+        // leaves a local unknown, like a raw pointer store. A member path is
+        // marked nullable instead unless unknown smart pointers are trusted
+        // (the nonnull default): a this-> member is trusted unless flow
+        // marks it (see warnSmartPtrDeref), where a raw member would fall
+        // back to its declared type.
+        if (Lhs->VD || Options.DefaultNullability == NullabilityKind::NonNull)
           State.clear(*Lhs);
         else
           State.markNullable(*Lhs);
@@ -2355,11 +2367,15 @@ private:
             // sp = std::move(other), possibly through a null-preserving
             // cast: LHS inherits source's state.
             auto Src = smartPtrRef(RhsCE->getArg(0));
+            bool SrcIsNullable =
+                Src && isSmartPointerKnownNullable(RhsCE->getArg(0));
             if (Src)
               forgetSmartPtrFacts(*Src);
             if (Src && Src->VD) {
               if (isNarrowed(Src->VD))
                 State.markNarrowed(*Lhs);
+              else if (SrcIsNullable)
+                State.markNullable(*Lhs);
               State.markNullable(Src->VD);
             }
           } else if (isNonnullType(RhsCE->getType())) {
@@ -2367,6 +2383,8 @@ private:
           }
         } else if (CopyIsNonnull) {
           State.markNarrowed(*Lhs);
+        } else if (CopyIsNullable) {
+          State.markNullable(*Lhs);
         }
       } else if (auto StructPath = decomposeMemberAccess(LhsArg)) {
         // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
@@ -2650,6 +2668,16 @@ private:
       warnSmartPtrDeref(DerefExpr, Obj);
     if (auto R = smartPtrRef(Obj))
       State.markNarrowed(*R);
+  }
+
+  /// Whether the smart pointer Obj names is known to be possibly null right
+  /// now: flow-marked nullable, or declared _Nullable and not narrowed.
+  /// Unlike isSmartPointerMaybeNull this ignores the mode default, so it is
+  /// what a copy or move carries to its destination.
+  bool isSmartPointerKnownNullable(const Expr *Obj) const {
+    if (isSmartPointerNullable(Obj))
+      return true;
+    return !isSmartPointerNarrowed(Obj) && isSmartPointerDeclaredNullable(Obj);
   }
 
   bool isSmartPointerMaybeNull(const Expr *Obj) const {
