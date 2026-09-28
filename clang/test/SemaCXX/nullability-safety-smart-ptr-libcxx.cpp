@@ -25,6 +25,7 @@ public:
   T *operator->() const noexcept;
   explicit operator bool() const noexcept;
   void reset() noexcept;
+  void swap(shared_ptr &) noexcept;
 };
 template <class T>
 bool operator==(const shared_ptr<T> &, nullptr_t) noexcept;
@@ -312,4 +313,89 @@ int s2_ref_across_call(std::shared_ptr<S> _Nullable &p) {
     return 0;
   mutate();
   return p->x;
+}
+
+//===----------------------------------------------------------------------===//
+// S3c: a guard's facts about a smart pointer are dropped when the pointer
+// changes (assignment, reset(), swap(), a move from it), as for a raw
+// pointer.
+//===----------------------------------------------------------------------===//
+
+S *_Nullable s3c_raw_lookup(int id);
+
+int s3c_assign_nullable(std::shared_ptr<S> _Nullable p) {
+  const bool ok = p != nullptr;
+  p = lookup_nullable(1);
+  return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3c_assign_unannotated(std::shared_ptr<S> _Nullable p) {
+  const bool ok = p != nullptr;
+  p = lookup(1);
+  return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3c_assign_null(std::shared_ptr<S> p) {
+  const bool ok = p != nullptr;
+  p = nullptr;
+  return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3c_reset(std::shared_ptr<S> p) {
+  const bool ok = p != nullptr;
+  p.reset();
+  return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3c_moved_from(std::shared_ptr<S> p) {
+  const bool ok = p != nullptr;
+  consume(std::move(p));
+  return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3c_move_constructed_from(std::shared_ptr<S> p) {
+  const bool ok = p != nullptr;
+  std::shared_ptr<S> q = std::move(p);
+  (void)q;
+  return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3c_swapped(std::shared_ptr<S> _Nullable p, std::shared_ptr<S> _Nullable q) {
+  const bool ok = p != nullptr;
+  p.swap(q);
+  return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3c_reset_through_ref(std::shared_ptr<S> &p) {
+  const bool ok = p != nullptr;
+  p.reset();
+  return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+struct SmartHolder {
+  std::shared_ptr<S> _Nullable sp;
+};
+
+int s3c_member_reset(SmartHolder h) {
+  const bool ok = h.sp != nullptr;
+  h.sp.reset();
+  return ok ? h.sp->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3c_kept(std::shared_ptr<S> _Nullable p) {
+  const bool ok = p != nullptr;
+  return ok ? p->x : 0;
+}
+
+// Assigning a pointer to itself changes nothing.
+int s3c_self_assign(std::shared_ptr<S> _Nullable p) {
+  const bool ok = p != nullptr;
+  p = p;
+  return ok ? p->x : 0;
+}
+
+int s3c_raw_assign(S *p) {
+  const bool ok = p != nullptr;
+  p = s3c_raw_lookup(1);
+  return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }

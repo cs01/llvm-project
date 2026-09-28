@@ -1908,6 +1908,7 @@ private:
             if (auto Src = smartPtrRef(CE->getArg(0))) {
               if (State.isNarrowed(*Src))
                 State.markNarrowed(VD);
+              forgetSmartPtrFacts(*Src);
               State.markNullable(*Src);
             }
           }
@@ -2166,6 +2167,7 @@ private:
             }
           }
           if (auto R = smartPtrRef(Obj)) {
+            forgetSmartPtrFacts(*R);
             State.clear(*R);
             if (Result == ResetNullability::Nonnull)
               State.markNarrowed(*R);
@@ -2184,6 +2186,7 @@ private:
       return;
     if (MD->getName() == "release") {
       if (auto R = smartPtrRef(Obj)) {
+        forgetSmartPtrFacts(*R);
         State.clear(*R);
         State.markNullable(*R);
       }
@@ -2208,6 +2211,10 @@ private:
     bool ANullable = RA && State.isNullable(*RA);
     bool BNarrowed = RB && State.isNarrowed(*RB);
     bool BNullable = RB && State.isNullable(*RB);
+    if (RA)
+      forgetSmartPtrFacts(*RA);
+    if (RB)
+      forgetSmartPtrFacts(*RB);
     if (RA) {
       State.clear(*RA);
       if (BNarrowed)
@@ -2234,10 +2241,14 @@ private:
 
       if (Lhs) {
         const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
-        // Judge a copy source before the LHS is cleared: in sp = sp the
-        // source is the LHS.
         const Expr *CopySrc = smartPtrCopySource(RHS);
+        // sp = sp changes nothing, like p = p on a raw pointer: its facts,
+        // and the guards that tested it, still hold.
+        if (CopySrc && smartPtrRef(CopySrc) == Lhs)
+          return;
+        // Judge a copy source before the LHS is cleared.
         bool CopyIsNonnull = CopySrc && !isSmartPointerMaybeNull(CopySrc);
+        forgetSmartPtrFacts(*Lhs);
         // Clear the LHS's proof. A local only loses its narrowing; a member
         // path is additionally marked nullable.
         if (Lhs->VD)
@@ -2253,6 +2264,8 @@ private:
           if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
             // sp = std::move(other): LHS inherits source's state.
             auto Src = smartPtrRef(RhsCE->getArg(0));
+            if (Src)
+              forgetSmartPtrFacts(*Src);
             if (Src && Src->VD) {
               if (isNarrowed(Src->VD))
                 State.markNarrowed(*Lhs);
@@ -2282,8 +2295,10 @@ private:
     if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
         (!ParentMapPtr ||
          !isStdMoveInsideSmartPtrTransferCtx(CE, *ParentMapPtr))) {
-      if (auto R = smartPtrRef(CE->getArg(0)))
+      if (auto R = smartPtrRef(CE->getArg(0))) {
+        forgetSmartPtrFacts(*R);
         State.markNullable(*R);
+      }
     }
   }
 
@@ -2806,6 +2821,17 @@ private:
     State.clear(PtrRef{VD, std::nullopt});
     State.MustNullableVars.erase(VD);
     forgetFactsAbout(VD);
+  }
+
+  /// Drop the facts that named a smart pointer's old value when it is
+  /// assigned, reset, released, swapped or moved from: the guards that
+  /// tested it (bool ok = sp != nullptr) and, for a variable, everything
+  /// forgetFactsAbout drops. Does not touch R's own narrowed/nullable flags.
+  void forgetSmartPtrFacts(const PtrRef &R) {
+    if (R.VD)
+      forgetFactsAbout(R.VD);
+    else
+      invalidateGuardsAndAliasesWithPrefix(*R.Path);
   }
 
   /// Drop every fact that named VD's old value: member paths rooted at it,

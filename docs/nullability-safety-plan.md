@@ -78,6 +78,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S5 | `_Nonnull` / `_Nullable` on a reference to a smart pointer is read from the referenced type, for the dereference check and for the unspecified-mode opt-in; a local initialized from a `_Nonnull`-returning call is non-null | done (below) |
 | S0 | A declaration drops every fact about its variable (found while validating S2: facts from the previous loop iteration survived the next iteration's declaration) | done (below) |
 | S2 | A smart pointer reached through a reference (parameter, reference member) is tracked: null checks narrow it, and `reset()`, assignment and `std::move` through it drop the narrowing | done (below) |
+| S3c | A guard's facts about a smart pointer are dropped when the pointer is assigned, reset, released, swapped or moved from | done (below) |
 
 ## Step 5b results
 
@@ -522,6 +523,21 @@ gained, all `auto &x = map[k]; if (!x) x = std::make_*(...);` on a reference
 (`ASTUnit.cpp` x5, `Driver.cpp`, Orc `Core.cpp`), and one call now summarized
 all-returns-nonnull (`getBugTypeForName` returns `.get()` of such a
 reference, `BugReporter.cpp`).
+
+## S3c results
+
+`bool ok = sp != nullptr; sp = f(); if (ok) sp->x` did not warn: raw
+pointer assignment drops the guards naming the pointer through
+`forgetFactsAbout`, but the smart pointer handlers never did.
+`forgetSmartPtrFacts` (a variable: `forgetFactsAbout`; a member path:
+`invalidateGuardsAndAliasesWithPrefix`) now runs for the assigned pointer and
+a moved-from source in `handleSmartPtrAssign`, the moved-from source of a
+move construction, `reset()`, `release()`, member and `std::swap` (both
+sides) and a bare `std::move`. `sp = sp` returns early like `p = p`, so its
+guards survive; before, it only kept the narrowing. Tests in
+`smart-ptr-libcxx.cpp`, verified to fail before (and the self-assignment
+case to fail without the early return). sqlite: no change (C). LLVM
+differential: no change.
 
 ## Step 5a results
 
