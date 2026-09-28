@@ -77,6 +77,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S4 | `!(sp != nullptr)` narrows when `!=` is a C++20 rewritten comparison (libc++ declares only `operator==`), as in assertion macro expansions | done (below) |
 | S5 | `_Nonnull` / `_Nullable` on a reference to a smart pointer is read from the referenced type, for the dereference check and for the unspecified-mode opt-in; a local initialized from a `_Nonnull`-returning call is non-null | done (below) |
 | S0 | A declaration drops every fact about its variable (found while validating S2: facts from the previous loop iteration survived the next iteration's declaration) | done (below) |
+| S2 | A smart pointer reached through a reference (parameter, reference member) is tracked: null checks narrow it, and `reset()`, assignment and `std::move` through it drop the narrowing | done (below) |
 
 ## Step 5b results
 
@@ -500,6 +501,27 @@ array element. Annotations: no change. LLVM differential: nonnull 33 -> 23,
 0 gained (8 in `BugReporter.cpp`, 1 each in Orc `Core.cpp` and
 `ExecutionUtils.cpp`: smart pointers declared in a loop and moved from at
 its end); nullable no change.
+
+## S2 results
+
+`smartPtrRef` judges the expression (`isSmartPointerObject`) instead of the
+declared type: for `const std::shared_ptr<T> &p` or a reference member the
+declaration is a reference type, which `isSmartPointerType` rejects, so
+`p == nullptr` did not narrow (`!p` did, through `operator bool`), a
+reference member was never checked, and `reset()`, assignment and
+`std::move` through a reference did not drop a narrowing. Local references
+bound to a variable were already resolved to it. `analyzeSmartPtrNullCompare`,
+`operator bool`, `get()` and the dereference report go through the same
+test, which also lets `==` / `!=` and `reset()` reach a class deriving from
+a std smart pointer (S8). A call is still not assumed to change what a
+reference refers to (as for member paths; locked by `s2_ref_across_call`).
+Tests in `smart-ptr-libcxx.cpp` and `smart-ptr-nonnull-ref.cpp`, verified to
+fail before and to pass with real libstdc++ and libc++ `<memory>`. sqlite:
+no change (C). LLVM differential: nonnull no change; nullable 8 lost, 0
+gained, all `auto &x = map[k]; if (!x) x = std::make_*(...);` on a reference
+(`ASTUnit.cpp` x5, `Driver.cpp`, Orc `Core.cpp`), and one call now summarized
+all-returns-nonnull (`getBugTypeForName` returns `.get()` of such a
+reference, `BugReporter.cpp`).
 
 ## Step 5a results
 

@@ -66,12 +66,23 @@ int nullable_const_ref_checked(const std::shared_ptr<S> _Nullable &p) {
   return p->x;
 }
 
+// Flow facts still override the declared contract.
+int nonnull_ref_after_reset(std::shared_ptr<S> _Nonnull &p) {
+  p.reset();
+  return p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
 struct Holder {
   const std::shared_ptr<S> _Nonnull &r;
+  const std::shared_ptr<S> _Nullable &n;
 };
 
 int nonnull_ref_member(Holder h, S *_Nonnull unused) {
   return h.r->x;
+}
+
+int nullable_ref_member(Holder h, S *_Nonnull unused) {
+  return h.n->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
 // A function whose only annotation is its reference return type is analyzed.

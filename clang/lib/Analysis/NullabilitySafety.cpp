@@ -992,12 +992,16 @@ static bool isLibcNullableReturnCall(const CallExpr *CE) {
       .Default(false);
 }
 
-/// The tracked pointer E names, if its declared type is a std smart pointer.
+/// The tracked pointer E names, if E is a std smart pointer object (see
+/// isSmartPointerObject). The expression's type is tested rather than the
+/// declaration's: a reference (const std::shared_ptr<T> &p, a reference
+/// member) declares a reference type but names the smart pointer itself, and
+/// a class deriving from a std smart pointer shows up through the
+/// derived-to-base cast of an inherited member's object argument.
 static std::optional<PtrRef> smartPtrRef(const Expr *E) {
-  auto R = PtrRef::fromExpr(E);
-  if (R && isSmartPointerType(R->getType()))
-    return R;
-  return std::nullopt;
+  if (!isSmartPointerObject(E))
+    return std::nullopt;
+  return PtrRef::fromExpr(E);
 }
 
 /// The smart pointer a copy (T t = s, T t(s), t = s) reads from, seen through
@@ -1089,10 +1093,7 @@ static std::optional<PtrRef> smartPtrGetRef(const Expr *E) {
   const Expr *Obj = CE ? smartPtrGetReceiver(CE) : nullptr;
   if (!Obj)
     return std::nullopt;
-  auto R = PtrRef::fromExpr(Obj);
-  if (R && (R->VD || isSmartPointerType(R->getType())))
-    return R;
-  return std::nullopt;
+  return smartPtrRef(Obj);
 }
 
 // Forward declaration: decomposeChain calls analyzeCondition on leaves.
@@ -1248,15 +1249,15 @@ analyzeSmartPtrNullCompare(const CXXOperatorCallExpr *OCE, bool Negated,
         RHS->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
 
     if (LHSIsNull || RHSIsNull) {
-      const Expr *PtrExpr = LHSIsNull ? RHS : LHS;
-      PtrExpr = PtrExpr->IgnoreParenImpCasts();
+      // The operand as passed, so its type and any derived-to-base cast are
+      // still visible to smartPtrRef.
+      const Expr *PtrExpr = OCE->getArg(LHSIsNull ? 1 : 0);
       bool EqNegated = Negated;
       if (OpKind == OO_EqualEqual)
         EqNegated = !EqNegated;
 
-      if (auto R = PtrRef::fromExpr(PtrExpr))
-        if (isSmartPointerType(R->getType()))
-          Results.push_back({std::move(*R), EqNegated});
+      if (auto R = smartPtrRef(PtrExpr))
+        Results.push_back({std::move(*R), EqNegated});
     }
     return true;
   }
@@ -1270,16 +1271,9 @@ analyzeSmartPtrBoolConversion(const CXXMemberCallExpr *MCE, bool Negated,
   if (const auto *CD =
           dyn_cast_or_null<CXXConversionDecl>(MCE->getMethodDecl())) {
     if (CD->getConversionType()->isBooleanType()) {
-      const Expr *Obj = MCE->getImplicitObjectArgument();
-      if (isSmartPointerObject(Obj)) {
-        // Obj's type was already checked above, so a variable needs no
-        // further type test; only a path's leaf field does.
-        if (auto R = PtrRef::fromExpr(Obj)) {
-          if (R->VD || isSmartPointerType(R->getType())) {
-            Results.push_back({std::move(*R), Negated});
-            return;
-          }
-        }
+      if (auto R = smartPtrRef(MCE->getImplicitObjectArgument())) {
+        Results.push_back({std::move(*R), Negated});
+        return;
       }
     }
   }
@@ -2699,10 +2693,8 @@ private:
       reportDeref(DerefExpr, R->VD->getType());
       return;
     }
-    // Only a smart-pointer-typed leaf field is reported; a variable is
-    // reported whatever its declared type.
-    if (!isSmartPointerType(R->getType()))
-      return;
+    // Callers have checked that Obj is a smart pointer object, so a path's
+    // leaf may also be a reference member or a class deriving from one.
     if (R->Path->Root || State.NullableMembers.contains(*R->Path))
       reportDeref(DerefExpr, R->getType());
   }
@@ -2932,11 +2924,9 @@ private:
       // sp.get() on a narrowed smart pointer returns nonnull. Falls through
       // when the receiver is neither a smart pointer variable nor a member
       // path.
-      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
-        auto R = PtrRef::fromExpr(Obj);
-        if (R && (R->Path || isSmartPointerType(R->getType())))
+      if (const Expr *Obj = smartPtrGetReceiver(CE))
+        if (smartPtrRef(Obj))
           return isSmartPointerNarrowed(Obj);
-      }
     }
     // Anything else whose own type is _Nonnull (a call to T *_Nonnull f(),
     // a _Nonnull field). Checked last so the flow-sensitive cases above,
@@ -3084,8 +3074,7 @@ private:
       // An unnarrowed receiver is not provably nullable, so ExplicitOnly
       // falls through to the (unannotated) return type instead.
       if (const Expr *Obj = smartPtrGetReceiver(CE)) {
-        auto R = PtrRef::fromExpr(Obj);
-        if (R && (R->Path || isSmartPointerType(R->getType()))) {
+        if (smartPtrRef(Obj)) {
           if (isSmartPointerNarrowed(Obj))
             return false;
           if (!ExplicitOnly)
