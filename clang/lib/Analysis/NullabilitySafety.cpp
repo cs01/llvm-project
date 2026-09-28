@@ -2526,10 +2526,15 @@ private:
 
   /// Warn on a smart pointer dereference unless the pointer is narrowed or
   /// declared _Nonnull. Flow facts after reset/move override the declared
-  /// contract.
+  /// contract. Past the dereference the pointer is non-null on this path (a
+  /// null one would not have got here), so only the first dereference on
+  /// each path warns; a join keeps that only when every path dereferenced.
+  /// Raw pointers keep warning at every dereference.
   void checkSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
     if (isSmartPointerMaybeNull(Obj))
       warnSmartPtrDeref(DerefExpr, Obj);
+    if (auto R = smartPtrRef(Obj))
+      State.markNarrowed(*R);
   }
 
   bool isSmartPointerMaybeNull(const Expr *Obj) const {

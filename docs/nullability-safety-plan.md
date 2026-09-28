@@ -79,6 +79,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S0 | A declaration drops every fact about its variable (found while validating S2: facts from the previous loop iteration survived the next iteration's declaration) | done (below) |
 | S2 | A smart pointer reached through a reference (parameter, reference member) is tracked: null checks narrow it, and `reset()`, assignment and `std::move` through it drop the narrowing | done (below) |
 | S3c | A guard's facts about a smart pointer are dropped when the pointer is assigned, reset, released, swapped or moved from | done (below) |
+| S1 | A smart pointer dereference narrows the pointer for the rest of the path, so only the first dereference on each path warns (raw pointers unchanged) | done (below) |
 
 ## Step 5b results
 
@@ -538,6 +539,31 @@ guards survive; before, it only kept the narrowing. Tests in
 `smart-ptr-libcxx.cpp`, verified to fail before (and the self-assignment
 case to fail without the early return). sqlite: no change (C). LLVM
 differential: no change.
+
+## S1 results
+
+`checkSmartPtrDeref` marks the dereferenced smart pointer narrowed after the
+check: if `sp->x` did not crash, `sp` is non-null for the rest of the path,
+so every later `sp->` / `*sp` repeated the same finding. The join keeps the
+fact only when every incoming path dereferenced; assignment, `reset()` and a
+move drop it, also through a reference (S2). Raw pointers are unchanged (a
+decision, not a limitation: the same one line in `checkVarDeref` would do
+it; locked by `s1_raw`). The narrowing also counts as proof for a later
+`sp.get()`: `S *f(std::shared_ptr<S> p) { p->x; return p.get(); }` is
+all-returns-nonnull. Tests in `smart-ptr-libcxx.cpp`, verified to fail
+before. No existing expectation changed. sqlite: no change (C). LLVM
+differential: nullable 4645 -> 4440, nonnull 23 -> 9, 0 gained anywhere; each
+lost line is a repeat of a dereference that still warns earlier on its path
+(for example `Interpreter.cpp:363` stays, 369-394 go; `LLJIT.cpp:1020` stays,
+1027-1053 go).
+
+Not changed, noted for a decision: under the nonnull default a smart pointer
+member assigned a value that is not provably non-null (an unannotated call,
+a move from an unchecked parameter) stays nullable, because
+`handleSmartPtrAssign` marks a member path nullable before looking at the
+value; `m = make(); m->x` warns while the same code on a local does not
+(F1). The two nonnull warnings left at `Interpreter.cpp:363` are this
+(`CI = std::move(Instance)`, `Act = TSCtx->withContextDo(...)`).
 
 ## Step 5a results
 

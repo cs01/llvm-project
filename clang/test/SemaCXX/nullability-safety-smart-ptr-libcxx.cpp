@@ -399,3 +399,82 @@ int s3c_raw_assign(S *p) {
   p = s3c_raw_lookup(1);
   return ok ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
+
+//===----------------------------------------------------------------------===//
+// S1: past a dereference the smart pointer is non-null on that path, so only
+// the first dereference on each path warns. Assignment and reset() drop the
+// fact again, also through a reference, and a dereference on only some
+// incoming paths does not narrow the join.
+//===----------------------------------------------------------------------===//
+
+int s1_arrow_then_arrow(std::shared_ptr<S> _Nullable p) {
+  int a = p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  int b = p->x;
+  int c = (*p).x;
+  return a + b + c;
+}
+
+int s1_star_then_arrow(const std::shared_ptr<S> _Nullable &p) {
+  int a = (*p).x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return a + p->x;
+}
+
+int s1_unannotated(std::shared_ptr<S> p) {
+  int a = p->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+  return a + p->x;
+}
+
+int s1_after_reset(std::shared_ptr<S> p) {
+  p.reset();
+  int a = p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return a + p->x;
+}
+
+int s1_after_move(std::shared_ptr<S> p) {
+  consume(std::move(p));
+  int a = p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return a + p->x;
+}
+
+int s1_member(SmartHolder h) {
+  int a = h.sp->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return a + h.sp->x;
+}
+
+int s1_reassigned(std::shared_ptr<S> _Nullable p) {
+  int a = p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  p = lookup_nullable(1);
+  return a + p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s1_assigned_null_through_ref(std::shared_ptr<S> _Nullable &p) {
+  int a = p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  p = nullptr;
+  return a + p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s1_reset_through_ref(std::shared_ptr<S> _Nullable &p) {
+  int a = p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  p.reset();
+  return a + p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s1_one_path(std::shared_ptr<S> _Nullable p, bool c) {
+  int a = 0;
+  if (c)
+    a = p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return a + p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s1_loop(std::shared_ptr<S> _Nullable p, int n) {
+  int a = 0;
+  for (int i = 0; i < n; ++i)
+    a += p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return a + p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// A raw pointer is not narrowed by a dereference; each one still warns.
+int s1_raw(S *_Nullable p) {
+  int a = p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+  return a + p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
