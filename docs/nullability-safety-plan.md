@@ -73,6 +73,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | 5d | SSAF source transformation; then delete the remarks and the remark-scraping loop | done; the `handle*Evidence` callbacks stay, the extractor needs them (below) |
 | F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | done (below) |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | done for `NullabilitySafety.cpp` (moved two doc comments that sat on the wrong function, dropped a stale 'local-var sources only' note and history references); SSAF files checked |
+| S8 | Smart pointers: a class deriving from a std smart pointer is checked like one (F1b stopped checking a class deriving from `unique_ptr`) | done (below) |
 
 ## Step 5b results
 
@@ -389,6 +390,44 @@ sqlite: no change (no lambdas). Nonnull total now 107 (139 before F4).
 
 `nullsafe-upstream` keeps its name: it is the head of llvm PR #189131, and
 GitHub cannot retarget a PR's head branch.
+
+## Smart-pointer track (S steps)
+
+From a review of smart-pointer dereference warnings on real C++ code built
+against libc++ in C++20 mode (where `shared_ptr` declares only
+`operator==(const shared_ptr &, nullptr_t)`, so `!=` and reversed
+comparisons are rewritten) and against libstdc++ (inherited operators). Each
+defect has a target-behavior test; numbers follow the review, and the steps
+land in dependency order: S8, S4, S5, S2, S3c, S1, S6, S3a, S3b, S7a, S7b.
+libc++-shaped cases live in `SemaCXX/nullability-safety-smart-ptr-libcxx.cpp`
+(added with S4),
+libstdc++-shaped ones in `nullability-safety-smart-ptr-base-access.cpp`.
+Nonnull-mode expectations follow F1: an unannotated, unchecked smart pointer
+is trusted there, so only flow-tainted or `_Nullable` ones warn.
+
+Per step, besides the gates (sqlite 3.50.4 amalgamation, Linux devserver;
+reference counts nonnull 119, nullable 22282, evidence 19712, annotations
+637): each test is replayed against real libstdc++ and libc++ `<memory>`, and
+an LLVM differential runs `-fsyntax-only` in both modes over 17
+smart-pointer-heavy LLVM and clang TUs (`VirtualFileSystem.cpp`, Orc `Core.cpp`,
+`LLJIT.cpp`, `CompilerInstance.cpp`, `ASTUnit.cpp`, `Driver.cpp`, ...) with
+their build flags and system libstdc++ (reference counts: nonnull 33,
+nullable 4653).
+
+## S8 results
+
+`isSmartPointerObject` accepts the object when its type, or a base class on
+the path of a derived-to-base cast it goes through, is a std smart pointer.
+F1b tested only the type under the implicit casts, which for
+`struct D : std::unique_ptr<T> {}` is `D`, so `d->x` stopped being checked
+and `if (!d)` stopped narrowing. Testing the type at the call instead would
+lose libstdc++'s `shared_ptr` again, and neither covers a class deriving from
+libstdc++'s `shared_ptr`, whose object is cast straight to
+`__shared_ptr_access` with `shared_ptr` only on the cast's path. Tests in
+`smartptr-parity.cpp` (unique_ptr) and `smart-ptr-base-access.cpp`
+(libstdc++ shape), verified to fail before the change; checked against real
+libstdc++ and libc++ `<memory>`. sqlite: no change. LLVM differential: no
+change.
 
 ## Step 5a results
 

@@ -100,3 +100,28 @@ int get_null_branch(std::shared_ptr<S> s) {
     return s->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
   return 0;
 }
+
+// A user class deriving from shared_ptr reaches the same members through a
+// longer derived-to-base path: the object is cast straight to
+// __shared_ptr_access, and shared_ptr appears only on the cast's path.
+struct DerivedShared : std::shared_ptr<S> {};
+
+int derived_arrow(DerivedShared d) {
+  return d->x; // nullable-warning {{dereference of nullable pointer 'DerivedShared'}} nullable-note {{add a null check}}
+}
+
+int derived_star(const DerivedShared &d) {
+  return (*d).x; // nullable-warning {{dereference of nullable pointer 'const DerivedShared &'}} nullable-note {{add a null check}}
+}
+
+int derived_checked(DerivedShared d) {
+  if (d)
+    return d->x;
+  return 0;
+}
+
+int derived_get_checked(DerivedShared d) {
+  if (!d.get())
+    return 0;
+  return (*d).x;
+}

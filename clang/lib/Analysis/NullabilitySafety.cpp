@@ -751,8 +751,30 @@ static bool isSmartPointerType(QualType Ty) {
   return Name == "unique_ptr" || Name == "shared_ptr" || Name == "weak_ptr";
 }
 
+/// Whether Obj, the object a member call or operator acts on, is a std smart
+/// pointer: by its own type, or by a class on the derived-to-base path the
+/// call took to an inherited member. libstdc++ declares shared_ptr's
+/// operator->, operator*, get(), operator bool and reset() on base classes
+/// (__shared_ptr_access, __shared_ptr), and a user class deriving from a std
+/// smart pointer reaches that pointer's members the same way. Neither the
+/// type at the call nor the type under the casts covers both: for a class
+/// deriving from libstdc++'s shared_ptr, one is __shared_ptr_access and the
+/// other is the user class.
 static bool isSmartPointerObject(const Expr *Obj) {
-  return Obj && isSmartPointerType(Obj->IgnoreParenImpCasts()->getType());
+  for (const Expr *E = Obj; E;) {
+    if (isSmartPointerType(E->getType()))
+      return true;
+    const auto *ICE = dyn_cast<ImplicitCastExpr>(E->IgnoreParens());
+    if (!ICE)
+      return false;
+    if (ICE->getCastKind() == CK_DerivedToBase ||
+        ICE->getCastKind() == CK_UncheckedDerivedToBase)
+      for (const CXXBaseSpecifier *Base : ICE->path())
+        if (isSmartPointerType(Base->getType()))
+          return true;
+    E = ICE->getSubExpr();
+  }
+  return false;
 }
 
 /// Strip implicit wrappers that real standard library headers introduce
