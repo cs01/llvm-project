@@ -101,3 +101,34 @@ void unguarded_ternary_arm_warns(int *_Nullable p, bool c) {
     (void)q;
     takes_nonnull(c ? p : unannotated()); // expected-warning{{passing nullable pointer to nonnull parameter}} expected-note{{add a null check before the call}}
 }
+
+// A declaration inside a loop runs once per iteration and creates a new
+// pointer, so a null stored at the end of one iteration does not reach the
+// next iteration's declaration.
+int *unannotated_int();
+int *_Nullable nullable_int();
+
+void loop_local_nulled_at_end(int n) {
+    for (int i = 0; i < n; ++i) {
+        int *p = unannotated_int();
+        *p = 1; // OK - p is a new pointer each iteration
+        p = nullptr;
+    }
+}
+
+void loop_condition_variable(int n) {
+    while (int *p = unannotated_int()) {
+        *p = 1; // OK - narrowed by the condition
+        p = nullptr;
+        if (--n == 0)
+            break;
+    }
+}
+
+void loop_local_nullable_still_warns(int n) {
+    for (int i = 0; i < n; ++i) {
+        int *p = nullable_int();
+        *p = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        p = unannotated_int();
+    }
+}

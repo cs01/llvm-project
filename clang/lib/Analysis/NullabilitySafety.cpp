@@ -1578,6 +1578,13 @@ public:
   void VisitDeclStmt(const DeclStmt *DS) {
     for (const auto *D : DS->decls()) {
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
+        // Each run of a declaration creates a new object (or binds a
+        // reference anew), so facts about the variable from an earlier loop
+        // iteration are stale: a pointer moved from or nulled at the end of
+        // the body is not null when the next iteration declares it again. A
+        // static local keeps its value, and its declaration runs once.
+        if (VD->hasLocalStorage())
+          forgetVariable(VD);
         if (VD->getType()->isPointerType()) {
           handlePointerVarInit(VD);
           continue;
@@ -2799,6 +2806,14 @@ private:
     State.NullableMembers.remove_if(RootedAtVD);
     State.MemberAliases.remove_if(
         [&](const auto &Entry) { return RootedAtVD(Entry.second); });
+  }
+
+  /// Drop everything known about VD, its own narrowed / nullable flags
+  /// included, as when its declaration runs again.
+  void forgetVariable(const VarDecl *VD) {
+    State.clear(PtrRef{VD, std::nullopt});
+    State.MustNullableVars.erase(VD);
+    forgetFactsAbout(VD);
   }
 
   /// Drop every fact that named VD's old value: member paths rooted at it,

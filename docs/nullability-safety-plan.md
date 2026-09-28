@@ -76,6 +76,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S8 | Smart pointers: a class deriving from a std smart pointer is checked like one (F1b stopped checking a class deriving from `unique_ptr`) | done (below) |
 | S4 | `!(sp != nullptr)` narrows when `!=` is a C++20 rewritten comparison (libc++ declares only `operator==`), as in assertion macro expansions | done (below) |
 | S5 | `_Nonnull` / `_Nullable` on a reference to a smart pointer is read from the referenced type, for the dereference check and for the unspecified-mode opt-in; a local initialized from a `_Nonnull`-returning call is non-null | done (below) |
+| S0 | A declaration drops every fact about its variable (found while validating S2: facts from the previous loop iteration survived the next iteration's declaration) | done (below) |
 
 ## Step 5b results
 
@@ -400,7 +401,8 @@ against libc++ in C++20 mode (where `shared_ptr` declares only
 `operator==(const shared_ptr &, nullptr_t)`, so `!=` and reversed
 comparisons are rewritten) and against libstdc++ (inherited operators). Each
 defect has a target-behavior test; numbers follow the review, and the steps
-land in dependency order: S8, S4, S5, S2, S3c, S1, S6, S3a, S3b, S7a, S7b.
+land in dependency order: S8, S4, S5, S0, S2, S3c, S1, S6, S3a, S3b, S7a, S7b
+(S0 was found while validating S2 and is not in the review).
 libc++-shaped cases live in `SemaCXX/nullability-safety-smart-ptr-libcxx.cpp`
 (added with S4),
 libstdc++-shaped ones in `nullability-safety-smart-ptr-base-access.cpp`.
@@ -468,6 +470,36 @@ Not changed, noted for a decision: in unspecified mode an opted-in function
 still warns on an unannotated, unchecked smart pointer (the mode default is
 not `nonnull`, so `isSmartPointerMaybeNull` falls through to "may be null"),
 while an unannotated raw pointer there is trusted.
+
+## S0 results
+
+`VisitDeclStmt` forgets the variable (`forgetVariable`: its narrowed,
+nullable and must-nullable flags, and via `forgetFactsAbout` the member
+paths rooted at it, guards naming it or keyed on it, aliases and address-of
+records) before classifying the initializer, for every variable with local
+storage. A declaration runs once per loop iteration and makes a new object
+or binds a reference anew, but initialization, unlike assignment, never
+dropped the old facts: `p = nullptr` or `sink(std::move(p))` at the end of a
+loop body reached the next iteration's `T *p = f()` / `auto p = f()` through
+the back edge (nullable facts union at joins), and so did facts about paths
+under the old pointer (`pExpr->x.pList = 0`). Static locals keep their value
+and are not forgotten. Found validating S2, which lets `std::move(q)` taint
+a range-for reference `auto &q`; on the LLVM differential that added 8
+warnings in nonnull mode, all this pattern. Tests in `smart-ptr-libcxx.cpp`
+and `default-nonnull.cpp` (raw pointer), verified to fail before.
+
+sqlite nonnull: 1 lost, 0 gained: `sqlite3ExprListToValues`
+(`pExpr->x.pList->nExpr` after the previous iteration's
+`pExpr->x.pList = 0`, a different `Expr`). Nullable: no change. Evidence: 2
+`MaybeNullEvidence` lines become `ConditionalEvidence`, the argument of
+`sqlite3DbFree(db, pDb->zDbSName)` in `sqlite3CollapseDatabaseArray`
+(`pDb->zDbSName = 0; continue;` on the previous element) and of
+`sqlite3SelectNew(pParse, pExpr->x.pList, ...)` in
+`sqlite3ExprListToValues`: both were judged from a stale fact about another
+array element. Annotations: no change. LLVM differential: nonnull 33 -> 23,
+0 gained (8 in `BugReporter.cpp`, 1 each in Orc `Core.cpp` and
+`ExecutionUtils.cpp`: smart pointers declared in a loop and moved from at
+its end); nullable no change.
 
 ## Step 5a results
 

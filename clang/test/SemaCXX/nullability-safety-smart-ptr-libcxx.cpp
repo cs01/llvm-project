@@ -37,6 +37,50 @@ struct S {
 [[noreturn]] void fatal();
 
 //===----------------------------------------------------------------------===//
+// S0: a declaration runs once per loop iteration and creates a new smart
+// pointer, so a move or reset at the end of one iteration does not reach the
+// next iteration's declaration.
+//===----------------------------------------------------------------------===//
+
+std::shared_ptr<S> s0_make();
+std::shared_ptr<S> _Nullable s0_make_nullable();
+void s0_sink(std::shared_ptr<S>);
+
+void s0_moved_at_end(int n) {
+  for (int i = 0; i < n; ++i) {
+    std::shared_ptr<S> p = s0_make();
+    p->x = i; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+    s0_sink(std::move(p));
+  }
+}
+
+void s0_checked_then_reset(int n) {
+  for (int i = 0; i < n; ++i) {
+    std::shared_ptr<S> p = s0_make();
+    if (!p)
+      continue;
+    p->x = i;
+    p.reset();
+  }
+}
+
+void s0_nullable_still_warns(int n) {
+  for (int i = 0; i < n; ++i) {
+    std::shared_ptr<S> p = s0_make_nullable();
+    p->x = i; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+    p.reset();
+  }
+}
+
+// The moved-from pointer itself stays tainted until the loop redeclares it.
+int s0_used_after_loop_body(int n) {
+  std::shared_ptr<S> p = s0_make();
+  for (int i = 0; i < n; ++i)
+    s0_sink(std::move(p));
+  return p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+//===----------------------------------------------------------------------===//
 // S4: the rewritten operator can sit anywhere in a chain of !, as in the
 // expansions of assertion macros.
 //===----------------------------------------------------------------------===//
