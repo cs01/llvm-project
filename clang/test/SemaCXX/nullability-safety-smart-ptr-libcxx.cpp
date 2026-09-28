@@ -992,3 +992,68 @@ struct Tree {
     return root->child->x;
   }
 };
+
+//===----------------------------------------------------------------------===//
+// S7b: a smart pointer returned by a call or by operator[] has no identity to
+// narrow, so a dereference of it warns only when it may be null by contract:
+// the callee declares a _Nullable return, or it is std::dynamic_pointer_cast.
+// An unannotated return is not reported (a local bound to it is, under the
+// nullable default).
+//===----------------------------------------------------------------------===//
+
+struct Map {
+  std::shared_ptr<S> &operator[](int);
+};
+struct NullableMap {
+  std::shared_ptr<S> _Nullable &operator[](int);
+};
+struct Registry {
+  std::shared_ptr<S> _Nullable get(int id) const;
+};
+std::shared_ptr<S> _Nonnull lookup_nonnull(int id);
+template <class T> std::shared_ptr<T> _Nullable find_nullable(int id);
+
+int s7b_nullable_call() {
+  return lookup_nullable(1)->x; // expected-warning {{dereference of nullable pointer 'std::shared_ptr<S> _Nullable'}} expected-note {{add a null check}}
+}
+
+int s7b_nullable_call_star() {
+  return (*lookup_nullable(1)).x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7b_nullable_subscript(NullableMap &m) {
+  return m[1]->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7b_nullable_method(const Registry &r) {
+  return r.get(1)->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7b_nullable_template() {
+  return find_nullable<S>(1)->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7b_dynamic_cast(std::shared_ptr<Base> _Nonnull p) {
+  return std::dynamic_pointer_cast<Derived>(p)->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7b_unannotated_call() {
+  return lookup(1)->x;
+}
+
+int s7b_unannotated_subscript(Map &m) {
+  return m[1]->x;
+}
+
+int s7b_nonnull_call() {
+  return lookup_nonnull(1)->x;
+}
+
+int s7b_static_cast(std::shared_ptr<Base> _Nonnull p) {
+  return std::static_pointer_cast<Derived>(p)->x;
+}
+
+int s7b_named_local() {
+  auto q = lookup_nullable(1);
+  return q->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}

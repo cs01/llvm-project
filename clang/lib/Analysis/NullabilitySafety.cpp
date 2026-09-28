@@ -1090,6 +1090,25 @@ static const Expr *smartPtrCopySource(const Expr *E) {
   return smartPtrRef(E) ? E : nullptr;
 }
 
+/// The call (or operator[]) whose result the smart pointer object Obj is, if
+/// that result may be null by contract: the callee's declared return type is
+/// _Nullable (read from the declaration, since overload resolution strips it
+/// from the object expression), or the callee is std::dynamic_pointer_cast.
+/// Such a temporary has no identity to narrow, so an unannotated return is
+/// not judged by the mode default.
+static const CallExpr *getNullableSmartPtrCallResult(const Expr *Obj) {
+  const auto *CE = dyn_cast<CallExpr>(unwrapImplicitWrappers(Obj));
+  if (!CE)
+    return nullptr;
+  if (isStdCallTo(CE, "dynamic_pointer_cast"))
+    return CE;
+  const FunctionDecl *Callee = CE->getDirectCallee();
+  if (Callee &&
+      isExplicitlyNullableType(Callee->getReturnType().getNonReferenceType()))
+    return CE;
+  return nullptr;
+}
+
 /// Whether this std::move(sp) initializes or is assigned to a smart pointer
 /// (auto x = std::move(y); or x = std::move(y)), or binds a reference to one
 /// (auto &&r = std::move(y), which moves nothing). The transfer handler needs
@@ -2703,7 +2722,8 @@ private:
       return true;
     if (isSmartPointerNarrowed(Obj))
       return false;
-    if (isSmartPointerDeclaredNullable(Obj))
+    if (isSmartPointerDeclaredNullable(Obj) ||
+        getNullableSmartPtrCallResult(Obj))
       return true;
     if (isSmartPointerDeclaredNonnull(Obj))
       return false;
@@ -2862,12 +2882,20 @@ private:
   }
 
   /// Report a smart pointer dereference: a local always warns, a var.member
-  /// path always warns, and a this->member path warns only when flow marked
-  /// it nullable (members set in constructors would otherwise warn).
+  /// path always warns, a this->member path warns only when flow marked it
+  /// nullable (members set in constructors would otherwise warn), and a call
+  /// result warns only when it may be null by contract.
   void warnSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
     auto R = PtrRef::fromExpr(Obj);
-    if (!R)
+    if (!R) {
+      if (const CallExpr *CE = getNullableSmartPtrCallResult(Obj)) {
+        const FunctionDecl *Callee = CE->getDirectCallee();
+        reportDeref(DerefExpr,
+                    Callee ? Callee->getReturnType().getNonReferenceType()
+                           : CE->getType());
+      }
       return;
+    }
     if (R->VD) {
       LLVM_DEBUG(llvm::dbgs() << "  deref: smart ptr '"
                               << R->VD->getNameAsString() << "'\n");

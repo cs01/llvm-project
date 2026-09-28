@@ -85,6 +85,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S3b | A guard stored in a field (`d.ok = p != nullptr`, `this->ok`) narrows like a guard variable; assigning a struct as a whole drops every fact about paths under it | done (below) |
 | S9 | Smart pointer stores classify the value like raw pointer stores: a copy or move carries the source's nullability, and under the nonnull default an unannotated value stored in a member path is trusted, as in a local (found validating S7a) | done (below) |
 | S7a | A member reached through a smart pointer's `->` or `*` (`p->child`, `p->raw`) is a member path rooted at `p`: checked, narrowed, and forgotten when `p` changes | done (below) |
+| S7b | A dereference of a smart pointer returned by a call or `operator[]` warns when the result may be null by contract (`_Nullable` return, `std::dynamic_pointer_cast`); the narrow rule, pending a decision on unannotated returns | done (below) |
 
 ## Step 5b results
 
@@ -680,6 +681,24 @@ last behind correlated `if`s the analysis does not relate), `*UMI->RT` and
 (`ModuleManager.cpp`), `Interp->TSCtx->...`, `*Interp->DeviceAct`
 (`Interpreter.cpp`), and `TmpS->Ctx.get()` passed to a lambda parameter
 (`ThreadSafeModule.h`, twice).
+
+## S7b results
+
+`lookupN()->x`, `(*lookupN()).x` and `m[k]->x` were never checked, even for
+a `_Nullable` return: `warnSmartPtrDeref` gave up when `PtrRef::fromExpr`
+found no variable or member path. A call result has no identity to narrow,
+so the rule is the narrow one: it warns only when it may be null by
+contract (`getNullableSmartPtrCallResult`): the callee's declared return
+type is `_Nullable` (read from the declaration; overload resolution strips it
+from the object expression), or the callee is `std::dynamic_pointer_cast`
+(as `dynamic_cast<D *>(p)->x` already warns). An unannotated return is not
+reported under either default. Decision pending: the broad rule (a
+temporary warns exactly when a local bound to it would) would report every
+unannotated `f()->x` under the nullable default. Tests in
+`smart-ptr-libcxx.cpp` (functions, methods, `operator[]`, a function
+template), verified to fail before and to pass with real libstdc++ and
+libc++ `<memory>`. sqlite: no change (C). LLVM differential: no change (no
+`_Nullable` smart pointer returns there).
 
 ## Step 5a results
 
