@@ -711,17 +711,24 @@ static ExplicitCastInfo getExplicitCastInfo(const Expr *E) {
 }
 
 /// Declared type of the variable or field a smart pointer expression names,
-/// or a null QualType. Overload resolution on operator->/operator* strips
-/// nullability from the expression's own type, so only the declaration
-/// still carries it.
+/// with any reference stripped, or a null QualType. Overload resolution on
+/// operator->/operator* strips nullability from the expression's own type, so
+/// only the declaration still carries it. For a reference the annotation sits
+/// on the referenced type (const std::shared_ptr<T> _Nonnull &), and a local
+/// reference that carries none takes its referent's, as its flow facts do
+/// (see resolveSmartPtrReference).
 static QualType getSmartPointerDeclaredType(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      return VD->getType();
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+      QualType Ty = VD->getType().getNonReferenceType();
+      if (!Ty->getNullability())
+        Ty = resolveSmartPtrReference(VD)->getType().getNonReferenceType();
+      return Ty;
+    }
   } else if (const auto *ME = dyn_cast<MemberExpr>(E)) {
     if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
-      return FD->getType();
+      return FD->getType().getNonReferenceType();
   }
   return QualType();
 }
@@ -796,9 +803,15 @@ static const Expr *unwrapImplicitWrappers(const Expr *E) {
 }
 
 /// Check if a smart pointer is constructed from a provably non-null source:
-/// make_unique/make_shared, or a constructor taking a new-expression.
+/// make_unique/make_shared, a constructor taking a new-expression, or a call
+/// whose declared return type is _Nonnull. The callee's declaration is read
+/// because the call expression's type can lose the annotation.
 static bool isNonnullSmartPtrInit(const Expr *E) {
   E = unwrapImplicitWrappers(E);
+  if (const auto *CE = dyn_cast<CallExpr>(E))
+    if (const FunctionDecl *Callee = CE->getDirectCallee())
+      if (isNonnullType(Callee->getReturnType().getNonReferenceType()))
+        return true;
   if (const auto *CE = dyn_cast<CXXConstructExpr>(E)) {
     if (CE->getNumArgs() == 1)
       return isNonnullSmartPtrInit(CE->getArg(0));
@@ -3255,6 +3268,14 @@ static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
     Handler.handleAllReturnsNonnull(FD);
 }
 
+/// Whether a declared parameter or return type carries a nullability
+/// annotation. For a reference the annotation sits on the referenced type:
+/// const std::shared_ptr<T> _Nonnull &.
+static bool declaresNullability(QualType T) {
+  return !T.isNull() && !T->isDependentType() &&
+         T.getNonReferenceType()->getNullability();
+}
+
 static bool functionHasNullabilityAnnotations(const FunctionDecl *FD) {
   if (!FD || FD->isInvalidDecl())
     return false;
@@ -3264,24 +3285,15 @@ static bool functionHasNullabilityAnnotations(const FunctionDecl *FD) {
   // chain; otherwise a function that opted in through its prototype would be
   // skipped.
   for (const FunctionDecl *Redecl : FD->redecls()) {
-    QualType ReturnType = Redecl->getReturnType();
-    if (!ReturnType.isNull() && !ReturnType->isDependentType()) {
-      if (ReturnType->getNullability())
-        return true;
-    }
+    if (declaresNullability(Redecl->getReturnType()))
+      return true;
 
     // During early function processing parameters might not be set up yet,
     // so guard with param_empty().
     if (!Redecl->param_empty()) {
-      for (const ParmVarDecl *Param : Redecl->parameters()) {
-        if (!Param)
-          continue;
-        QualType ParamType = Param->getType();
-        if (!ParamType.isNull() && !ParamType->isDependentType()) {
-          if (ParamType->getNullability())
-            return true;
-        }
-      }
+      for (const ParmVarDecl *Param : Redecl->parameters())
+        if (Param && declaresNullability(Param->getType()))
+          return true;
     }
   }
 
@@ -3292,24 +3304,21 @@ bool clang::hasExplicitNullabilityAnnotations(const Decl *D) {
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D))
     return functionHasNullabilityAnnotations(FD);
 
-  auto typeHasNullability = [](QualType T) {
-    return !T.isNull() && !T->isDependentType() && T->getNullability();
-  };
   if (const auto *MD = dyn_cast_or_null<ObjCMethodDecl>(D)) {
-    if (typeHasNullability(MD->getReturnType()))
+    if (declaresNullability(MD->getReturnType()))
       return true;
     for (const ParmVarDecl *P : MD->parameters())
-      if (P && typeHasNullability(P->getType()))
+      if (P && declaresNullability(P->getType()))
         return true;
     return false;
   }
   if (const auto *BD = dyn_cast_or_null<BlockDecl>(D)) {
     for (const ParmVarDecl *P : BD->parameters())
-      if (P && typeHasNullability(P->getType()))
+      if (P && declaresNullability(P->getType()))
         return true;
     if (const TypeSourceInfo *TSI = BD->getSignatureAsWritten())
       if (const auto *FPT = TSI->getType()->getAs<FunctionProtoType>())
-        if (typeHasNullability(FPT->getReturnType()))
+        if (declaresNullability(FPT->getReturnType()))
           return true;
     return false;
   }

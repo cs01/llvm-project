@@ -75,6 +75,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | done for `NullabilitySafety.cpp` (moved two doc comments that sat on the wrong function, dropped a stale 'local-var sources only' note and history references); SSAF files checked |
 | S8 | Smart pointers: a class deriving from a std smart pointer is checked like one (F1b stopped checking a class deriving from `unique_ptr`) | done (below) |
 | S4 | `!(sp != nullptr)` narrows when `!=` is a C++20 rewritten comparison (libc++ declares only `operator==`), as in assertion macro expansions | done (below) |
+| S5 | `_Nonnull` / `_Nullable` on a reference to a smart pointer is read from the referenced type, for the dereference check and for the unspecified-mode opt-in; a local initialized from a `_Nonnull`-returning call is non-null | done (below) |
 
 ## Step 5b results
 
@@ -443,6 +444,30 @@ narrows now (the builtin was only looked through outermost). New test file
 `smart-ptr-libcxx.cpp`, verified to fail before the change and to pass with
 real libstdc++ and libc++ `<memory>`. sqlite: no change. LLVM differential:
 no change (it builds as C++17).
+
+## S5 results
+
+For `const std::shared_ptr<T> _Nonnull &p` the annotation is on the
+referenced type, so `isNonnullType(VD->getType())` saw none: `p->x` warned
+although the contract was written, and without `-fnullability-default` a
+function annotated only through a reference parameter or return type was not
+analyzed at all (`_Nullable &` dereferences were silent).
+`getSmartPointerDeclaredType` strips the reference (variables and fields),
+and a local reference without its own annotation reads its referent's, as
+its flow facts already do; the opt-in rule reads parameter and return types
+through `declaresNullability`, which strips references (functions, ObjC
+methods, blocks). `isNonnullSmartPtrInit` also accepts a call whose
+callee's declared return type is `_Nonnull`: `auto q = f()` inherited the
+annotation through deduction, `std::shared_ptr<T> q = f()` and
+`const std::shared_ptr<T> &r = g()` did not. New test
+`smart-ptr-nonnull-ref.cpp` (nullable, nonnull and unspecified RUN lines),
+verified to fail before the change and to pass with real libstdc++ and
+libc++ `<memory>`. sqlite: no change (C). LLVM differential: no change.
+
+Not changed, noted for a decision: in unspecified mode an opted-in function
+still warns on an unannotated, unchecked smart pointer (the mode default is
+not `nonnull`, so `isSmartPointerMaybeNull` falls through to "may be null"),
+while an unannotated raw pointer there is trusted.
 
 ## Step 5a results
 
