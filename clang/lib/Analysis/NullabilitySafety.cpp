@@ -1283,23 +1283,30 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   if (!Cond)
     return;
 
-  const Expr *E = Cond->IgnoreParenImpCasts();
-  E = stripOpaqueValue(E);
-  E = unwrapBuiltinExpect(E);
-  E = ignoreExplicitBoolCast(E);
+  const Expr *E = stripOpaqueValue(Cond->IgnoreParenImpCasts());
 
-  // C++20 rewrites sp != nullptr into !(sp == nullptr) wrapped in a
-  // CXXRewrittenBinaryOperator. Unwrap to the semantic form so the ! loop
-  // and CXXOperatorCallExpr handler below can process it.
-  if (const auto *RBO = dyn_cast<CXXRewrittenBinaryOperator>(E))
-    E = RBO->getSemanticForm()->IgnoreParenImpCasts();
-
+  // Peel !, __builtin_expect, explicit casts to bool and C++20 rewritten
+  // comparisons, in any order. With only operator==(const shared_ptr &,
+  // nullptr_t) declared (libc++ in C++20), sp != nullptr is a
+  // CXXRewrittenBinaryOperator whose semantic form is !(sp == nullptr), and
+  // assertion macros wrap it further: !(sp != nullptr),
+  // __builtin_expect(!!(!(sp != nullptr)), 0).
   bool Negated = false;
-  while (const auto *UO = dyn_cast<UnaryOperator>(E)) {
-    if (UO->getOpcode() != UO_LNot)
+  while (true) {
+    const Expr *Next;
+    if (const auto *RBO = dyn_cast<CXXRewrittenBinaryOperator>(E)) {
+      Next = RBO->getSemanticForm();
+    } else if (const auto *UO = dyn_cast<UnaryOperator>(E);
+               UO && UO->getOpcode() == UO_LNot) {
+      Negated = !Negated;
+      Next = UO->getSubExpr();
+    } else {
+      Next = unwrapBuiltinExpect(E);
+    }
+    Next = ignoreExplicitBoolCast(Next->IgnoreParenImpCasts());
+    if (Next == E)
       break;
-    Negated = !Negated;
-    E = ignoreExplicitBoolCast(UO->getSubExpr()->IgnoreParenImpCasts());
+    E = Next;
   }
 
   // See through pointer-to-pointer casts, as the dereference side does, so

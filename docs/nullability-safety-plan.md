@@ -74,6 +74,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | done (below) |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | done for `NullabilitySafety.cpp` (moved two doc comments that sat on the wrong function, dropped a stale 'local-var sources only' note and history references); SSAF files checked |
 | S8 | Smart pointers: a class deriving from a std smart pointer is checked like one (F1b stopped checking a class deriving from `unique_ptr`) | done (below) |
+| S4 | `!(sp != nullptr)` narrows when `!=` is a C++20 rewritten comparison (libc++ declares only `operator==`), as in assertion macro expansions | done (below) |
 
 ## Step 5b results
 
@@ -428,6 +429,20 @@ libstdc++'s `shared_ptr`, whose object is cast straight to
 (libstdc++ shape), verified to fail before the change; checked against real
 libstdc++ and libc++ `<memory>`. sqlite: no change. LLVM differential: no
 change.
+
+## S4 results
+
+`analyzeCondition` peels `!`, `__builtin_expect`, explicit casts to `bool`
+and `CXXRewrittenBinaryOperator` in any order. It used to unwrap a rewritten
+comparison once, before the `!` loop, so in `!(sp != nullptr)` (and
+`!!(sp != nullptr)`, `__builtin_expect(!!(!(sp != nullptr)), 0)`, a guard
+`bool missing = !(sp != nullptr)`) the loop stopped at the rewritten
+operator and recorded nothing: with libc++ in C++20 the semantic form of
+`sp != nullptr` is `!(sp == nullptr)`. `!__builtin_expect(c, 1)` also
+narrows now (the builtin was only looked through outermost). New test file
+`smart-ptr-libcxx.cpp`, verified to fail before the change and to pass with
+real libstdc++ and libc++ `<memory>`. sqlite: no change. LLVM differential:
+no change (it builds as C++17).
 
 ## Step 5a results
 
