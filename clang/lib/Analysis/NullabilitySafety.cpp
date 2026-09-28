@@ -1432,9 +1432,10 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
 
 /// Extract the null-check facts a guard variable's initializer or assigned
 /// value encodes, so a later if (flag) narrows the pointers it tested. Handles
-/// p != nullptr, the ternary spellings p ? true : false / p ? 0 : 1, p && q
-/// (guard true means every conjunct held, so only true-direction facts
-/// survive), and copies of other guards (bool c = !b).
+/// p != nullptr, the ternary spellings p ? true : false / p ? 0 : 1, a
+/// ternary with one constant false arm (p ? p->n : 0, p == nullptr ? false :
+/// X), p && q (guard true means every conjunct held, so only true-direction
+/// facts survive), and copies of other guards (bool c = !b).
 static void computeGuardFacts(const Expr *Init, ASTContext &Ctx,
                               const NullState::BoolGuardMap &Guards,
                               SmallVectorImpl<ConditionResult> &Facts) {
@@ -1447,12 +1448,44 @@ static void computeGuardFacts(const Expr *Init, ASTContext &Ctx,
   if (const auto *CO = dyn_cast<AbstractConditionalOperator>(Init)) {
     std::optional<bool> TV = constantTruth(CO->getTrueExpr(), Ctx);
     std::optional<bool> FV = constantTruth(CO->getFalseExpr(), Ctx);
-    if (!TV || !FV || *TV == *FV)
+    if (TV && FV) {
+      if (*TV == *FV)
+        return;
+      analyzeCondition(CO->getCond(), Ctx, Facts, &Guards);
+      if (!*TV)
+        for (auto &CR : Facts)
+          CR.Negated = !CR.Negated;
       return;
-    analyzeCondition(CO->getCond(), Ctx, Facts, &Guards);
-    if (!*TV)
-      for (auto &CR : Facts)
-        CR.Negated = !CR.Negated;
+    }
+    // One arm a constant false and the other not constant: c ? X : false
+    // holds exactly when c && X does, and c ? false : X when !c && X does,
+    // so the guard being true proves c's facts (or !c's) and X's. As for &&,
+    // only guard-true facts are kept. A constant true arm (c ? true : X is
+    // c || X) proves nothing when the guard is true.
+    bool FalseFirst = TV && !*TV;
+    if (!FalseFirst && !(FV && !*FV))
+      return;
+    auto Add = [&Facts](ConditionResult CR) {
+      if (!llvm::is_contained(Facts, CR))
+        Facts.push_back(std::move(CR));
+    };
+    // c true, with c = a && b, means both held; c false, with c = a || b,
+    // means neither did.
+    SmallVector<ConditionResult, 4> CondFacts;
+    decomposeChain(CO->getCond(), FalseFirst ? BO_LOr : BO_LAnd, Ctx, CondFacts,
+                   &Guards);
+    for (ConditionResult &CR : CondFacts) {
+      if (CR.Negated != FalseFirst)
+        continue;
+      CR.Negated = false;
+      Add(std::move(CR));
+    }
+    SmallVector<ConditionResult, 4> ArmFacts;
+    computeGuardFacts(FalseFirst ? CO->getFalseExpr() : CO->getTrueExpr(), Ctx,
+                      Guards, ArmFacts);
+    for (ConditionResult &CR : ArmFacts)
+      if (!CR.Negated)
+        Add(std::move(CR));
     return;
   }
   if (const auto *BO = dyn_cast<BinaryOperator>(Init)) {

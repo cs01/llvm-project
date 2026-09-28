@@ -642,3 +642,69 @@ int s6_dynamic_cast_checked(std::shared_ptr<Base> _Nonnull p) {
     return 0;
   return q->x;
 }
+
+//===----------------------------------------------------------------------===//
+// S3a: a guard built from a ternary with one constant false arm narrows:
+// c ? X : false holds like c && X, and c ? false : X like !c && X.
+//===----------------------------------------------------------------------===//
+
+int s3a_false_first(std::shared_ptr<S> _Nullable p) {
+  const bool valid = p == nullptr ? false : p->x > 0;
+  return valid ? p->x : 0;
+}
+
+int s3a_false_second(std::shared_ptr<S> _Nullable p) {
+  const bool valid = p != nullptr ? p->x > 0 : false;
+  return valid ? p->x : 0;
+}
+
+int s3a_then_and(std::shared_ptr<S> _Nullable p, bool setup) {
+  const bool valid = p == nullptr ? false : p->x > 0;
+  const bool use = valid && !setup;
+  return use ? p->x : 0;
+}
+
+int s3a_nested(std::shared_ptr<S> _Nullable p, std::shared_ptr<S> _Nullable q) {
+  const bool both = p ? (q ? q->x > 0 : false) : false;
+  if (!both)
+    return 0;
+  return p->x + q->x;
+}
+
+int s3a_arm_is_a_check(std::shared_ptr<S> _Nullable p, std::shared_ptr<S> _Nullable q) {
+  const bool both = p != nullptr ? q != nullptr : false;
+  return both ? p->x + q->x : 0;
+}
+
+int s3a_and_guard(std::shared_ptr<S> _Nullable p) {
+  const bool ok = p != nullptr && p->x > 0;
+  return ok ? p->x : 0;
+}
+
+int s3a_guard_of_guard(std::shared_ptr<S> _Nullable p, bool setup) {
+  const bool valid = p != nullptr;
+  const bool use = valid && !setup;
+  return use ? p->x : 0;
+}
+
+int s3a_assigned_guard(std::shared_ptr<S> _Nullable p) {
+  bool ok;
+  ok = p == nullptr ? false : p->x > 0;
+  return ok ? p->x : 0;
+}
+
+int s3a_wrong_way(std::shared_ptr<S> _Nullable p) {
+  const bool valid = p == nullptr ? false : p->x > 0;
+  return valid ? 0 : p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3a_true_arm(std::shared_ptr<S> _Nullable p, bool c) {
+  const bool valid = p == nullptr ? true : c;
+  return valid ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3a_reset_after(std::shared_ptr<S> _Nullable p) {
+  const bool valid = p == nullptr ? false : p->x > 0;
+  p.reset();
+  return valid ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}

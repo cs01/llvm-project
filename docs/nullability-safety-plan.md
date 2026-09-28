@@ -81,6 +81,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S3c | A guard's facts about a smart pointer are dropped when the pointer is assigned, reset, released, swapped or moved from | done (below) |
 | S1 | A smart pointer dereference narrows the pointer for the rest of the path, so only the first dereference on each path warns (raw pointers unchanged) | done (below) |
 | S6 | `std::static_pointer_cast` / `const_pointer_cast` / `reinterpret_pointer_cast` of a non-null smart pointer is non-null (the rvalue overloads move the source); `std::dynamic_pointer_cast` may yield null under either default | done (below) |
+| S3a | A guard built from a ternary with one constant false arm narrows (`p ? p->n : 0`, `p == nullptr ? false : X`) | done (below) |
 
 ## Step 5b results
 
@@ -592,6 +593,22 @@ nullability. `std::shared_ptr<T> q = p;` with `p` declared `_Nullable` or
 flow-nullable is not nullable under the nonnull default (`auto q = p` is,
 through the deduced type), while `T *q = p` on raw pointers is
 (`storePointer`).
+
+## S3a results
+
+`computeGuardFacts` accepted a ternary only when both arms were constants.
+With exactly one constant false arm, `c ? X : false` holds exactly when
+`c && X` does and `c ? false : X` when `!c && X` does, so the guard being
+true proves the facts of `c` (of `!c`: the false-direction facts of a `||`
+chain) and those of `X`; as for `&&`, only guard-true facts are kept, and a
+constant true arm (`c || X`) proves nothing when the guard is true. Tests in
+`smart-ptr-libcxx.cpp` and `Sema/nullability-safety-guard-idioms.c`,
+verified to fail before. sqlite nullable: 5 lost, 0 gained, all this shape:
+`n = pList ? pList->nExpr : 0; if (n == 2) pList->a[1]` (`resolveExprStep`),
+`nArg = pExpr->x.pList ? pExpr->x.pList->nExpr : 0; ... nArg == 1`
+(`analyzeAggregate`), and `hasDistinct = pDistinct ?
+pDistinct->eTnctType : WHERE_DISTINCT_NOOP; if (hasDistinct)` (three lines
+in `selectInnerLoop`). Other lists and the LLVM differential: no change.
 
 ## Step 5a results
 
