@@ -84,6 +84,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S3a | A guard built from a ternary with one constant false arm narrows (`p ? p->n : 0`, `p == nullptr ? false : X`) | done (below) |
 | S3b | A guard stored in a field (`d.ok = p != nullptr`, `this->ok`) narrows like a guard variable; assigning a struct as a whole drops every fact about paths under it | done (below) |
 | S9 | Smart pointer stores classify the value like raw pointer stores: a copy or move carries the source's nullability, and under the nonnull default an unannotated value stored in a member path is trusted, as in a local (found validating S7a) | done (below) |
+| S7a | A member reached through a smart pointer's `->` or `*` (`p->child`, `p->raw`) is a member path rooted at `p`: checked, narrowed, and forgotten when `p` changes | done (below) |
 
 ## Step 5b results
 
@@ -651,6 +652,34 @@ nonnull 9 -> 2, 0 gained (all seven a member assigned an unannotated value:
 `TrimmedGraph = OriginalGraph->trim(...)` in `BugReporter.cpp`, the two in
 `Interpreter.cpp`, four `LLJIT.cpp` members such as `ES = std::move(S.ES)`);
 nullable no change.
+
+## S7a results
+
+`decomposeMemberAccess` continues through a std smart pointer's `operator->`
+/ `operator*` (`isSmartPointerObject`) as through `->` on a raw pointer, so
+`p->child` and `(*p).child` are the path `{p, child}`; a local smart pointer
+reference roots its paths at its referent (`resolveSmartPtrReference`), as
+`PtrRef::fromExpr` does. Before, `PtrRef::fromExpr` failed at the operator
+call: `p->child->x` was never checked, `!p->child` did not narrow, and
+`checkMemberExprDeref` returned early on a smart pointer base, so raw members
+reached through one (`p->raw->x`) were never checked either (that early
+return also re-checked `p` at the wrong location; S1 had already made it
+silent). Changing `p` drops the paths under it: a variable through
+`forgetFactsAbout`, a member path (`this->sp->child` when `this->sp` is
+assigned) through `forgetSmartPtrFacts`, which now also removes the paths
+below it. Paths rooted at `this` keep their rule (`warnSmartPtrDeref`:
+reported when flow marks them). Tests in `smart-ptr-libcxx.cpp`, verified to
+fail before and to pass with real libstdc++ and libc++ `<memory>`. sqlite:
+no change (C). LLVM differential: nonnull no change (the two nonnull
+findings this step first gained were S9's member stores); nullable 14
+gained, 0 lost, all unannotated members reached through a smart pointer,
+judged by the nullable default as `s.m->x` on a struct variable already is:
+`*AST->CodeGenOpts`, `*AST->ModCache`, `*AST->Consumer` (`ASTUnit.cpp`; the
+last behind correlated `if`s the analysis does not relate), `*UMI->RT` and
+`UMI->MU->...` (Orc `Core.cpp`, raw and smart members), `*NewModule->Buffer`
+(`ModuleManager.cpp`), `Interp->TSCtx->...`, `*Interp->DeviceAct`
+(`Interpreter.cpp`), and `TmpS->Ctx.get()` passed to a lambda parameter
+(`ThreadSafeModule.h`, twice).
 
 ## Step 5a results
 

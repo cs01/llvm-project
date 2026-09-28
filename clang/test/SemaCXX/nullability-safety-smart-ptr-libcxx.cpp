@@ -879,3 +879,116 @@ int s9_member_of_variable(Owner &o) {
   o.m = lookup(1);
   return o.m->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
 }
+// S7a: a member reached through a smart pointer's -> or * (p->child,
+// (*p).child) is a path rooted at p, as p->child is for a raw pointer p: it
+// is checked, narrowed by a null check, and forgotten when p changes. This
+// covers raw pointer members too (p->raw->x).
+//===----------------------------------------------------------------------===//
+
+struct Node {
+  int x;
+  std::shared_ptr<Node> _Nullable child;
+  std::shared_ptr<Node> next;
+  Node *_Nullable raw;
+  Node *plain;
+};
+
+int s7a_chained(std::shared_ptr<Node> _Nullable p) {
+  if (!p)
+    return 0;
+  return p->child->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7a_chained_star(std::shared_ptr<Node> _Nullable p) {
+  if (!p)
+    return 0;
+  return (*p->child).x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7a_chained_through_star(std::shared_ptr<Node> _Nullable p) {
+  if (!p)
+    return 0;
+  return (*p).child->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7a_chained_checked(std::shared_ptr<Node> _Nullable p) {
+  if (!p || !p->child)
+    return 0;
+  return p->child->x;
+}
+
+// (*p).child and p->child are the same path.
+int s7a_chained_compared(std::shared_ptr<Node> _Nullable p) {
+  if (p == nullptr || p->child == nullptr)
+    return 0;
+  return (*p).child->x;
+}
+
+int s7a_unannotated_member(std::shared_ptr<Node> _Nullable p) {
+  if (!p)
+    return 0;
+  return p->next->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+}
+
+int s7a_raw_member(std::shared_ptr<Node> _Nullable p) {
+  if (!p)
+    return 0;
+  return p->raw->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7a_raw_member_checked(std::shared_ptr<Node> _Nullable p) {
+  if (!p || !p->raw)
+    return 0;
+  return p->raw->x;
+}
+
+int s7a_unannotated_raw_member(std::shared_ptr<Node> _Nullable p) {
+  if (!p)
+    return 0;
+  return p->plain->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+}
+
+int s7a_raw_member_assigned(std::shared_ptr<Node> _Nullable p,
+                            Node *_Nonnull n) {
+  if (!p)
+    return 0;
+  p->raw = n;
+  int a = p->raw->x;
+  p->raw = nullptr;
+  return a + p->raw->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7a_root_reassigned(std::shared_ptr<Node> _Nullable p,
+                        std::shared_ptr<Node> _Nullable o) {
+  if (!p || !p->child)
+    return 0;
+  p = o;
+  if (!p)
+    return 0;
+  return p->child->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// Assigning p->child forgets what was known below the old child.
+int s7a_member_reassigned(std::shared_ptr<Node> _Nullable p) {
+  if (!p || !p->child || !p->child->child || !p->child->child->child)
+    return 0;
+  p->child = p->child->child;
+  int a = p->child->x;
+  return a + p->child->child->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s7a_reference_root(std::shared_ptr<Node> _Nullable q) {
+  auto &p = q;
+  if (!q || !q->child)
+    return 0;
+  return p->child->x;
+}
+
+struct Tree {
+  std::shared_ptr<Node> _Nullable root;
+  int depth() {
+    if (!root || !root->child)
+      return 0;
+    return root->child->x;
+  }
+};

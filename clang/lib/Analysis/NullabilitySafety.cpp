@@ -143,19 +143,35 @@ template <> struct llvm::DenseMapInfo<MemberAccessPath> {
   }
 };
 
+static bool isSmartPointerObject(const Expr *Obj);
+static const VarDecl *resolveSmartPtrReference(const VarDecl *VD);
+
 /// Walk a MemberExpr chain to its root, collecting FieldDecls along the way.
-/// Returns nullopt if the root is not a VarDecl (via DeclRefExpr) or
-/// CXXThisExpr. Root is nullptr for this-> access paths.
+/// A std smart pointer's operator-> or operator* continues the chain at the
+/// smart pointer, as -> does at a raw pointer, so sp->child and (*sp).child
+/// are paths rooted at sp. Returns nullopt if the root is not a VarDecl (via
+/// DeclRefExpr) or CXXThisExpr. Root is nullptr for this-> access paths.
 static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
   llvm::SmallVector<const FieldDecl *, 2> Fields;
   E = E->IgnoreParenImpCasts();
 
-  while (const auto *ME = dyn_cast<MemberExpr>(E)) {
-    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
-      Fields.push_back(FD);
-    else
-      return std::nullopt;
-    E = ME->getBase()->IgnoreParenImpCasts();
+  while (true) {
+    if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+        Fields.push_back(FD);
+      else
+        return std::nullopt;
+      E = ME->getBase()->IgnoreParenImpCasts();
+      continue;
+    }
+    const auto *OCE = dyn_cast<CXXOperatorCallExpr>(E);
+    if (!Fields.empty() && OCE && OCE->getNumArgs() == 1 &&
+        (OCE->getOperator() == OO_Arrow || OCE->getOperator() == OO_Star) &&
+        isSmartPointerObject(OCE->getArg(0))) {
+      E = OCE->getArg(0)->IgnoreParenImpCasts();
+      continue;
+    }
+    break;
   }
 
   if (Fields.empty())
@@ -169,8 +185,10 @@ static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
   if (isa<CXXThisExpr>(E)) {
     Path.Root = nullptr;
   } else if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    // A local smart pointer reference roots its paths at its referent, as
+    // PtrRef::fromExpr does for the reference itself.
     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      Path.Root = VD;
+      Path.Root = resolveSmartPtrReference(VD);
     else
       return std::nullopt;
   } else {
@@ -2979,13 +2997,22 @@ private:
 
   /// Drop the facts that named a smart pointer's old value when it is
   /// assigned, reset, released, swapped or moved from: the guards that
-  /// tested it (bool ok = sp != nullptr) and, for a variable, everything
-  /// forgetFactsAbout drops. Does not touch R's own narrowed/nullable flags.
+  /// tested it (bool ok = sp != nullptr), the member paths reached through it
+  /// (sp->child), and, for a variable, everything forgetFactsAbout drops.
+  /// Does not touch R's own narrowed/nullable flags.
   void forgetSmartPtrFacts(const PtrRef &R) {
-    if (R.VD)
+    if (R.VD) {
       forgetFactsAbout(R.VD);
-    else
-      invalidateGuardsAndAliasesWithPrefix(*R.Path);
+      return;
+    }
+    invalidateGuardsAndAliasesWithPrefix(*R.Path);
+    // Paths reached through the old pointee (this->sp->child).
+    auto Below = [&R](const MemberAccessPath &P) {
+      return P.Fields.size() > R.Path->Fields.size() &&
+             pathHasPrefix(P, *R.Path);
+    };
+    State.NarrowedMembers.remove_if(Below);
+    State.NullableMembers.remove_if(Below);
   }
 
   /// Drop every fact that named VD's old value: member paths rooted at it,
@@ -3287,10 +3314,8 @@ private:
   /// overrides its declared _Nonnull, and template-argument sugar supplies
   /// nullability the instantiated field type lost.
   void checkMemberExprDeref(const Expr *DerefExpr, const MemberExpr *ME) {
-    const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-    if (checkSmartPtrArrow(DerefExpr, Base))
-      return;
-
+    // For sp->raw the smart pointer was checked when sp->raw itself was
+    // visited; here the dereferenced pointer is the raw field.
     if (auto Path = decomposeMemberAccess(ME)) {
       if (State.NullableMembers.contains(*Path)) {
         reportDeref(DerefExpr, ME->getType());
