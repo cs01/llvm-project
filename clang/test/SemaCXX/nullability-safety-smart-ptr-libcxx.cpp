@@ -708,3 +708,96 @@ int s3a_reset_after(std::shared_ptr<S> _Nullable p) {
   p.reset();
   return valid ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
+
+//===----------------------------------------------------------------------===//
+// S3b: a guard stored in a field (d.hasP = p != nullptr) narrows like one in
+// a variable. Writing the field, assigning the whole struct, reassigning the
+// pointer the struct is reached through, or changing the tested pointer drops
+// it.
+//===----------------------------------------------------------------------===//
+
+struct Info {
+  bool hasP;
+  int count;
+  S *raw;
+};
+
+int s3b_field_guard(std::shared_ptr<S> _Nullable p) {
+  Info d;
+  d.hasP = p != nullptr;
+  return d.hasP ? p->x : 0;
+}
+
+int s3b_field_guard_if(std::shared_ptr<S> _Nullable p) {
+  Info d;
+  d.hasP = p != nullptr;
+  d.count = 1;
+  if (!d.hasP)
+    return 0;
+  return p->x;
+}
+
+int s3b_through_pointer(std::shared_ptr<S> _Nullable p, Info *_Nonnull info) {
+  info->hasP = p != nullptr;
+  if (info->hasP == false)
+    return 0;
+  return p->x;
+}
+
+struct Checker {
+  bool ok;
+  int check(std::shared_ptr<S> _Nullable p) {
+    ok = p != nullptr;
+    return ok ? p->x : 0;
+  }
+};
+
+int s3b_field_overwritten(std::shared_ptr<S> _Nullable p, bool c) {
+  Info d;
+  d.hasP = p != nullptr;
+  d.hasP = c;
+  return d.hasP ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3b_field_incremented(std::shared_ptr<S> _Nullable p) {
+  Info d;
+  d.count = p != nullptr;
+  ++d.count;
+  return d.count ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3b_struct_overwritten(std::shared_ptr<S> _Nullable p, Info other) {
+  Info d;
+  d.hasP = p != nullptr;
+  d = other;
+  return d.hasP ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3b_root_reassigned(std::shared_ptr<S> _Nullable p, Info *_Nonnull a,
+                        Info *_Nonnull b) {
+  a->hasP = p != nullptr;
+  a = b;
+  return a->hasP ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3b_pointer_reset(std::shared_ptr<S> _Nullable p) {
+  Info d;
+  d.hasP = p != nullptr;
+  p.reset();
+  return d.hasP ? p->x : 0; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s3b_wrong_way(std::shared_ptr<S> _Nullable p) {
+  Info d;
+  d.hasP = p != nullptr;
+  return d.hasP ? 0 : p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// Assigning the whole struct also drops narrowing of paths under it.
+int s3b_struct_overwritten_member(Info other) {
+  Info d = other;
+  if (!d.raw)
+    return 0;
+  d = other;
+  return d.raw->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+}

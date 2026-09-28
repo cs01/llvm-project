@@ -82,6 +82,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S1 | A smart pointer dereference narrows the pointer for the rest of the path, so only the first dereference on each path warns (raw pointers unchanged) | done (below) |
 | S6 | `std::static_pointer_cast` / `const_pointer_cast` / `reinterpret_pointer_cast` of a non-null smart pointer is non-null (the rvalue overloads move the source); `std::dynamic_pointer_cast` may yield null under either default | done (below) |
 | S3a | A guard built from a ternary with one constant false arm narrows (`p ? p->n : 0`, `p == nullptr ? false : X`) | done (below) |
+| S3b | A guard stored in a field (`d.ok = p != nullptr`, `this->ok`) narrows like a guard variable; assigning a struct as a whole drops every fact about paths under it | done (below) |
 
 ## Step 5b results
 
@@ -609,6 +610,24 @@ verified to fail before. sqlite nullable: 5 lost, 0 gained, all this shape:
 (`analyzeAggregate`), and `hasDistinct = pDistinct ?
 pDistinct->eTnctType : WHERE_DISTINCT_NOOP; if (hasDistinct)` (three lines
 in `selectInnerLoop`). Other lists and the LLVM differential: no change.
+
+## S3b results
+
+`BoolGuards` is keyed by `PtrRef` (a variable or a member path) instead of
+`VarDecl`. Assigning an integer field records the facts of its value
+(`handleMemberAssign`), `analyzeCondition` and the `flag == constant` form in
+`analyzeNullCompare` look a field guard up by its path, and a field guard is
+dropped with the path: writing the field or a prefix of it
+(`invalidateGuardsAndAliasesWithPrefix` now also removes keys under the
+prefix), `++` / `--` on it, reassigning the variable it is rooted at
+(`invalidateMembersFor`), and changing a pointer its facts name (unchanged:
+that looks at values). Assigning a struct as a whole (`d = other`; a
+`BinaryOperator` in C, `operator=` in C++) dropped nothing before, not even
+member-path narrowing (`if (d.p) { d = other; *d.p; }` was silent); it now
+runs `invalidateMembersFor`. As for member paths, a call is not assumed to
+change a field guard. Tests in `smart-ptr-libcxx.cpp` and
+`Sema/nullability-safety-guard-idioms.c`, verified to fail before. sqlite:
+no change. LLVM differential: no change.
 
 ## Step 5a results
 

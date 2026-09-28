@@ -246,6 +246,8 @@ struct PtrRef {
       return PtrRef{nullptr, std::move(P)};
     return std::nullopt;
   }
+  /// The tracked variable VD itself (no reference resolution).
+  static PtrRef var(const VarDecl *VD) { return PtrRef{VD, std::nullopt}; }
   /// Declared type of the variable or the leaf field.
   QualType getType() const {
     return VD ? VD->getType() : Path->leafField()->getType();
@@ -254,6 +256,18 @@ struct PtrRef {
     return VD == O.VD && Path == O.Path;
   }
 };
+
+} // end anonymous namespace
+
+template <> struct llvm::DenseMapInfo<PtrRef> {
+  static unsigned getHashValue(const PtrRef &R) {
+    return R.VD ? DenseMapInfo<const VarDecl *>::getHashValue(R.VD)
+                : DenseMapInfo<MemberAccessPath>::getHashValue(*R.Path);
+  }
+  static bool isEqual(const PtrRef &L, const PtrRef &R) { return L == R; }
+};
+
+namespace {
 
 /// One fact extracted from a branch condition (or a guard variable's
 /// initializer): the pointer Ref is non-null when the condition is true
@@ -285,14 +299,16 @@ struct NullState {
   llvm::DenseSet<const VarDecl *> MustNullableVars;
   llvm::DenseSet<MemberAccessPath> MustNullableMembers;
 
-  /// Maps integer-typed guard variables (bool or int flags) to the null-check
+  /// Maps integer-typed guards (bool or int flags), held in a variable or in
+  /// a field reached by a member path (d.ok, this->ok), to the null-check
   /// facts they capture, e.g. bool valid = (p != nullptr) stores
   /// {valid -> [(p, Negated=false)]}. Each fact reads exactly like a branch
   /// condition result: when the guard is true the Negated=false facts hold,
   /// when it is false the Negated=true facts hold. A guard built from p && q
-  /// carries one fact per conjunct.
+  /// carries one fact per conjunct. recordPointerImplication also keys
+  /// pointer variables here.
   using BoolGuardMap =
-      llvm::DenseMap<const VarDecl *, llvm::SmallVector<ConditionResult, 2>>;
+      llvm::DenseMap<PtrRef, llvm::SmallVector<ConditionResult, 2>>;
   BoolGuardMap BoolGuards;
 
   /// Pointer aliases: y = x records {y -> x}, meaning y holds the same value
@@ -412,10 +428,10 @@ static NullState join(const NullState &A, const NullState &B) {
       Result.MustNullableMembers.insert(Path);
   // Maps intersect with value equality: an entry survives only when both
   // sides map the key to the same fact.
-  for (const auto &[BoolVD, GuardInfo] : A.BoolGuards) {
-    auto It = B.BoolGuards.find(BoolVD);
+  for (const auto &[Guard, GuardInfo] : A.BoolGuards) {
+    auto It = B.BoolGuards.find(Guard);
     if (It != B.BoolGuards.end() && It->second == GuardInfo)
-      Result.BoolGuards[BoolVD] = GuardInfo;
+      Result.BoolGuards[Guard] = GuardInfo;
   }
   for (const auto &[AliasVD, TargetVD] : A.Aliases) {
     auto It = B.Aliases.find(AliasVD);
@@ -1215,13 +1231,10 @@ static bool analyzeNullCompare(const BinaryOperator *BO, bool Negated,
     if (BoolGuards) {
       for (auto [GuardSide, ConstSide] :
            {std::pair{LHS, RHS}, std::pair{RHS, LHS}}) {
-        const auto *DRE = dyn_cast<DeclRefExpr>(GuardSide);
-        if (!DRE)
+        auto Guard = PtrRef::fromExpr(GuardSide);
+        if (!Guard || !Guard->getType()->isIntegerType())
           continue;
-        const auto *GuardVD = dyn_cast<VarDecl>(DRE->getDecl());
-        if (!GuardVD || !GuardVD->getType()->isIntegerType())
-          continue;
-        auto It = BoolGuards->find(GuardVD);
+        auto It = BoolGuards->find(*Guard);
         if (It == BoolGuards->end())
           continue;
         std::optional<bool> CV = constantTruth(ConstSide, Ctx);
@@ -1401,28 +1414,23 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   }
 
   if (auto R = PtrRef::fromExpr(E)) {
-    if (R->VD) {
-      const VarDecl *VD = R->VD;
-      if (VD->getType()->isPointerType()) {
-        Results.push_back({std::move(*R), Negated});
-        return;
-      }
-      // A guard flag: if (valid) where valid = (p != nullptr). Integer flags
-      // count too (int ok = p != NULL is the C idiom).
-      if (BoolGuards && VD->getType()->isIntegerType()) {
-        auto It = BoolGuards->find(VD);
-        if (It != BoolGuards->end()) {
-          // An outer ! flips the sense of every stored fact.
-          for (ConditionResult CR : It->second) {
-            CR.Negated = CR.Negated != Negated;
-            Results.push_back(std::move(CR));
-          }
-          return;
-        }
-      }
-    } else if (R->getType()->isPointerType()) {
+    if (R->getType()->isPointerType()) {
       Results.push_back({std::move(*R), Negated});
       return;
+    }
+    // A guard flag: if (valid) where valid = (p != nullptr), in a variable
+    // or a field (if (d.valid)). Integer flags count too (int ok = p != NULL
+    // is the C idiom).
+    if (BoolGuards && R->getType()->isIntegerType()) {
+      auto It = BoolGuards->find(*R);
+      if (It != BoolGuards->end()) {
+        // An outer ! flips the sense of every stored fact.
+        for (ConditionResult CR : It->second) {
+          CR.Negated = CR.Negated != Negated;
+          Results.push_back(std::move(CR));
+        }
+        return;
+      }
     }
   }
 
@@ -1544,7 +1552,7 @@ static void applyNarrowing(NullState &NS, const ConditionResult &CR) {
     narrowVarWithAliases(NS, R.VD);
     if (!R.VD->getType()->isPointerType() || !Seen.insert(R.VD).second)
       continue;
-    auto It = NS.BoolGuards.find(R.VD);
+    auto It = NS.BoolGuards.find(PtrRef::var(R.VD));
     if (It == NS.BoolGuards.end())
       continue;
     for (const ConditionResult &Implied : It->second)
@@ -1716,9 +1724,12 @@ public:
             forgetFactsAbout(VD);
           } else if (VD->getType()->isIntegerType()) {
             // A guard flag that changes value no longer encodes the check.
-            State.BoolGuards.erase(VD);
+            State.BoolGuards.erase(PtrRef::var(VD));
           }
         }
+      } else if (auto Path = decomposeMemberAccess(SubExpr)) {
+        if (Path->leafField()->getType()->isIntegerType())
+          State.BoolGuards.erase(PtrRef{nullptr, std::move(*Path)});
       }
     }
   }
@@ -2003,7 +2014,7 @@ private:
       SmallVector<ConditionResult, 2> Facts;
       computeGuardFacts(VD->getInit(), Ctx, State.BoolGuards, Facts);
       if (!Facts.empty())
-        State.BoolGuards[VD] = std::move(Facts);
+        State.BoolGuards[PtrRef::var(VD)] = std::move(Facts);
     }
   }
 
@@ -2050,7 +2061,7 @@ private:
     if (MutationAnalyzer.isMutated(GuardVD))
       return;
     ConditionResult CR{PtrRef{PtrVD, std::nullopt}, Negated};
-    auto &Facts = State.BoolGuards[GuardVD];
+    auto &Facts = State.BoolGuards[PtrRef::var(GuardVD)];
     // Re-recording on each fixpoint iteration must not grow the vector, or
     // the block entry state never compares equal and never converges.
     if (!llvm::is_contained(Facts, CR))
@@ -2060,7 +2071,7 @@ private:
   void recordPointerImplication(const VarDecl *PtrVD, const Expr *Init) {
     if (!Init || !PtrVD->getType()->isPointerType())
       return;
-    State.BoolGuards.erase(PtrVD);
+    State.BoolGuards.erase(PtrRef::var(PtrVD));
     const auto *CO =
         dyn_cast<AbstractConditionalOperator>(Init->IgnoreParenImpCasts());
     if (!CO)
@@ -2088,7 +2099,7 @@ private:
         Implied.push_back(std::move(CR));
     }
     if (!Implied.empty())
-      State.BoolGuards[PtrVD] = std::move(Implied);
+      State.BoolGuards[PtrRef::var(PtrVD)] = std::move(Implied);
   }
 
   /// __builtin_assume(cond) narrows pointers mentioned in cond.
@@ -2215,7 +2226,7 @@ private:
     State.NullableMembers.remove_if(
         [VD](const MemberAccessPath &Path) { return Path.Root == VD; });
     invalidateBoolGuardsFor(VD);
-    State.BoolGuards.erase(VD);
+    State.BoolGuards.erase(PtrRef::var(VD));
     State.AddrOfTargets.erase(VD);
   }
 
@@ -2361,6 +2372,12 @@ private:
         // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
         // invalidate any narrowed paths nested under the LHS.
         invalidateMembersWithPrefix(*StructPath);
+      } else if (const auto *DRE =
+                     dyn_cast<DeclRefExpr>(LhsArg->IgnoreParenImpCasts())) {
+        // A struct variable assigned as a whole (d = other): the same for
+        // every path rooted at it.
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+          invalidateMembersFor(VD);
       }
     }
   }
@@ -2442,7 +2459,7 @@ private:
               State.NullableVars.erase(TgtVD);
               invalidateMembersFor(TgtVD);
               invalidateBoolGuardsFor(TgtVD);
-              State.BoolGuards.erase(TgtVD);
+              State.BoolGuards.erase(PtrRef::var(TgtVD));
             }
           }
         }
@@ -2457,7 +2474,18 @@ private:
                           const MemberAccessPath &LhsPath) {
     const FieldDecl *FD = LhsPath.leafField();
     invalidateMembersWithPrefix(LhsPath);
-    if (BO->getOpcode() != BO_Assign || !FD->getType()->isPointerType())
+    if (BO->getOpcode() != BO_Assign)
+      return;
+    // A guard field (d.ok = p != nullptr) records its facts like a guard
+    // variable.
+    if (FD->getType()->isIntegerType()) {
+      SmallVector<ConditionResult, 2> Facts;
+      computeGuardFacts(BO->getRHS(), Ctx, State.BoolGuards, Facts);
+      if (!Facts.empty())
+        State.BoolGuards[PtrRef{nullptr, LhsPath}] = std::move(Facts);
+      return;
+    }
+    if (!FD->getType()->isPointerType())
       return;
     bool Narrowed = storePointer(PtrRef{nullptr, LhsPath}, BO->getRHS(), BO);
     if (Reporting)
@@ -2472,13 +2500,20 @@ private:
     // Guard reassignment replaces any stored facts with whatever the
     // new value encodes (ok = p != NULL), or nothing.
     if (VD->getType()->isIntegerType()) {
-      State.BoolGuards.erase(VD);
+      State.BoolGuards.erase(PtrRef::var(VD));
       if (BO->getOpcode() == BO_Assign) {
         SmallVector<ConditionResult, 2> Facts;
         computeGuardFacts(BO->getRHS(), Ctx, State.BoolGuards, Facts);
         if (!Facts.empty())
-          State.BoolGuards[VD] = std::move(Facts);
+          State.BoolGuards[PtrRef::var(VD)] = std::move(Facts);
       }
+      return;
+    }
+    // A C struct assigned as a whole (d = other; C++ calls operator=, see
+    // handleSmartPtrAssign): every fact about a member path under it is
+    // stale.
+    if (VD->getType()->isRecordType()) {
+      invalidateMembersFor(VD);
       return;
     }
     if (!VD->getType()->isPointerType())
@@ -2810,9 +2845,12 @@ private:
   }
 
   /// Remove BoolGuards and member aliases that mention a member path under
-  /// Prefix (the path was just assigned, so the facts are stale).
+  /// Prefix (the path was just assigned, so the facts are stale), and guards
+  /// held in a field under Prefix.
   void invalidateGuardsAndAliasesWithPrefix(const MemberAccessPath &Prefix) {
     State.BoolGuards.remove_if([&Prefix](const auto &Entry) {
+      if (Entry.first.Path && pathHasPrefix(*Entry.first.Path, Prefix))
+        return true;
       return llvm::any_of(Entry.second, [&Prefix](const ConditionResult &CR) {
         return CR.Ref.Path && pathHasPrefix(*CR.Ref.Path, Prefix);
       });
@@ -2898,6 +2936,9 @@ private:
     State.NullableMembers.remove_if(RootedAtVD);
     State.MemberAliases.remove_if(
         [&](const auto &Entry) { return RootedAtVD(Entry.second); });
+    State.BoolGuards.remove_if([&](const auto &Entry) {
+      return Entry.first.Path && RootedAtVD(*Entry.first.Path);
+    });
   }
 
   /// Drop everything known about VD, its own narrowed / nullable flags
@@ -2925,7 +2966,7 @@ private:
   void forgetFactsAbout(const VarDecl *VD) {
     invalidateMembersFor(VD);
     invalidateBoolGuardsFor(VD);
-    State.BoolGuards.erase(VD);
+    State.BoolGuards.erase(PtrRef::var(VD));
     invalidateAliasesFor(VD);
     State.Aliases.erase(VD);
     State.MemberAliases.erase(VD);

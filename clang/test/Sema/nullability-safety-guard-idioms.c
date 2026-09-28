@@ -57,6 +57,34 @@ void b01c(int *_Nullable p, int c) {
   if (n) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 
+// FP: guard stored in a struct field
+struct Flags {
+  int ok;
+  int *_Nullable q;
+};
+void b01d(int *_Nullable p) {
+  struct Flags f;
+  f.ok = p != NULL;
+  if (f.ok) *p = 1;
+}
+
+// TP: the struct is assigned as a whole, dropping the field guard
+void b01e(int *_Nullable p, struct Flags other) {
+  struct Flags f;
+  f.ok = p != NULL;
+  f = other;
+  if (f.ok) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// TP: whole-struct assignment also drops a checked member path
+void b01f(int *_Nullable p, struct Flags other) {
+  struct Flags f = other;
+  f.q = p;
+  if (!f.q) return;
+  f = other;
+  *f.q = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
 // FP
 void b02(int *_Nullable p) {
   int b = p ? false : true;
