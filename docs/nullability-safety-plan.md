@@ -80,6 +80,7 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | S2 | A smart pointer reached through a reference (parameter, reference member) is tracked: null checks narrow it, and `reset()`, assignment and `std::move` through it drop the narrowing | done (below) |
 | S3c | A guard's facts about a smart pointer are dropped when the pointer is assigned, reset, released, swapped or moved from | done (below) |
 | S1 | A smart pointer dereference narrows the pointer for the rest of the path, so only the first dereference on each path warns (raw pointers unchanged) | done (below) |
+| S6 | `std::static_pointer_cast` / `const_pointer_cast` / `reinterpret_pointer_cast` of a non-null smart pointer is non-null (the rvalue overloads move the source); `std::dynamic_pointer_cast` may yield null under either default | done (below) |
 
 ## Step 5b results
 
@@ -564,6 +565,33 @@ a move from an unchecked parameter) stays nullable, because
 value; `m = make(); m->x` warns while the same code on a local does not
 (F1). The two nonnull warnings left at `Interpreter.cpp:363` are this
 (`CI = std::move(Instance)`, `Act = TSCtx->withContextDo(...)`).
+
+## S6 results
+
+Copies of a narrowed smart pointer were already narrowed (and are from a
+reference since S2). `lookThroughNullPreservingConversions` now also looks
+through `std::static_pointer_cast`, `const_pointer_cast` and
+`reinterpret_pointer_cast`, whose result is null exactly when the argument
+is: for copy sources, for `isNonnullSmartPtrInit` / `isNullSmartPtrInit`
+(`static_pointer_cast<B>(std::make_shared<D>())`), and for a move through
+the cast. The C++20 rvalue overloads move the source into the result, so
+`isStdMoveInsideSmartPtrTransferCtx` walks up through such a cast: the result
+inherits the source's narrowing and the source is moved-from, as for
+`auto q = std::move(p)`. `std::dynamic_pointer_cast` is excluded, and its
+result is treated as a `_Nullable` return (`isNullSmartPtrInit`): it yields
+null when the runtime check fails, like a raw `dynamic_cast`, which already
+warns under both defaults. This adds nonnull-mode warnings for unchecked
+`dynamic_pointer_cast` results (none in the gates' code). Tests in
+`smart-ptr-libcxx.cpp` (the mock gains converting constructors,
+`make_shared` and the four casts with both overloads, as libc++ declares
+them), verified to fail before and to pass with real libstdc++ and libc++
+`<memory>`. sqlite: no change (C). LLVM differential: no change.
+
+Not changed, noted for a decision: a copy only inherits narrowing, never
+nullability. `std::shared_ptr<T> q = p;` with `p` declared `_Nullable` or
+flow-nullable is not nullable under the nonnull default (`auto q = p` is,
+through the deduced type), while `T *q = p` on raw pointers is
+(`storePointer`).
 
 ## Step 5a results
 

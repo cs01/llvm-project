@@ -802,12 +802,37 @@ static const Expr *unwrapImplicitWrappers(const Expr *E) {
   return E;
 }
 
+/// The std function CE calls directly, when it is one named Name.
+static bool isStdCallTo(const CallExpr *CE, StringRef Name) {
+  const FunctionDecl *Callee = CE ? CE->getDirectCallee() : nullptr;
+  return Callee && Callee->isInStdNamespace() &&
+         Callee->getDeclName().isIdentifier() && Callee->getName() == Name;
+}
+
+/// The argument of std::static_pointer_cast, const_pointer_cast or
+/// reinterpret_pointer_cast (whose result is null exactly when the argument
+/// is), or nullptr when E is not such a call. dynamic_pointer_cast is not
+/// one: it yields null when the runtime check fails.
+static const Expr *getNullPreservingPointerCastArg(const Expr *E) {
+  const auto *CE = dyn_cast<CallExpr>(E);
+  if (!CE || CE->getNumArgs() != 1)
+    return nullptr;
+  if (isStdCallTo(CE, "static_pointer_cast") ||
+      isStdCallTo(CE, "const_pointer_cast") ||
+      isStdCallTo(CE, "reinterpret_pointer_cast"))
+    return CE->getArg(0);
+  return nullptr;
+}
+
 /// Check if a smart pointer is constructed from a provably non-null source:
 /// make_unique/make_shared, a constructor taking a new-expression, or a call
-/// whose declared return type is _Nonnull. The callee's declaration is read
-/// because the call expression's type can lose the annotation.
+/// whose declared return type is _Nonnull, possibly through a null-preserving
+/// pointer cast. The callee's declaration is read because the call
+/// expression's type can lose the annotation.
 static bool isNonnullSmartPtrInit(const Expr *E) {
   E = unwrapImplicitWrappers(E);
+  if (const Expr *Arg = getNullPreservingPointerCastArg(E))
+    return isNonnullSmartPtrInit(Arg);
   if (const auto *CE = dyn_cast<CallExpr>(E))
     if (const FunctionDecl *Callee = CE->getDirectCallee())
       if (isNonnullType(Callee->getReturnType().getNonReferenceType()))
@@ -1004,16 +1029,30 @@ static std::optional<PtrRef> smartPtrRef(const Expr *E) {
   return PtrRef::fromExpr(E);
 }
 
-/// The smart pointer a copy (T t = s, T t(s), t = s) reads from, seen through
-/// converting constructors (shared_ptr<Base> b = derived). Null when E is not
-/// a plain read of a smart pointer variable or member.
-static const Expr *smartPtrCopySource(const Expr *E) {
+/// E with implicit wrappers, single-argument (converting) constructors and
+/// null-preserving pointer casts looked through, down to the value whose
+/// nullness E has.
+static const Expr *lookThroughNullPreservingConversions(const Expr *E) {
   E = unwrapImplicitWrappers(E);
-  while (const auto *CCE = dyn_cast<CXXConstructExpr>(E)) {
-    if (CCE->getNumArgs() != 1)
-      return nullptr;
-    E = unwrapImplicitWrappers(CCE->getArg(0));
+  while (true) {
+    if (const auto *CCE = dyn_cast<CXXConstructExpr>(E)) {
+      if (CCE->getNumArgs() != 1)
+        return E;
+      E = unwrapImplicitWrappers(CCE->getArg(0));
+    } else if (const Expr *Arg = getNullPreservingPointerCastArg(E)) {
+      E = unwrapImplicitWrappers(Arg);
+    } else {
+      return E;
+    }
   }
+}
+
+/// The smart pointer a copy (T t = s, T t(s), t = s) reads from, seen through
+/// converting constructors (shared_ptr<Base> b = derived) and null-preserving
+/// casts (std::static_pointer_cast<D>(s)). Null when E is not a plain read of
+/// a smart pointer variable or member.
+static const Expr *smartPtrCopySource(const Expr *E) {
+  E = lookThroughNullPreservingConversions(E);
   return smartPtrRef(E) ? E : nullptr;
 }
 
@@ -1057,10 +1096,14 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
       }
       return false;
     }
+    // std::static_pointer_cast<D>(std::move(sp)) moves sp into the result,
+    // so the transfer reaches through the cast.
+    const auto *E = dyn_cast<Expr>(S);
     if (isa<ExprWithCleanups>(S) || isa<CXXBindTemporaryExpr>(S) ||
         isa<MaterializeTemporaryExpr>(S) || isa<ImplicitCastExpr>(S) ||
         isa<ParenExpr>(S) || isa<CXXConstructExpr>(S) ||
-        isa<CXXFunctionalCastExpr>(S)) {
+        isa<CXXFunctionalCastExpr>(S) ||
+        (E && getNullPreservingPointerCastArg(E))) {
       Child = S;
       continue;
     }
@@ -1852,11 +1895,15 @@ private:
     storeToVar(VD, VD->getInit(), VD->getInit());
   }
 
-  /// Whether a smart pointer initializer leaves it null: nullptr, default
-  /// construction, or a _Nullable-returning call.
+  /// Whether a smart pointer initializer may leave it null: nullptr, default
+  /// construction, a _Nullable-returning call, or std::dynamic_pointer_cast,
+  /// which yields null when the runtime check fails whatever its argument
+  /// (like a raw dynamic_cast, whatever the default).
   bool isNullSmartPtrInit(const Expr *Init) const {
     if (Init->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
       return true;
+    if (const Expr *Arg = getNullPreservingPointerCastArg(Init))
+      return isNullSmartPtrInit(unwrapImplicitWrappers(Arg));
     if (const auto *CCE = dyn_cast<CXXConstructExpr>(Init)) {
       if (CCE->getNumArgs() == 0)
         return CCE->getConstructor()->isDefaultConstructor();
@@ -1865,7 +1912,8 @@ private:
       return false;
     }
     if (const auto *CE = dyn_cast<CallExpr>(Init))
-      return isExplicitlyNullableType(CE->getCallReturnType(Ctx));
+      return isExplicitlyNullableType(CE->getCallReturnType(Ctx)) ||
+             isStdCallTo(CE, "dynamic_pointer_cast");
     return false;
   }
 
@@ -1898,10 +1946,7 @@ private:
         // state. The standalone std::move handler skipped the source
         // erase (see isStdMoveInsideSmartPtrTransferCtx), so the
         // source's pre-move state is still in NarrowedVars here.
-        const Expr *Inner = Init;
-        if (const auto *CCE = dyn_cast<CXXConstructExpr>(Inner))
-          if (CCE->getNumArgs() == 1)
-            Inner = unwrapImplicitWrappers(CCE->getArg(0));
+        const Expr *Inner = lookThroughNullPreservingConversions(Init);
         if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
           if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
               !VD->getType()->isReferenceType()) {
@@ -2260,9 +2305,11 @@ private:
           State.markNarrowed(*Lhs);
         } else if (isNullSmartPtrInit(RHS)) {
           State.markNullable(*Lhs);
-        } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
+        } else if (const auto *RhsCE = dyn_cast<CallExpr>(
+                       lookThroughNullPreservingConversions(RHS))) {
           if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
-            // sp = std::move(other): LHS inherits source's state.
+            // sp = std::move(other), possibly through a null-preserving
+            // cast: LHS inherits source's state.
             auto Src = smartPtrRef(RhsCE->getArg(0));
             if (Src)
               forgetSmartPtrFacts(*Src);

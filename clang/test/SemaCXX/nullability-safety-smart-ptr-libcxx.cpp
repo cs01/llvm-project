@@ -17,6 +17,8 @@ public:
   shared_ptr(nullptr_t) noexcept;
   shared_ptr(const shared_ptr &) noexcept;
   shared_ptr(shared_ptr &&) noexcept;
+  template <class U> shared_ptr(const shared_ptr<U> &) noexcept;
+  template <class U> shared_ptr(shared_ptr<U> &&) noexcept;
   ~shared_ptr();
   shared_ptr &operator=(const shared_ptr &) noexcept;
   shared_ptr &operator=(shared_ptr &&) noexcept;
@@ -29,6 +31,21 @@ public:
 };
 template <class T>
 bool operator==(const shared_ptr<T> &, nullptr_t) noexcept;
+template <class T, class... A> shared_ptr<T> make_shared(A &&...);
+template <class T, class U>
+shared_ptr<T> static_pointer_cast(const shared_ptr<U> &) noexcept;
+template <class T, class U>
+shared_ptr<T> static_pointer_cast(shared_ptr<U> &&) noexcept;
+template <class T, class U>
+shared_ptr<T> const_pointer_cast(const shared_ptr<U> &) noexcept;
+template <class T, class U>
+shared_ptr<T> const_pointer_cast(shared_ptr<U> &&) noexcept;
+template <class T, class U>
+shared_ptr<T> reinterpret_pointer_cast(const shared_ptr<U> &) noexcept;
+template <class T, class U>
+shared_ptr<T> dynamic_pointer_cast(const shared_ptr<U> &) noexcept;
+template <class T, class U>
+shared_ptr<T> dynamic_pointer_cast(shared_ptr<U> &&) noexcept;
 } // namespace std
 
 struct S {
@@ -477,4 +494,151 @@ int s1_loop(std::shared_ptr<S> _Nullable p, int n) {
 int s1_raw(S *_Nullable p) {
   int a = p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
   return a + p->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+//===----------------------------------------------------------------------===//
+// S6: a copy of a non-null smart pointer, and a static / const / reinterpret
+// pointer cast of one, is non-null; a copy leaves the source's state alone.
+// dynamic_pointer_cast yields null when the runtime check fails, whatever its
+// argument, so its result may be null under either default, as for a raw
+// dynamic_cast.
+//===----------------------------------------------------------------------===//
+
+struct Base {
+  virtual ~Base();
+  int y;
+};
+struct Derived : Base {
+  int x;
+};
+
+int s6_copy_after_check(std::shared_ptr<S> _Nullable p) {
+  if (!p)
+    return 0;
+  auto q = p;
+  std::shared_ptr<S> r(p);
+  return p->x + q->x + r->x;
+}
+
+int s6_copy_assign(std::shared_ptr<S> _Nullable p) {
+  if (!p)
+    return 0;
+  std::shared_ptr<S> q;
+  q = p;
+  return q->x;
+}
+
+int s6_copy_of_made() {
+  auto p = std::make_shared<S>();
+  std::shared_ptr<S> q = p;
+  return q->x;
+}
+
+int s6_copy_from_ref(const std::shared_ptr<S> _Nullable &p) {
+  if (!p)
+    return 0;
+  auto q = p;
+  return q->x;
+}
+
+int s6_converting_copy(std::shared_ptr<Derived> _Nullable d) {
+  if (!d)
+    return 0;
+  std::shared_ptr<Base> b = d;
+  return b->y;
+}
+
+int s6_copy_is_independent(std::shared_ptr<S> _Nullable p) {
+  if (!p)
+    return 0;
+  auto q = p;
+  q.reset();
+  return p->x;
+}
+
+int s6_static_cast(std::shared_ptr<Base> _Nullable p) {
+  if (p == nullptr)
+    return 0;
+  auto q = std::static_pointer_cast<Derived>(p);
+  return q->x;
+}
+
+int s6_static_cast_assign(std::shared_ptr<Base> _Nullable p) {
+  if (!p)
+    return 0;
+  std::shared_ptr<Derived> q;
+  q = std::static_pointer_cast<Derived>(p);
+  return q->x;
+}
+
+int s6_const_cast(std::shared_ptr<const S> _Nullable p) {
+  if (!p)
+    return 0;
+  auto q = std::const_pointer_cast<S>(p);
+  return q->x;
+}
+
+int s6_reinterpret_cast(std::shared_ptr<S> _Nullable p) {
+  if (!p)
+    return 0;
+  auto q = std::reinterpret_pointer_cast<Derived>(p);
+  return q->x;
+}
+
+int s6_static_cast_of_made() {
+  auto q = std::static_pointer_cast<Base>(std::make_shared<Derived>());
+  return q->y;
+}
+
+// The rvalue overload moves the source into the result.
+int s6_static_cast_of_moved(std::shared_ptr<Base> _Nullable p) {
+  if (!p)
+    return 0;
+  auto q = std::static_pointer_cast<Derived>(std::move(p));
+  int a = q->x;
+  return a + p->y; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s6_static_cast_of_moved_assign(std::shared_ptr<Base> _Nullable p) {
+  if (!p)
+    return 0;
+  std::shared_ptr<Derived> q;
+  q = std::static_pointer_cast<Derived>(std::move(p));
+  int a = q->x;
+  return a + p->y; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s6_copy_unchecked(std::shared_ptr<S> p) {
+  auto q = p;
+  return q->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+}
+
+int s6_static_cast_unchecked(std::shared_ptr<Base> p) {
+  auto q = std::static_pointer_cast<Derived>(p);
+  return q->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
+}
+
+int s6_dynamic_cast(std::shared_ptr<Base> _Nullable p) {
+  if (!p)
+    return 0;
+  auto q = std::dynamic_pointer_cast<Derived>(p);
+  return q->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s6_dynamic_cast_of_nonnull(std::shared_ptr<Base> _Nonnull p) {
+  std::shared_ptr<Derived> q;
+  q = std::dynamic_pointer_cast<Derived>(p);
+  return q->x; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s6_dynamic_cast_to_base(std::shared_ptr<Base> _Nonnull p) {
+  std::shared_ptr<Base> q = std::dynamic_pointer_cast<Derived>(p);
+  return q->y; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+int s6_dynamic_cast_checked(std::shared_ptr<Base> _Nonnull p) {
+  auto q = std::dynamic_pointer_cast<Derived>(p);
+  if (!q)
+    return 0;
+  return q->x;
 }
