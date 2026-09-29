@@ -118,3 +118,28 @@ int reset_to_factory_result() {
   u.reset(makeRaw());
   return u->x; // nullable-warning {{dereference of nullable pointer}} nullable-note {{add a null check}}
 }
+
+// A class deriving from a std smart pointer reaches operator->, operator*,
+// get() and operator bool through a derived-to-base cast. They are checked,
+// and narrow, like the smart pointer's own.
+struct DerivedUnique : std::unique_ptr<V> {};
+
+int derived_arrow(DerivedUnique d) {
+  return d->x; // nullable-warning {{dereference of nullable pointer 'DerivedUnique'}} nullable-note {{add a null check}}
+}
+
+int derived_star(DerivedUnique d) {
+  return (*d).x; // nullable-warning {{dereference of nullable pointer 'DerivedUnique'}} nullable-note {{add a null check}}
+}
+
+int derived_checked(DerivedUnique d) {
+  if (!d)
+    return 0;
+  return d->x;
+}
+
+int derived_get_checked(DerivedUnique d) {
+  if (d.get())
+    return (*d).x;
+  return 0;
+}

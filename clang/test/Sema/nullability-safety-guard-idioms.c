@@ -39,6 +39,52 @@ void b01(int *_Nullable p) {
   if (b) *p = 1;
 }
 
+// FP: one arm a constant false, the other not constant
+void b01a(int *_Nullable p) {
+  int n = p ? *p : 0;
+  if (n) *p = 1;
+}
+
+// FP
+void b01b(int *_Nullable p) {
+  int n = p == NULL ? 0 : *p;
+  if (n == 2) *p = 1;
+}
+
+// TP: the constant arm is true, so the guard being true proves nothing
+void b01c(int *_Nullable p, int c) {
+  int n = p ? c : 1;
+  if (n) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// FP: guard stored in a struct field
+struct Flags {
+  int ok;
+  int *_Nullable q;
+};
+void b01d(int *_Nullable p) {
+  struct Flags f;
+  f.ok = p != NULL;
+  if (f.ok) *p = 1;
+}
+
+// TP: the struct is assigned as a whole, dropping the field guard
+void b01e(int *_Nullable p, struct Flags other) {
+  struct Flags f;
+  f.ok = p != NULL;
+  f = other;
+  if (f.ok) *p = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
+// TP: whole-struct assignment also drops a checked member path
+void b01f(int *_Nullable p, struct Flags other) {
+  struct Flags f = other;
+  f.q = p;
+  if (!f.q) return;
+  f = other;
+  *f.q = 1; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
+}
+
 // FP
 void b02(int *_Nullable p) {
   int b = p ? false : true;

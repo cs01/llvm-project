@@ -143,19 +143,35 @@ template <> struct llvm::DenseMapInfo<MemberAccessPath> {
   }
 };
 
+static bool isSmartPointerObject(const Expr *Obj);
+static const VarDecl *resolveSmartPtrReference(const VarDecl *VD);
+
 /// Walk a MemberExpr chain to its root, collecting FieldDecls along the way.
-/// Returns nullopt if the root is not a VarDecl (via DeclRefExpr) or
-/// CXXThisExpr. Root is nullptr for this-> access paths.
+/// A std smart pointer's operator-> or operator* continues the chain at the
+/// smart pointer, as -> does at a raw pointer, so sp->child and (*sp).child
+/// are paths rooted at sp. Returns nullopt if the root is not a VarDecl (via
+/// DeclRefExpr) or CXXThisExpr. Root is nullptr for this-> access paths.
 static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
   llvm::SmallVector<const FieldDecl *, 2> Fields;
   E = E->IgnoreParenImpCasts();
 
-  while (const auto *ME = dyn_cast<MemberExpr>(E)) {
-    if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
-      Fields.push_back(FD);
-    else
-      return std::nullopt;
-    E = ME->getBase()->IgnoreParenImpCasts();
+  while (true) {
+    if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+        Fields.push_back(FD);
+      else
+        return std::nullopt;
+      E = ME->getBase()->IgnoreParenImpCasts();
+      continue;
+    }
+    const auto *OCE = dyn_cast<CXXOperatorCallExpr>(E);
+    if (!Fields.empty() && OCE && OCE->getNumArgs() == 1 &&
+        (OCE->getOperator() == OO_Arrow || OCE->getOperator() == OO_Star) &&
+        isSmartPointerObject(OCE->getArg(0))) {
+      E = OCE->getArg(0)->IgnoreParenImpCasts();
+      continue;
+    }
+    break;
   }
 
   if (Fields.empty())
@@ -169,8 +185,10 @@ static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
   if (isa<CXXThisExpr>(E)) {
     Path.Root = nullptr;
   } else if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    // A local smart pointer reference roots its paths at its referent, as
+    // PtrRef::fromExpr does for the reference itself.
     if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      Path.Root = VD;
+      Path.Root = resolveSmartPtrReference(VD);
     else
       return std::nullopt;
   } else {
@@ -246,6 +264,8 @@ struct PtrRef {
       return PtrRef{nullptr, std::move(P)};
     return std::nullopt;
   }
+  /// The tracked variable VD itself (no reference resolution).
+  static PtrRef var(const VarDecl *VD) { return PtrRef{VD, std::nullopt}; }
   /// Declared type of the variable or the leaf field.
   QualType getType() const {
     return VD ? VD->getType() : Path->leafField()->getType();
@@ -254,6 +274,18 @@ struct PtrRef {
     return VD == O.VD && Path == O.Path;
   }
 };
+
+} // end anonymous namespace
+
+template <> struct llvm::DenseMapInfo<PtrRef> {
+  static unsigned getHashValue(const PtrRef &R) {
+    return R.VD ? DenseMapInfo<const VarDecl *>::getHashValue(R.VD)
+                : DenseMapInfo<MemberAccessPath>::getHashValue(*R.Path);
+  }
+  static bool isEqual(const PtrRef &L, const PtrRef &R) { return L == R; }
+};
+
+namespace {
 
 /// One fact extracted from a branch condition (or a guard variable's
 /// initializer): the pointer Ref is non-null when the condition is true
@@ -285,14 +317,16 @@ struct NullState {
   llvm::DenseSet<const VarDecl *> MustNullableVars;
   llvm::DenseSet<MemberAccessPath> MustNullableMembers;
 
-  /// Maps integer-typed guard variables (bool or int flags) to the null-check
+  /// Maps integer-typed guards (bool or int flags), held in a variable or in
+  /// a field reached by a member path (d.ok, this->ok), to the null-check
   /// facts they capture, e.g. bool valid = (p != nullptr) stores
   /// {valid -> [(p, Negated=false)]}. Each fact reads exactly like a branch
   /// condition result: when the guard is true the Negated=false facts hold,
   /// when it is false the Negated=true facts hold. A guard built from p && q
-  /// carries one fact per conjunct.
+  /// carries one fact per conjunct. recordPointerImplication also keys
+  /// pointer variables here.
   using BoolGuardMap =
-      llvm::DenseMap<const VarDecl *, llvm::SmallVector<ConditionResult, 2>>;
+      llvm::DenseMap<PtrRef, llvm::SmallVector<ConditionResult, 2>>;
   BoolGuardMap BoolGuards;
 
   /// Pointer aliases: y = x records {y -> x}, meaning y holds the same value
@@ -412,10 +446,10 @@ static NullState join(const NullState &A, const NullState &B) {
       Result.MustNullableMembers.insert(Path);
   // Maps intersect with value equality: an entry survives only when both
   // sides map the key to the same fact.
-  for (const auto &[BoolVD, GuardInfo] : A.BoolGuards) {
-    auto It = B.BoolGuards.find(BoolVD);
+  for (const auto &[Guard, GuardInfo] : A.BoolGuards) {
+    auto It = B.BoolGuards.find(Guard);
     if (It != B.BoolGuards.end() && It->second == GuardInfo)
-      Result.BoolGuards[BoolVD] = GuardInfo;
+      Result.BoolGuards[Guard] = GuardInfo;
   }
   for (const auto &[AliasVD, TargetVD] : A.Aliases) {
     auto It = B.Aliases.find(AliasVD);
@@ -711,17 +745,24 @@ static ExplicitCastInfo getExplicitCastInfo(const Expr *E) {
 }
 
 /// Declared type of the variable or field a smart pointer expression names,
-/// or a null QualType. Overload resolution on operator->/operator* strips
-/// nullability from the expression's own type, so only the declaration
-/// still carries it.
+/// with any reference stripped, or a null QualType. Overload resolution on
+/// operator->/operator* strips nullability from the expression's own type, so
+/// only the declaration still carries it. For a reference the annotation sits
+/// on the referenced type (const std::shared_ptr<T> _Nonnull &), and a local
+/// reference that carries none takes its referent's, as its flow facts do
+/// (see resolveSmartPtrReference).
 static QualType getSmartPointerDeclaredType(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      return VD->getType();
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+      QualType Ty = VD->getType().getNonReferenceType();
+      if (!Ty->getNullability())
+        Ty = resolveSmartPtrReference(VD)->getType().getNonReferenceType();
+      return Ty;
+    }
   } else if (const auto *ME = dyn_cast<MemberExpr>(E)) {
     if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
-      return FD->getType();
+      return FD->getType().getNonReferenceType();
   }
   return QualType();
 }
@@ -751,8 +792,30 @@ static bool isSmartPointerType(QualType Ty) {
   return Name == "unique_ptr" || Name == "shared_ptr" || Name == "weak_ptr";
 }
 
+/// Whether Obj, the object a member call or operator acts on, is a std smart
+/// pointer: by its own type, or by a class on the derived-to-base path the
+/// call took to an inherited member. libstdc++ declares shared_ptr's
+/// operator->, operator*, get(), operator bool and reset() on base classes
+/// (__shared_ptr_access, __shared_ptr), and a user class deriving from a std
+/// smart pointer reaches that pointer's members the same way. Neither the
+/// type at the call nor the type under the casts covers both: for a class
+/// deriving from libstdc++'s shared_ptr, one is __shared_ptr_access and the
+/// other is the user class.
 static bool isSmartPointerObject(const Expr *Obj) {
-  return Obj && isSmartPointerType(Obj->IgnoreParenImpCasts()->getType());
+  for (const Expr *E = Obj; E;) {
+    if (isSmartPointerType(E->getType()))
+      return true;
+    const auto *ICE = dyn_cast<ImplicitCastExpr>(E->IgnoreParens());
+    if (!ICE)
+      return false;
+    if (ICE->getCastKind() == CK_DerivedToBase ||
+        ICE->getCastKind() == CK_UncheckedDerivedToBase)
+      for (const CXXBaseSpecifier *Base : ICE->path())
+        if (isSmartPointerType(Base->getType()))
+          return true;
+    E = ICE->getSubExpr();
+  }
+  return false;
 }
 
 /// Strip implicit wrappers that real standard library headers introduce
@@ -773,10 +836,41 @@ static const Expr *unwrapImplicitWrappers(const Expr *E) {
   return E;
 }
 
+/// The std function CE calls directly, when it is one named Name.
+static bool isStdCallTo(const CallExpr *CE, StringRef Name) {
+  const FunctionDecl *Callee = CE ? CE->getDirectCallee() : nullptr;
+  return Callee && Callee->isInStdNamespace() &&
+         Callee->getDeclName().isIdentifier() && Callee->getName() == Name;
+}
+
+/// The argument of std::static_pointer_cast, const_pointer_cast or
+/// reinterpret_pointer_cast (whose result is null exactly when the argument
+/// is), or nullptr when E is not such a call. dynamic_pointer_cast is not
+/// one: it yields null when the runtime check fails.
+static const Expr *getNullPreservingPointerCastArg(const Expr *E) {
+  const auto *CE = dyn_cast<CallExpr>(E);
+  if (!CE || CE->getNumArgs() != 1)
+    return nullptr;
+  if (isStdCallTo(CE, "static_pointer_cast") ||
+      isStdCallTo(CE, "const_pointer_cast") ||
+      isStdCallTo(CE, "reinterpret_pointer_cast"))
+    return CE->getArg(0);
+  return nullptr;
+}
+
 /// Check if a smart pointer is constructed from a provably non-null source:
-/// make_unique/make_shared, or a constructor taking a new-expression.
+/// make_unique/make_shared, a constructor taking a new-expression, or a call
+/// whose declared return type is _Nonnull, possibly through a null-preserving
+/// pointer cast. The callee's declaration is read because the call
+/// expression's type can lose the annotation.
 static bool isNonnullSmartPtrInit(const Expr *E) {
   E = unwrapImplicitWrappers(E);
+  if (const Expr *Arg = getNullPreservingPointerCastArg(E))
+    return isNonnullSmartPtrInit(Arg);
+  if (const auto *CE = dyn_cast<CallExpr>(E))
+    if (const FunctionDecl *Callee = CE->getDirectCallee())
+      if (isNonnullType(Callee->getReturnType().getNonReferenceType()))
+        return true;
   if (const auto *CE = dyn_cast<CXXConstructExpr>(E)) {
     if (CE->getNumArgs() == 1)
       return isNonnullSmartPtrInit(CE->getArg(0));
@@ -957,25 +1051,62 @@ static bool isLibcNullableReturnCall(const CallExpr *CE) {
       .Default(false);
 }
 
-/// The tracked pointer E names, if its declared type is a std smart pointer.
+/// The tracked pointer E names, if E is a std smart pointer object (see
+/// isSmartPointerObject). The expression's type is tested rather than the
+/// declaration's: a reference (const std::shared_ptr<T> &p, a reference
+/// member) declares a reference type but names the smart pointer itself, and
+/// a class deriving from a std smart pointer shows up through the
+/// derived-to-base cast of an inherited member's object argument.
 static std::optional<PtrRef> smartPtrRef(const Expr *E) {
-  auto R = PtrRef::fromExpr(E);
-  if (R && isSmartPointerType(R->getType()))
-    return R;
-  return std::nullopt;
+  if (!isSmartPointerObject(E))
+    return std::nullopt;
+  return PtrRef::fromExpr(E);
+}
+
+/// E with implicit wrappers, single-argument (converting) constructors and
+/// null-preserving pointer casts looked through, down to the value whose
+/// nullness E has.
+static const Expr *lookThroughNullPreservingConversions(const Expr *E) {
+  E = unwrapImplicitWrappers(E);
+  while (true) {
+    if (const auto *CCE = dyn_cast<CXXConstructExpr>(E)) {
+      if (CCE->getNumArgs() != 1)
+        return E;
+      E = unwrapImplicitWrappers(CCE->getArg(0));
+    } else if (const Expr *Arg = getNullPreservingPointerCastArg(E)) {
+      E = unwrapImplicitWrappers(Arg);
+    } else {
+      return E;
+    }
+  }
 }
 
 /// The smart pointer a copy (T t = s, T t(s), t = s) reads from, seen through
-/// converting constructors (shared_ptr<Base> b = derived). Null when E is not
-/// a plain read of a smart pointer variable or member.
+/// converting constructors (shared_ptr<Base> b = derived) and null-preserving
+/// casts (std::static_pointer_cast<D>(s)). Null when E is not a plain read of
+/// a smart pointer variable or member.
 static const Expr *smartPtrCopySource(const Expr *E) {
-  E = unwrapImplicitWrappers(E);
-  while (const auto *CCE = dyn_cast<CXXConstructExpr>(E)) {
-    if (CCE->getNumArgs() != 1)
-      return nullptr;
-    E = unwrapImplicitWrappers(CCE->getArg(0));
-  }
+  E = lookThroughNullPreservingConversions(E);
   return smartPtrRef(E) ? E : nullptr;
+}
+
+/// The call (or operator[]) whose result the smart pointer object Obj is, if
+/// that result may be null by contract: the callee's declared return type is
+/// _Nullable (read from the declaration, since overload resolution strips it
+/// from the object expression), or the callee is std::dynamic_pointer_cast.
+/// Such a temporary has no identity to narrow, so an unannotated return is
+/// not judged by the mode default.
+static const CallExpr *getNullableSmartPtrCallResult(const Expr *Obj) {
+  const auto *CE = dyn_cast<CallExpr>(unwrapImplicitWrappers(Obj));
+  if (!CE)
+    return nullptr;
+  if (isStdCallTo(CE, "dynamic_pointer_cast"))
+    return CE;
+  const FunctionDecl *Callee = CE->getDirectCallee();
+  if (Callee &&
+      isExplicitlyNullableType(Callee->getReturnType().getNonReferenceType()))
+    return CE;
+  return nullptr;
 }
 
 /// Whether this std::move(sp) initializes or is assigned to a smart pointer
@@ -1018,10 +1149,14 @@ static bool isStdMoveInsideSmartPtrTransferCtx(const CallExpr *CE,
       }
       return false;
     }
+    // std::static_pointer_cast<D>(std::move(sp)) moves sp into the result,
+    // so the transfer reaches through the cast.
+    const auto *E = dyn_cast<Expr>(S);
     if (isa<ExprWithCleanups>(S) || isa<CXXBindTemporaryExpr>(S) ||
         isa<MaterializeTemporaryExpr>(S) || isa<ImplicitCastExpr>(S) ||
         isa<ParenExpr>(S) || isa<CXXConstructExpr>(S) ||
-        isa<CXXFunctionalCastExpr>(S)) {
+        isa<CXXFunctionalCastExpr>(S) ||
+        (E && getNullPreservingPointerCastArg(E))) {
       Child = S;
       continue;
     }
@@ -1054,10 +1189,7 @@ static std::optional<PtrRef> smartPtrGetRef(const Expr *E) {
   const Expr *Obj = CE ? smartPtrGetReceiver(CE) : nullptr;
   if (!Obj)
     return std::nullopt;
-  auto R = PtrRef::fromExpr(Obj);
-  if (R && (R->VD || isSmartPointerType(R->getType())))
-    return R;
-  return std::nullopt;
+  return smartPtrRef(Obj);
 }
 
 // Forward declaration: decomposeChain calls analyzeCondition on leaves.
@@ -1136,13 +1268,10 @@ static bool analyzeNullCompare(const BinaryOperator *BO, bool Negated,
     if (BoolGuards) {
       for (auto [GuardSide, ConstSide] :
            {std::pair{LHS, RHS}, std::pair{RHS, LHS}}) {
-        const auto *DRE = dyn_cast<DeclRefExpr>(GuardSide);
-        if (!DRE)
+        auto Guard = PtrRef::fromExpr(GuardSide);
+        if (!Guard || !Guard->getType()->isIntegerType())
           continue;
-        const auto *GuardVD = dyn_cast<VarDecl>(DRE->getDecl());
-        if (!GuardVD || !GuardVD->getType()->isIntegerType())
-          continue;
-        auto It = BoolGuards->find(GuardVD);
+        auto It = BoolGuards->find(*Guard);
         if (It == BoolGuards->end())
           continue;
         std::optional<bool> CV = constantTruth(ConstSide, Ctx);
@@ -1213,15 +1342,15 @@ analyzeSmartPtrNullCompare(const CXXOperatorCallExpr *OCE, bool Negated,
         RHS->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull);
 
     if (LHSIsNull || RHSIsNull) {
-      const Expr *PtrExpr = LHSIsNull ? RHS : LHS;
-      PtrExpr = PtrExpr->IgnoreParenImpCasts();
+      // The operand as passed, so its type and any derived-to-base cast are
+      // still visible to smartPtrRef.
+      const Expr *PtrExpr = OCE->getArg(LHSIsNull ? 1 : 0);
       bool EqNegated = Negated;
       if (OpKind == OO_EqualEqual)
         EqNegated = !EqNegated;
 
-      if (auto R = PtrRef::fromExpr(PtrExpr))
-        if (isSmartPointerType(R->getType()))
-          Results.push_back({std::move(*R), EqNegated});
+      if (auto R = smartPtrRef(PtrExpr))
+        Results.push_back({std::move(*R), EqNegated});
     }
     return true;
   }
@@ -1235,16 +1364,9 @@ analyzeSmartPtrBoolConversion(const CXXMemberCallExpr *MCE, bool Negated,
   if (const auto *CD =
           dyn_cast_or_null<CXXConversionDecl>(MCE->getMethodDecl())) {
     if (CD->getConversionType()->isBooleanType()) {
-      const Expr *Obj = MCE->getImplicitObjectArgument();
-      if (isSmartPointerObject(Obj)) {
-        // Obj's type was already checked above, so a variable needs no
-        // further type test; only a path's leaf field does.
-        if (auto R = PtrRef::fromExpr(Obj)) {
-          if (R->VD || isSmartPointerType(R->getType())) {
-            Results.push_back({std::move(*R), Negated});
-            return;
-          }
-        }
+      if (auto R = smartPtrRef(MCE->getImplicitObjectArgument())) {
+        Results.push_back({std::move(*R), Negated});
+        return;
       }
     }
   }
@@ -1261,23 +1383,30 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   if (!Cond)
     return;
 
-  const Expr *E = Cond->IgnoreParenImpCasts();
-  E = stripOpaqueValue(E);
-  E = unwrapBuiltinExpect(E);
-  E = ignoreExplicitBoolCast(E);
+  const Expr *E = stripOpaqueValue(Cond->IgnoreParenImpCasts());
 
-  // C++20 rewrites sp != nullptr into !(sp == nullptr) wrapped in a
-  // CXXRewrittenBinaryOperator. Unwrap to the semantic form so the ! loop
-  // and CXXOperatorCallExpr handler below can process it.
-  if (const auto *RBO = dyn_cast<CXXRewrittenBinaryOperator>(E))
-    E = RBO->getSemanticForm()->IgnoreParenImpCasts();
-
+  // Peel !, __builtin_expect, explicit casts to bool and C++20 rewritten
+  // comparisons, in any order. With only operator==(const shared_ptr &,
+  // nullptr_t) declared (libc++ in C++20), sp != nullptr is a
+  // CXXRewrittenBinaryOperator whose semantic form is !(sp == nullptr), and
+  // assertion macros wrap it further: !(sp != nullptr),
+  // __builtin_expect(!!(!(sp != nullptr)), 0).
   bool Negated = false;
-  while (const auto *UO = dyn_cast<UnaryOperator>(E)) {
-    if (UO->getOpcode() != UO_LNot)
+  while (true) {
+    const Expr *Next;
+    if (const auto *RBO = dyn_cast<CXXRewrittenBinaryOperator>(E)) {
+      Next = RBO->getSemanticForm();
+    } else if (const auto *UO = dyn_cast<UnaryOperator>(E);
+               UO && UO->getOpcode() == UO_LNot) {
+      Negated = !Negated;
+      Next = UO->getSubExpr();
+    } else {
+      Next = unwrapBuiltinExpect(E);
+    }
+    Next = ignoreExplicitBoolCast(Next->IgnoreParenImpCasts());
+    if (Next == E)
       break;
-    Negated = !Negated;
-    E = ignoreExplicitBoolCast(UO->getSubExpr()->IgnoreParenImpCasts());
+    E = Next;
   }
 
   // See through pointer-to-pointer casts, as the dereference side does, so
@@ -1322,28 +1451,23 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
   }
 
   if (auto R = PtrRef::fromExpr(E)) {
-    if (R->VD) {
-      const VarDecl *VD = R->VD;
-      if (VD->getType()->isPointerType()) {
-        Results.push_back({std::move(*R), Negated});
-        return;
-      }
-      // A guard flag: if (valid) where valid = (p != nullptr). Integer flags
-      // count too (int ok = p != NULL is the C idiom).
-      if (BoolGuards && VD->getType()->isIntegerType()) {
-        auto It = BoolGuards->find(VD);
-        if (It != BoolGuards->end()) {
-          // An outer ! flips the sense of every stored fact.
-          for (ConditionResult CR : It->second) {
-            CR.Negated = CR.Negated != Negated;
-            Results.push_back(std::move(CR));
-          }
-          return;
-        }
-      }
-    } else if (R->getType()->isPointerType()) {
+    if (R->getType()->isPointerType()) {
       Results.push_back({std::move(*R), Negated});
       return;
+    }
+    // A guard flag: if (valid) where valid = (p != nullptr), in a variable
+    // or a field (if (d.valid)). Integer flags count too (int ok = p != NULL
+    // is the C idiom).
+    if (BoolGuards && R->getType()->isIntegerType()) {
+      auto It = BoolGuards->find(*R);
+      if (It != BoolGuards->end()) {
+        // An outer ! flips the sense of every stored fact.
+        for (ConditionResult CR : It->second) {
+          CR.Negated = CR.Negated != Negated;
+          Results.push_back(std::move(CR));
+        }
+        return;
+      }
     }
   }
 
@@ -1353,9 +1477,10 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
 
 /// Extract the null-check facts a guard variable's initializer or assigned
 /// value encodes, so a later if (flag) narrows the pointers it tested. Handles
-/// p != nullptr, the ternary spellings p ? true : false / p ? 0 : 1, p && q
-/// (guard true means every conjunct held, so only true-direction facts
-/// survive), and copies of other guards (bool c = !b).
+/// p != nullptr, the ternary spellings p ? true : false / p ? 0 : 1, a
+/// ternary with one constant false arm (p ? p->n : 0, p == nullptr ? false :
+/// X), p && q (guard true means every conjunct held, so only true-direction
+/// facts survive), and copies of other guards (bool c = !b).
 static void computeGuardFacts(const Expr *Init, ASTContext &Ctx,
                               const NullState::BoolGuardMap &Guards,
                               SmallVectorImpl<ConditionResult> &Facts) {
@@ -1368,12 +1493,44 @@ static void computeGuardFacts(const Expr *Init, ASTContext &Ctx,
   if (const auto *CO = dyn_cast<AbstractConditionalOperator>(Init)) {
     std::optional<bool> TV = constantTruth(CO->getTrueExpr(), Ctx);
     std::optional<bool> FV = constantTruth(CO->getFalseExpr(), Ctx);
-    if (!TV || !FV || *TV == *FV)
+    if (TV && FV) {
+      if (*TV == *FV)
+        return;
+      analyzeCondition(CO->getCond(), Ctx, Facts, &Guards);
+      if (!*TV)
+        for (auto &CR : Facts)
+          CR.Negated = !CR.Negated;
       return;
-    analyzeCondition(CO->getCond(), Ctx, Facts, &Guards);
-    if (!*TV)
-      for (auto &CR : Facts)
-        CR.Negated = !CR.Negated;
+    }
+    // One arm a constant false and the other not constant: c ? X : false
+    // holds exactly when c && X does, and c ? false : X when !c && X does,
+    // so the guard being true proves c's facts (or !c's) and X's. As for &&,
+    // only guard-true facts are kept. A constant true arm (c ? true : X is
+    // c || X) proves nothing when the guard is true.
+    bool FalseFirst = TV && !*TV;
+    if (!FalseFirst && !(FV && !*FV))
+      return;
+    auto Add = [&Facts](ConditionResult CR) {
+      if (!llvm::is_contained(Facts, CR))
+        Facts.push_back(std::move(CR));
+    };
+    // c true, with c = a && b, means both held; c false, with c = a || b,
+    // means neither did.
+    SmallVector<ConditionResult, 4> CondFacts;
+    decomposeChain(CO->getCond(), FalseFirst ? BO_LOr : BO_LAnd, Ctx, CondFacts,
+                   &Guards);
+    for (ConditionResult &CR : CondFacts) {
+      if (CR.Negated != FalseFirst)
+        continue;
+      CR.Negated = false;
+      Add(std::move(CR));
+    }
+    SmallVector<ConditionResult, 4> ArmFacts;
+    computeGuardFacts(FalseFirst ? CO->getFalseExpr() : CO->getTrueExpr(), Ctx,
+                      Guards, ArmFacts);
+    for (ConditionResult &CR : ArmFacts)
+      if (!CR.Negated)
+        Add(std::move(CR));
     return;
   }
   if (const auto *BO = dyn_cast<BinaryOperator>(Init)) {
@@ -1432,7 +1589,7 @@ static void applyNarrowing(NullState &NS, const ConditionResult &CR) {
     narrowVarWithAliases(NS, R.VD);
     if (!R.VD->getType()->isPointerType() || !Seen.insert(R.VD).second)
       continue;
-    auto It = NS.BoolGuards.find(R.VD);
+    auto It = NS.BoolGuards.find(PtrRef::var(R.VD));
     if (It == NS.BoolGuards.end())
       continue;
     for (const ConditionResult &Implied : It->second)
@@ -1536,6 +1693,13 @@ public:
   void VisitDeclStmt(const DeclStmt *DS) {
     for (const auto *D : DS->decls()) {
       if (const auto *VD = dyn_cast<VarDecl>(D)) {
+        // Each run of a declaration creates a new object (or binds a
+        // reference anew), so facts about the variable from an earlier loop
+        // iteration are stale: a pointer moved from or nulled at the end of
+        // the body is not null when the next iteration declares it again. A
+        // static local keeps its value, and its declaration runs once.
+        if (VD->hasLocalStorage())
+          forgetVariable(VD);
         if (VD->getType()->isPointerType()) {
           handlePointerVarInit(VD);
           continue;
@@ -1597,9 +1761,12 @@ public:
             forgetFactsAbout(VD);
           } else if (VD->getType()->isIntegerType()) {
             // A guard flag that changes value no longer encodes the check.
-            State.BoolGuards.erase(VD);
+            State.BoolGuards.erase(PtrRef::var(VD));
           }
         }
+      } else if (auto Path = decomposeMemberAccess(SubExpr)) {
+        if (Path->leafField()->getType()->isIntegerType())
+          State.BoolGuards.erase(PtrRef{nullptr, std::move(*Path)});
       }
     }
   }
@@ -1809,11 +1976,15 @@ private:
     storeToVar(VD, VD->getInit(), VD->getInit());
   }
 
-  /// Whether a smart pointer initializer leaves it null: nullptr, default
-  /// construction, or a _Nullable-returning call.
+  /// Whether a smart pointer initializer may leave it null: nullptr, default
+  /// construction, a _Nullable-returning call, or std::dynamic_pointer_cast,
+  /// which yields null when the runtime check fails whatever its argument
+  /// (like a raw dynamic_cast, whatever the default).
   bool isNullSmartPtrInit(const Expr *Init) const {
     if (Init->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
       return true;
+    if (const Expr *Arg = getNullPreservingPointerCastArg(Init))
+      return isNullSmartPtrInit(unwrapImplicitWrappers(Arg));
     if (const auto *CCE = dyn_cast<CXXConstructExpr>(Init)) {
       if (CCE->getNumArgs() == 0)
         return CCE->getConstructor()->isDefaultConstructor();
@@ -1822,7 +1993,8 @@ private:
       return false;
     }
     if (const auto *CE = dyn_cast<CallExpr>(Init))
-      return isExplicitlyNullableType(CE->getCallReturnType(Ctx));
+      return isExplicitlyNullableType(CE->getCallReturnType(Ctx)) ||
+             isStdCallTo(CE, "dynamic_pointer_cast");
     return false;
   }
 
@@ -1846,25 +2018,30 @@ private:
       } else if (isNullSmartPtrInit(Init)) {
         State.markNullable(VD);
       } else if (const Expr *Src = smartPtrCopySource(Init)) {
-        // A reference binds to the source itself rather than copying it, so
-        // a later reset() of the source must reach it.
-        if (!VD->getType()->isReferenceType() && !isSmartPointerMaybeNull(Src))
-          State.markNarrowed(VD);
+        // A copy holds what the source holds. A reference binds to the
+        // source itself rather than copying it, so a later reset() of the
+        // source must reach it.
+        if (!VD->getType()->isReferenceType()) {
+          if (!isSmartPointerMaybeNull(Src))
+            State.markNarrowed(VD);
+          else if (isSmartPointerKnownNullable(Src))
+            State.markNullable(VD);
+        }
       } else {
-        // auto x = std::move(other); inherits the source's narrowed
-        // state. The standalone std::move handler skipped the source
-        // erase (see isStdMoveInsideSmartPtrTransferCtx), so the
-        // source's pre-move state is still in NarrowedVars here.
-        const Expr *Inner = Init;
-        if (const auto *CCE = dyn_cast<CXXConstructExpr>(Inner))
-          if (CCE->getNumArgs() == 1)
-            Inner = unwrapImplicitWrappers(CCE->getArg(0));
+        // auto x = std::move(other); inherits the source's state. The
+        // standalone std::move handler skipped the source erase (see
+        // isStdMoveInsideSmartPtrTransferCtx), so the source's pre-move
+        // state is still there.
+        const Expr *Inner = lookThroughNullPreservingConversions(Init);
         if (const auto *CE = dyn_cast<CallExpr>(Inner)) {
           if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
               !VD->getType()->isReferenceType()) {
             if (auto Src = smartPtrRef(CE->getArg(0))) {
               if (State.isNarrowed(*Src))
                 State.markNarrowed(VD);
+              else if (isSmartPointerKnownNullable(CE->getArg(0)))
+                State.markNullable(VD);
+              forgetSmartPtrFacts(*Src);
               State.markNullable(*Src);
             }
           }
@@ -1881,7 +2058,7 @@ private:
       SmallVector<ConditionResult, 2> Facts;
       computeGuardFacts(VD->getInit(), Ctx, State.BoolGuards, Facts);
       if (!Facts.empty())
-        State.BoolGuards[VD] = std::move(Facts);
+        State.BoolGuards[PtrRef::var(VD)] = std::move(Facts);
     }
   }
 
@@ -1928,7 +2105,7 @@ private:
     if (MutationAnalyzer.isMutated(GuardVD))
       return;
     ConditionResult CR{PtrRef{PtrVD, std::nullopt}, Negated};
-    auto &Facts = State.BoolGuards[GuardVD];
+    auto &Facts = State.BoolGuards[PtrRef::var(GuardVD)];
     // Re-recording on each fixpoint iteration must not grow the vector, or
     // the block entry state never compares equal and never converges.
     if (!llvm::is_contained(Facts, CR))
@@ -1938,7 +2115,7 @@ private:
   void recordPointerImplication(const VarDecl *PtrVD, const Expr *Init) {
     if (!Init || !PtrVD->getType()->isPointerType())
       return;
-    State.BoolGuards.erase(PtrVD);
+    State.BoolGuards.erase(PtrRef::var(PtrVD));
     const auto *CO =
         dyn_cast<AbstractConditionalOperator>(Init->IgnoreParenImpCasts());
     if (!CO)
@@ -1966,7 +2143,7 @@ private:
         Implied.push_back(std::move(CR));
     }
     if (!Implied.empty())
-      State.BoolGuards[PtrVD] = std::move(Implied);
+      State.BoolGuards[PtrRef::var(PtrVD)] = std::move(Implied);
   }
 
   /// __builtin_assume(cond) narrows pointers mentioned in cond.
@@ -2093,7 +2270,7 @@ private:
     State.NullableMembers.remove_if(
         [VD](const MemberAccessPath &Path) { return Path.Root == VD; });
     invalidateBoolGuardsFor(VD);
-    State.BoolGuards.erase(VD);
+    State.BoolGuards.erase(PtrRef::var(VD));
     State.AddrOfTargets.erase(VD);
   }
 
@@ -2123,6 +2300,7 @@ private:
             }
           }
           if (auto R = smartPtrRef(Obj)) {
+            forgetSmartPtrFacts(*R);
             State.clear(*R);
             if (Result == ResetNullability::Nonnull)
               State.markNarrowed(*R);
@@ -2141,6 +2319,7 @@ private:
       return;
     if (MD->getName() == "release") {
       if (auto R = smartPtrRef(Obj)) {
+        forgetSmartPtrFacts(*R);
         State.clear(*R);
         State.markNullable(*R);
       }
@@ -2165,6 +2344,10 @@ private:
     bool ANullable = RA && State.isNullable(*RA);
     bool BNarrowed = RB && State.isNarrowed(*RB);
     bool BNullable = RB && State.isNullable(*RB);
+    if (RA)
+      forgetSmartPtrFacts(*RA);
+    if (RB)
+      forgetSmartPtrFacts(*RB);
     if (RA) {
       State.clear(*RA);
       if (BNarrowed)
@@ -2191,13 +2374,22 @@ private:
 
       if (Lhs) {
         const Expr *RHS = unwrapImplicitWrappers(OCE->getArg(1));
-        // Judge a copy source before the LHS is cleared: in sp = sp the
-        // source is the LHS.
         const Expr *CopySrc = smartPtrCopySource(RHS);
+        // sp = sp changes nothing, like p = p on a raw pointer: its facts,
+        // and the guards that tested it, still hold.
+        if (CopySrc && smartPtrRef(CopySrc) == Lhs)
+          return;
+        // Judge a copy source before the LHS is cleared.
         bool CopyIsNonnull = CopySrc && !isSmartPointerMaybeNull(CopySrc);
-        // Clear the LHS's proof. A local only loses its narrowing; a member
-        // path is additionally marked nullable.
-        if (Lhs->VD)
+        bool CopyIsNullable = CopySrc && isSmartPointerKnownNullable(CopySrc);
+        forgetSmartPtrFacts(*Lhs);
+        // Clear the LHS's facts. A value the checks below cannot classify
+        // leaves a local unknown, like a raw pointer store. A member path is
+        // marked nullable instead unless unknown smart pointers are trusted
+        // (the nonnull default): a this-> member is trusted unless flow
+        // marks it (see warnSmartPtrDeref), where a raw member would fall
+        // back to its declared type.
+        if (Lhs->VD || Options.DefaultNullability == NullabilityKind::NonNull)
           State.clear(*Lhs);
         else
           State.markNullable(*Lhs);
@@ -2206,13 +2398,21 @@ private:
           State.markNarrowed(*Lhs);
         } else if (isNullSmartPtrInit(RHS)) {
           State.markNullable(*Lhs);
-        } else if (const auto *RhsCE = dyn_cast<CallExpr>(RHS)) {
+        } else if (const auto *RhsCE = dyn_cast<CallExpr>(
+                       lookThroughNullPreservingConversions(RHS))) {
           if (RhsCE->isCallToStdMove() && RhsCE->getNumArgs() >= 1) {
-            // sp = std::move(other): LHS inherits source's state.
+            // sp = std::move(other), possibly through a null-preserving
+            // cast: LHS inherits source's state.
             auto Src = smartPtrRef(RhsCE->getArg(0));
+            bool SrcIsNullable =
+                Src && isSmartPointerKnownNullable(RhsCE->getArg(0));
+            if (Src)
+              forgetSmartPtrFacts(*Src);
             if (Src && Src->VD) {
               if (isNarrowed(Src->VD))
                 State.markNarrowed(*Lhs);
+              else if (SrcIsNullable)
+                State.markNullable(*Lhs);
               State.markNullable(Src->VD);
             }
           } else if (isNonnullType(RhsCE->getType())) {
@@ -2220,11 +2420,19 @@ private:
           }
         } else if (CopyIsNonnull) {
           State.markNarrowed(*Lhs);
+        } else if (CopyIsNullable) {
+          State.markNullable(*Lhs);
         }
       } else if (auto StructPath = decomposeMemberAccess(LhsArg)) {
         // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
         // invalidate any narrowed paths nested under the LHS.
         invalidateMembersWithPrefix(*StructPath);
+      } else if (const auto *DRE =
+                     dyn_cast<DeclRefExpr>(LhsArg->IgnoreParenImpCasts())) {
+        // A struct variable assigned as a whole (d = other): the same for
+        // every path rooted at it.
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+          invalidateMembersFor(VD);
       }
     }
   }
@@ -2239,8 +2447,10 @@ private:
     if (CE->isCallToStdMove() && CE->getNumArgs() >= 1 &&
         (!ParentMapPtr ||
          !isStdMoveInsideSmartPtrTransferCtx(CE, *ParentMapPtr))) {
-      if (auto R = smartPtrRef(CE->getArg(0)))
+      if (auto R = smartPtrRef(CE->getArg(0))) {
+        forgetSmartPtrFacts(*R);
         State.markNullable(*R);
+      }
     }
   }
 
@@ -2304,7 +2514,7 @@ private:
               State.NullableVars.erase(TgtVD);
               invalidateMembersFor(TgtVD);
               invalidateBoolGuardsFor(TgtVD);
-              State.BoolGuards.erase(TgtVD);
+              State.BoolGuards.erase(PtrRef::var(TgtVD));
             }
           }
         }
@@ -2319,7 +2529,18 @@ private:
                           const MemberAccessPath &LhsPath) {
     const FieldDecl *FD = LhsPath.leafField();
     invalidateMembersWithPrefix(LhsPath);
-    if (BO->getOpcode() != BO_Assign || !FD->getType()->isPointerType())
+    if (BO->getOpcode() != BO_Assign)
+      return;
+    // A guard field (d.ok = p != nullptr) records its facts like a guard
+    // variable.
+    if (FD->getType()->isIntegerType()) {
+      SmallVector<ConditionResult, 2> Facts;
+      computeGuardFacts(BO->getRHS(), Ctx, State.BoolGuards, Facts);
+      if (!Facts.empty())
+        State.BoolGuards[PtrRef{nullptr, LhsPath}] = std::move(Facts);
+      return;
+    }
+    if (!FD->getType()->isPointerType())
       return;
     bool Narrowed = storePointer(PtrRef{nullptr, LhsPath}, BO->getRHS(), BO);
     if (Reporting)
@@ -2334,13 +2555,20 @@ private:
     // Guard reassignment replaces any stored facts with whatever the
     // new value encodes (ok = p != NULL), or nothing.
     if (VD->getType()->isIntegerType()) {
-      State.BoolGuards.erase(VD);
+      State.BoolGuards.erase(PtrRef::var(VD));
       if (BO->getOpcode() == BO_Assign) {
         SmallVector<ConditionResult, 2> Facts;
         computeGuardFacts(BO->getRHS(), Ctx, State.BoolGuards, Facts);
         if (!Facts.empty())
-          State.BoolGuards[VD] = std::move(Facts);
+          State.BoolGuards[PtrRef::var(VD)] = std::move(Facts);
       }
+      return;
+    }
+    // A C struct assigned as a whole (d = other; C++ calls operator=, see
+    // handleSmartPtrAssign): every fact about a member path under it is
+    // stale.
+    if (VD->getType()->isRecordType()) {
+      invalidateMembersFor(VD);
       return;
     }
     if (!VD->getType()->isPointerType())
@@ -2468,10 +2696,25 @@ private:
 
   /// Warn on a smart pointer dereference unless the pointer is narrowed or
   /// declared _Nonnull. Flow facts after reset/move override the declared
-  /// contract.
+  /// contract. Past the dereference the pointer is non-null on this path (a
+  /// null one would not have got here), so only the first dereference on
+  /// each path warns; a join keeps that only when every path dereferenced.
+  /// Raw pointers keep warning at every dereference.
   void checkSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
     if (isSmartPointerMaybeNull(Obj))
       warnSmartPtrDeref(DerefExpr, Obj);
+    if (auto R = smartPtrRef(Obj))
+      State.markNarrowed(*R);
+  }
+
+  /// Whether the smart pointer Obj names is known to be possibly null right
+  /// now: flow-marked nullable, or declared _Nullable and not narrowed.
+  /// Unlike isSmartPointerMaybeNull this ignores the mode default, so it is
+  /// what a copy or move carries to its destination.
+  bool isSmartPointerKnownNullable(const Expr *Obj) const {
+    if (isSmartPointerNullable(Obj))
+      return true;
+    return !isSmartPointerNarrowed(Obj) && isSmartPointerDeclaredNullable(Obj);
   }
 
   bool isSmartPointerMaybeNull(const Expr *Obj) const {
@@ -2479,7 +2722,8 @@ private:
       return true;
     if (isSmartPointerNarrowed(Obj))
       return false;
-    if (isSmartPointerDeclaredNullable(Obj))
+    if (isSmartPointerDeclaredNullable(Obj) ||
+        getNullableSmartPtrCallResult(Obj))
       return true;
     if (isSmartPointerDeclaredNonnull(Obj))
       return false;
@@ -2638,22 +2882,28 @@ private:
   }
 
   /// Report a smart pointer dereference: a local always warns, a var.member
-  /// path always warns, and a this->member path warns only when flow marked
-  /// it nullable (members set in constructors would otherwise warn).
+  /// path always warns, a this->member path warns only when flow marked it
+  /// nullable (members set in constructors would otherwise warn), and a call
+  /// result warns only when it may be null by contract.
   void warnSmartPtrDeref(const Expr *DerefExpr, const Expr *Obj) {
     auto R = PtrRef::fromExpr(Obj);
-    if (!R)
+    if (!R) {
+      if (const CallExpr *CE = getNullableSmartPtrCallResult(Obj)) {
+        const FunctionDecl *Callee = CE->getDirectCallee();
+        reportDeref(DerefExpr,
+                    Callee ? Callee->getReturnType().getNonReferenceType()
+                           : CE->getType());
+      }
       return;
+    }
     if (R->VD) {
       LLVM_DEBUG(llvm::dbgs() << "  deref: smart ptr '"
                               << R->VD->getNameAsString() << "'\n");
       reportDeref(DerefExpr, R->VD->getType());
       return;
     }
-    // Only a smart-pointer-typed leaf field is reported; a variable is
-    // reported whatever its declared type.
-    if (!isSmartPointerType(R->getType()))
-      return;
+    // Callers have checked that Obj is a smart pointer object, so a path's
+    // leaf may also be a reference member or a class deriving from one.
     if (R->Path->Root || State.NullableMembers.contains(*R->Path))
       reportDeref(DerefExpr, R->getType());
   }
@@ -2669,9 +2919,12 @@ private:
   }
 
   /// Remove BoolGuards and member aliases that mention a member path under
-  /// Prefix (the path was just assigned, so the facts are stale).
+  /// Prefix (the path was just assigned, so the facts are stale), and guards
+  /// held in a field under Prefix.
   void invalidateGuardsAndAliasesWithPrefix(const MemberAccessPath &Prefix) {
     State.BoolGuards.remove_if([&Prefix](const auto &Entry) {
+      if (Entry.first.Path && pathHasPrefix(*Entry.first.Path, Prefix))
+        return true;
       return llvm::any_of(Entry.second, [&Prefix](const ConditionResult &CR) {
         return CR.Ref.Path && pathHasPrefix(*CR.Ref.Path, Prefix);
       });
@@ -2757,6 +3010,37 @@ private:
     State.NullableMembers.remove_if(RootedAtVD);
     State.MemberAliases.remove_if(
         [&](const auto &Entry) { return RootedAtVD(Entry.second); });
+    State.BoolGuards.remove_if([&](const auto &Entry) {
+      return Entry.first.Path && RootedAtVD(*Entry.first.Path);
+    });
+  }
+
+  /// Drop everything known about VD, its own narrowed / nullable flags
+  /// included, as when its declaration runs again.
+  void forgetVariable(const VarDecl *VD) {
+    State.clear(PtrRef{VD, std::nullopt});
+    State.MustNullableVars.erase(VD);
+    forgetFactsAbout(VD);
+  }
+
+  /// Drop the facts that named a smart pointer's old value when it is
+  /// assigned, reset, released, swapped or moved from: the guards that
+  /// tested it (bool ok = sp != nullptr), the member paths reached through it
+  /// (sp->child), and, for a variable, everything forgetFactsAbout drops.
+  /// Does not touch R's own narrowed/nullable flags.
+  void forgetSmartPtrFacts(const PtrRef &R) {
+    if (R.VD) {
+      forgetFactsAbout(R.VD);
+      return;
+    }
+    invalidateGuardsAndAliasesWithPrefix(*R.Path);
+    // Paths reached through the old pointee (this->sp->child).
+    auto Below = [&R](const MemberAccessPath &P) {
+      return P.Fields.size() > R.Path->Fields.size() &&
+             pathHasPrefix(P, *R.Path);
+    };
+    State.NarrowedMembers.remove_if(Below);
+    State.NullableMembers.remove_if(Below);
   }
 
   /// Drop every fact that named VD's old value: member paths rooted at it,
@@ -2765,7 +3049,7 @@ private:
   void forgetFactsAbout(const VarDecl *VD) {
     invalidateMembersFor(VD);
     invalidateBoolGuardsFor(VD);
-    State.BoolGuards.erase(VD);
+    State.BoolGuards.erase(PtrRef::var(VD));
     invalidateAliasesFor(VD);
     State.Aliases.erase(VD);
     State.MemberAliases.erase(VD);
@@ -2875,11 +3159,9 @@ private:
       // sp.get() on a narrowed smart pointer returns nonnull. Falls through
       // when the receiver is neither a smart pointer variable nor a member
       // path.
-      if (const Expr *Obj = smartPtrGetReceiver(CE)) {
-        auto R = PtrRef::fromExpr(Obj);
-        if (R && (R->Path || isSmartPointerType(R->getType())))
+      if (const Expr *Obj = smartPtrGetReceiver(CE))
+        if (smartPtrRef(Obj))
           return isSmartPointerNarrowed(Obj);
-      }
     }
     // Anything else whose own type is _Nonnull (a call to T *_Nonnull f(),
     // a _Nonnull field). Checked last so the flow-sensitive cases above,
@@ -3027,8 +3309,7 @@ private:
       // An unnarrowed receiver is not provably nullable, so ExplicitOnly
       // falls through to the (unannotated) return type instead.
       if (const Expr *Obj = smartPtrGetReceiver(CE)) {
-        auto R = PtrRef::fromExpr(Obj);
-        if (R && (R->Path || isSmartPointerType(R->getType()))) {
+        if (smartPtrRef(Obj)) {
           if (isSmartPointerNarrowed(Obj))
             return false;
           if (!ExplicitOnly)
@@ -3061,10 +3342,8 @@ private:
   /// overrides its declared _Nonnull, and template-argument sugar supplies
   /// nullability the instantiated field type lost.
   void checkMemberExprDeref(const Expr *DerefExpr, const MemberExpr *ME) {
-    const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
-    if (checkSmartPtrArrow(DerefExpr, Base))
-      return;
-
+    // For sp->raw the smart pointer was checked when sp->raw itself was
+    // visited; here the dereferenced pointer is the raw field.
     if (auto Path = decomposeMemberAccess(ME)) {
       if (State.NullableMembers.contains(*Path)) {
         reportDeref(DerefExpr, ME->getType());
@@ -3226,6 +3505,14 @@ static void emitAllReturnsNonnullSummary(const Decl *D, bool HitVisitCap,
     Handler.handleAllReturnsNonnull(FD);
 }
 
+/// Whether a declared parameter or return type carries a nullability
+/// annotation. For a reference the annotation sits on the referenced type:
+/// const std::shared_ptr<T> _Nonnull &.
+static bool declaresNullability(QualType T) {
+  return !T.isNull() && !T->isDependentType() &&
+         T.getNonReferenceType()->getNullability();
+}
+
 static bool functionHasNullabilityAnnotations(const FunctionDecl *FD) {
   if (!FD || FD->isInvalidDecl())
     return false;
@@ -3235,24 +3522,15 @@ static bool functionHasNullabilityAnnotations(const FunctionDecl *FD) {
   // chain; otherwise a function that opted in through its prototype would be
   // skipped.
   for (const FunctionDecl *Redecl : FD->redecls()) {
-    QualType ReturnType = Redecl->getReturnType();
-    if (!ReturnType.isNull() && !ReturnType->isDependentType()) {
-      if (ReturnType->getNullability())
-        return true;
-    }
+    if (declaresNullability(Redecl->getReturnType()))
+      return true;
 
     // During early function processing parameters might not be set up yet,
     // so guard with param_empty().
     if (!Redecl->param_empty()) {
-      for (const ParmVarDecl *Param : Redecl->parameters()) {
-        if (!Param)
-          continue;
-        QualType ParamType = Param->getType();
-        if (!ParamType.isNull() && !ParamType->isDependentType()) {
-          if (ParamType->getNullability())
-            return true;
-        }
-      }
+      for (const ParmVarDecl *Param : Redecl->parameters())
+        if (Param && declaresNullability(Param->getType()))
+          return true;
     }
   }
 
@@ -3263,24 +3541,21 @@ bool clang::hasExplicitNullabilityAnnotations(const Decl *D) {
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D))
     return functionHasNullabilityAnnotations(FD);
 
-  auto typeHasNullability = [](QualType T) {
-    return !T.isNull() && !T->isDependentType() && T->getNullability();
-  };
   if (const auto *MD = dyn_cast_or_null<ObjCMethodDecl>(D)) {
-    if (typeHasNullability(MD->getReturnType()))
+    if (declaresNullability(MD->getReturnType()))
       return true;
     for (const ParmVarDecl *P : MD->parameters())
-      if (P && typeHasNullability(P->getType()))
+      if (P && declaresNullability(P->getType()))
         return true;
     return false;
   }
   if (const auto *BD = dyn_cast_or_null<BlockDecl>(D)) {
     for (const ParmVarDecl *P : BD->parameters())
-      if (P && typeHasNullability(P->getType()))
+      if (P && declaresNullability(P->getType()))
         return true;
     if (const TypeSourceInfo *TSI = BD->getSignatureAsWritten())
       if (const auto *FPT = TSI->getType()->getAs<FunctionProtoType>())
-        if (typeHasNullability(FPT->getReturnType()))
+        if (declaresNullability(FPT->getReturnType()))
           return true;
     return false;
   }

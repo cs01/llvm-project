@@ -73,6 +73,19 @@ before step 6 fails; use a checkout of the old script for such baselines.
 | 5d | SSAF source transformation; then delete the remarks and the remark-scraping loop | done; the `handle*Evidence` callbacks stay, the extractor needs them (below) |
 | F2a | Ternary implications: reverse direction, pointer/comparison/conjunction antecedents, transitive narrowing via worklist | done (below) |
 | 7 | Comment pass: drop history/what-only comments, fix wrong ones, ASCII only | done for `NullabilitySafety.cpp` (moved two doc comments that sat on the wrong function, dropped a stale 'local-var sources only' note and history references); SSAF files checked |
+| S8 | Smart pointers: a class deriving from a std smart pointer is checked like one (F1b stopped checking a class deriving from `unique_ptr`) | done (below) |
+| S4 | `!(sp != nullptr)` narrows when `!=` is a C++20 rewritten comparison (libc++ declares only `operator==`), as in assertion macro expansions | done (below) |
+| S5 | `_Nonnull` / `_Nullable` on a reference to a smart pointer is read from the referenced type, for the dereference check and for the unspecified-mode opt-in; a local initialized from a `_Nonnull`-returning call is non-null | done (below) |
+| S0 | A declaration drops every fact about its variable (found while validating S2: facts from the previous loop iteration survived the next iteration's declaration) | done (below) |
+| S2 | A smart pointer reached through a reference (parameter, reference member) is tracked: null checks narrow it, and `reset()`, assignment and `std::move` through it drop the narrowing | done (below) |
+| S3c | A guard's facts about a smart pointer are dropped when the pointer is assigned, reset, released, swapped or moved from | done (below) |
+| S1 | A smart pointer dereference narrows the pointer for the rest of the path, so only the first dereference on each path warns (raw pointers unchanged) | done (below) |
+| S6 | `std::static_pointer_cast` / `const_pointer_cast` / `reinterpret_pointer_cast` of a non-null smart pointer is non-null (the rvalue overloads move the source); `std::dynamic_pointer_cast` may yield null under either default | done (below) |
+| S3a | A guard built from a ternary with one constant false arm narrows (`p ? p->n : 0`, `p == nullptr ? false : X`) | done (below) |
+| S3b | A guard stored in a field (`d.ok = p != nullptr`, `this->ok`) narrows like a guard variable; assigning a struct as a whole drops every fact about paths under it | done (below) |
+| S9 | Smart pointer stores classify the value like raw pointer stores: a copy or move carries the source's nullability, and under the nonnull default an unannotated value stored in a member path is trusted, as in a local (found validating S7a) | done (below) |
+| S7a | A member reached through a smart pointer's `->` or `*` (`p->child`, `p->raw`) is a member path rooted at `p`: checked, narrowed, and forgotten when `p` changes | done (below) |
+| S7b | A dereference of a smart pointer returned by a call or `operator[]` warns when the result may be null by contract (`_Nullable` return, `std::dynamic_pointer_cast`); the narrow rule, pending a decision on unannotated returns | done (below) |
 
 ## Step 5b results
 
@@ -389,6 +402,303 @@ sqlite: no change (no lambdas). Nonnull total now 107 (139 before F4).
 
 `nullsafe-upstream` keeps its name: it is the head of llvm PR #189131, and
 GitHub cannot retarget a PR's head branch.
+
+## Smart-pointer track (S steps)
+
+From a review of smart-pointer dereference warnings on real C++ code built
+against libc++ in C++20 mode (where `shared_ptr` declares only
+`operator==(const shared_ptr &, nullptr_t)`, so `!=` and reversed
+comparisons are rewritten) and against libstdc++ (inherited operators). Each
+defect has a target-behavior test; numbers follow the review, and the steps
+land in dependency order: S8, S4, S5, S0, S2, S3c, S1, S6, S3a, S3b, S9, S7a,
+S7b (S0 and S9 were found while validating S2 and S7a and are not in the
+review).
+libc++-shaped cases live in `SemaCXX/nullability-safety-smart-ptr-libcxx.cpp`
+(added with S4),
+libstdc++-shaped ones in `nullability-safety-smart-ptr-base-access.cpp`.
+Nonnull-mode expectations follow F1: an unannotated, unchecked smart pointer
+is trusted there, so only flow-tainted or `_Nullable` ones warn.
+
+Per step, besides the gates (sqlite 3.50.4 amalgamation, Linux devserver;
+reference counts nonnull 119, nullable 22282, evidence 19712, annotations
+637): each test is replayed against real libstdc++ and libc++ `<memory>`, and
+an LLVM differential runs `-fsyntax-only` in both modes over 17
+smart-pointer-heavy LLVM and clang TUs (`VirtualFileSystem.cpp`, Orc `Core.cpp`,
+`LLJIT.cpp`, `CompilerInstance.cpp`, `ASTUnit.cpp`, `Driver.cpp`, ...) with
+their build flags and system libstdc++ (reference counts: nonnull 33,
+nullable 4653).
+
+## S8 results
+
+`isSmartPointerObject` accepts the object when its type, or a base class on
+the path of a derived-to-base cast it goes through, is a std smart pointer.
+F1b tested only the type under the implicit casts, which for
+`struct D : std::unique_ptr<T> {}` is `D`, so `d->x` stopped being checked
+and `if (!d)` stopped narrowing. Testing the type at the call instead would
+lose libstdc++'s `shared_ptr` again, and neither covers a class deriving from
+libstdc++'s `shared_ptr`, whose object is cast straight to
+`__shared_ptr_access` with `shared_ptr` only on the cast's path. Tests in
+`smartptr-parity.cpp` (unique_ptr) and `smart-ptr-base-access.cpp`
+(libstdc++ shape), verified to fail before the change; checked against real
+libstdc++ and libc++ `<memory>`. sqlite: no change. LLVM differential: no
+change.
+
+## S4 results
+
+`analyzeCondition` peels `!`, `__builtin_expect`, explicit casts to `bool`
+and `CXXRewrittenBinaryOperator` in any order. It used to unwrap a rewritten
+comparison once, before the `!` loop, so in `!(sp != nullptr)` (and
+`!!(sp != nullptr)`, `__builtin_expect(!!(!(sp != nullptr)), 0)`, a guard
+`bool missing = !(sp != nullptr)`) the loop stopped at the rewritten
+operator and recorded nothing: with libc++ in C++20 the semantic form of
+`sp != nullptr` is `!(sp == nullptr)`. `!__builtin_expect(c, 1)` also
+narrows now (the builtin was only looked through outermost). New test file
+`smart-ptr-libcxx.cpp`, verified to fail before the change and to pass with
+real libstdc++ and libc++ `<memory>`. sqlite: no change. LLVM differential:
+no change (it builds as C++17).
+
+## S5 results
+
+For `const std::shared_ptr<T> _Nonnull &p` the annotation is on the
+referenced type, so `isNonnullType(VD->getType())` saw none: `p->x` warned
+although the contract was written, and without `-fnullability-default` a
+function annotated only through a reference parameter or return type was not
+analyzed at all (`_Nullable &` dereferences were silent).
+`getSmartPointerDeclaredType` strips the reference (variables and fields),
+and a local reference without its own annotation reads its referent's, as
+its flow facts already do; the opt-in rule reads parameter and return types
+through `declaresNullability`, which strips references (functions, ObjC
+methods, blocks). `isNonnullSmartPtrInit` also accepts a call whose
+callee's declared return type is `_Nonnull`: `auto q = f()` inherited the
+annotation through deduction, `std::shared_ptr<T> q = f()` and
+`const std::shared_ptr<T> &r = g()` did not. New test
+`smart-ptr-nonnull-ref.cpp` (nullable, nonnull and unspecified RUN lines),
+verified to fail before the change and to pass with real libstdc++ and
+libc++ `<memory>`. sqlite: no change (C). LLVM differential: no change.
+
+Not changed, noted for a decision: in unspecified mode an opted-in function
+still warns on an unannotated, unchecked smart pointer (the mode default is
+not `nonnull`, so `isSmartPointerMaybeNull` falls through to "may be null"),
+while an unannotated raw pointer there is trusted.
+
+## S0 results
+
+`VisitDeclStmt` forgets the variable (`forgetVariable`: its narrowed,
+nullable and must-nullable flags, and via `forgetFactsAbout` the member
+paths rooted at it, guards naming it or keyed on it, aliases and address-of
+records) before classifying the initializer, for every variable with local
+storage. A declaration runs once per loop iteration and makes a new object
+or binds a reference anew, but initialization, unlike assignment, never
+dropped the old facts: `p = nullptr` or `sink(std::move(p))` at the end of a
+loop body reached the next iteration's `T *p = f()` / `auto p = f()` through
+the back edge (nullable facts union at joins), and so did facts about paths
+under the old pointer (`pExpr->x.pList = 0`). Static locals keep their value
+and are not forgotten. Found validating S2, which lets `std::move(q)` taint
+a range-for reference `auto &q`; on the LLVM differential that added 8
+warnings in nonnull mode, all this pattern. Tests in `smart-ptr-libcxx.cpp`
+and `default-nonnull.cpp` (raw pointer), verified to fail before.
+
+sqlite nonnull: 1 lost, 0 gained: `sqlite3ExprListToValues`
+(`pExpr->x.pList->nExpr` after the previous iteration's
+`pExpr->x.pList = 0`, a different `Expr`). Nullable: no change. Evidence: 2
+`MaybeNullEvidence` lines become `ConditionalEvidence`, the argument of
+`sqlite3DbFree(db, pDb->zDbSName)` in `sqlite3CollapseDatabaseArray`
+(`pDb->zDbSName = 0; continue;` on the previous element) and of
+`sqlite3SelectNew(pParse, pExpr->x.pList, ...)` in
+`sqlite3ExprListToValues`: both were judged from a stale fact about another
+array element. Annotations: no change. LLVM differential: nonnull 33 -> 23,
+0 gained (8 in `BugReporter.cpp`, 1 each in Orc `Core.cpp` and
+`ExecutionUtils.cpp`: smart pointers declared in a loop and moved from at
+its end); nullable no change.
+
+## S2 results
+
+`smartPtrRef` judges the expression (`isSmartPointerObject`) instead of the
+declared type: for `const std::shared_ptr<T> &p` or a reference member the
+declaration is a reference type, which `isSmartPointerType` rejects, so
+`p == nullptr` did not narrow (`!p` did, through `operator bool`), a
+reference member was never checked, and `reset()`, assignment and
+`std::move` through a reference did not drop a narrowing. Local references
+bound to a variable were already resolved to it. `analyzeSmartPtrNullCompare`,
+`operator bool`, `get()` and the dereference report go through the same
+test, which also lets `==` / `!=` and `reset()` reach a class deriving from
+a std smart pointer (S8). A call is still not assumed to change what a
+reference refers to (as for member paths; locked by `s2_ref_across_call`).
+Tests in `smart-ptr-libcxx.cpp` and `smart-ptr-nonnull-ref.cpp`, verified to
+fail before and to pass with real libstdc++ and libc++ `<memory>`. sqlite:
+no change (C). LLVM differential: nonnull no change; nullable 8 lost, 0
+gained, all `auto &x = map[k]; if (!x) x = std::make_*(...);` on a reference
+(`ASTUnit.cpp` x5, `Driver.cpp`, Orc `Core.cpp`), and one call now summarized
+all-returns-nonnull (`getBugTypeForName` returns `.get()` of such a
+reference, `BugReporter.cpp`).
+
+## S3c results
+
+`bool ok = sp != nullptr; sp = f(); if (ok) sp->x` did not warn: raw
+pointer assignment drops the guards naming the pointer through
+`forgetFactsAbout`, but the smart pointer handlers never did.
+`forgetSmartPtrFacts` (a variable: `forgetFactsAbout`; a member path:
+`invalidateGuardsAndAliasesWithPrefix`) now runs for the assigned pointer and
+a moved-from source in `handleSmartPtrAssign`, the moved-from source of a
+move construction, `reset()`, `release()`, member and `std::swap` (both
+sides) and a bare `std::move`. `sp = sp` returns early like `p = p`, so its
+guards survive; before, it only kept the narrowing. Tests in
+`smart-ptr-libcxx.cpp`, verified to fail before (and the self-assignment
+case to fail without the early return). sqlite: no change (C). LLVM
+differential: no change.
+
+## S1 results
+
+`checkSmartPtrDeref` marks the dereferenced smart pointer narrowed after the
+check: if `sp->x` did not crash, `sp` is non-null for the rest of the path,
+so every later `sp->` / `*sp` repeated the same finding. The join keeps the
+fact only when every incoming path dereferenced; assignment, `reset()` and a
+move drop it, also through a reference (S2). Raw pointers are unchanged (a
+decision, not a limitation: the same one line in `checkVarDeref` would do
+it; locked by `s1_raw`). The narrowing also counts as proof for a later
+`sp.get()`: `S *f(std::shared_ptr<S> p) { p->x; return p.get(); }` is
+all-returns-nonnull. Tests in `smart-ptr-libcxx.cpp`, verified to fail
+before. No existing expectation changed. sqlite: no change (C). LLVM
+differential: nullable 4645 -> 4440, nonnull 23 -> 9, 0 gained anywhere; each
+lost line is a repeat of a dereference that still warns earlier on its path
+(for example `Interpreter.cpp:363` stays, 369-394 go; `LLJIT.cpp:1020` stays,
+1027-1053 go).
+
+The two nonnull warnings left at `Interpreter.cpp:363` were a member
+assigned an unannotated value (`CI = std::move(Instance)`,
+`Act = TSCtx->withContextDo(...)`), removed by S9.
+
+## S6 results
+
+Copies of a narrowed smart pointer were already narrowed (and are from a
+reference since S2). `lookThroughNullPreservingConversions` now also looks
+through `std::static_pointer_cast`, `const_pointer_cast` and
+`reinterpret_pointer_cast`, whose result is null exactly when the argument
+is: for copy sources, for `isNonnullSmartPtrInit` / `isNullSmartPtrInit`
+(`static_pointer_cast<B>(std::make_shared<D>())`), and for a move through
+the cast. The C++20 rvalue overloads move the source into the result, so
+`isStdMoveInsideSmartPtrTransferCtx` walks up through such a cast: the result
+inherits the source's narrowing and the source is moved-from, as for
+`auto q = std::move(p)`. `std::dynamic_pointer_cast` is excluded, and its
+result is treated as a `_Nullable` return (`isNullSmartPtrInit`): it yields
+null when the runtime check fails, like a raw `dynamic_cast`, which already
+warns under both defaults. This adds nonnull-mode warnings for unchecked
+`dynamic_pointer_cast` results (none in the gates' code). Tests in
+`smart-ptr-libcxx.cpp` (the mock gains converting constructors,
+`make_shared` and the four casts with both overloads, as libc++ declares
+them), verified to fail before and to pass with real libstdc++ and libc++
+`<memory>`. sqlite: no change (C). LLVM differential: no change.
+
+A copy then only inherited narrowing, never nullability; S9 changes that.
+
+## S3a results
+
+`computeGuardFacts` accepted a ternary only when both arms were constants.
+With exactly one constant false arm, `c ? X : false` holds exactly when
+`c && X` does and `c ? false : X` when `!c && X` does, so the guard being
+true proves the facts of `c` (of `!c`: the false-direction facts of a `||`
+chain) and those of `X`; as for `&&`, only guard-true facts are kept, and a
+constant true arm (`c || X`) proves nothing when the guard is true. Tests in
+`smart-ptr-libcxx.cpp` and `Sema/nullability-safety-guard-idioms.c`,
+verified to fail before. sqlite nullable: 5 lost, 0 gained, all this shape:
+`n = pList ? pList->nExpr : 0; if (n == 2) pList->a[1]` (`resolveExprStep`),
+`nArg = pExpr->x.pList ? pExpr->x.pList->nExpr : 0; ... nArg == 1`
+(`analyzeAggregate`), and `hasDistinct = pDistinct ?
+pDistinct->eTnctType : WHERE_DISTINCT_NOOP; if (hasDistinct)` (three lines
+in `selectInnerLoop`). Other lists and the LLVM differential: no change.
+
+## S3b results
+
+`BoolGuards` is keyed by `PtrRef` (a variable or a member path) instead of
+`VarDecl`. Assigning an integer field records the facts of its value
+(`handleMemberAssign`), `analyzeCondition` and the `flag == constant` form in
+`analyzeNullCompare` look a field guard up by its path, and a field guard is
+dropped with the path: writing the field or a prefix of it
+(`invalidateGuardsAndAliasesWithPrefix` now also removes keys under the
+prefix), `++` / `--` on it, reassigning the variable it is rooted at
+(`invalidateMembersFor`), and changing a pointer its facts name (unchanged:
+that looks at values). Assigning a struct as a whole (`d = other`; a
+`BinaryOperator` in C, `operator=` in C++) dropped nothing before, not even
+member-path narrowing (`if (d.p) { d = other; *d.p; }` was silent); it now
+runs `invalidateMembersFor`. As for member paths, a call is not assumed to
+change a field guard. Tests in `smart-ptr-libcxx.cpp` and
+`Sema/nullability-safety-guard-idioms.c`, verified to fail before. sqlite:
+no change. LLVM differential: no change.
+
+## S9 results
+
+Found validating S7a, which makes paths through smart pointers member paths
+(`AST->ModCache = f(); *AST->ModCache`) and gained two nonnull-mode LLVM
+warnings of one shape: `handleSmartPtrAssign` marked a member path nullable
+before looking at the value, so under the nonnull default
+`m = make(); m->x` warned where the same code on a local, and a raw member
+(`storePointer` leaves an unknown value unknown), did not. Now:
+
+- A member path assigned a value the transfer cannot classify is cleared,
+  like a local, under the nonnull default. Under the other defaults it is
+  still marked nullable: a `this->` smart pointer member is trusted unless
+  flow marks it (`warnSmartPtrDeref`), where a raw member would fall back to
+  its `_Null_unspecified` type.
+- Dropping that mark alone would lose `m = std::move(moved_from)`, so a
+  copy or move now carries the source's nullability as well as its
+  narrowing (`isSmartPointerKnownNullable`: flow-nullable, or `_Nullable`
+  and not narrowed), in initialization and assignment. This also makes
+  `std::shared_ptr<T> q = p;` nullable for a `_Nullable` `p` under the
+  nonnull default (`auto q = p` was, through the deduced type), as
+  `T *q = p` is.
+
+Tests in `smart-ptr-libcxx.cpp`, verified to fail before (nullable mode is
+unchanged by construction). sqlite: no change (C). LLVM differential:
+nonnull 9 -> 2, 0 gained (all seven a member assigned an unannotated value:
+`TrimmedGraph = OriginalGraph->trim(...)` in `BugReporter.cpp`, the two in
+`Interpreter.cpp`, four `LLJIT.cpp` members such as `ES = std::move(S.ES)`);
+nullable no change.
+
+## S7a results
+
+`decomposeMemberAccess` continues through a std smart pointer's `operator->`
+/ `operator*` (`isSmartPointerObject`) as through `->` on a raw pointer, so
+`p->child` and `(*p).child` are the path `{p, child}`; a local smart pointer
+reference roots its paths at its referent (`resolveSmartPtrReference`), as
+`PtrRef::fromExpr` does. Before, `PtrRef::fromExpr` failed at the operator
+call: `p->child->x` was never checked, `!p->child` did not narrow, and
+`checkMemberExprDeref` returned early on a smart pointer base, so raw members
+reached through one (`p->raw->x`) were never checked either (that early
+return also re-checked `p` at the wrong location; S1 had already made it
+silent). Changing `p` drops the paths under it: a variable through
+`forgetFactsAbout`, a member path (`this->sp->child` when `this->sp` is
+assigned) through `forgetSmartPtrFacts`, which now also removes the paths
+below it. Paths rooted at `this` keep their rule (`warnSmartPtrDeref`:
+reported when flow marks them). Tests in `smart-ptr-libcxx.cpp`, verified to
+fail before and to pass with real libstdc++ and libc++ `<memory>`. sqlite:
+no change (C). LLVM differential: nonnull no change (the two nonnull
+findings this step first gained were S9's member stores); nullable 14
+gained, 0 lost, all unannotated members reached through a smart pointer,
+judged by the nullable default as `s.m->x` on a struct variable already is:
+`*AST->CodeGenOpts`, `*AST->ModCache`, `*AST->Consumer` (`ASTUnit.cpp`; the
+last behind correlated `if`s the analysis does not relate), `*UMI->RT` and
+`UMI->MU->...` (Orc `Core.cpp`, raw and smart members), `*NewModule->Buffer`
+(`ModuleManager.cpp`), `Interp->TSCtx->...`, `*Interp->DeviceAct`
+(`Interpreter.cpp`), and `TmpS->Ctx.get()` passed to a lambda parameter
+(`ThreadSafeModule.h`, twice).
+
+## S7b results
+
+`lookupN()->x`, `(*lookupN()).x` and `m[k]->x` were never checked, even for
+a `_Nullable` return: `warnSmartPtrDeref` gave up when `PtrRef::fromExpr`
+found no variable or member path. A call result has no identity to narrow,
+so the rule is the narrow one: it warns only when it may be null by
+contract (`getNullableSmartPtrCallResult`): the callee's declared return
+type is `_Nullable` (read from the declaration; overload resolution strips it
+from the object expression), or the callee is `std::dynamic_pointer_cast`
+(as `dynamic_cast<D *>(p)->x` already warns). An unannotated return is not
+reported under either default. Decision pending: the broad rule (a
+temporary warns exactly when a local bound to it would) would report every
+unannotated `f()->x` under the nullable default. Tests in
+`smart-ptr-libcxx.cpp` (functions, methods, `operator[]`, a function
+template), verified to fail before and to pass with real libstdc++ and
+libc++ `<memory>`. sqlite: no change (C). LLVM differential: no change (no
+`_Nullable` smart pointer returns there).
 
 ## Step 5a results
 
