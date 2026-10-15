@@ -437,6 +437,21 @@ static std::optional<bool> constantTruth(const Expr *E, ASTContext &Ctx) {
   return std::nullopt;
 }
 
+/// Truth of a literal 0/1 or true/false arm, the spellings assertion macros
+/// use. Other constants are rejected: their folded value can differ from what
+/// the condition tests at runtime (a narrowing cast, __builtin_constant_p), and
+/// evaluating arbitrary arms can reach expressions the ICE checker accepts but
+/// the evaluator cannot fold.
+static std::optional<bool> literalTruth(const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *BL = dyn_cast<CXXBoolLiteralExpr>(E))
+    return BL->getValue();
+  if (const auto *IL = dyn_cast<IntegerLiteral>(E))
+    if (IL->getValue().ule(1))
+      return !IL->getValue().isZero();
+  return std::nullopt;
+}
+
 /// Strip explicit casts to bool so the underlying condition is visible.
 /// glibc/libstdc++ define assert(expr) as
 ///   (static_cast<bool>(expr) ? void(0) : __assert_fail(...))
@@ -1144,6 +1159,88 @@ analyzeSmartPtrBoolConversion(const CXXMemberCallExpr *MCE, bool Negated,
   }
 }
 
+/// The operands of a chain of Op (&& or ||), left to right.
+static void flattenChain(const Expr *E, BinaryOperatorKind Op,
+                         SmallVectorImpl<const Expr *> &Operands) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *BO = dyn_cast<BinaryOperator>(E);
+      BO && BO->getOpcode() == Op) {
+    flattenChain(BO->getLHS(), Op, Operands);
+    flattenChain(BO->getRHS(), Op, Operands);
+    return;
+  }
+  Operands.push_back(E);
+}
+
+/// Whether S stores to Path or to a prefix of it: an assignment, ++/--,
+/// address-of, std::move or reset() of that member.
+static bool storesToPath(const Stmt *S, const MemberAccessPath &Path) {
+  if (!S)
+    return false;
+  const Expr *Target = nullptr;
+  if (const auto *BO = dyn_cast<BinaryOperator>(S)) {
+    if (BO->isAssignmentOp())
+      Target = BO->getLHS();
+  } else if (const auto *UO = dyn_cast<UnaryOperator>(S)) {
+    if (UO->isIncrementDecrementOp() || UO->getOpcode() == UO_AddrOf)
+      Target = UO->getSubExpr();
+  } else if (const auto *OCE = dyn_cast<CXXOperatorCallExpr>(S)) {
+    if (OCE->isAssignmentOp() && OCE->getNumArgs() >= 1)
+      Target = OCE->getArg(0);
+  } else if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(S)) {
+    const auto *MD = MCE->getMethodDecl();
+    if (MD && MD->getDeclName().isIdentifier() && MD->getName() == "reset")
+      Target = MCE->getImplicitObjectArgument();
+  } else if (const auto *CE = dyn_cast<CallExpr>(S)) {
+    if (CE->isCallToStdMove() && CE->getNumArgs() >= 1)
+      Target = CE->getArg(0);
+  }
+  if (Target)
+    if (auto P = decomposeMemberAccess(Target); P && pathHasPrefix(Path, *P))
+      return true;
+  for (const Stmt *Child : S->children())
+    if (storesToPath(Child, Path))
+      return true;
+  return false;
+}
+
+/// Whether evaluating any of Later may change the pointer Ref names.
+static bool mayChangeLater(const PtrRef &Ref, ArrayRef<const Expr *> Later,
+                           ASTContext &Ctx) {
+  const VarDecl *Root = Ref.VD ? Ref.VD : Ref.Path->Root;
+  for (const Expr *E : Later) {
+    if (Root && ExprMutationAnalyzer(*E, Ctx).isMutated(Root))
+      return true;
+    if (Ref.Path && storesToPath(E, *Ref.Path))
+      return true;
+  }
+  return false;
+}
+
+/// Facts that hold when Cond, seen as a whole after it ran, is true or false.
+/// Once a top-level && is true only its conjuncts' true-direction facts hold,
+/// and only for pointers no later conjunct may have changed: in
+/// p && (p = next()) the first conjunct tested the old p.
+static void analyzeWholeCondition(const Expr *Cond, ASTContext &Ctx,
+                                  SmallVectorImpl<ConditionResult> &Results,
+                                  const NullState::BoolGuardMap *BoolGuards) {
+  const auto *BO = dyn_cast<BinaryOperator>(Cond->IgnoreParenImpCasts());
+  if (!BO || BO->getOpcode() != BO_LAnd) {
+    analyzeCondition(Cond, Ctx, Results, BoolGuards);
+    return;
+  }
+  SmallVector<const Expr *, 4> Conjuncts;
+  flattenChain(BO, BO_LAnd, Conjuncts);
+  for (unsigned I = 0, N = Conjuncts.size(); I < N; ++I) {
+    SmallVector<ConditionResult, 2> Facts;
+    analyzeCondition(Conjuncts[I], Ctx, Facts, BoolGuards);
+    ArrayRef<const Expr *> Later = ArrayRef(Conjuncts).drop_front(I + 1);
+    for (ConditionResult &CR : Facts)
+      if (!CR.Negated && !mayChangeLater(CR.Ref, Later, Ctx))
+        Results.push_back(std::move(CR));
+  }
+}
+
 /// Analyze a branch condition into ConditionResult facts (see the file
 /// overview). The CFG splits && and || operands into their own blocks, but a
 /// || operand creating a temporary with a destructor (f() == nullptr on a
@@ -1172,6 +1269,25 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
       break;
     Negated = !Negated;
     E = ignoreExplicitBoolCast(UO->getSubExpr()->IgnoreParenImpCasts());
+  }
+
+  // Assertion macros often coerce their condition to bool with
+  // (cond) ? true : false. When the arms are the literals true/false or 1/0
+  // and differ, the ternary has the same truth value as its condition (or the
+  // inverse for swapped arms).
+  if (const auto *CO = dyn_cast<AbstractConditionalOperator>(E)) {
+    std::optional<bool> TV = literalTruth(CO->getTrueExpr());
+    std::optional<bool> FV = literalTruth(CO->getFalseExpr());
+    if (TV && FV && *TV != *FV) {
+      SmallVector<ConditionResult, 2> Facts;
+      analyzeWholeCondition(CO->getCond(), Ctx, Facts, BoolGuards);
+      bool Flip = Negated != !*TV;
+      for (auto &CR : Facts) {
+        CR.Negated = CR.Negated != Flip;
+        Results.push_back(std::move(CR));
+      }
+      return;
+    }
   }
 
   // An explicit pointer-to-pointer cast in the condition (e.g. if ((T*)p))
@@ -1256,17 +1372,6 @@ static void computeGuardFacts(const Expr *Init, ASTContext &Ctx,
     if (ILE->getNumInits() != 1)
       return;
     Init = ILE->getInit(0)->IgnoreParenImpCasts();
-  }
-  if (const auto *CO = dyn_cast<AbstractConditionalOperator>(Init)) {
-    std::optional<bool> TV = constantTruth(CO->getTrueExpr(), Ctx);
-    std::optional<bool> FV = constantTruth(CO->getFalseExpr(), Ctx);
-    if (!TV || !FV || *TV == *FV)
-      return;
-    analyzeCondition(CO->getCond(), Ctx, Facts, &Guards);
-    if (!*TV)
-      for (auto &CR : Facts)
-        CR.Negated = !CR.Negated;
-    return;
   }
   if (const auto *BO = dyn_cast<BinaryOperator>(Init)) {
     if (BO->getOpcode() == BO_LAnd) {
@@ -2856,6 +2961,38 @@ static void emitCtorInitEvidence(const Decl *D, ASTContext &Ctx,
   }
 }
 
+/// Narrow an if or loop terminator's edges on a && / || condition, and return
+/// what is left for analyzeCondition: the condition itself when it is not such
+/// a chain, its rightmost operand when the CFG split the chain, or null. The
+/// CFG splits a bare chain (CFGBuilder tests Cond->IgnoreParens(), and never
+/// for a do-while or a condition variable) into one block per operand, so the
+/// terminator's block evaluates only the rightmost operand and each earlier
+/// operand already narrowed its own edge. Otherwise, as under the
+/// ExprWithCleanups of a temporary with a destructor, the terminator's block
+/// merges every operand, and only what holds whichever operand ran last is
+/// valid there: every conjunct of a true && chain and every disjunct of a
+/// false || chain.
+static const Expr *narrowOnLogicalCondition(const Expr *Cond, bool CFGSplits,
+                                            const NullState &State,
+                                            ASTContext &Ctx,
+                                            NullState &TrueState,
+                                            NullState &FalseState) {
+  if (!Cond)
+    return nullptr;
+  const auto *BO = dyn_cast<BinaryOperator>(Cond->IgnoreParenImpCasts());
+  if (!BO || !BO->isLogicalOp())
+    return Cond;
+  if (CFGSplits && Cond->IgnoreParens() == BO)
+    return getTerminalCondition(BO);
+  bool IsAnd = BO->getOpcode() == BO_LAnd;
+  SmallVector<ConditionResult, 4> Results;
+  decomposeChain(BO, BO->getOpcode(), Ctx, Results, &State.BoolGuards);
+  for (const auto &CR : Results)
+    if (CR.Negated != IsAnd)
+      applyNarrowing(IsAnd ? TrueState : FalseState, CR);
+  return nullptr;
+}
+
 /// Apply branch-condition narrowing to a block's outgoing edges. Given the
 /// block's terminator (an if, loop, &&/||, or ?:) and the state at the
 /// end of the block, fill in the per-edge states: the edge that proves a
@@ -2870,41 +3007,18 @@ static void narrowOnTerminator(const CFGBlock *Block, const NullState &State,
 
   const Expr *Cond = nullptr;
   if (const auto *IS = dyn_cast<IfStmt>(Term)) {
-    const Expr *IfCond = IS->getCond();
-    if (IfCond)
-      IfCond = IfCond->IgnoreParenImpCasts();
-    if (IfCond) {
-      // Unwrap ExprWithCleanups: temp destructors from || RHS
-      // expressions wrap the whole condition but don't affect the
-      // logical structure.
-      const Expr *IfCondInner = IfCond;
-      if (const auto *EWC = dyn_cast<ExprWithCleanups>(IfCondInner))
-        IfCondInner = EWC->getSubExpr()->IgnoreParenImpCasts();
-      if (const auto *BO = dyn_cast<BinaryOperator>(IfCondInner)) {
-        if (BO->getOpcode() == BO_LAnd) {
-          SmallVector<ConditionResult, 2> AndResults;
-          decomposeChain(BO, BO_LAnd, Ctx, AndResults, &State.BoolGuards);
-          for (const auto &CR : AndResults)
-            if (!CR.Negated)
-              applyNarrowing(TrueState, CR);
-        } else if (BO->getOpcode() == BO_LOr) {
-          // if (A || B): on the false edge ALL operands were false.
-          SmallVector<ConditionResult, 2> OrResults;
-          decomposeChain(BO, BO_LOr, Ctx, OrResults, &State.BoolGuards);
-          for (const auto &CR : OrResults)
-            if (CR.Negated)
-              applyNarrowing(FalseState, CR);
-        }
-      }
-    }
-    Cond = getTerminalCondition(IS->getCond());
+    // An if consteval has no condition.
+    Cond = narrowOnLogicalCondition(IS->getCond(), !IS->getConditionVariable(),
+                                    State, Ctx, TrueState, FalseState);
   } else if (const auto *WS = dyn_cast<WhileStmt>(Term)) {
-    Cond = getTerminalCondition(WS->getCond());
+    Cond = narrowOnLogicalCondition(WS->getCond(), !WS->getConditionVariable(),
+                                    State, Ctx, TrueState, FalseState);
   } else if (const auto *FS = dyn_cast<ForStmt>(Term)) {
-    if (FS->getCond())
-      Cond = getTerminalCondition(FS->getCond());
+    Cond = narrowOnLogicalCondition(FS->getCond(), !FS->getConditionVariable(),
+                                    State, Ctx, TrueState, FalseState);
   } else if (const auto *DS = dyn_cast<DoStmt>(Term)) {
-    Cond = getTerminalCondition(DS->getCond());
+    Cond = narrowOnLogicalCondition(DS->getCond(), /*CFGSplits=*/false, State,
+                                    Ctx, TrueState, FalseState);
   } else if (const auto *BO = dyn_cast<BinaryOperator>(Term)) {
     if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
       Cond = getTerminalCondition(BO->getLHS());

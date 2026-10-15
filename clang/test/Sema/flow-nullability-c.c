@@ -290,6 +290,40 @@ void test_comma(struct Node * _Nullable p) {
 }
 
 //===----------------------------------------------------------------------===//
+// Do-while conditions
+//===----------------------------------------------------------------------===//
+// The CFG evaluates a do-while condition in one block where every && / ||
+// operand has merged, so only facts that hold whichever operand ran last apply
+// to its edges.
+
+struct Node * _Nullable retry_get(void);
+
+int test_do_while_retry(int n) {
+    struct Node *p;
+    do {
+        p = retry_get();
+    } while (--n > 0 && !p);
+    return p->value; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+int test_do_while_or_exit(int n) {
+    struct Node *p;
+    do {
+        p = retry_get();
+    } while (--n > 0 || !p);
+    return p->value; // OK - the loop exits only once p is non-null
+}
+
+int test_do_while_and_narrows(struct Node * _Nullable p) {
+    int sum = 0;
+    if (!p) return 0;
+    do {
+        sum += p->value; // OK - narrowed on entry and by the loop condition
+    } while (getInt() && (p = getNode()));
+    return sum;
+}
+
+//===----------------------------------------------------------------------===//
 // sizeof does not evaluate
 //===----------------------------------------------------------------------===//
 
