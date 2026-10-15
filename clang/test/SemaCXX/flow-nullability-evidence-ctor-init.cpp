@@ -71,6 +71,15 @@ struct AddrOf {
 };
 
 // ===----------------------------------------------------------------------===//
+// String literals decay to a nonnull array address
+// ===----------------------------------------------------------------------===//
+
+struct StringLiteralInit {
+    const char *ptr;
+    StringLiteralInit() : ptr("value") {} // expected-remark-re{{member 'ptr' of StringLiteralInit (declared at {{.*}}) assigned from nonnull source}}
+};
+
+// ===----------------------------------------------------------------------===//
 // new expression is nonnull evidence
 // ===----------------------------------------------------------------------===//
 
@@ -123,6 +132,7 @@ void test_instantiations() {
     Multi m(&x, &x, &x);
     NonPointer npt(1, &x);
     AddrOf ao;
+    StringLiteralInit sli;
     NewExpr ne;
     UsesThis ut;
     AttrNonnull an(&x);

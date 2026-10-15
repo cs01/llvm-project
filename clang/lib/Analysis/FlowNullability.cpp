@@ -1648,7 +1648,12 @@ private:
   /// Classify a raw pointer variable from its initializer: record aliases,
   /// warn on a nullable init of a _Nonnull variable, then narrow or taint.
   void handlePointerVarInit(const VarDecl *VD) {
-    if (VD->hasInit()) {
+    // A static or thread_local local is initialized once, not every time
+    // control reaches its declaration, so its initializer says nothing about
+    // its value here.
+    bool InitRunsHere = VD->hasInit() && !VD->isStaticLocal() &&
+                        VD->getTLSKind() == VarDecl::TLS_None;
+    if (InitRunsHere) {
       recordPointerSource(VD, VD->getInit());
       recordTernaryPointerGuard(VD, VD->getInit());
     }
@@ -1678,7 +1683,7 @@ private:
         State.markNullable(VD);
       else
         State.markNarrowed(VD);
-    } else if (VD->hasInit()) {
+    } else if (InitRunsHere) {
       const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
       if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
         if (UO->getOpcode() == UO_AddrOf)
@@ -2523,7 +2528,8 @@ private:
   }
 
   /// Check if an init expression is provably non-null (address-of, new,
-  /// this, _Nonnull typed, narrowed var, cast of non-null, pointer arith).
+  /// this, string literal, _Nonnull typed, narrowed var, cast of non-null,
+  /// pointer arith).
   bool isNonnullInit(const Expr *Init) const {
     if (!Init)
       return false;
@@ -2538,6 +2544,9 @@ private:
                      armNarrowedByCondition(CO->getFalseExpr(), Cond, false);
       return TrueOK && FalseOK;
     }
+    // A string literal decays to its array's address, which is never null.
+    if (isa<StringLiteral>(Init))
+      return true;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
         if (isNonnullType(VD->getType()) || isNarrowed(VD))
@@ -2822,9 +2831,7 @@ static void emitCtorInitEvidence(const Decl *D, ASTContext &Ctx,
     if (!Init)
       continue;
     Init = Init->IgnoreParenImpCasts();
-    bool IsNonnull = false;
-    if (isNonnullType(Init->getType()))
-      IsNonnull = true;
+    bool IsNonnull = isNonnullType(Init->getType()) || isa<StringLiteral>(Init);
     // A parameter narrowed on entry (__attribute__((nonnull)) on the
     // constructor) counts as non-null.
     if (!IsNonnull) {
