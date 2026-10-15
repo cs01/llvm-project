@@ -1648,7 +1648,12 @@ private:
   /// Classify a raw pointer variable from its initializer: record aliases,
   /// warn on a nullable init of a _Nonnull variable, then narrow or taint.
   void handlePointerVarInit(const VarDecl *VD) {
-    if (VD->hasInit()) {
+    // A static or thread_local local is initialized once, not every time
+    // control reaches its declaration, so its initializer says nothing about
+    // its value here.
+    bool InitRunsHere = VD->hasInit() && !VD->isStaticLocal() &&
+                        VD->getTLSKind() == VarDecl::TLS_None;
+    if (InitRunsHere) {
       recordPointerSource(VD, VD->getInit());
       recordTernaryPointerGuard(VD, VD->getInit());
     }
@@ -1678,7 +1683,7 @@ private:
         State.markNullable(VD);
       else
         State.markNarrowed(VD);
-    } else if (VD->hasInit()) {
+    } else if (InitRunsHere) {
       const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
       if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
         if (UO->getOpcode() == UO_AddrOf)
