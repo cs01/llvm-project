@@ -636,6 +636,30 @@ static bool isNonnullType(QualType Ty) {
   return Nullability && *Nullability == NullabilityKind::NonNull;
 }
 
+/// Whether V is a constant address that cannot be null.
+static bool isNonnullConstantAddress(const APValue &V) {
+  if (!V.isLValue())
+    return false;
+  APValue::LValueBase Base = V.getLValueBase();
+  if (const auto *D = Base.dyn_cast<const ValueDecl *>())
+    return !D->isWeak();
+  return isa_and_present<StringLiteral>(Base.dyn_cast<const Expr *>());
+}
+
+/// Whether VD is an immutable pointer with a visible constant nonnull value.
+static bool isConstantNonnullPointer(const VarDecl *VD) {
+  QualType Ty = VD->getType();
+  if (!Ty->isPointerType() || !Ty.isConstQualified() ||
+      Ty.isVolatileQualified() || isa<ParmVarDecl>(VD) || VD->isWeak())
+    return false;
+  const VarDecl *Def = nullptr;
+  const Expr *Init = VD->getAnyInitializer(Def);
+  if (!Init || Init->isValueDependent() || !Def->hasConstantInitialization())
+    return false;
+  const APValue *V = Def->evaluateValue();
+  return V && isNonnullConstantAddress(*V);
+}
+
 struct ExplicitCastInfo {
   const ExplicitCastExpr *DefinitiveCast;
   const Expr *Operand;
@@ -705,6 +729,48 @@ static const Expr *unwrapImplicitWrappers(const Expr *E) {
       break;
   }
   return E;
+}
+
+/// Return the variable named by E, including a static data member named
+/// through an object (obj.k, ptr->k, or this->k).
+static const VarDecl *referencedVarDecl(const Expr *E) {
+  E = stripOpaqueValue(unwrapImplicitWrappers(E));
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    return dyn_cast<VarDecl>(DRE->getDecl());
+  if (const auto *ME = dyn_cast<MemberExpr>(E))
+    return dyn_cast<VarDecl>(ME->getMemberDecl());
+  return nullptr;
+}
+
+/// Whether E can only evaluate to a constant nonnull pointer, seen through
+/// casts, pointer arithmetic, and a ternary whose arms both have that property.
+/// For contexts without flow state (constructor member initializers); the
+/// transfer functions check each variable they reach instead.
+static bool isConstantNonnullPointerExpr(const Expr *E) {
+  if (!E)
+    return false;
+  E = stripOpaqueValue(unwrapImplicitWrappers(E));
+  if (!E->getType()->isPointerType())
+    return false;
+  if (const VarDecl *VD = referencedVarDecl(E))
+    return isConstantNonnullPointer(VD);
+  if (const auto *CO = dyn_cast<AbstractConditionalOperator>(E))
+    return isConstantNonnullPointerExpr(CO->getTrueExpr()) &&
+           isConstantNonnullPointerExpr(CO->getFalseExpr());
+  // A pointer dynamic_cast is null when the runtime check fails.
+  if (isa<CXXDynamicCastExpr>(E))
+    return false;
+  if (const auto *CE = dyn_cast<ExplicitCastExpr>(E))
+    return isConstantNonnullPointerExpr(CE->getSubExpr());
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_Add || BO->getOpcode() == BO_Sub) {
+      if (BO->getLHS()->getType()->isPointerType())
+        return isConstantNonnullPointerExpr(BO->getLHS());
+      if (BO->getRHS()->getType()->isPointerType())
+        return isConstantNonnullPointerExpr(BO->getRHS());
+    }
+  }
+  return false;
 }
 
 /// Check if a smart pointer is constructed from a provably non-null source:
@@ -1648,7 +1714,12 @@ private:
   /// Classify a raw pointer variable from its initializer: record aliases,
   /// warn on a nullable init of a _Nonnull variable, then narrow or taint.
   void handlePointerVarInit(const VarDecl *VD) {
-    if (VD->hasInit()) {
+    // A static or thread_local local is initialized once, not every time
+    // control reaches its declaration, so its initializer says nothing about
+    // its value here.
+    bool InitRunsHere = VD->hasInit() && !VD->isStaticLocal() &&
+                        VD->getTLSKind() == VarDecl::TLS_None;
+    if (InitRunsHere) {
       recordPointerSource(VD, VD->getInit());
       recordTernaryPointerGuard(VD, VD->getInit());
     }
@@ -1678,7 +1749,7 @@ private:
         State.markNullable(VD);
       else
         State.markNarrowed(VD);
-    } else if (VD->hasInit()) {
+    } else if (InitRunsHere) {
       const Expr *Init = VD->getInit()->IgnoreParenImpCasts();
       if (const auto *UO = dyn_cast<UnaryOperator>(Init)) {
         if (UO->getOpcode() == UO_AddrOf)
@@ -2165,9 +2236,10 @@ private:
     }
   }
 
-  /// Whether VD is narrowed (proven non-null) in the current state.
+  /// Whether VD is known non-null here: narrowed in the current state, or a
+  /// const pointer whose constant initializer is a non-null address.
   bool isNarrowed(const VarDecl *VD) const {
-    return State.NarrowedVars.contains(VD);
+    return State.NarrowedVars.contains(VD) || isConstantNonnullPointer(VD);
   }
 
   /// Whether the member path is narrowed in the current state.
@@ -2273,6 +2345,11 @@ private:
         }
       }
     }
+    // A constant static data member named through an object (this->k).
+    if (const auto *ME = dyn_cast<MemberExpr>(Origin))
+      if (const auto *VD = dyn_cast<VarDecl>(ME->getMemberDecl()))
+        if (isNarrowed(VD))
+          return;
 
     // If the origin is inherently non-null, skip.
     if (isa<CXXThisExpr>(Origin))
@@ -2523,7 +2600,8 @@ private:
   }
 
   /// Check if an init expression is provably non-null (address-of, new,
-  /// this, _Nonnull typed, narrowed var, cast of non-null, pointer arith).
+  /// this, _Nonnull typed, narrowed var or constant pointer, cast of non-null,
+  /// pointer arith).
   bool isNonnullInit(const Expr *Init) const {
     if (!Init)
       return false;
@@ -2543,6 +2621,11 @@ private:
         if (isNonnullType(VD->getType()) || isNarrowed(VD))
           return true;
     }
+    // A static data member named through an object (obj.k, this->k).
+    if (const auto *ME = dyn_cast<MemberExpr>(Init))
+      if (const auto *VD = dyn_cast<VarDecl>(ME->getMemberDecl()))
+        if (isNarrowed(VD))
+          return true;
     // Throwing operator new never returns null.
     if (const auto *NE = dyn_cast<CXXNewExpr>(Init)) {
       if (!NE->shouldNullCheckAllocation())
@@ -2683,10 +2766,16 @@ private:
         return TrueNullable || FalseNullable;
       }
     }
+    // A static data member named through an object (obj.k, this->k), which
+    // PtrRef does not track.
+    if (const auto *ME = dyn_cast<MemberExpr>(E))
+      if (const auto *VD = dyn_cast<VarDecl>(ME->getMemberDecl()))
+        if (isNarrowed(VD))
+          return false;
     // A tracked variable or member path: flow state first, then the declared
     // type of the variable or leaf field.
     if (auto R = PtrRef::fromExpr(E)) {
-      if (State.isNarrowed(*R))
+      if (R->VD ? isNarrowed(R->VD) : State.isNarrowed(*R))
         return false;
       if (State.isNullable(*R))
         return true;
@@ -2822,9 +2911,8 @@ static void emitCtorInitEvidence(const Decl *D, ASTContext &Ctx,
     if (!Init)
       continue;
     Init = Init->IgnoreParenImpCasts();
-    bool IsNonnull = false;
-    if (isNonnullType(Init->getType()))
-      IsNonnull = true;
+    bool IsNonnull =
+        isNonnullType(Init->getType()) || isConstantNonnullPointerExpr(Init);
     // A parameter narrowed on entry (__attribute__((nonnull)) on the
     // constructor) counts as non-null.
     if (!IsNonnull) {

@@ -39,6 +39,13 @@ void pass_nonnull(int * _Nonnull p) {
     takes_ptr(p); // expected-remark-re{{parameter 'p' of 'takes_ptr' (declared at {{.*}}) called with nonnull argument}}
 }
 
+int constant_storage;
+int *const kConstantPointer = &constant_storage;
+
+void pass_constant_pointer() {
+    takes_ptr(kConstantPointer); // expected-remark-re{{parameter 'p' of 'takes_ptr' (declared at {{.*}}) called with nonnull argument}}
+}
+
 // ===----------------------------------------------------------------------===//
 // Return evidence: explicit _Nullable return -> "returns nullable"
 // ===----------------------------------------------------------------------===//
@@ -109,6 +116,10 @@ void assign_nullptr(S *_Nonnull s) {
 
 void assign_nonnull(S *_Nonnull s, int * _Nonnull p) {
     s->field = p; // expected-remark-re{{member 'field' of S (declared at {{.*}}) assigned from nonnull source}}
+}
+
+void assign_constant_pointer(S *_Nonnull s) {
+    s->field = kConstantPointer; // expected-remark-re{{member 'field' of S (declared at {{.*}}) assigned from nonnull source}}
 }
 
 // ===----------------------------------------------------------------------===//

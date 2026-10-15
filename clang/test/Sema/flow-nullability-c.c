@@ -578,6 +578,50 @@ void test_output_param(void) {
 }
 
 //===----------------------------------------------------------------------===//
+// Static locals are initialized once
+//===----------------------------------------------------------------------===//
+// A static local's initializer runs only on the first call, so later calls see
+// whatever an earlier call stored. The initializer does not narrow it each
+// time control reaches the declaration.
+
+static int slot_storage[4];
+int *advance_slot(int *p);
+
+int *next_slot(void) {
+    static int *slot = &slot_storage[0];
+    int *r = slot;
+    slot = advance_slot(slot);
+    return r;
+}
+
+int use_next_slot(void) {
+    return *next_slot(); // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+}
+
+void test_static_local_reset(void) {
+    static int *cursor = &slot_storage[0];
+    *cursor = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    cursor = 0;
+}
+
+void test_thread_local_reset(void) {
+    static _Thread_local int *tl = &slot_storage[1];
+    *tl = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    tl = 0;
+}
+
+void test_static_local_literal(void) {
+    static const char *name = "first";
+    (void)*name; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+    name = 0;
+}
+
+void test_automatic_local_still_narrowed(void) {
+    int *p = &slot_storage[2];
+    *p = 1; // OK - initialized on every pass
+}
+
+//===----------------------------------------------------------------------===//
 // Static assert + null check
 //===----------------------------------------------------------------------===//
 
