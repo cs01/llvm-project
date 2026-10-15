@@ -111,6 +111,14 @@ void assign_nonnull(S *_Nonnull s, int * _Nonnull p) {
     s->field = p; // expected-remark-re{{member 'field' of S (declared at {{.*}}) assigned from nonnull source}}
 }
 
+struct StringHolder {
+    const char *field;
+};
+
+void assign_string_literal(StringHolder *_Nonnull s) {
+    s->field = "value"; // expected-remark-re{{member 'field' of StringHolder (declared at {{.*}}) assigned from nonnull source}}
+}
+
 // ===----------------------------------------------------------------------===//
 // Parameter evidence: nonnull-parameter narrowing runs before evidence
 // ===----------------------------------------------------------------------===//

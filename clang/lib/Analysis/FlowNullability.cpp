@@ -2528,7 +2528,8 @@ private:
   }
 
   /// Check if an init expression is provably non-null (address-of, new,
-  /// this, _Nonnull typed, narrowed var, cast of non-null, pointer arith).
+  /// this, string literal, _Nonnull typed, narrowed var, cast of non-null,
+  /// pointer arith).
   bool isNonnullInit(const Expr *Init) const {
     if (!Init)
       return false;
@@ -2543,6 +2544,9 @@ private:
                      armNarrowedByCondition(CO->getFalseExpr(), Cond, false);
       return TrueOK && FalseOK;
     }
+    // A string literal decays to its array's address, which is never null.
+    if (isa<StringLiteral>(Init))
+      return true;
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Init)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
         if (isNonnullType(VD->getType()) || isNarrowed(VD))
@@ -2827,9 +2831,7 @@ static void emitCtorInitEvidence(const Decl *D, ASTContext &Ctx,
     if (!Init)
       continue;
     Init = Init->IgnoreParenImpCasts();
-    bool IsNonnull = false;
-    if (isNonnullType(Init->getType()))
-      IsNonnull = true;
+    bool IsNonnull = isNonnullType(Init->getType()) || isa<StringLiteral>(Init);
     // A parameter narrowed on entry (__attribute__((nonnull)) on the
     // constructor) counts as non-null.
     if (!IsNonnull) {
