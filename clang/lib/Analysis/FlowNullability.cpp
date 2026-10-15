@@ -2856,6 +2856,38 @@ static void emitCtorInitEvidence(const Decl *D, ASTContext &Ctx,
   }
 }
 
+/// Narrow an if or loop terminator's edges on a && / || condition, and return
+/// what is left for analyzeCondition: the condition itself when it is not such
+/// a chain, its rightmost operand when the CFG split the chain, or null. The
+/// CFG splits a bare chain (CFGBuilder tests Cond->IgnoreParens(), and never
+/// for a do-while or a condition variable) into one block per operand, so the
+/// terminator's block evaluates only the rightmost operand and each earlier
+/// operand already narrowed its own edge. Otherwise, as under the
+/// ExprWithCleanups of a temporary with a destructor, the terminator's block
+/// merges every operand, and only what holds whichever operand ran last is
+/// valid there: every conjunct of a true && chain and every disjunct of a
+/// false || chain.
+static const Expr *narrowOnLogicalCondition(const Expr *Cond, bool CFGSplits,
+                                            const NullState &State,
+                                            ASTContext &Ctx,
+                                            NullState &TrueState,
+                                            NullState &FalseState) {
+  if (!Cond)
+    return nullptr;
+  const auto *BO = dyn_cast<BinaryOperator>(Cond->IgnoreParenImpCasts());
+  if (!BO || !BO->isLogicalOp())
+    return Cond;
+  if (CFGSplits && Cond->IgnoreParens() == BO)
+    return getTerminalCondition(BO);
+  bool IsAnd = BO->getOpcode() == BO_LAnd;
+  SmallVector<ConditionResult, 4> Results;
+  decomposeChain(BO, BO->getOpcode(), Ctx, Results, &State.BoolGuards);
+  for (const auto &CR : Results)
+    if (CR.Negated != IsAnd)
+      applyNarrowing(IsAnd ? TrueState : FalseState, CR);
+  return nullptr;
+}
+
 /// Apply branch-condition narrowing to a block's outgoing edges. Given the
 /// block's terminator (an if, loop, &&/||, or ?:) and the state at the
 /// end of the block, fill in the per-edge states: the edge that proves a
@@ -2870,41 +2902,18 @@ static void narrowOnTerminator(const CFGBlock *Block, const NullState &State,
 
   const Expr *Cond = nullptr;
   if (const auto *IS = dyn_cast<IfStmt>(Term)) {
-    const Expr *IfCond = IS->getCond();
-    if (IfCond)
-      IfCond = IfCond->IgnoreParenImpCasts();
-    if (IfCond) {
-      // Unwrap ExprWithCleanups: temp destructors from || RHS
-      // expressions wrap the whole condition but don't affect the
-      // logical structure.
-      const Expr *IfCondInner = IfCond;
-      if (const auto *EWC = dyn_cast<ExprWithCleanups>(IfCondInner))
-        IfCondInner = EWC->getSubExpr()->IgnoreParenImpCasts();
-      if (const auto *BO = dyn_cast<BinaryOperator>(IfCondInner)) {
-        if (BO->getOpcode() == BO_LAnd) {
-          SmallVector<ConditionResult, 2> AndResults;
-          decomposeChain(BO, BO_LAnd, Ctx, AndResults, &State.BoolGuards);
-          for (const auto &CR : AndResults)
-            if (!CR.Negated)
-              applyNarrowing(TrueState, CR);
-        } else if (BO->getOpcode() == BO_LOr) {
-          // if (A || B): on the false edge ALL operands were false.
-          SmallVector<ConditionResult, 2> OrResults;
-          decomposeChain(BO, BO_LOr, Ctx, OrResults, &State.BoolGuards);
-          for (const auto &CR : OrResults)
-            if (CR.Negated)
-              applyNarrowing(FalseState, CR);
-        }
-      }
-    }
-    Cond = getTerminalCondition(IS->getCond());
+    // An if consteval has no condition.
+    Cond = narrowOnLogicalCondition(IS->getCond(), !IS->getConditionVariable(),
+                                    State, Ctx, TrueState, FalseState);
   } else if (const auto *WS = dyn_cast<WhileStmt>(Term)) {
-    Cond = getTerminalCondition(WS->getCond());
+    Cond = narrowOnLogicalCondition(WS->getCond(), !WS->getConditionVariable(),
+                                    State, Ctx, TrueState, FalseState);
   } else if (const auto *FS = dyn_cast<ForStmt>(Term)) {
-    if (FS->getCond())
-      Cond = getTerminalCondition(FS->getCond());
+    Cond = narrowOnLogicalCondition(FS->getCond(), !FS->getConditionVariable(),
+                                    State, Ctx, TrueState, FalseState);
   } else if (const auto *DS = dyn_cast<DoStmt>(Term)) {
-    Cond = getTerminalCondition(DS->getCond());
+    Cond = narrowOnLogicalCondition(DS->getCond(), /*CFGSplits=*/false, State,
+                                    Ctx, TrueState, FalseState);
   } else if (const auto *BO = dyn_cast<BinaryOperator>(Term)) {
     if (BO->getOpcode() == BO_LAnd || BO->getOpcode() == BO_LOr)
       Cond = getTerminalCondition(BO->getLHS());
