@@ -70,6 +70,24 @@ struct AddrOf {
     AddrOf() : ptr(&x) {} // expected-remark-re{{member 'ptr' of AddrOf (declared at {{.*}}) assigned from nonnull source}}
 };
 
+int constant_storage;
+int *const kConstantPointer = &constant_storage;
+
+struct ConstantPointerInit {
+    int *ptr;
+    ConstantPointerInit() : ptr(kConstantPointer) {} // expected-remark-re{{member 'ptr' of ConstantPointerInit (declared at {{.*}}) assigned from nonnull source}}
+};
+
+struct ConstantPointerForms {
+    int *casted;
+    int *offset;
+    int *selected;
+    ConstantPointerForms(bool b)
+        : casted(static_cast<int *>(kConstantPointer)), // expected-remark-re{{member 'casted' of ConstantPointerForms (declared at {{.*}}) assigned from nonnull source}}
+          offset(kConstantPointer + 0), // expected-remark-re{{member 'offset' of ConstantPointerForms (declared at {{.*}}) assigned from nonnull source}}
+          selected(b ? kConstantPointer : kConstantPointer) {} // expected-remark-re{{member 'selected' of ConstantPointerForms (declared at {{.*}}) assigned from nonnull source}}
+};
+
 // ===----------------------------------------------------------------------===//
 // new expression is nonnull evidence
 // ===----------------------------------------------------------------------===//
@@ -123,6 +141,8 @@ void test_instantiations() {
     Multi m(&x, &x, &x);
     NonPointer npt(1, &x);
     AddrOf ao;
+    ConstantPointerInit cpi;
+    ConstantPointerForms cpf(true);
     NewExpr ne;
     UsesThis ut;
     AttrNonnull an(&x);

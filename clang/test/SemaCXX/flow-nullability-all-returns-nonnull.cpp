@@ -43,13 +43,21 @@ Node *makeNode() { // expected-remark{{function 'makeNode' always returns a non-
     return new Node(); // expected-remark-re{{function 'makeNode' of global scope (declared at {{.*}}) returns nonnull}}
 }
 
-// --- Pattern 4: return address-of local ---
+// --- Pattern 4: return a const pointer with a constant nonnull address ---
+static int constant_storage;
+int *const kConstantPointer = &constant_storage;
+
+int *getConstantPointer() { // expected-remark{{function 'getConstantPointer' always returns a non-null pointer}}
+    return kConstantPointer; // expected-remark-re{{function 'getConstantPointer' of global scope (declared at {{.*}}) returns nonnull}}
+}
+
+// --- Pattern 5: return address-of local ---
 int *getLocal() { // expected-remark{{function 'getLocal' always returns a non-null pointer}}
     static int storage = 42;
     return &storage; // expected-remark-re{{function 'getLocal' of global scope (declared at {{.*}}) returns nonnull}}
 }
 
-// --- Pattern 5: return static_cast<T*>(this) ---
+// --- Pattern 6: return static_cast<T*>(this) ---
 struct Base {
     int v;
 };
@@ -126,6 +134,10 @@ void caller_this_ptr() {
 void caller_new() {
     Node *n = makeNode();
     n->value = 1; // OK - makeNode always returns nonnull
+}
+
+void caller_constant_pointer() {
+    *getConstantPointer() = 1; // OK - constant pointer return is nonnull
 }
 
 // Multi-return, all nonnull
