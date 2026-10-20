@@ -2837,6 +2837,13 @@ private:
         if (!ArgTy.isNull() && ArgTy->getNullability())
           TemplateOverride = true;
       }
+      // *strchr(s, c) is as unchecked as char *c = strchr(s, c); *c. The
+      // libc result has no nullability in its type, so the type check below
+      // would miss it.
+      if (isLibcNullableReturn(CE)) {
+        reportDeref(DerefExpr, CE->getType());
+        return;
+      }
       if (!TemplateOverride && isStlNonnullReturnCall(CE))
         return;
       if (const auto *Callee = CE->getDirectCallee()) {
