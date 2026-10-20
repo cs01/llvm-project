@@ -1730,24 +1730,8 @@ public:
 
   /// *p dereference checks and p++ / p-- arithmetic checks.
   void VisitUnaryOperator(const UnaryOperator *UO) {
-    if (UO->getOpcode() == UO_Deref) {
-      const Expr *Operand = UO->getSubExpr()->IgnoreParenImpCasts();
-      ExplicitCastInfo Cast = getExplicitCastInfo(Operand);
-      if (!Cast.isNonnull()) {
-        const Expr *SubExpr = lookThroughPtrToPtrCasts(Operand);
-
-        if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
-          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
-            if (!VD->isImplicit() && !isNarrowed(VD))
-              checkVarDeref(UO, VD);
-          }
-        } else if (const auto *ME = dyn_cast<MemberExpr>(SubExpr)) {
-          checkMemberExprDeref(UO, ME);
-        } else if (!isa<CXXThisExpr>(SubExpr)) {
-          checkExprDeref(UO, SubExpr);
-        }
-      }
-    }
+    if (UO->getOpcode() == UO_Deref)
+      checkPointerOperandDeref(UO, UO->getSubExpr());
 
     // p++ / --p: arithmetic on a nullable pointer warns, and the pointer now
     // points elsewhere so every fact about its old value is dropped.
@@ -1769,6 +1753,36 @@ public:
           State.BoolGuards.erase(PtrRef{nullptr, std::move(*Path)});
       }
     }
+  }
+
+  /// Check the pointer operand of *p, or of f() through a function pointer,
+  /// by its shape: a variable, a member path, or any other expression.
+  void checkPointerOperandDeref(const Expr *DerefExpr, const Expr *Ptr) {
+    const Expr *Operand = Ptr->IgnoreParenImpCasts();
+    ExplicitCastInfo Cast = getExplicitCastInfo(Operand);
+    if (Cast.isNonnull())
+      return;
+    const Expr *SubExpr = lookThroughPtrToPtrCasts(Operand);
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(SubExpr)) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
+        if (!VD->isImplicit() && !isNarrowed(VD))
+          checkVarDeref(DerefExpr, VD);
+      }
+    } else if (const auto *ME = dyn_cast<MemberExpr>(SubExpr)) {
+      checkMemberExprDeref(DerefExpr, ME);
+    } else if (!isa<CXXThisExpr>(SubExpr)) {
+      checkExprDeref(DerefExpr, SubExpr);
+    }
+  }
+
+  /// f() and s->cb() through a function pointer dereference it just as
+  /// (*f)() does. In (*f)() the callee is already a function, checked as a
+  /// unary dereference, so only a pointer-typed callee is checked here.
+  void checkCallThroughPointer(const CallExpr *CE) {
+    const Expr *Callee = CE->getCallee();
+    if (!Callee || !Callee->IgnoreParenImpCasts()->getType()->isFunctionPointerType())
+      return;
+    checkPointerOperandDeref(CE, Callee);
   }
 
   /// p->field dereference checks, including smart pointer operator->.
@@ -1832,6 +1846,8 @@ public:
     if (const auto *Callee = CE->getDirectCallee()) {
       narrowFromBuiltinAssume(CE, Callee);
       checkCallArguments(CE, Callee);
+    } else {
+      checkCallThroughPointer(CE);
     }
 
     if (const auto *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
