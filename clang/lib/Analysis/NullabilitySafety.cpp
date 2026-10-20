@@ -49,11 +49,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Analysis/Analyses/NullabilitySafety.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/AST/DynamicRecursiveASTVisitor.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/OperationKinds.h"
@@ -68,6 +70,7 @@
 #include "clang/Analysis/FlowSensitive/DataflowWorklist.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/LangOptions.h"
+#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SCCIterator.h"
@@ -100,6 +103,10 @@ using namespace clang;
 
 NullabilitySafetyHandler::~NullabilitySafetyHandler() = default;
 NullabilitySafetySummaries::~NullabilitySafetySummaries() = default;
+bool NullabilitySafetySummaries::definitionNullTestsParam(
+    const FunctionDecl *Def, unsigned Index) const {
+  return functionNullTestsParam(Def, Index);
+}
 
 //===----------------------------------------------------------------------===//
 // Access paths and AST helpers
@@ -1015,33 +1022,33 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
   return false;
 }
 
+/// The C library (or POSIX) free function CE calls directly, or null. Only
+/// the real library functions match: those at global scope or in std
+/// (std::malloc from <cstdlib>). A user function that happens to share the
+/// name (namespace my { int *malloc(); }) is left alone, so a name collision
+/// cannot cause false positives.
+static const FunctionDecl *getLibcCallee(const CallExpr *CE) {
+  if (isa<CXXMemberCallExpr>(CE))
+    return nullptr;
+  const FunctionDecl *FD = CE->getDirectCallee();
+  if (!FD || isa<CXXMethodDecl>(FD) || !FD->getDeclName().isIdentifier())
+    return nullptr;
+  const DeclContext *DC = FD->getDeclContext()->getRedeclContext();
+  if (!DC->isTranslationUnit() && !DC->isStdNamespace())
+    return nullptr;
+  return FD;
+}
+
 /// C library free functions that return null on failure or not-found
 /// (malloc, fopen, getenv, strchr, ...). Their results are provably _Nullable
 /// regardless of annotations, so unchecked dereferences always warn. Only
 /// free functions at global or std scope match.
 static bool isLibcNullableReturnCall(const CallExpr *CE) {
-  if (isa<CXXMemberCallExpr>(CE))
+  const FunctionDecl *FD = getLibcCallee(CE);
+  if (!FD || !FD->getReturnType()->isPointerType())
     return false;
-  const FunctionDecl *FD = CE->getDirectCallee();
-  if (!FD)
-    return false;
-  if (!FD->getReturnType()->isPointerType())
-    return false;
-  if (isa<CXXMethodDecl>(FD))
-    return false;
-  const auto &DeclName = FD->getDeclName();
-  if (!DeclName.isIdentifier())
-    return false;
-  // Only the real C library functions match: those at global scope or in std
-  // (std::malloc from <cstdlib>). A user function that happens to share the
-  // name (namespace my { int *malloc(); }) is left alone, so a name collision
-  // cannot cause false positives.
-  const DeclContext *DC = FD->getDeclContext()->getRedeclContext();
-  if (!DC->isTranslationUnit() && !DC->isStdNamespace())
-    return false;
-  StringRef Name = FD->getName();
   // Grouped by header (stdlib.h, stdio.h, string.h, ...).
-  return llvm::StringSwitch<bool>(Name)
+  return llvm::StringSwitch<bool>(FD->getName())
       .Cases({"malloc", "calloc", "realloc", "aligned_alloc"}, true)
       .Cases({"fopen", "freopen", "tmpfile"}, true)
       .Cases({"getenv", "strtok"}, true)
@@ -1049,6 +1056,66 @@ static bool isLibcNullableReturnCall(const CallExpr *CE) {
       .Cases({"memchr", "bsearch"}, true)
       .Cases({"tmpnam", "setlocale"}, true)
       .Default(false);
+}
+
+/// Parameters of C library and POSIX functions that must not be null, as a
+/// bit mask of 0-based parameter indices; a nullable argument there warns
+/// like one passed to a _Nonnull parameter. Most system headers declare
+/// these without nullability (glibc's __nonnull becomes
+/// __attribute__((nonnull)) and is honored on its own; Apple's libc headers
+/// carry neither).
+///
+/// Sources: C17 7.1.4p1 makes a null argument to a library function undefined
+/// unless the function's description says otherwise, and the POSIX.1-2017
+/// pages for the POSIX-only entries. Every entry was checked against its
+/// description: parameters documented to accept null are left out, among
+/// them free and realloc's pointer, fflush(NULL), time(NULL), strtol's endptr,
+/// strtok's first argument, setvbuf's and setbuf's buffer, snprintf's buffer
+/// (null with size 0), freopen's path, getline's *lineptr, realpath's
+/// resolved_path, and system(NULL). An entry that wrongly listed a parameter
+/// would warn on correct code, so the list errs toward leaving one out.
+static unsigned getLibcNonnullParamMask(const CallExpr *CE) {
+  const FunctionDecl *FD = getLibcCallee(CE);
+  if (!FD)
+    return 0;
+  constexpr unsigned P0 = 1u << 0, P1 = 1u << 1, P2 = 1u << 2, P3 = 1u << 3;
+  // Grouped by header, like isLibcNullableReturnCall.
+  return llvm::StringSwitch<unsigned>(FD->getName())
+      // stdio.h: streams, buffers, paths, and format strings.
+      .Cases({"fclose", "fgetc", "getc", "feof", "ferror", "clearerr"}, P0)
+      .Cases({"fileno", "ftell", "rewind", "fseek", "setvbuf", "setbuf"}, P0)
+      .Cases({"fputc", "putc", "ungetc"}, P1)
+      .Cases({"fputs", "fopen", "rename"}, P0 | P1)
+      .Case("freopen", P1 | P2)
+      .Case("fdopen", P1)
+      .Case("popen", P0 | P1)
+      .Case("pclose", P0)
+      .Case("fgets", P0 | P2)
+      .Cases({"fread", "fwrite"}, P0 | P3)
+      .Cases({"printf", "vprintf", "scanf", "vscanf", "puts", "remove"}, P0)
+      .Cases({"fprintf", "vfprintf", "fscanf", "vfscanf"}, P0 | P1)
+      .Cases({"sprintf", "vsprintf", "sscanf", "vsscanf"}, P0 | P1)
+      .Cases({"snprintf", "vsnprintf"}, P2)
+      // string.h.
+      .Cases({"strlen", "strdup", "strndup", "strchr", "strrchr"}, P0)
+      .Cases({"strcmp", "strncmp", "strcasecmp", "strncasecmp"}, P0 | P1)
+      .Cases({"strcpy", "strncpy", "strcat", "strncat"}, P0 | P1)
+      .Cases({"strstr", "strpbrk", "strspn", "strcspn", "strcoll"}, P0 | P1)
+      .Case("strtok", P1)
+      .Cases({"memcpy", "memmove", "memcmp"}, P0 | P1)
+      .Cases({"memset", "memchr"}, P0)
+      // stdlib.h: number parsing reads nptr; endptr may be null.
+      .Cases({"atoi", "atol", "atoll", "atof"}, P0)
+      .Cases({"strtol", "strtoul", "strtoll", "strtoull"}, P0)
+      .Cases({"strtod", "strtof", "strtold"}, P0)
+      .Cases({"getenv", "unsetenv", "putenv", "mkstemp"}, P0)
+      .Case("setenv", P0 | P1)
+      // dirent.h and unistd.h / sys/stat.h (POSIX).
+      .Cases({"opendir", "closedir", "readdir"}, P0)
+      .Cases({"open", "access", "unlink", "rmdir", "mkdir", "chdir"}, P0)
+      .Cases({"stat", "lstat"}, P0 | P1)
+      .Case("fstat", P1)
+      .Default(0);
 }
 
 /// The tracked pointer E names, if E is a std smart pointer object (see
@@ -1876,13 +1943,16 @@ public:
     if (!Ctor)
       return;
     const auto *NNAttr = Ctor->getAttr<NonNullAttr>();
+    bool UnannotatedIsNonnull = unannotatedParamsAreNonnull(Ctor);
     for (unsigned I = 0, N = std::min(CE->getNumArgs(), Ctor->getNumParams());
          I < N; ++I) {
       const ParmVarDecl *Param = Ctor->getParamDecl(I);
       if (!Param->getType()->isPointerType())
         continue;
       bool ParamIsNonnull =
-          isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I));
+          isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I)) ||
+          (UnannotatedIsNonnull && isNonnullByDefault(Param) &&
+           !calleeNullTestsParam(Ctor, I));
       if (ParamIsNonnull)
         checkNonnullParamArg(CE->getArg(I), Param);
     }
@@ -2195,13 +2265,18 @@ private:
       IsLambdaCall = MD->getParent()->isLambda();
     bool EmitEvidence = !Callee->getBuiltinID() &&
                         !Callee->getDeclName().isEmpty() && !IsLambdaCall;
+    unsigned LibcNonnull =
+        Options.LibcNonnullParams ? getLibcNonnullParamMask(CE) : 0;
+    bool UnannotatedIsNonnull = unannotatedParamsAreNonnull(Callee);
+    SmallVector<const Expr *, 4> DeferredNarrow;
     for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
          ++I) {
       const ParmVarDecl *Param = Callee->getParamDecl(I);
       if (!Param->getType()->isPointerType())
         continue;
       bool ParamIsNonnull =
-          isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I));
+          isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I)) ||
+          (I < 32 && (LibcNonnull & (1u << I)));
       // Lambda pointer parameters are treated as non-null inside the body, so
       // check the call site instead: passing a nullable value to a lambda
       // parameter that is not explicitly _Nullable warns.
@@ -2209,8 +2284,16 @@ private:
           Options.DefaultNullability != NullabilityKind::NonNull &&
           !isExplicitlyNullableType(Param->getType()))
         ParamIsNonnull = true;
-      if (ParamIsNonnull)
+      if (ParamIsNonnull) {
         checkNonnullParamArg(CE->getArg(I + ArgOffset), Param);
+      } else if (UnannotatedIsNonnull && isNonnullByDefault(Param) &&
+                 !calleeNullTestsParam(Callee, I)) {
+        // Narrowing waits until the evidence below is judged: the parameter
+        // is unannotated, and its evidence is what infers its annotation.
+        checkNonnullParamArg(CE->getArg(I + ArgOffset), Param,
+                             /*Narrow=*/false);
+        DeferredNarrow.push_back(CE->getArg(I + ArgOffset));
+      }
     }
 
     for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
@@ -2248,6 +2331,50 @@ private:
                                           NullabilityEvidence::Nullable);
       }
     }
+    for (const Expr *Arg : DeferredNarrow)
+      narrowArgument(Arg);
+  }
+
+  /// Under -fnullability-default=nonnull an unannotated pointer parameter
+  /// means _Nonnull, the same reading the callee's own body gets (it may
+  /// dereference the parameter unchecked), so the call site is held to it.
+  /// System headers are left unspecified, as Sema leaves them when it applies
+  /// the default.
+  bool unannotatedParamsAreNonnull(const FunctionDecl *Callee) const {
+    if (Options.DefaultNullability != NullabilityKind::NonNull)
+      return false;
+    // A lambda's body is right here, and its unannotated parameters already
+    // read as non-null inside it; its call sites are left as they were.
+    if (const auto *MD = dyn_cast<CXXMethodDecl>(Callee))
+      if (MD->getParent()->isLambda())
+        return false;
+    const SourceManager &SM = Ctx.getSourceManager();
+    return !SM.isInSystemHeader(Callee->getLocation()) &&
+           !SM.isInSystemHeader(Callee->getCanonicalDecl()->getLocation());
+  }
+
+  /// Whether the callee's definition in this TU tests parameter I against
+  /// null. Such a parameter accepts null by the callee's own code, so the
+  /// nonnull default does not hold its callers to non-null.
+  bool calleeNullTestsParam(const FunctionDecl *Callee, unsigned I) const {
+    const FunctionDecl *Def = Callee->getDefinition();
+    if (!Def)
+      return false;
+    return Summaries ? Summaries->definitionNullTestsParam(Def, I)
+                     : functionNullTestsParam(Def, I);
+  }
+
+  /// An unannotated parameter whose default argument is null plainly accepts
+  /// null (void reset(T * = nullptr)), so the nonnull default does not apply.
+  bool isNonnullByDefault(const ParmVarDecl *Param) const {
+    if (Param->getType()->getNullability())
+      return false;
+    if (Param->hasDefaultArg() && !Param->hasUninstantiatedDefaultArg() &&
+        !Param->hasUnparsedDefaultArg())
+      if (const Expr *Def = Param->getDefaultArg())
+        if (Def->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
+          return false;
+    return true;
   }
 
   const VarDecl *pointerWritableByCallee(const Expr *Arg,
@@ -3194,7 +3321,8 @@ private:
 
   /// Warn when a nullable pointer reaches a nonnull parameter, then narrow
   /// the argument variable: surviving the call proves it non-null.
-  void checkNonnullParamArg(const Expr *ArgExpr, const ParmVarDecl *Param) {
+  void checkNonnullParamArg(const Expr *ArgExpr, const ParmVarDecl *Param,
+                            bool Narrow = true) {
     const Expr *Arg = ArgExpr->IgnoreParenImpCasts();
     if (isExprNullable(Arg)) {
       if (Reporting) {
@@ -3202,6 +3330,12 @@ private:
         Handler.handleNullableArgument(ArgExpr, Param);
       }
     }
+    if (Narrow)
+      narrowArgument(ArgExpr);
+  }
+
+  void narrowArgument(const Expr *ArgExpr) {
+    const Expr *Arg = ArgExpr->IgnoreParenImpCasts();
     if (const auto *DRE = dyn_cast<DeclRefExpr>(Arg)) {
       if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
         if (VD->getType()->isPointerType())
@@ -3585,6 +3719,211 @@ bool clang::hasExplicitNullabilityAnnotations(const Decl *D) {
   return false;
 }
 
+/// Whether nullability is spelled anywhere in T: on T itself, or on a pointee,
+/// array element, or function return or parameter type within it (int
+/// *_Nullable *, a typedef'd function pointer with a _Nullable parameter).
+static bool typeMentionsNullability(QualType T) {
+  if (T.isNull() || T->isDependentType())
+    return false;
+  if (T->getNullability())
+    return true;
+  if (const auto *RT = T->getAs<ReferenceType>())
+    return typeMentionsNullability(RT->getPointeeType());
+  if (const auto *PT = T->getAs<PointerType>())
+    return typeMentionsNullability(PT->getPointeeType());
+  if (const auto *BT = T->getAs<BlockPointerType>())
+    return typeMentionsNullability(BT->getPointeeType());
+  if (const auto *MPT = T->getAs<MemberPointerType>())
+    return typeMentionsNullability(MPT->getPointeeType());
+  if (const auto *AT = T->getAsArrayTypeUnsafe())
+    return typeMentionsNullability(AT->getElementType());
+  if (const auto *FT = T->getAs<FunctionType>()) {
+    if (typeMentionsNullability(FT->getReturnType()))
+      return true;
+    if (const auto *FPT = dyn_cast<FunctionProtoType>(FT))
+      for (QualType P : FPT->param_types())
+        if (typeMentionsNullability(P))
+          return true;
+  }
+  return false;
+}
+
+namespace {
+/// Finds the first reference in a function body to a declaration or type
+/// that carries explicit nullability. Under the unspecified default this is
+/// what opts an unannotated caller of an annotated API into the analysis.
+/// The walk stops at the first hit, so a body that uses annotated code pays
+/// for a prefix of the traversal and an unannotated body for one pass that
+/// only reads declared types.
+class NullabilityReferenceFinder : public ConstDynamicRecursiveASTVisitor {
+  // A body names the same callee or variable many times.
+  llvm::SmallPtrSet<const Decl *, 16> Seen;
+
+  bool declMentionsNullability(const Decl *D) {
+    if (!D || !Seen.insert(D).second)
+      return false;
+    if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
+      // The annotation may sit on any redeclaration (a header prototype).
+      for (const FunctionDecl *Redecl : FD->redecls())
+        if (typeMentionsNullability(Redecl->getType()))
+          return true;
+      return false;
+    }
+    if (const auto *MD = dyn_cast<ObjCMethodDecl>(D))
+      return hasExplicitNullabilityAnnotations(MD);
+    if (const auto *VD = dyn_cast<ValueDecl>(D))
+      return typeMentionsNullability(VD->getType());
+    return false;
+  }
+
+public:
+  bool Found = false;
+
+  NullabilityReferenceFinder() { ShouldVisitLambdaBody = true; }
+
+  bool hit() {
+    Found = true;
+    return false; // stop the traversal
+  }
+  bool VisitDeclRefExpr(const DeclRefExpr *DRE) override {
+    return declMentionsNullability(DRE->getDecl()) ? hit() : true;
+  }
+  bool VisitMemberExpr(const MemberExpr *ME) override {
+    return declMentionsNullability(ME->getMemberDecl()) ? hit() : true;
+  }
+  bool VisitCXXConstructExpr(const CXXConstructExpr *CE) override {
+    return declMentionsNullability(CE->getConstructor()) ? hit() : true;
+  }
+  bool VisitObjCMessageExpr(const ObjCMessageExpr *ME) override {
+    return declMentionsNullability(ME->getMethodDecl()) ? hit() : true;
+  }
+  bool VisitVarDecl(const VarDecl *VD) override {
+    return typeMentionsNullability(VD->getType()) ? hit() : true;
+  }
+  bool VisitExplicitCastExpr(const ExplicitCastExpr *CE) override {
+    return typeMentionsNullability(CE->getTypeAsWritten()) ? hit() : true;
+  }
+  bool VisitCallExpr(const CallExpr *CE) override {
+    // A call through an expression rather than a name (getter()(), s.f[0]())
+    // carries the nullability on the expression's type.
+    return CE->getType()->getNullability() ? hit() : true;
+  }
+};
+} // namespace
+
+static bool bodyReferencesNullability(const Decl *D) {
+  NullabilityReferenceFinder Finder;
+  // Member initializers run before the body and are analyzed with it.
+  if (const auto *CD = dyn_cast<CXXConstructorDecl>(D)) {
+    for (const CXXCtorInitializer *Init : CD->inits()) {
+      if (const FieldDecl *FD = Init->getMember())
+        if (typeMentionsNullability(FD->getType()))
+          return true;
+      if (Init->isWritten()) {
+        Finder.TraverseStmt(Init->getInit());
+        if (Finder.Found)
+          return true;
+      }
+    }
+  }
+  if (const Stmt *Body = D->getBody())
+    Finder.TraverseStmt(Body);
+  return Finder.Found;
+}
+
+namespace {
+/// Finds a null test of one parameter: the parameter used as a condition
+/// (if (p), p && q, p ? a : b, !p, a C++ bool conversion) or compared with a
+/// null constant.
+class ParamNullTestFinder : public ConstDynamicRecursiveASTVisitor {
+  const ParmVarDecl *Param;
+  ASTContext &Ctx;
+
+  bool isParam(const Expr *E) const {
+    const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+    return DRE && DRE->getDecl() == Param;
+  }
+
+public:
+  bool Found = false;
+  ParamNullTestFinder(const ParmVarDecl *Param, ASTContext &Ctx)
+      : Param(Param), Ctx(Ctx) {}
+
+  bool VisitImplicitCastExpr(const ImplicitCastExpr *ICE) override {
+    if (ICE->getCastKind() == CK_PointerToBoolean && isParam(ICE->getSubExpr()))
+      Found = true;
+    return !Found;
+  }
+  bool VisitUnaryOperator(const UnaryOperator *UO) override {
+    if (UO->getOpcode() == UO_LNot && isParam(UO->getSubExpr()))
+      Found = true;
+    return !Found;
+  }
+  // C tests a pointer as a condition without a bool conversion.
+  bool testCond(const Expr *Cond) {
+    if (Cond && isParam(Cond))
+      Found = true;
+    return !Found;
+  }
+  bool VisitIfStmt(const IfStmt *S) override { return testCond(S->getCond()); }
+  bool VisitWhileStmt(const WhileStmt *S) override {
+    return testCond(S->getCond());
+  }
+  bool VisitDoStmt(const DoStmt *S) override { return testCond(S->getCond()); }
+  bool VisitForStmt(const ForStmt *S) override {
+    return testCond(S->getCond());
+  }
+  bool VisitConditionalOperator(const ConditionalOperator *CO) override {
+    return testCond(CO->getCond());
+  }
+  bool VisitBinaryOperator(const BinaryOperator *BO) override {
+    if (BO->isLogicalOp())
+      return testCond(BO->getLHS()) && testCond(BO->getRHS());
+    if (!BO->isEqualityOp())
+      return true;
+    auto IsNull = [&](const Expr *E) {
+      return E->IgnoreParenCasts()->isNullPointerConstant(
+          Ctx, Expr::NPC_ValueDependentIsNotNull);
+    };
+    if ((isParam(BO->getLHS()) && IsNull(BO->getRHS())) ||
+        (isParam(BO->getRHS()) && IsNull(BO->getLHS())))
+      Found = true;
+    return !Found;
+  }
+};
+} // namespace
+
+bool clang::functionNullTestsParam(const FunctionDecl *Def, unsigned Index) {
+  if (!Def || Index >= Def->getNumParams() || !Def->hasBody())
+    return false;
+  const Stmt *Body = Def->getBody();
+  if (!Body)
+    return false;
+  ParamNullTestFinder Finder(Def->getParamDecl(Index), Def->getASTContext());
+  Finder.TraverseStmt(Body);
+  return Finder.Found;
+}
+
+/// Whether D, or the function a lambda or block D is nested in, began its
+/// body inside a `#pragma clang assume_nonnull` region. A template
+/// instantiation inherits its pattern's region.
+static bool isInAssumeNonnullRegion(const Decl *D,
+                                    const NullabilitySafetyOptions &Options) {
+  if (!Options.AssumeNonnullDefs || Options.AssumeNonnullDefs->empty())
+    return false;
+  for (const Decl *Cur = D; Cur;) {
+    if (Options.AssumeNonnullDefs->contains(Cur))
+      return true;
+    if (const auto *FD = dyn_cast<FunctionDecl>(Cur))
+      if (const FunctionDecl *Pattern = FD->getTemplateInstantiationPattern())
+        if (Options.AssumeNonnullDefs->contains(Pattern))
+          return true;
+    const DeclContext *Parent = Cur->getParentFunctionOrMethod();
+    Cur = Parent ? cast<Decl>(Parent) : nullptr;
+  }
+  return false;
+}
+
 const Decl *clang::getNullabilitySafetyDefinition(const Decl *D) {
   const Decl *Def = nullptr;
   if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D))
@@ -3604,6 +3943,9 @@ class TUDriverHandler final : public NullabilitySafetyHandler,
                               public NullabilitySafetySummaries {
   NullabilitySafetyHandler &Inner;
   llvm::DenseSet<const FunctionDecl *> AllReturnsNonnull;
+  // Every caller of a function asks about the same parameters.
+  mutable llvm::DenseMap<std::pair<const FunctionDecl *, unsigned>, bool>
+      NullTestedParams;
 
 public:
   bool InRecursiveSCC = false;
@@ -3663,6 +4005,13 @@ public:
   bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const override {
     return Func && AllReturnsNonnull.contains(Func->getCanonicalDecl());
   }
+  bool definitionNullTestsParam(const FunctionDecl *Def,
+                                unsigned Index) const override {
+    auto [It, Inserted] = NullTestedParams.try_emplace({Def, Index}, false);
+    if (Inserted)
+      It->second = functionNullTestsParam(Def, Index);
+    return It->second;
+  }
 };
 } // namespace
 
@@ -3671,13 +4020,24 @@ NullabilitySafetyOptions::fromLangOptions(const LangOptions &LO) {
   NullabilitySafetyOptions Options;
   Options.DefaultNullability = LO.getNullabilityDefault();
   Options.LibcNullableReturns = LO.NullabilityLibcNullableReturns;
+  Options.LibcNonnullParams = LO.NullabilityLibcNonnullParams;
   return Options;
 }
 
 bool clang::isNullabilitySafetyOptedIn(
     const Decl *D, const NullabilitySafetyOptions &Options) {
-  return Options.DefaultNullability != NullabilityKind::Unspecified ||
-         hasExplicitNullabilityAnnotations(D);
+  if (Options.DefaultNullability != NullabilityKind::Unspecified ||
+      hasExplicitNullabilityAnnotations(D))
+    return true;
+  if (!D)
+    return false;
+  // Diagnostics in system headers are suppressed, so analyzing a system
+  // header's unannotated inline function would only cost time.
+  if (D->getASTContext().getSourceManager().isInSystemHeader(D->getLocation()))
+    return false;
+  // Unannotated pointers stay unspecified here: opting a function in only
+  // lets explicitly annotated sources (and the libc lists) report in it.
+  return isInAssumeNonnullRegion(D, Options) || bodyReferencesNullability(D);
 }
 
 void clang::runNullabilitySafetyOnTU(

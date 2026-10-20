@@ -8082,10 +8082,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.addOptInFlag(CmdArgs, options::OPT_fnullability_safety,
                     options::OPT_fno_nullability_safety);
-  // The built-in list of libc functions with nullable returns is on by
-  // default, so only the -fno- form needs to be forwarded to cc1.
+  // The built-in libc lists (nullable returns, nonnull parameters) are on by
+  // default, so only the -fno- forms need to be forwarded to cc1.
   Args.addOptOutFlag(CmdArgs, options::OPT_fnullability_libc_nullable_returns,
                      options::OPT_fno_nullability_libc_nullable_returns);
+  Args.addOptOutFlag(CmdArgs, options::OPT_fnullability_libc_nonnull_params,
+                     options::OPT_fno_nullability_libc_nonnull_params);
   if (Arg *A = Args.getLastArg(options::OPT_fnullability_default_EQ))
     A->render(Args, CmdArgs);
 

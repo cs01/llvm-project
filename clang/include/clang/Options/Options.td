@@ -1766,6 +1766,13 @@ defm nullability_libc_nullable_returns : BoolFOption<"nullability-libc-nullable-
           "(malloc, fopen, ...) as returning nullable pointers in "
           "flow-sensitive nullability analysis">,
   PosFlag<SetTrue>>;
+defm nullability_libc_nonnull_params : BoolFOption<"nullability-libc-nonnull-params",
+  LangOpts<"NullabilityLibcNonnullParams">, DefaultTrue,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option],
+          "Don't treat C library and POSIX pointer parameters that must not "
+          "be null (strlen, fclose, ...) as nonnull in flow-sensitive "
+          "nullability analysis">,
+  PosFlag<SetTrue>>;
 defm xl_pragma_pack : BoolFOption<"xl-pragma-pack",
   LangOpts<"XLPragmaPack">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],

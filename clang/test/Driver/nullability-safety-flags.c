@@ -4,6 +4,7 @@
 // RUN: %clang -### -fnullability-safety -fno-nullability-libc-nullable-returns %s 2>&1 | FileCheck -check-prefix=NOLIBC %s
 // The C library nullable-return list is on by default, so cc1 should not get any flag for it.
 // RUN: %clang -### -fnullability-safety %s 2>&1 | FileCheck -check-prefix=LIBC-DEFAULT %s
+// RUN: %clang -### -fnullability-safety -fno-nullability-libc-nonnull-params %s 2>&1 | FileCheck -check-prefix=NOPARAMS %s
 
 // FLOW: "-fnullability-safety"
 // DEFAULT: "-fnullability-default=nullable"
@@ -11,3 +12,5 @@
 // BOTH: "-fnullability-default=nullable"
 // NOLIBC: "-fno-nullability-libc-nullable-returns"
 // LIBC-DEFAULT-NOT: "-fno-nullability-libc-nullable-returns"
+// LIBC-DEFAULT-NOT: "-fno-nullability-libc-nonnull-params"
+// NOPARAMS: "-fno-nullability-libc-nonnull-params"

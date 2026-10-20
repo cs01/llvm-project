@@ -18,6 +18,7 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 namespace clang {
 
@@ -99,7 +100,15 @@ public:
   /// Whether every return of \p Func is known to be non-null. Used to narrow
   /// the result of a call to \p Func.
   virtual bool isKnownAllReturnsNonnull(const FunctionDecl *Func) const = 0;
+  /// Whether the body of \p Def (a definition) tests its parameter \p Index
+  /// against null. The default computes it each time; a TU driver caches it.
+  virtual bool definitionNullTestsParam(const FunctionDecl *Def,
+                                        unsigned Index) const;
 };
+
+/// Whether the body of \p Def tests its parameter \p Index against null
+/// (if (p), !p, p == NULL, p ? a : b, ...): the function accepts null there.
+bool functionNullTestsParam(const FunctionDecl *Def, unsigned Index);
 
 struct NullabilitySafetyOptions {
   /// How an unannotated (_Null_unspecified) pointer is treated.
@@ -107,6 +116,13 @@ struct NullabilitySafetyOptions {
   /// Enables the built-in list of C library functions that return null on
   /// failure (malloc, fopen, ...).
   bool LibcNullableReturns = true;
+  /// Enables the built-in list of C library and POSIX pointer parameters that
+  /// must not be null (strlen, fclose, ...).
+  bool LibcNonnullParams = true;
+  /// Definitions whose body began inside a `#pragma clang assume_nonnull`
+  /// region (recorded by Sema; the pragma state is gone by the time the TU is
+  /// analyzed). May be null.
+  const llvm::SmallPtrSetImpl<const Decl *> *AssumeNonnullDefs = nullptr;
 
   static NullabilitySafetyOptions fromLangOptions(const LangOptions &LO);
 };
@@ -121,7 +137,11 @@ void runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
 bool hasExplicitNullabilityAnnotations(const Decl *D);
 
 /// Whether \p D is checked: every function when a default nullability is
-/// set, otherwise only functions with explicit nullability annotations.
+/// set. Otherwise a function is checked when its own signature carries
+/// nullability, when it was defined inside `#pragma clang assume_nonnull`
+/// (see NullabilitySafetyOptions::AssumeNonnullDefs), or when its body
+/// references a declaration or type that carries explicit nullability, so an
+/// annotated API is checked in its unannotated callers.
 bool isNullabilitySafetyOptedIn(const Decl *D,
                                 const NullabilitySafetyOptions &Options);
 

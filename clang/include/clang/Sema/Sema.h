@@ -1187,16 +1187,17 @@ public:
 
   /// Warn if we're implicitly casting from a _Nullable pointer type to a
   /// _Nonnull one. Suppressed when the nullability safety analysis covers the
-  /// enclosing function (see isNullabilitySafetyOptedIn), since the
+  /// enclosing function (see clang::isNullabilitySafetyOptedIn), since the
   /// flow-sensitive check reports the same conversions more precisely.
   void diagnoseNullableToNonnullConversion(QualType DstType, QualType SrcType,
                                            SourceLocation Loc);
 
-  /// Whether the nullability safety analysis covers \p D (a function, ObjC
-  /// method, or block): -fnullability-safety is on, and either
-  /// -fnullability-default is set or \p D carries an explicit nullability
-  /// annotation on its return type or a parameter.
-  bool isNullabilitySafetyOptedIn(const Decl *D) const;
+
+  /// Function and method definitions whose body began inside a
+  /// `#pragma clang assume_nonnull` region, recorded under
+  /// -fnullability-safety so the end-of-TU analysis can opt them in after
+  /// the pragma state is gone.
+  llvm::SmallPtrSet<const Decl *, 8> NullabilitySafetyAssumeNonnullDefs;
 
   /// Warn when implicitly casting 0 to nullptr.
   void diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E);

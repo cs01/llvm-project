@@ -16561,6 +16561,13 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
   else
     FD = cast<FunctionDecl>(D);
 
+  // The pragma state is gone by the time the TU is analyzed, so record the
+  // definitions it covers: the region opts them into nullability safety even
+  // when nothing in their signature is a pointer.
+  if (getLangOpts().NullabilitySafety &&
+      PP.getPragmaAssumeNonNullLoc().isValid())
+    NullabilitySafetyAssumeNonnullDefs.insert(FD);
+
   // Do not push if it is a lambda because one is already pushed when building
   // the lambda in ActOnStartOfLambdaDefinition().
   if (!isLambdaCallOperator(FD))

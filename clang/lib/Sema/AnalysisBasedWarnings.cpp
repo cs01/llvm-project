@@ -3202,8 +3202,11 @@ static void NullabilitySafetyTUAnalysis(Sema &S, TranslationUnitDecl *TU) {
   llvm::TimeTraceScope TimeProfile("NullabilitySafetyTUAnalysis");
   NullabilitySafetyReporter Reporter(S);
   bool SkipSystemHeaders = S.getDiagnostics().getSuppressSystemWarnings();
+  NullabilitySafetyOptions Options =
+      NullabilitySafetyOptions::fromLangOptions(S.getLangOpts());
+  Options.AssumeNonnullDefs = &S.NullabilitySafetyAssumeNonnullDefs;
   runNullabilitySafetyOnTU(
-      TU, Reporter, NullabilitySafetyOptions::fromLangOptions(S.getLangOpts()),
+      TU, Reporter, Options,
       [&](const Decl *Def) {
         return !SkipSystemHeaders ||
                !S.SourceMgr.isInSystemHeader(Def->getLocation());

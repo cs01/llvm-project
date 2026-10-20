@@ -2,13 +2,15 @@
 // nullable->nonnull conversion warning (warn_nullability_lost,
 // -Wnullable-to-nonnull-conversion) when flow-sensitive nullability is enabled.
 //
-// The legacy warning must be suppressed ONLY for functions the flow checker
-// will actually analyze. Under -fnullability-default=unspecified, opt-in is by
-// explicit annotation, so:
-//   (a) an annotated (opted-in) function -> legacy warning suppressed, the
-//       flow analysis covers the conversion instead;
-//   (b) an unannotated (non-opted-in) function -> NOT analyzed, so the legacy
-//       type-based warning must still fire (the coverage hole closed).
+// The legacy warning is suppressed inside any function: under
+// -fnullability-default=unspecified a function opts in through its signature
+// or through the annotated declarations its body uses, and the conversion's
+// own _Nullable source and _Nonnull destination are such uses. So:
+//   (a) an annotated function -> legacy warning suppressed, the flow analysis
+//       covers the conversion instead;
+//   (b) an unannotated function using annotated declarations -> opted in by
+//       its body, so again only the flow analysis reports;
+//   (c) outside a function (a global initializer) the legacy warning fires.
 //
 // -Wnullable-to-nonnull-conversion is DefaultIgnore, so we enable it explicitly.
 //
@@ -31,20 +33,18 @@ void opted_in(int * _Nullable p) {
 }
 
 // ===----------------------------------------------------------------------===//
-// (b) Non-opted-in function (no annotation anywhere): the flow checker skips
-//     it, so the legacy type-based warning must still fire. nullable_src() is
-//     declared _Nullable, but the enclosing function has no annotations and
-//     -fnullability-default is unspecified, so it does not opt in.
+// (b) Unannotated function: nullable_src() and the local are annotated, so the
+//     body opts the function in and the flow analysis reports the store.
 // ===----------------------------------------------------------------------===//
 
 int * _Nullable nullable_src();
 int * _Nonnull nonnull_src();
 
-void not_opted_in() {
-  // Enclosing function 'not_opted_in' has no nullability annotations; under
-  // unspecified default it is never analyzed by the flow checker, so the
-  // legacy conversion warning is the only coverage and must fire.
+void opted_in_by_body() {
   int * _Nonnull nonnull = nonnull_src(); // nonnull init: no warning
-  nonnull = nullable_src(); // expected-warning{{implicit conversion from nullable pointer 'int * _Nullable' to non-nullable pointer type 'int * _Nonnull'}}
+  nonnull = nullable_src(); // expected-warning{{assigning nullable pointer to nonnull variable}} expected-note{{add a null check before assigning}}
   (void)nonnull;
 }
+
+// (c) No enclosing function: nothing else reports the conversion.
+int * _Nonnull global_nonnull = nullable_src(); // expected-warning{{implicit conversion from nullable pointer 'int * _Nullable' to non-nullable pointer type 'int * _Nonnull'}}
