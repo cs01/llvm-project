@@ -1538,8 +1538,8 @@ The analysis is active per function only when the function is inside a
 `#pragma clang assume_nonnull` region, `-fnullability-default` is set to a
 non-`unspecified` value, the function has explicit `_Nullable` /
 `_Nonnull` annotations on its parameters or return type, or its body uses a
-declaration or type with explicit nullability (so annotating an API checks its
-callers). Under the `unspecified` default unannotated pointers stay
+declaration or type with explicit nullability outside system headers (so
+annotating an API checks its callers). Under the `unspecified` default unannotated pointers stay
 unspecified in an opted-in function. This allows gradual adoption one API at
 a time.
 

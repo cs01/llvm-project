@@ -5674,7 +5674,9 @@ that dereferences `split()`'s result, or passes it to a `_Nonnull` parameter,
 warn. Under the `unspecified` default, opting a function in does not change
 how its unannotated pointers are read: they stay unspecified, so only
 explicitly annotated sources (and the C library lists below) can warn in it.
-Definitions in system headers are not opted in by the region or body rules.
+Declarations in system headers do not count for the body rule (Apple's libc
+annotates `qsort`'s comparator, which would otherwise opt in most C code), and
+definitions in system headers are not opted in by the region or body rules.
 
 This makes adoption gradual: functions that neither carry nor use annotations
 are left untouched until they are annotated or the region/flag opts them in.

@@ -3756,8 +3756,17 @@ namespace {
 /// for a prefix of the traversal and an unannotated body for one pass that
 /// only reads declared types.
 class NullabilityReferenceFinder : public ConstDynamicRecursiveASTVisitor {
+  const SourceManager &SM;
   // A body names the same callee or variable many times.
   llvm::SmallPtrSet<const Decl *, 16> Seen;
+
+  // System headers' own annotations do not opt a caller in. Apple's libc
+  // marks qsort's comparator and FILE's callbacks, so counting them would opt
+  // in most unannotated C code there, and with it every flow fact about its
+  // unannotated locals: noise the user never asked for by annotating.
+  bool inSystemHeader(const Decl *D) const {
+    return SM.isInSystemHeader(D->getLocation());
+  }
 
   bool declMentionsNullability(const Decl *D) {
     if (!D || !Seen.insert(D).second)
@@ -3765,10 +3774,13 @@ class NullabilityReferenceFinder : public ConstDynamicRecursiveASTVisitor {
     if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
       // The annotation may sit on any redeclaration (a header prototype).
       for (const FunctionDecl *Redecl : FD->redecls())
-        if (typeMentionsNullability(Redecl->getType()))
+        if (!inSystemHeader(Redecl) &&
+            typeMentionsNullability(Redecl->getType()))
           return true;
       return false;
     }
+    if (inSystemHeader(D))
+      return false;
     if (const auto *MD = dyn_cast<ObjCMethodDecl>(D))
       return hasExplicitNullabilityAnnotations(MD);
     if (const auto *VD = dyn_cast<ValueDecl>(D))
@@ -3779,7 +3791,9 @@ class NullabilityReferenceFinder : public ConstDynamicRecursiveASTVisitor {
 public:
   bool Found = false;
 
-  NullabilityReferenceFinder() { ShouldVisitLambdaBody = true; }
+  explicit NullabilityReferenceFinder(const SourceManager &SM) : SM(SM) {
+    ShouldVisitLambdaBody = true;
+  }
 
   bool hit() {
     Found = true;
@@ -3806,13 +3820,14 @@ public:
   bool VisitCallExpr(const CallExpr *CE) override {
     // A call through an expression rather than a name (getter()(), s.f[0]())
     // carries the nullability on the expression's type.
-    return CE->getType()->getNullability() ? hit() : true;
+    return !CE->getDirectCallee() && CE->getType()->getNullability() ? hit()
+                                                                      : true;
   }
 };
 } // namespace
 
 static bool bodyReferencesNullability(const Decl *D) {
-  NullabilityReferenceFinder Finder;
+  NullabilityReferenceFinder Finder(D->getASTContext().getSourceManager());
   // Member initializers run before the body and are analyzed with it.
   if (const auto *CD = dyn_cast<CXXConstructorDecl>(D)) {
     for (const CXXCtorInitializer *Init : CD->inits()) {
