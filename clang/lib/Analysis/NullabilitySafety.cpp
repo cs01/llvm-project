@@ -1949,12 +1949,12 @@ public:
       const ParmVarDecl *Param = Ctor->getParamDecl(I);
       if (!Param->getType()->isPointerType())
         continue;
-      bool ParamIsNonnull =
-          isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I)) ||
-          (UnannotatedIsNonnull && isNonnullByDefault(Param) &&
-           !calleeNullTestsParam(Ctor, I));
-      if (ParamIsNonnull)
+      if (isNonnullType(Param->getType()) || (NNAttr && NNAttr->isNonNull(I)))
         checkNonnullParamArg(CE->getArg(I), Param);
+      else if (UnannotatedIsNonnull && isNonnullByDefault(Param) &&
+               !calleeNullTestsParam(Ctor, I))
+        // Not narrowed, as in checkCallArguments.
+        checkNonnullParamArg(CE->getArg(I), Param, /*Narrow=*/false);
     }
   }
 
@@ -2268,7 +2268,6 @@ private:
     unsigned LibcNonnull =
         Options.LibcNonnullParams ? getLibcNonnullParamMask(CE) : 0;
     bool UnannotatedIsNonnull = unannotatedParamsAreNonnull(Callee);
-    SmallVector<const Expr *, 4> DeferredNarrow;
     for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
          ++I) {
       const ParmVarDecl *Param = Callee->getParamDecl(I);
@@ -2288,11 +2287,11 @@ private:
         checkNonnullParamArg(CE->getArg(I + ArgOffset), Param);
       } else if (UnannotatedIsNonnull && isNonnullByDefault(Param) &&
                  !calleeNullTestsParam(Callee, I)) {
-        // Narrowing waits until the evidence below is judged: the parameter
-        // is unannotated, and its evidence is what infers its annotation.
+        // No narrowing: the parameter is unannotated, and evidence about the
+        // argument (here and at later calls) is what infers its annotation.
+        // A narrowed argument would read as proven non-null.
         checkNonnullParamArg(CE->getArg(I + ArgOffset), Param,
                              /*Narrow=*/false);
-        DeferredNarrow.push_back(CE->getArg(I + ArgOffset));
       }
     }
 
@@ -2331,8 +2330,6 @@ private:
                                           NullabilityEvidence::Nullable);
       }
     }
-    for (const Expr *Arg : DeferredNarrow)
-      narrowArgument(Arg);
   }
 
   /// Under -fnullability-default=nonnull an unannotated pointer parameter
