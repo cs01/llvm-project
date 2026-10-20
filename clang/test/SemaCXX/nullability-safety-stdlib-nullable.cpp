@@ -219,7 +219,7 @@ void test_class_method_not_matched() {
 //===----------------------------------------------------------------------===//
 
 void test_freopen_unchecked() {
-  FILE *f = freopen("/dev/null", "w", nullptr);
+  FILE *f = freopen("/dev/null", "w", nullptr); // expected-warning {{passing nullable pointer to nonnull parameter}} expected-note {{add a null check}}
   (void)*f; // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
 }
 

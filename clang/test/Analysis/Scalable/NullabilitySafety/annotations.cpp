@@ -37,7 +37,13 @@
 // RUN: FileCheck --check-prefix=REPORT --input-file=%t/a.sarif %s
 // RUN: FileCheck --check-prefix=STORE --input-file=%t/b.sarif %s
 // RUN: %{cc} -fnullability-safety -Werror %t/a.cpp
-// RUN: %{cc} -fnullability-safety -Werror %t/b.cpp
+// Inferred _Nullable parameters are only reported, not written, so under the
+// nonnull default the null arguments to them still warn until a reviewer
+// applies the reported _Nullable.
+// RUN: not %{cc} -fnullability-safety -Werror %t/b.cpp 2>&1 | FileCheck --check-prefix=BWARN %s
+// BWARN: b.cpp:20:17: error: passing nullable pointer to nonnull parameter 'p'
+// BWARN: b.cpp:21:20: error: passing nullable pointer to nonnull parameter 'p'
+// BWARN-NOT: error:
 
 // HEADER:      struct S { int *_Nonnull nonnull_field; int *nullable_field; int *reachable; };
 // HEADER-NEXT: void take(int *_Nonnull p);
