@@ -92,3 +92,15 @@ int after_region(void) {
   char *s = getenv("X");
   return *s;
 }
+
+// A system header's own annotations do not opt a caller in, so a function
+// that only calls an annotated libc function keeps its old behavior.
+# 1 "sys_annot.h" 1 3
+void sys_sort(void *base, int (*_Nonnull cmp)(const void *, const void *));
+# 101 "nullability-safety-default-optin.c" 2
+int calls_annotated_system_api(void *base) {
+  int (*fn)(const void *, const void *) = 0;
+  sys_sort(base, fn);
+  struct L *p = 0;
+  return p->x;
+}
