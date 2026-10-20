@@ -13135,6 +13135,12 @@ def warn_nullability_safety_dereference : Warning<
 def warn_nullability_safety_null_init : Warning<
   "initializing a variable of nonnull type %0 with null">,
   InGroup<NullabilitySafetyAssignment>;
+def warn_nullability_safety_call : Warning<
+  "calling nullable function pointer %0">,
+  InGroup<NullabilitySafetyDereference>;
+def note_nullable_call_fix : Note<
+  "add a null check before calling, or annotate as '_Nonnull' if this "
+  "function pointer cannot be null">;
 def note_nullable_dereference_fix : Note<
   "add a null check before dereferencing, or annotate as '_Nonnull' if this "
   "pointer cannot be null">;

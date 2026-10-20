@@ -3108,13 +3108,19 @@ public:
                                  QualType PtrType) override {
     PtrType = withoutUnspecifiedTag(PtrType);
     SourceLocation Loc = DerefExpr->getExprLoc();
-    if (!isFirst(diag::warn_nullability_safety_dereference, Loc,
-                 PtrType.getAsOpaquePtr()))
+    // f() through a function pointer is reported as a call: no * is written.
+    // Smart pointer operator* arrives as an operator call and is a
+    // dereference.
+    bool IsCall =
+        isa<CallExpr>(DerefExpr) && !isa<CXXOperatorCallExpr>(DerefExpr);
+    unsigned DiagID = IsCall ? diag::warn_nullability_safety_call
+                             : diag::warn_nullability_safety_dereference;
+    if (!isFirst(DiagID, Loc, PtrType.getAsOpaquePtr()))
       return;
-    PartialDiagnosticAt Warning(
-        Loc, S.PDiag(diag::warn_nullability_safety_dereference) << PtrType);
-    PartialDiagnosticAt Note(Loc,
-                             S.PDiag(diag::note_nullable_dereference_fix));
+    PartialDiagnosticAt Warning(Loc, S.PDiag(DiagID) << PtrType);
+    PartialDiagnosticAt Note(
+        Loc, S.PDiag(IsCall ? diag::note_nullable_call_fix
+                            : diag::note_nullable_dereference_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
 
