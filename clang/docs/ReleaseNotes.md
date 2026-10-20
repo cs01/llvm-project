@@ -407,6 +407,10 @@ documentation](CIR/index.md) for more information regarding ClangIR's status and
   nullability analysis from treating C library functions that return null on
   failure (`malloc`, `fopen`, `getenv`, ...) as returning `_Nullable`.
 
+- New option `-fno-nullability-libc-nonnull-params` added to stop the
+  nullability analysis from treating C library and POSIX pointer parameters
+  that must not be null (`strlen`, `fclose`, `strcmp`, ...) as `_Nonnull`.
+
 ### Deprecated Compiler Flags
 
 ### Modified Compiler Flags
@@ -501,8 +505,8 @@ documentation](CIR/index.md) for more information regarding ClangIR's status and
   `-Wnullability-safety-assignment`, and `-Wnullability-safety-argument`. The analysis
   recognizes common narrowing idioms and models `std::unique_ptr` /
   `shared_ptr` / `weak_ptr`, and is opt-in per function (via
-  `#pragma clang assume_nonnull` regions, explicit annotations, or
-  `-fnullability-default=`). The `NullabilitySafety` SSAF summaries and the
+  `#pragma clang assume_nonnull` regions, explicit annotations, a use of an
+  annotated declaration in the body, or `-fnullability-default=`). The `NullabilitySafety` SSAF summaries and the
   `nullability-annotations` source transformation infer and insert
   annotations across a whole program. See the User's Manual and Language Extensions
   documentation for details.
