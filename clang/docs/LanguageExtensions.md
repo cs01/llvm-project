@@ -5641,27 +5641,43 @@ analyzed.
 The diagnostics live under the `-Wnullability-safety` umbrella group:
 
 * `-Wnullability-safety-dereference`: dereference (`*p`, `p->m`, `p[i]`) of a
-  pointer that may be null on that path.
+  pointer that may be null on that path, including a call through a function
+  pointer that may be null (`f()`, `s->cb()`, reported as "calling nullable
+  function pointer").
 * `-Wnullability-safety-arithmetic`: pointer arithmetic on a possibly-null pointer.
 * `-Wnullability-safety-return`: returning a possibly-null value from a function
   whose return type is `_Nonnull`.
 * `-Wnullability-safety-assignment`: assigning a possibly-null value to a
   `_Nonnull` variable.
 * `-Wnullability-safety-argument`: passing a possibly-null value as a `_Nonnull`
-  parameter.
+  parameter, as a C library parameter that must not be null (see below), or,
+  under `-fnullability-default=nonnull`, as an unannotated pointer parameter of
+  a function declared outside system headers.
 
 ### Opt-in
 
 Per function, the analysis is active when any of the following holds:
 
-* the function is in a `#pragma clang assume_nonnull` region, or
+* the function's body begins in a `#pragma clang assume_nonnull` region, or
 * `-fnullability-default` is set to something other than `unspecified`, or
 * the function has explicit `_Nullable` / `_Nonnull` annotations on its
   parameters or return type (checked across the entire redeclaration chain, so a
-  function annotated only on a header prototype still opts in).
+  function annotated only on a header prototype still opts in), or
+* the function's body uses a declaration or type that carries explicit
+  nullability: it calls a function, reads a variable or field, or names a
+  type (a typedef'd function pointer, a cast, a local's declared type) whose
+  type mentions `_Nullable`, `_Nonnull`, or `_Null_unspecified` anywhere.
 
-This makes adoption gradual: unannotated functions in a translation unit are
-left untouched until they are annotated or the region/flag opts them in.
+The last rule is what makes an annotated API checked in its callers:
+annotating `struct L *_Nullable split(void);` makes every unannotated caller
+that dereferences `split()`'s result, or passes it to a `_Nonnull` parameter,
+warn. Under the `unspecified` default, opting a function in does not change
+how its unannotated pointers are read: they stay unspecified, so only
+explicitly annotated sources (and the C library lists below) can warn in it.
+Definitions in system headers are not opted in by the region or body rules.
+
+This makes adoption gradual: functions that neither carry nor use annotations
+are left untouched until they are annotated or the region/flag opts them in.
 
 ### Narrowing idioms
 
@@ -5723,8 +5739,39 @@ The results of C library functions that return null on failure (`malloc`,
 `calloc`, `realloc`, `aligned_alloc`, `fopen`, `freopen`, `tmpfile`, `getenv`,
 `strtok`, `strstr`, `strchr`, `strrchr`, `strpbrk`, `memchr`, `bsearch`,
 `tmpnam`, `setlocale`) are treated as `_Nullable` regardless of how the system
-headers declare them. Only functions at global or `std` scope match.
+headers declare them, whether the result is stored first or dereferenced
+directly (`*strchr(s, ':')`). Only functions at global or `std` scope match.
 `-fno-nullability-libc-nullable-returns` disables this.
+
+Pointer parameters of C library and POSIX functions that must not be null
+(C17 7.1.4p1: a null argument is undefined unless the function's description
+allows it) are treated as `_Nonnull`: streams (`fclose`, `fputs`, `fgets`,
+`fread`, `fwrite`, `fprintf`, ...), format strings, string arguments (`strlen`,
+`strcmp`, `strcpy`, `strchr`, `strstr`, `strdup`, `atoi`, `strtol`'s `nptr`, ...),
+`memcpy`/`memmove`/`memset`/`memcmp`, paths (`fopen`, `opendir`, `stat`, ...),
+and `closedir`/`readdir`. Parameters documented to accept null are not on the
+list: `free`, `realloc`'s pointer, `fflush(NULL)`, `time(NULL)`, `strtol`'s
+`endptr`, `strtok`'s first argument, `setvbuf`'s buffer, `snprintf`'s buffer,
+and others. Together with the nullable-return list this diagnoses
+`fclose(fopen(path, "r"))` and `strcmp(strrchr(s, '/'), x)`.
+`-fno-nullability-libc-nonnull-params` disables this.
+
+### Default nullability modes
+
+`-fnullability-default=` sets how an unannotated pointer is read:
+
+* `unspecified` (the default): unannotated pointers are neither nullable nor
+  nonnull; only explicit annotations, the pragma, and the C library lists
+  produce warnings.
+* `nullable`: an unannotated pointer may be null, so dereferencing it unchecked
+  warns.
+* `nonnull`: an unannotated pointer is non-null. Its own dereferences do not
+  warn, but a value that may be null (a `NULL` constant, a `_Nullable` source,
+  a C library failure result, or a local the flow shows may be null) warns when
+  it is dereferenced or passed to an unannotated pointer parameter of a function
+  declared outside system headers, since the callee's body reads that parameter
+  as non-null. Mark parameters that accept null `_Nullable`. System-header
+  declarations stay unspecified.
 
 ### Annotation inference
 

@@ -1518,19 +1518,30 @@ Stop treating the results of C library functions that return null on failure
 (`malloc`, `fopen`, `getenv`, `strchr`, and similar) as `_Nullable`.
 :::
 
+:::{option} -fno-nullability-libc-nonnull-params
+
+Stop treating C library and POSIX pointer parameters that must not be null
+(`strlen`, `fclose`, `strcmp`, `memcpy`, and similar) as `_Nonnull`.
+:::
+
 :::{option} -fnullability-default=<value>
 
 Set how *unannotated* pointers are treated by the analysis. Accepted values
 are `unspecified` (the default), `nullable`, and `nonnull`. A value
 other than `unspecified` also opts every function in the translation unit
-into the analysis.
+into the analysis. Under `nonnull`, passing a value that may be null to an
+unannotated pointer parameter of a function declared outside system headers
+warns, as it would for a `_Nonnull` parameter.
 :::
 
 The analysis is active per function only when the function is inside a
 `#pragma clang assume_nonnull` region, `-fnullability-default` is set to a
-non-`unspecified` value, or the function has explicit `_Nullable` /
-`_Nonnull` annotations on its parameters or return type. This allows gradual
-adoption one function at a time.
+non-`unspecified` value, the function has explicit `_Nullable` /
+`_Nonnull` annotations on its parameters or return type, or its body uses a
+declaration or type with explicit nullability (so annotating an API checks its
+callers). Under the `unspecified` default unannotated pointers stay
+unspecified in an opted-in function. This allows gradual adoption one API at
+a time.
 
 The diagnostics are grouped under `-Wnullability-safety`, with the subgroups
 `-Wnullability-safety-dereference`, `-Wnullability-safety-arithmetic`,
