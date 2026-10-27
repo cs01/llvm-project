@@ -21,6 +21,7 @@
 #include "clang/Basic/LangStandard.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Basic/Version.h"
 #include "clang/CodeGen/BackendUtil.h"
 #include "clang/CodeGen/ModuleBuilder.h"
 #include "clang/Driver/DriverDiagnostic.h"
@@ -29,7 +30,9 @@
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Serialization/ASTWriter.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/GlobalValue.h"
@@ -41,10 +44,14 @@
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/LTO/LTOBackend.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/BLAKE3.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/IOSandbox.h"
 #include "llvm/Support/LibraryOptionsContext.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Mutex.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/Timer.h"
@@ -184,6 +191,89 @@ bool BackendConsumer::LinkInModules(llvm::Module *M) {
                        DiagConsumer);
 }
 
+/// The object file can be cached under a key hashed from everything the
+/// backend's deterministic output depends on: the generated IR, the cc1
+/// options, and the compiler binary. Returns the cache path for this
+/// compile's key, or std::nullopt if the compile has outputs the cache cannot
+/// reproduce.
+static std::optional<SmallString<64>>
+getCodegenCacheEntryPath(CompilerInstance &CI, llvm::Module &M,
+                         BackendAction Action) {
+  const CodeGenOptions &CGO = CI.getCodeGenOpts();
+  if (CGO.CodegenCachePath.empty() || Action != Backend_EmitObj)
+    return std::nullopt;
+  // Side outputs and diagnostics produced by the backend are not cached.
+  if (!CGO.OptRecordFile.empty() || !CGO.SplitDwarfOutput.empty() ||
+      !CGO.StackUsageFile.empty() || !CGO.LinkBitcodeFiles.empty() ||
+      CGO.TimePasses || CGO.OptimizationRemark.hasValidPattern() ||
+      CGO.OptimizationRemarkMissed.hasValidPattern() ||
+      CGO.OptimizationRemarkAnalysis.hasValidPattern())
+    return std::nullopt;
+
+  // The cache is this compiler's own store of outputs, like the object file
+  // itself, so its I/O is exempt from the backend's IO sandbox.
+  auto BypassSandbox = llvm::sys::sandbox::scopedDisable();
+  llvm::BLAKE3 Hasher;
+  auto Add = [&](StringRef S) {
+    Hasher.update(S);
+    Hasher.update(StringRef("\0", 1));
+  };
+  Add("clang-codegen-cache-v1");
+  Add(getClangFullVersion());
+  // The version string does not change across rebuilds of a development
+  // compiler, so also key on the binary itself.
+  std::string Exe = llvm::sys::fs::getMainExecutable(nullptr, nullptr);
+  llvm::sys::fs::file_status ExeStatus;
+  if (Exe.empty() || llvm::sys::fs::status(Exe, ExeStatus))
+    return std::nullopt;
+  Add(Exe);
+  Add(std::to_string(ExeStatus.getSize()));
+  Add(std::to_string(llvm::sys::toTimeT(ExeStatus.getLastModificationTime())));
+
+  // Every cc1 option except the ones naming this compile's own outputs, which
+  // do not influence the object's contents.
+  CompilerInvocation Invocation(CI.getInvocation());
+  Invocation.getFrontendOpts().OutputFile.clear();
+  Invocation.getDependencyOutputOpts() = DependencyOutputOptions();
+  Invocation.getCodeGenOpts().CodegenCachePath.clear();
+  Invocation.generateCC1CommandLine([&](const Twine &Arg) { Add(Arg.str()); });
+
+  // Use-list order is part of the module's in-memory state that passes can
+  // observe, so it must be part of the key.
+  SmallString<0> Bitcode;
+  llvm::raw_svector_ostream BitcodeOS(Bitcode);
+  llvm::WriteBitcodeToFile(M, BitcodeOS, /*ShouldPreserveUseListOrder=*/true);
+  Hasher.update(Bitcode);
+
+  std::string Key = llvm::toHex(Hasher.final(), /*LowerCase=*/true);
+  SmallString<64> Path(CGO.CodegenCachePath);
+  llvm::sys::path::append(Path, StringRef(Key).take_front(2), Key + ".o");
+  return Path;
+}
+
+static void storeCodegenCacheEntry(StringRef Path, StringRef Obj) {
+  auto BypassSandbox = llvm::sys::sandbox::scopedDisable();
+  // Concurrent compiles may race on the same key; write privately and rename
+  // so readers only ever see complete entries.
+  if (llvm::sys::fs::create_directories(llvm::sys::path::parent_path(Path)))
+    return;
+  int FD;
+  SmallString<128> Tmp;
+  if (llvm::sys::fs::createUniqueFile(Path + "-%%%%%%%%.tmp", FD, Tmp))
+    return;
+  {
+    llvm::raw_fd_ostream OS(FD, /*shouldClose=*/true);
+    OS << Obj;
+    if (OS.has_error()) {
+      OS.clear_error();
+      llvm::sys::fs::remove(Tmp);
+      return;
+    }
+  }
+  if (llvm::sys::fs::rename(Tmp, Path))
+    llvm::sys::fs::remove(Tmp);
+}
+
 void BackendConsumer::HandleTranslationUnit(ASTContext &C) {
   {
     llvm::TimeTraceScope TimeScope("Frontend");
@@ -262,6 +352,30 @@ void BackendConsumer::HandleTranslationUnit(ASTContext &C) {
   }
 
   EmbedBitcode(getModule(), CodeGenOpts, llvm::MemoryBufferRef());
+
+  if (std::optional<SmallString<64>> CachePath =
+          getCodegenCacheEntryPath(CI, *getModule(), Action)) {
+    auto Cached = [&] {
+      auto BypassSandbox = llvm::sys::sandbox::scopedDisable();
+      return llvm::MemoryBuffer::getFile(*CachePath);
+    }();
+    if (Cached) {
+      AsmOutStream->write((*Cached)->getBufferStart(),
+                          (*Cached)->getBufferSize());
+      return;
+    }
+    // Emit into memory so the object can be both written out and stored.
+    SmallString<0> Obj;
+    DiagnosticsEngine &Diags = CI.getDiagnostics();
+    unsigned WarningsBefore = Diags.getNumWarnings();
+    emitBackendOutput(CI, CI.getCodeGenOpts(), getModule(), Action, FS,
+                      std::make_unique<llvm::raw_svector_ostream>(Obj), this);
+    AsmOutStream->write(Obj.data(), Obj.size());
+    // A hit cannot replay backend diagnostics, so only store silent compiles.
+    if (!Diags.hasErrorOccurred() && Diags.getNumWarnings() == WarningsBefore)
+      storeCodegenCacheEntry(*CachePath, Obj);
+    return;
+  }
 
   emitBackendOutput(CI, CI.getCodeGenOpts(), getModule(), Action, FS,
                     std::move(AsmOutStream), this);
