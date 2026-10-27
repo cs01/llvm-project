@@ -8950,6 +8950,11 @@ def split_dwarf_output : Separate<["-"], "split-dwarf-output">,
   HelpText<"File name to use for split DWARF debug info output">,
   Visibility<[CC1Option, CC1AsOption, FC1Option]>,
   MarshallingInfoString<CodeGenOpts<"SplitDwarfOutput">>;
+def fcodegen_cache_path : Joined<["-"], "fcodegen-cache-path=">,
+  HelpText<"Reuse object files from this directory when the generated IR is "
+           "identical to an earlier compile">,
+  Visibility<[CC1Option]>,
+  MarshallingInfoString<CodeGenOpts<"CodegenCachePath">>;
 
 let Visibility = [CC1Option, FC1Option] in {
 

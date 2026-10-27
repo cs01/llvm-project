@@ -385,6 +385,10 @@ public:
   /// Output filename for the split debug info, not used in the skeleton CU.
   std::string SplitDwarfOutput;
 
+  /// Directory of object files keyed by a hash of the generated IR; a hit
+  /// skips optimization and codegen.
+  std::string CodegenCachePath;
+
   /// Output filename used in the COFF debug information.
   std::string ObjectFilenameForDebug;
 
