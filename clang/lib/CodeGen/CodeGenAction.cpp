@@ -234,6 +234,7 @@ getCodegenCacheEntryPath(CompilerInstance &CI, llvm::Module &M,
   // do not influence the object's contents.
   CompilerInvocation Invocation(CI.getInvocation());
   Invocation.getFrontendOpts().OutputFile.clear();
+  Invocation.getFrontendOpts().EmitSemanticDeps = false;
   Invocation.getDependencyOutputOpts() = DependencyOutputOptions();
   Invocation.getCodeGenOpts().CodegenCachePath.clear();
   Invocation.generateCC1CommandLine([&](const Twine &Arg) { Add(Arg.str()); });

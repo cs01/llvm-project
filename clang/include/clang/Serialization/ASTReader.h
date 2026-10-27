@@ -737,6 +737,10 @@ private:
   /// Functions or methods that have bodies that will be attached.
   PendingBodiesMap PendingBodies;
 
+  /// The function whose body lives at each lazy body offset, so a
+  /// deserialization listener can learn which bodies were actually loaded.
+  llvm::DenseMap<uint64_t, const Decl *> LazyBodyOwners;
+
   /// Definitions for which we have added merged definitions but not yet
   /// performed deduplication.
   llvm::SetVector<NamedDecl *> PendingMergedDefinitionsToDeduplicate;

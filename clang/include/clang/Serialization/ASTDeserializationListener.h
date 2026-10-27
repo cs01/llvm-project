@@ -14,12 +14,14 @@
 #ifndef LLVM_CLANG_SERIALIZATION_ASTDESERIALIZATIONLISTENER_H
 #define LLVM_CLANG_SERIALIZATION_ASTDESERIALIZATIONLISTENER_H
 
+#include "clang/AST/DeclarationName.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Serialization/ASTBitCodes.h"
 
 namespace clang {
 
 class Decl;
+class DeclContext;
 class ASTReader;
 class QualType;
 class MacroDefinitionRecord;
@@ -64,6 +66,19 @@ public:
   /// A module import was read from the AST file.
   virtual void ModuleImportRead(serialization::SubmoduleID ID,
                                 SourceLocation ImportLoc) {}
+  /// A name was looked up in a declaration context whose declarations come
+  /// from the AST file. Called whether or not the lookup finds anything.
+  virtual void VisibleDeclsLookedUp(const DeclContext *DC,
+                                    DeclarationName Name) {}
+  /// Every visible declaration of a context from the AST file was loaded, so
+  /// later lookups in it no longer reach VisibleDeclsLookedUp.
+  virtual void VisibleDeclsCompleted(const DeclContext *DC) {}
+  /// The outermost deserialization finished: every decl reported by DeclRead
+  /// so far is now complete and safe to inspect.
+  virtual void DeclsComplete() {}
+  /// The body of a function from the AST file was loaded. Bodies load lazily,
+  /// so a body that never loads cannot have influenced the compile.
+  virtual void DeclBodyRead(const Decl *D) {}
 };
 
 class DelegatingDeserializationListener : public ASTDeserializationListener {
@@ -126,6 +141,23 @@ public:
                         SourceLocation ImportLoc) override {
     if (Previous)
       Previous->ModuleImportRead(ID, ImportLoc);
+  }
+  void VisibleDeclsLookedUp(const DeclContext *DC,
+                            DeclarationName Name) override {
+    if (Previous)
+      Previous->VisibleDeclsLookedUp(DC, Name);
+  }
+  void VisibleDeclsCompleted(const DeclContext *DC) override {
+    if (Previous)
+      Previous->VisibleDeclsCompleted(DC);
+  }
+  void DeclsComplete() override {
+    if (Previous)
+      Previous->DeclsComplete();
+  }
+  void DeclBodyRead(const Decl *D) override {
+    if (Previous)
+      Previous->DeclBodyRead(D);
   }
 };
 

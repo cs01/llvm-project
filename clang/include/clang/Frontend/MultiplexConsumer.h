@@ -43,6 +43,11 @@ public:
   void ModuleRead(serialization::SubmoduleID ID, Module *Mod) override;
   void ModuleImportRead(serialization::SubmoduleID ID,
                         SourceLocation ImportLoc) override;
+  void VisibleDeclsLookedUp(const DeclContext *DC,
+                            DeclarationName Name) override;
+  void VisibleDeclsCompleted(const DeclContext *DC) override;
+  void DeclsComplete() override;
+  void DeclBodyRead(const Decl *D) override;
 
 private:
   std::vector<ASTDeserializationListener *> Listeners;

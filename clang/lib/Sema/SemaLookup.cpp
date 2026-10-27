@@ -1136,6 +1136,9 @@ static bool LookupDirect(Sema &S, LookupResult &R, const DeclContext *DC) {
                                            DC);
 
   // Perform lookup into this declaration context.
+  if (S.OnRecordLookup)
+    if (const auto *RD = dyn_cast<RecordDecl>(DC))
+      S.OnRecordLookup(RD, R.getLookupName());
   DeclContext::lookup_result DR = DC->lookup(R.getLookupName());
   for (NamedDecl *D : DR) {
     if ((D = R.getAcceptableDecl(D))) {
@@ -2533,9 +2536,11 @@ bool Sema::LookupQualifiedName(LookupResult &R, DeclContext *LookupCtx,
   unsigned IDNS = R.getIdentifierNamespace();
 
   // Look for this member in our base classes.
-  auto BaseCallback = [Name, IDNS](const CXXBaseSpecifier *Specifier,
-                                   CXXBasePath &Path) -> bool {
+  auto BaseCallback = [this, Name, IDNS](const CXXBaseSpecifier *Specifier,
+                                         CXXBasePath &Path) -> bool {
     CXXRecordDecl *BaseRecord = Specifier->getType()->getAsCXXRecordDecl();
+    if (OnRecordLookup)
+      OnRecordLookup(BaseRecord, Name);
     // Drop leading non-matching lookup results from the declaration list so
     // we don't need to consider them again below.
     for (Path.Decls = BaseRecord->lookup(Name).begin();
