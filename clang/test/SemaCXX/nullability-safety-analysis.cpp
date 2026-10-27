@@ -1167,10 +1167,10 @@ void chain_test_builder_guarded() {
     }
 }
 
-// Pointer-to-pointer (T**) -- known limitation
+// Pointer-to-pointer (T**): the check on *pp narrows the pointee.
 void chain_test_ptr_to_ptr(Node * _Nullable * _Nullable pp) {
     if (pp && *pp) {
-        (*pp)->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
+        (*pp)->value = 1; // OK
     }
 }
 

@@ -251,10 +251,12 @@ static const VarDecl *resolveSmartPtrReference(const VarDecl *VD) {
 namespace {
 
 /// A tracked pointer: a local variable or parameter, or a member access path
-/// (exactly one of VD and Path is set).
+/// (exactly one of VD and Path is set). With Pointee, it is the pointer VD
+/// points to (*pp for T **pp), so if (*pp) **pp; is accepted.
 struct PtrRef {
   const VarDecl *VD = nullptr;
   std::optional<MemberAccessPath> Path;
+  bool Pointee = false;
 
   /// Resolve E (parens and implicit casts ignored) to a tracked pointer, or
   /// nullopt when it is neither a DeclRefExpr to a VarDecl nor a member
@@ -273,12 +275,30 @@ struct PtrRef {
   }
   /// The tracked variable VD itself (no reference resolution).
   static PtrRef var(const VarDecl *VD) { return PtrRef{VD, std::nullopt}; }
-  /// Declared type of the variable or the leaf field.
+  static PtrRef pointee(const VarDecl *VD) {
+    return PtrRef{VD, std::nullopt, /*Pointee=*/true};
+  }
+  /// *pp where pp is a pointer-to-pointer variable, else nullopt.
+  static std::optional<PtrRef> pointeeFromExpr(const Expr *E) {
+    const auto *UO = dyn_cast<UnaryOperator>(E->IgnoreParenImpCasts());
+    if (!UO || UO->getOpcode() != UO_Deref)
+      return std::nullopt;
+    const auto *DRE =
+        dyn_cast<DeclRefExpr>(UO->getSubExpr()->IgnoreParenImpCasts());
+    const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (!VD || !VD->getType()->isPointerType() ||
+        !VD->getType()->getPointeeType()->isPointerType())
+      return std::nullopt;
+    return pointee(VD);
+  }
+  /// Declared type of the variable, its pointee, or the leaf field.
   QualType getType() const {
+    if (Pointee)
+      return VD->getType()->getPointeeType();
     return VD ? VD->getType() : Path->leafField()->getType();
   }
   bool operator==(const PtrRef &O) const {
-    return VD == O.VD && Path == O.Path;
+    return VD == O.VD && Path == O.Path && Pointee == O.Pointee;
   }
 };
 
@@ -286,8 +306,9 @@ struct PtrRef {
 
 template <> struct llvm::DenseMapInfo<PtrRef> {
   static unsigned getHashValue(const PtrRef &R) {
-    return R.VD ? DenseMapInfo<const VarDecl *>::getHashValue(R.VD)
-                : DenseMapInfo<MemberAccessPath>::getHashValue(*R.Path);
+    unsigned H = R.VD ? DenseMapInfo<const VarDecl *>::getHashValue(R.VD)
+                      : DenseMapInfo<MemberAccessPath>::getHashValue(*R.Path);
+    return R.Pointee ? static_cast<unsigned>(llvm::hash_combine(H, true)) : H;
   }
   static bool isEqual(const PtrRef &L, const PtrRef &R) { return L == R; }
 };
@@ -323,6 +344,10 @@ struct NullState {
   llvm::DenseSet<MemberAccessPath> NullableMembers;
   llvm::DenseSet<const VarDecl *> MustNullableVars;
   llvm::DenseSet<MemberAccessPath> MustNullableMembers;
+  /// Pointer-to-pointer variables whose pointee is proven non-null (*pp
+  /// after if (*pp)). Only narrowing is tracked here; a pointee is never
+  /// marked nullable, so an unknown store just drops the fact.
+  llvm::DenseSet<const VarDecl *> NarrowedPointees;
 
   /// Maps integer-typed guards (bool or int flags), held in a variable or in
   /// a field reached by a member path (d.ok, this->ok), to the null-check
@@ -375,10 +400,14 @@ struct NullState {
   }
 
   bool isNarrowed(const PtrRef &R) const {
+    if (R.Pointee)
+      return NarrowedPointees.contains(R.VD);
     return R.VD ? NarrowedVars.contains(R.VD)
                 : NarrowedMembers.contains(*R.Path);
   }
   bool isNullable(const PtrRef &R) const {
+    if (R.Pointee)
+      return false;
     return R.VD ? NullableVars.contains(R.VD)
                 : NullableMembers.contains(*R.Path);
   }
@@ -387,20 +416,26 @@ struct NullState {
                                   : MustNullableMembers.contains(*R.Path));
   }
   void markNarrowed(const PtrRef &R) {
-    if (R.VD)
+    if (R.Pointee)
+      NarrowedPointees.insert(R.VD);
+    else if (R.VD)
       markNarrowed(R.VD);
     else
       markNarrowed(*R.Path);
   }
   void markNullable(const PtrRef &R) {
-    if (R.VD)
+    if (R.Pointee)
+      NarrowedPointees.erase(R.VD);
+    else if (R.VD)
       markNullable(R.VD);
     else
       markNullable(*R.Path);
   }
   /// Forget both the narrowed and the nullable fact about R.
   void clear(const PtrRef &R) {
-    if (R.VD) {
+    if (R.Pointee) {
+      NarrowedPointees.erase(R.VD);
+    } else if (R.VD) {
       NarrowedVars.erase(R.VD);
       NullableVars.erase(R.VD);
     } else {
@@ -416,6 +451,7 @@ struct NullState {
            NullableMembers == Other.NullableMembers &&
            MustNullableVars == Other.MustNullableVars &&
            MustNullableMembers == Other.MustNullableMembers &&
+           NarrowedPointees == Other.NarrowedPointees &&
            BoolGuards == Other.BoolGuards && Aliases == Other.Aliases &&
            MemberAliases == Other.MemberAliases &&
            AddrOfTargets == Other.AddrOfTargets;
@@ -434,6 +470,9 @@ static NullState join(const NullState &A, const NullState &B) {
   for (const auto &MK : A.NarrowedMembers)
     if (B.NarrowedMembers.contains(MK))
       Result.NarrowedMembers.insert(MK);
+  for (const auto *VD : A.NarrowedPointees)
+    if (B.NarrowedPointees.contains(VD))
+      Result.NarrowedPointees.insert(VD);
   // Nullable = union: if nullable on either path, it's nullable.
   for (const auto *VD : A.NullableVars)
     Result.NullableVars.insert(VD);
@@ -1382,9 +1421,12 @@ static bool analyzeNullCompare(const BinaryOperator *BO, bool Negated,
         return true;
       }
 
-      if (auto R = PtrRef::fromExpr(PtrExpr))
+      if (auto R = PtrRef::fromExpr(PtrExpr)) {
         if (R->getType()->isPointerType())
           Results.push_back({std::move(*R), EqNegated});
+      } else if (auto P = PtrRef::pointeeFromExpr(PtrExpr)) {
+        Results.push_back({std::move(*P), EqNegated});
+      }
     }
     return true;
   }
@@ -1499,6 +1541,8 @@ static void analyzeCondition(const Expr *Cond, ASTContext &Ctx,
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl())) {
           if (VD->getType()->isPointerType()) {
             Results.push_back({PtrRef{VD, std::nullopt}, Negated});
+            if (VD->getType()->getPointeeType()->isPointerType())
+              Results.push_back({PtrRef::pointee(VD), Negated});
             return;
           }
         }
@@ -1647,6 +1691,10 @@ static void applyNarrowing(NullState &NS, const ConditionResult &CR) {
   llvm::SmallPtrSet<const VarDecl *, 4> Seen;
   while (!Work.empty()) {
     PtrRef R = Work.pop_back_val();
+    if (R.Pointee) {
+      NS.markNarrowed(R);
+      continue;
+    }
     if (R.Path) {
       narrowMemberPath(NS, *R.Path);
       continue;
@@ -2645,6 +2693,7 @@ private:
         const Expr *Sub = UO->getSubExpr()->IgnoreParenImpCasts();
         if (const auto *SubDRE = dyn_cast<DeclRefExpr>(Sub)) {
           if (const auto *PPVD = dyn_cast<VarDecl>(SubDRE->getDecl())) {
+            State.NarrowedPointees.erase(PPVD);
             auto It = State.AddrOfTargets.find(PPVD);
             if (It != State.AddrOfTargets.end()) {
               const VarDecl *TgtVD = It->second;
@@ -2816,6 +2865,12 @@ private:
     return State.NarrowedVars.contains(VD);
   }
 
+  /// Whether E is *pp with pp's pointee narrowed in the current state.
+  bool isPointeeNarrowed(const Expr *E) const {
+    auto R = PtrRef::pointeeFromExpr(E);
+    return R && State.isNarrowed(*R);
+  }
+
   /// Whether the member path is narrowed in the current state.
   bool isMemberNarrowed(const MemberAccessPath &Path) const {
     return State.NarrowedMembers.contains(Path);
@@ -2916,6 +2971,8 @@ private:
   void checkExprDeref(const Expr *DerefExpr, const Expr *PtrExpr) {
     bool FoundCast = false;
     const Expr *Origin = unwrapCastsAndArithmetic(PtrExpr, FoundCast);
+    if (isPointeeNarrowed(Origin))
+      return;
 
     // dynamic_cast<T*> yields null on a failed runtime check regardless of the
     // source's nullability, so it is judged as the origin even under further
@@ -3086,6 +3143,8 @@ private:
   /// pointer-to-pointer casts (never dynamic_cast).
   bool isExprNarrowedNonnull(const Expr *E) const {
     E = lookThroughPtrToPtrCasts(E->IgnoreParenImpCasts());
+    if (isPointeeNarrowed(E))
+      return true;
     auto R = PtrRef::fromExpr(E);
     if (!R)
       return false;
@@ -3194,6 +3253,12 @@ private:
   /// guards and aliases that mention it, and its own alias and address-of
   /// records. Does not touch VD's own narrowed/nullable flags.
   void forgetFactsAbout(const VarDecl *VD) {
+    // VD is either the pointer-to-pointer itself or the local it was known
+    // to point to (pp = &p; p = nullptr;): both change *pp.
+    State.NarrowedPointees.erase(VD);
+    for (const auto &[PP, Tgt] : State.AddrOfTargets)
+      if (Tgt == VD)
+        State.NarrowedPointees.erase(PP);
     invalidateMembersFor(VD);
     invalidateBoolGuardsFor(VD);
     State.BoolGuards.erase(PtrRef::var(VD));
@@ -3397,6 +3462,8 @@ private:
     // expression's type.
     if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
       return true;
+    if (isPointeeNarrowed(E))
+      return false;
     ExplicitCastInfo Cast = getExplicitCastInfo(E);
     if (Cast.DefinitiveCast) {
       if (Cast.Operand->isNullPointerConstant(
