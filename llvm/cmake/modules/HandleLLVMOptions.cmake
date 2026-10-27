@@ -1463,6 +1463,12 @@ if(NOT CMAKE_DISABLE_PRECOMPILE_HEADERS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # Clang requires this flag in order for precompiled headers to work with ccache.
     append("-Xclang -fno-pch-timestamp" CMAKE_CXX_FLAGS)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND
+       CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12.0.5 AND
+       NOT DEFINED CMAKE_CXX_COMPILE_OPTIONS_INSTANTIATE_TEMPLATES_PCH)
+      set(CMAKE_CXX_COMPILE_OPTIONS_INSTANTIATE_TEMPLATES_PCH
+          -fpch-instantiate-templates)
+    endif()
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # GCC requires this flag in order for precompiled headers to work with ccache.
     append("-fpch-preprocess" CMAKE_CXX_FLAGS)
