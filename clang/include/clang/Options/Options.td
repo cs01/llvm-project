@@ -8970,6 +8970,9 @@ def pch_through_hdrstop_use : Flag<["-"], "pch-through-hdrstop-use">,
 def fno_pch_timestamp : Flag<["-"], "fno-pch-timestamp">,
   HelpText<"Disable inclusion of timestamp in precompiled headers">,
   MarshallingInfoNegativeFlag<FrontendOpts<"IncludeTimestamps">>;
+def fsemantic_deps : Flag<["-"], "fsemantic-deps">,
+  HelpText<"Write the identifiers this compile touched to <output>.sdeps">,
+  MarshallingInfoFlag<FrontendOpts<"EmitSemanticDeps">>;
 def building_pch_with_obj : Flag<["-"], "building-pch-with-obj">,
   HelpText<"This compilation is part of building a PCH with corresponding object file.">,
   MarshallingInfoFlag<LangOpts<"BuildingPCHWithObjectFile">>;

@@ -375,6 +375,11 @@ public:
   LLVM_PREFERRED_TYPE(bool)
   unsigned IncludeTimestamps : 1;
 
+  /// Write every identifier the compile touched to <output>.sdeps, so a build
+  /// tool can tell whether a header edit can affect this translation unit.
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned EmitSemanticDeps : 1;
+
   /// Should a temporary file be used during compilation.
   LLVM_PREFERRED_TYPE(bool)
   unsigned UseTemporary : 1;
@@ -591,9 +596,9 @@ public:
         ASTDumpDecls(false), ASTDumpLookups(false),
         BuildingImplicitModule(false), BuildingImplicitModuleUsesLock(true),
         ModulesEmbedAllFiles(false), IncludeTimestamps(true),
-        UseTemporary(true), AllowPCMWithCompilerErrors(false),
-        ModulesShareFileManager(true), EmitSymbolGraph(false),
-        EmitExtensionSymbolGraphs(false),
+        EmitSemanticDeps(false), UseTemporary(true),
+        AllowPCMWithCompilerErrors(false), ModulesShareFileManager(true),
+        EmitSymbolGraph(false), EmitExtensionSymbolGraphs(false),
         EmitSymbolGraphSymbolLabelsForTesting(false),
         EmitPrettySymbolGraphs(false), GenReducedBMI(false),
         UseClangIRPipeline(false), ClangIRDisablePasses(false),

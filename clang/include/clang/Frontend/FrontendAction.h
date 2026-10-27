@@ -32,6 +32,7 @@ namespace clang {
 class ASTMergeAction;
 class ASTUnit;
 class CompilerInstance;
+struct SemanticDeps;
 
 /// Abstract base class for actions which can be performed by the frontend.
 class FrontendAction {
@@ -40,12 +41,17 @@ class FrontendAction {
   CompilerInstance *Instance;
   friend class ASTMergeAction;
   friend class WrapperFrontendAction;
+  /// What this compile depended on, for -fsemantic-deps.
+  std::shared_ptr<SemanticDeps> SemDeps;
 
 private:
   std::unique_ptr<ASTConsumer> CreateWrappedASTConsumer(CompilerInstance &CI,
                                                         StringRef InFile);
 
 protected:
+  /// Null unless -fsemantic-deps is on.
+  SemanticDeps *getSemanticDeps() const { return SemDeps.get(); }
+
   /// @name Implementation Action Interface
   /// @{
 

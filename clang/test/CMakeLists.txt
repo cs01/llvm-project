@@ -101,6 +101,7 @@ list(APPEND CLANG_TEST_DEPS
   clang-diff
   clang-installapi
   clang-scan-deps
+  clang-semindex
   clang-linker-wrapper
   clang-nvlink-wrapper
   clang-offload-bundler

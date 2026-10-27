@@ -8819,6 +8819,10 @@ GlobalDeclID ASTReader::ReadDeclID(ModuleFile &F, const RecordDataImpl &Record,
 /// source each time it is called, and is meant to be used via a
 /// LazyOffsetPtr (which is used by Decls for the body of functions, etc).
 Stmt *ASTReader::GetExternalDeclStmt(uint64_t Offset) {
+  if (DeserializationListener)
+    if (auto It = LazyBodyOwners.find(Offset); It != LazyBodyOwners.end())
+      DeserializationListener->DeclBodyRead(It->second);
+
   // Switch case IDs are per Decl.
   ClearSwitchCaseIDs();
 
@@ -9052,6 +9056,9 @@ bool ASTReader::FindExternalVisibleDeclsByName(const DeclContext *DC,
   if (!Name)
     return false;
 
+  if (DeserializationListener)
+    DeserializationListener->VisibleDeclsLookedUp(DC, Name);
+
   // Load the list of declarations.
   DeclsSet DS;
 
@@ -9111,6 +9118,9 @@ bool ASTReader::FindExternalVisibleDeclsByName(const DeclContext *DC,
 void ASTReader::completeVisibleDeclsMap(const DeclContext *DC) {
   if (!DC->hasExternalVisibleStorage())
     return;
+
+  if (DeserializationListener)
+    DeserializationListener->VisibleDeclsCompleted(DC);
 
   DeclsMap Decls;
 
@@ -11023,6 +11033,8 @@ void ASTReader::finishPendingActions() {
       const FunctionDecl *Defn = nullptr;
       if (!getContext().getLangOpts().Modules || !FD->hasBody(Defn)) {
         FD->setLazyBody(PB->second);
+        if (DeserializationListener)
+          LazyBodyOwners[PB->second] = FD;
       } else {
         auto *NonConstDefn = const_cast<FunctionDecl*>(Defn);
         mergeDefinitionVisibility(NonConstDefn, FD);
@@ -11527,6 +11539,9 @@ void ASTReader::FinishedDeserializing() {
 
       diagnoseOdrViolations();
     }
+
+    if (DeserializationListener)
+      DeserializationListener->DeclsComplete();
 
     // We are not in recursive loading, so it's safe to pass the "interesting"
     // decls to the consumer.

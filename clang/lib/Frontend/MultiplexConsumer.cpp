@@ -87,6 +87,28 @@ void MultiplexASTDeserializationListener::ModuleImportRead(
     Listener->ModuleImportRead(ID, ImportLoc);
 }
 
+void MultiplexASTDeserializationListener::VisibleDeclsLookedUp(
+    const DeclContext *DC, DeclarationName Name) {
+  for (auto &Listener : Listeners)
+    Listener->VisibleDeclsLookedUp(DC, Name);
+}
+
+void MultiplexASTDeserializationListener::VisibleDeclsCompleted(
+    const DeclContext *DC) {
+  for (auto &Listener : Listeners)
+    Listener->VisibleDeclsCompleted(DC);
+}
+
+void MultiplexASTDeserializationListener::DeclsComplete() {
+  for (auto &Listener : Listeners)
+    Listener->DeclsComplete();
+}
+
+void MultiplexASTDeserializationListener::DeclBodyRead(const Decl *D) {
+  for (auto &Listener : Listeners)
+    Listener->DeclBodyRead(D);
+}
+
 // This ASTMutationListener forwards its notifications to a set of
 // child listeners.
 class MultiplexASTMutationListener : public ASTMutationListener {

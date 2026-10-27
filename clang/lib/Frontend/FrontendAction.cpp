@@ -31,6 +31,7 @@
 #include "clang/Frontend/Utils.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/LiteralSupport.h"
+#include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Parse/ParseAST.h"
@@ -43,6 +44,7 @@
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/BuryPointer.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
@@ -52,6 +54,88 @@
 #include <memory>
 #include <system_error>
 using namespace clang;
+
+/// What a compile depended on; see -fsemantic-deps. Headers reach a compile
+/// through the names it lexes, the names it looks up in a PCH or module, and
+/// the function bodies it loads from one. Anything a header entity uses
+/// indirectly is clang-semindex's to propagate, not this list's.
+struct clang::SemanticDeps {
+  /// Identifiers the compile lexed and names it looked up in the AST file.
+  llvm::StringSet<> Names;
+  /// Functions whose bodies were loaded from the AST file.
+  llvm::StringSet<> Bodies;
+  // Named at DeclsComplete: a decl is not complete yet when it is reported,
+  // and the AST may be gone by the end of the TU.
+  std::vector<const NamedDecl *> BodyDecls;
+  bool All = false;
+
+  static void add(llvm::StringSet<> &Set, DeclarationName Name) {
+    // An empty name (an unnamed decl) also reports isIdentifier().
+    if (!Name)
+      return;
+    if (Name.isIdentifier())
+      Set.insert(Name.getAsIdentifierInfo()->getName());
+    else if (Name.getNameKind() == DeclarationName::CXXOperatorName)
+      Set.insert(Name.getAsString());
+  }
+
+  void add(DeclarationName Name) { add(Names, Name); }
+
+  /// A body is named by its class as well (FieldDecl::getFieldIndex), as many
+  /// classes have members of the same name; clang-semindex names it the same
+  /// way.
+  static std::string bodyName(const NamedDecl *ND) {
+    std::string Name;
+    if (const auto *RD = dyn_cast<RecordDecl>(ND->getDeclContext()))
+      Name = RD->getDeclName().getAsString() + "::";
+    return Name + ND->getDeclName().getAsString();
+  }
+
+  void nameDecls() {
+    // Naming a decl can load more of them, which appends to the list.
+    std::vector<const NamedDecl *> PendingBodies;
+    PendingBodies.swap(BodyDecls);
+    for (const NamedDecl *ND : PendingBodies)
+      Bodies.insert(bodyName(ND));
+  }
+};
+
+/// Records, for -fsemantic-deps, the macros this compile expands or tests, as
+/// "%NAME": the token watcher only sees what they expand to.
+class SemanticDepsMacroRecorder : public PPCallbacks {
+  std::shared_ptr<SemanticDeps> SD;
+  void add(const Token &Name) {
+    SD->Names.insert(("%" + Name.getIdentifierInfo()->getName()).str());
+  }
+
+public:
+  explicit SemanticDepsMacroRecorder(std::shared_ptr<SemanticDeps> SD)
+      : SD(std::move(SD)) {}
+  void MacroExpands(const Token &Name, const MacroDefinition &, SourceRange,
+                    const MacroArgs *) override {
+    add(Name);
+  }
+  void Defined(const Token &Name, const MacroDefinition &,
+               SourceRange) override {
+    add(Name);
+  }
+  void Ifdef(SourceLocation, const Token &Name,
+             const MacroDefinition &) override {
+    add(Name);
+  }
+  void Ifndef(SourceLocation, const Token &Name,
+              const MacroDefinition &) override {
+    add(Name);
+  }
+  void Elifdef(SourceLocation, const Token &Name,
+               const MacroDefinition &) override {
+    add(Name);
+  }
+  void Elifndef(SourceLocation, const Token &Name,
+                const MacroDefinition &) override {
+    add(Name);
+  }
+};
 
 LLVM_INSTANTIATE_REGISTRY_EX(CLANG_ABI_EXPORT, FrontendPluginRegistry)
 
@@ -333,6 +417,41 @@ public:
     llvm::outs() << "\n";
 
     DelegatingDeserializationListener::DeclRead(ID, D);
+  }
+};
+
+/// Records, for -fsemantic-deps, the names of declarations loaded from the AST
+/// file and of lookups into its declaration contexts.
+class SemanticDepsRecorder : public DelegatingDeserializationListener {
+  std::shared_ptr<SemanticDeps> SD;
+
+public:
+  SemanticDepsRecorder(std::shared_ptr<SemanticDeps> SD,
+                       ASTDeserializationListener *Previous,
+                       bool DeletePrevious)
+      : DelegatingDeserializationListener(Previous, DeletePrevious),
+        SD(std::move(SD)) {}
+
+  void VisibleDeclsLookedUp(const DeclContext *DC,
+                            DeclarationName Name) override {
+    SD->add(Name);
+    DelegatingDeserializationListener::VisibleDeclsLookedUp(DC, Name);
+  }
+
+  void VisibleDeclsCompleted(const DeclContext *DC) override {
+    SD->All = true;
+    DelegatingDeserializationListener::VisibleDeclsCompleted(DC);
+  }
+
+  void DeclsComplete() override {
+    SD->nameDecls();
+    DelegatingDeserializationListener::DeclsComplete();
+  }
+
+  void DeclBodyRead(const Decl *D) override {
+    if (const auto *ND = dyn_cast<NamedDecl>(D))
+      SD->BodyDecls.push_back(ND);
+    DelegatingDeserializationListener::DeclBodyRead(D);
   }
 };
 
@@ -1113,6 +1232,20 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
   if (!isModelParsingAction())
     CI.createPreprocessor(getTranslationUnitKind());
 
+  if (CI.getFrontendOpts().EmitSemanticDeps && CI.hasPreprocessor()) {
+    SemDeps = std::make_shared<SemanticDeps>();
+    // Every identifier this compile lexes. Coverage mapping replaces the
+    // token watcher, so with it the compile is said to depend on everything.
+    if (CI.getCodeGenOpts().CoverageMapping)
+      SemDeps->All = true;
+    CI.getPreprocessor().setTokenWatcher([SD = SemDeps](const Token &T) {
+      if (T.is(tok::identifier))
+        SD->Names.insert(T.getIdentifierInfo()->getName());
+    });
+    CI.getPreprocessor().addPPCallbacks(
+        std::make_unique<SemanticDepsMacroRecorder>(SemDeps));
+  }
+
   // Inform the diagnostic client we are processing a source file.
   CI.getDiagnosticClient().BeginSourceFile(CI.getLangOpts(),
                                            &CI.getPreprocessor());
@@ -1285,6 +1418,11 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
             DeserialListener, DeleteDeserialListener);
         DeleteDeserialListener = true;
       }
+      if (SemDeps) {
+        DeserialListener = new SemanticDepsRecorder(SemDeps, DeserialListener,
+                                                    DeleteDeserialListener);
+        DeleteDeserialListener = true;
+      }
       if (!CI.getPreprocessorOpts().ImplicitPCHInclude.empty()) {
         CI.createPCHExternalASTSource(
             CI.getPreprocessorOpts().ImplicitPCHInclude,
@@ -1396,12 +1534,67 @@ llvm::Error FrontendAction::Execute() {
   return llvm::Error::success();
 }
 
+/// Writes what this compile depended on, one item per line: identifiers it
+/// lexed and names it looked up in a PCH or module; "<Class::name>()" for each
+/// function whose body it loaded from one; "#file <path>" for each file it
+/// lexed; "*" if it depended on everything.
+static void writeSemanticDeps(CompilerInstance &CI, SemanticDeps *SD) {
+  std::vector<StringRef> Names;
+  std::vector<std::string> Bodies;
+  if (SD) {
+    SD->nameDecls();
+    if (SD->All)
+      Names.push_back("*");
+    for (const auto &Entry : SD->Names)
+      Names.push_back(Entry.getKey());
+    for (const auto &Entry : SD->Bodies)
+      Bodies.push_back((Entry.getKey() + "()").str());
+  }
+  llvm::sort(Names);
+  Names.erase(llvm::unique(Names), Names.end());
+  llvm::sort(Bodies);
+
+  // Files this compile lexed itself, as opposed to reading them from the AST
+  // file: every token of these was seen, so any edit to one can matter.
+  std::vector<std::string> Files;
+  const SourceManager &SM = CI.getSourceManager();
+  for (unsigned I = 0, E = SM.local_sloc_entry_size(); I != E; ++I) {
+    const SrcMgr::SLocEntry &Entry = SM.getLocalSLocEntry(I);
+    if (!Entry.isFile())
+      continue;
+    if (OptionalFileEntryRef FE = Entry.getFile().getContentCache().OrigEntry) {
+      StringRef Real = FE->getFileEntry().tryGetRealPathName();
+      Files.push_back(("#file " + (Real.empty() ? FE->getName() : Real)).str());
+    }
+  }
+  llvm::sort(Files);
+  Files.erase(llvm::unique(Files), Files.end());
+
+  std::error_code EC;
+  llvm::raw_fd_ostream OS(CI.getFrontendOpts().OutputFile + ".sdeps", EC);
+  if (EC) {
+    CI.getDiagnostics().Report(diag::err_fe_unable_to_open_output)
+        << CI.getFrontendOpts().OutputFile + ".sdeps" << EC.message();
+    return;
+  }
+  for (StringRef N : Names)
+    OS << N << '\n';
+  for (const std::string &B : Bodies)
+    OS << B << '\n';
+  for (const std::string &F : Files)
+    OS << F << '\n';
+}
+
 void FrontendAction::EndSourceFile() {
   CompilerInstance &CI = getCompilerInstance();
 
   // Inform the preprocessor we are done.
   if (CI.hasPreprocessor())
     CI.getPreprocessor().EndSourceFile();
+
+  if (CI.getFrontendOpts().EmitSemanticDeps && CI.hasPreprocessor() &&
+      !CI.getFrontendOpts().OutputFile.empty())
+    writeSemanticDeps(CI, SemDeps.get());
 
   // Inform the diagnostic client we are done with this source file.
   // Do this after notifying the preprocessor, so that end-of-file preprocessor
@@ -1493,6 +1686,15 @@ void ASTFrontendAction::ExecuteAction() {
 
   if (!CI.hasSema())
     CI.createSema(getTranslationUnitKind(), CompletionConsumer);
+
+  // Member names are recorded with their class (FieldDecl::getFieldIndex):
+  // most of them are common words that other classes use too.
+  if (SemanticDeps *SD = getSemanticDeps())
+    CI.getSema().OnRecordLookup = [SD](const RecordDecl *RD,
+                                       DeclarationName Name) {
+      if (RD->getDeclName().isIdentifier() && Name)
+        SD->Names.insert((RD->getName() + "::" + Name.getAsString()).str());
+    };
 
   ParseAST(CI.getSema(), CI.getFrontendOpts().ShowStats,
            CI.getFrontendOpts().SkipFunctionBodies);

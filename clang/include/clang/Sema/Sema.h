@@ -1380,6 +1380,10 @@ public:
   sema::AnalysisBasedWarnings AnalysisWarnings;
   threadSafety::BeforeSet *ThreadSafetyDeclCache;
 
+  /// Told about every name looked up in a class, for -fsemantic-deps.
+  llvm::unique_function<void(const RecordDecl *, DeclarationName)>
+      OnRecordLookup;
+
   /// Callback to the parser to parse templated functions when needed.
   typedef void LateTemplateParserCB(void *P, LateParsedTemplate &LPT);
   LateTemplateParserCB *LateTemplateParser;
