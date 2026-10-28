@@ -5189,6 +5189,8 @@ bool CompilerInvocation::CreateFromArgsImpl(
                 Diags);
   if (Res.getFrontendOpts().ProgramAction == frontend::RewriteObjC)
     LangOpts.ObjCExceptions = 1;
+  if (Res.getFrontendOpts().ClangIRModernize)
+    LangOpts.NullabilitySafetyCIR = 1;
 
   for (auto Warning : Res.getDiagnosticOpts().Warnings) {
     if (Warning == "misexpect" &&

@@ -116,6 +116,64 @@ def CIR_SourceLanguageAttr : CIR_EnumAttr<CIR_SourceLanguage, "lang"> {
 }
 
 //===----------------------------------------------------------------------===//
+// NullabilityAttr
+//===----------------------------------------------------------------------===//
+
+def CIR_Nullability : CIR_I32Enum<"Nullability", "pointer nullability", [
+  I32EnumCase<"NonNull", 0, "nonnull">,
+  I32EnumCase<"Nullable", 1, "nullable">,
+  I32EnumCase<"Unspecified", 2, "unspecified">
+]>;
+
+def CIR_NullabilityAttr : CIR_EnumAttr<CIR_Nullability, "nullability"> {
+  let summary = "Source nullability of a pointer value";
+  let description = [{
+    Records the `_Nonnull`, `_Nullable` or `_Null_unspecified` qualifier that
+    the source type of a pointer value carried. Clang keeps nullability as type
+    sugar, which CIR types do not model, so CIRGen attaches it as a discardable
+    attribute named `cir.nullability` on the operations and declarations that
+    produce pointer values: function arguments and results (in `arg_attrs` and
+    `res_attrs`), `cir.alloca`, `cir.call` and `cir.load`.
+
+    The attribute is advisory and has no effect on semantics or lowering. A
+    pass that drops it loses precision only: a pointer without the attribute
+    has unknown nullability.
+
+    Example:
+    ```
+    cir.func @f(%arg0: !cir.ptr<!s32i> {cir.nullability = #cir.nullability<nullable>})
+    %1 = cir.load %0 {cir.nullability = #cir.nullability<nonnull>} : ...
+    ```
+  }];
+}
+
+def CIR_SmartPtrOp : CIR_I32Enum<"SmartPtrOp", "smart pointer operation", [
+  I32EnumCase<"ConstructNull", 0, "construct_null">,
+  I32EnumCase<"ConstructFrom", 1, "construct_from">,
+  I32EnumCase<"Move", 2, "move">,
+  I32EnumCase<"Copy", 3, "copy">,
+  I32EnumCase<"AssignNull", 4, "assign_null">,
+  I32EnumCase<"Reset", 5, "reset">,
+  I32EnumCase<"Release", 6, "release">,
+  I32EnumCase<"Swap", 7, "swap">,
+  I32EnumCase<"Access", 8, "access">,
+  I32EnumCase<"Test", 9, "test">,
+  I32EnumCase<"CompareEq", 10, "compare_eq">,
+  I32EnumCase<"CompareNe", 11, "compare_ne">
+]>;
+
+def CIR_SmartPtrOpAttr : CIR_EnumAttr<CIR_SmartPtrOp, "smart_ptr_op"> {
+  let summary = "What a call does to a std smart pointer";
+  let description = [{
+    Attached by CIRGen as `cir.smart_ptr_op` to a `cir.call` of a std smart
+    pointer member or of a std free function on smart pointers (swap and
+    comparison with nullptr), so analyses can model the pointer's null state
+    without matching mangled names. The smart pointer object is the first
+    argument; for `move`, `copy` and `swap` the other object is the second.
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // OffloadKindAttr
 //===----------------------------------------------------------------------===//
 

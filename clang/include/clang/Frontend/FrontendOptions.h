@@ -437,8 +437,25 @@ public:
   LLVM_PREFERRED_TYPE(bool)
   unsigned ClangIRLibOptEnabled : 1;
 
+  /// Suggest idiomatic C++ rewrites that ClangIR analyses prove preserve
+  /// behavior, as warnings with fix-its.
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned ClangIRModernize : 1;
+
+  /// Let -fcir-modernize change the signatures of externally visible
+  /// functions.
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned ClangIRModernizePublic : 1;
+
+  /// Write the -fcir-modernize rewrites back to the source files.
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned ClangIRModernizeApply : 1;
+
   /// Options to control ClangIR library optimization
   std::string ClangIRLibOptOptions;
+
+  /// File the ClangIR nullability analysis writes its per-pointer facts to.
+  std::string ClangIRNullabilityFactsFile;
 
   CodeCompleteOptions CodeCompleteOpts;
 
@@ -582,7 +599,9 @@ public:
         UseClangIRPipeline(false), ClangIRDisablePasses(false),
         ClangIRDisableCIRVerifier(false), ClangIREnableIdiomRecognizer(false),
         ClangIRCallConvLowering(true), ClangIRLibOptEnabled(false),
-        TimeTraceGranularity(500), TimeTraceVerbose(false) {}
+        ClangIRModernize(false), ClangIRModernizePublic(false),
+        ClangIRModernizeApply(false), TimeTraceGranularity(500),
+        TimeTraceVerbose(false) {}
 
   /// getInputKindForExtension - Return the appropriate input kind for a file
   /// extension. For example, "c" would return Language::C.

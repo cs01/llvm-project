@@ -435,7 +435,9 @@ public:
   }
 
   mlir::Value VisitExplicitCastExpr(ExplicitCastExpr *e) {
-    return VisitCastExpr(e);
+    mlir::Value v = VisitCastExpr(e);
+    cgf.markNullabilityCast(e, v);
+    return v;
   }
 
   mlir::Value VisitCXXNullPtrLiteralExpr(CXXNullPtrLiteralExpr *e) {
@@ -2957,6 +2959,9 @@ mlir::Value ScalarExprEmitter::VisitCallExpr(const CallExpr *e) {
 
   auto v = cgf.emitCallExpr(e).getValue();
   assert(!cir::MissingFeatures::emitLValueAlignmentAssumption());
+  if (v)
+    if (auto call = v.getDefiningOp<cir::CallOp>())
+      cgf.cgm.setNullabilityAttr(call, e->getType());
   return v;
 }
 

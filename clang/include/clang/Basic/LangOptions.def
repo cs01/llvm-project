@@ -146,6 +146,7 @@ LANGOPT(PointerAuthBlockDescriptorPointers, 1, 0, NotCompatible, "enable signed 
 // Nullability options
 ENUM_LANGOPT(NullabilityDefault, NullabilityKind, 2, NullabilityKind::Unspecified, NotCompatible, "default nullability for unannotated pointers")
 LANGOPT(NullabilitySafety, 1, 0, NotCompatible, "enable flow-sensitive nullability analysis")
+LANGOPT(NullabilitySafetyCIR, 1, 0, NotCompatible, "run the flow-sensitive nullability analysis on ClangIR instead of the Clang CFG")
 LANGOPT(NullabilityLibcNullableReturns, 1, 1, NotCompatible, "treat C library functions that return null on failure (malloc, fopen, ...) as returning nullable pointers")
 LANGOPT(NullabilityLibcNonnullParams, 1, 1, NotCompatible, "treat C library and POSIX pointer parameters that must not be null (strlen, fclose, ...) as nonnull")
 

@@ -1766,6 +1766,32 @@ defm nullability_safety : BoolFOption<"nullability-safety",
   PosFlag<SetTrue, [], [ClangOption, CC1Option],
           "Enable flow-sensitive nullability analysis">,
   NegFlag<SetFalse>>;
+def fcir_modernize : Flag<["-"], "fcir-modernize">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>,
+  HelpText<"Suggest idiomatic C++ rewrites that ClangIR analyses prove "
+           "preserve behavior, as warnings with fix-its (requires -fclangir)">,
+  MarshallingInfoFlag<FrontendOpts<"ClangIRModernize">>;
+def fcir_modernize_public : Flag<["-"], "fcir-modernize-public">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>,
+  HelpText<"Allow -fcir-modernize to change externally visible signatures">,
+  MarshallingInfoFlag<FrontendOpts<"ClangIRModernizePublic">>;
+def fcir_modernize_apply : Flag<["-"], "fcir-modernize-apply">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>,
+  HelpText<"Write -fcir-modernize rewrites back to the source files">,
+  MarshallingInfoFlag<FrontendOpts<"ClangIRModernizeApply">>;
+
+defm nullability_safety_cir : BoolFOption<"nullability-safety-cir",
+  LangOpts<"NullabilitySafetyCIR">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Run the flow-sensitive nullability analysis on ClangIR (requires "
+          "-fclangir) instead of the Clang CFG">,
+  NegFlag<SetFalse>>;
+def fnullability_safety_cir_facts_EQ : Joined<["-"], "fnullability-safety-cir-facts=">,
+  Group<f_Group>, Visibility<[ClangOption, CC1Option]>, MetaVarName<"<file>">,
+  HelpText<"Write the nullability evidence and inferred nullability of every "
+           "pointer parameter, return and record field to <file> as JSON "
+           "(requires -fnullability-safety-cir)">,
+  MarshallingInfoString<FrontendOpts<"ClangIRNullabilityFactsFile">>;
 defm nullability_libc_nullable_returns : BoolFOption<"nullability-libc-nullable-returns",
   LangOpts<"NullabilityLibcNullableReturns">, DefaultTrue,
   NegFlag<SetFalse, [], [ClangOption, CC1Option],

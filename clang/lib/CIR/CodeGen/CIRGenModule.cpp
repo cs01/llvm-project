@@ -27,6 +27,7 @@
 #include "clang/AST/Mangle.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtOpenMP.h"
+#include "clang/Analysis/Analyses/NullabilitySafety.h"
 #include "clang/Basic/DiagnosticFrontend.h"
 #include "clang/Basic/Module.h"
 #include "clang/Basic/SourceManager.h"
@@ -3304,6 +3305,108 @@ void CIRGenModule::setTLSMode(mlir::Operation *op, const VarDecl &d,
   setGlobalTlsReferences(d, global);
 }
 
+std::optional<cir::Nullability>
+CIRGenModule::getNullability(QualType ty) const {
+  if (!langOpts.NullabilitySafetyCIR || ty.isNull())
+    return std::nullopt;
+  NullabilityKindOrNone kind = ty->getNullability();
+  if (!kind)
+    return std::nullopt;
+  switch (*kind) {
+  case NullabilityKind::NonNull:
+    return cir::Nullability::NonNull;
+  case NullabilityKind::Nullable:
+  case NullabilityKind::NullableResult:
+    return cir::Nullability::Nullable;
+  case NullabilityKind::Unspecified:
+    return cir::Nullability::Unspecified;
+  }
+  llvm_unreachable("unknown nullability kind");
+}
+
+std::optional<cir::SmartPtrOp>
+CIRGenModule::getSmartPtrOp(const Decl *callee) const {
+  const auto *fd = dyn_cast_if_present<FunctionDecl>(callee);
+  if (!langOpts.NullabilitySafetyCIR || !fd)
+    return std::nullopt;
+  auto isNullptr = [](const ParmVarDecl *param) {
+    return param->getType()->isNullPtrType();
+  };
+  const auto *md = dyn_cast<CXXMethodDecl>(fd);
+  if (!md) {
+    if (!fd->getDeclContext()->getRedeclContext()->isStdNamespace() ||
+        fd->getNumParams() != 2 ||
+        !isSmartPointerType(
+            fd->getParamDecl(0)->getType().getNonReferenceType()))
+      return std::nullopt;
+    if (fd->getDeclName().isIdentifier() && fd->getName() == "swap")
+      return cir::SmartPtrOp::Swap;
+    if (isNullptr(fd->getParamDecl(1))) {
+      if (fd->getOverloadedOperator() == OO_EqualEqual)
+        return cir::SmartPtrOp::CompareEq;
+      if (fd->getOverloadedOperator() == OO_ExclaimEqual)
+        return cir::SmartPtrOp::CompareNe;
+    }
+    return std::nullopt;
+  }
+  if (!isSmartPointerType(getASTContext().getCanonicalTagType(md->getParent())))
+    return std::nullopt;
+  if (const auto *ctor = dyn_cast<CXXConstructorDecl>(md)) {
+    if (ctor->isDefaultConstructor() ||
+        (ctor->getNumParams() == 1 && isNullptr(ctor->getParamDecl(0))))
+      return cir::SmartPtrOp::ConstructNull;
+    if (ctor->isMoveConstructor())
+      return cir::SmartPtrOp::Move;
+    if (ctor->isCopyConstructor())
+      return cir::SmartPtrOp::Copy;
+    if (ctor->getNumParams() >= 1 &&
+        ctor->getParamDecl(0)->getType()->isPointerType())
+      return cir::SmartPtrOp::ConstructFrom;
+    return std::nullopt;
+  }
+  if (isa<CXXConversionDecl>(md) && md->getReturnType()->isBooleanType())
+    return cir::SmartPtrOp::Test;
+  switch (md->getOverloadedOperator()) {
+  case OO_Arrow:
+    return cir::SmartPtrOp::Access;
+  case OO_Star:
+    return md->getNumParams() == 0 ? std::optional(cir::SmartPtrOp::Access)
+                                   : std::nullopt;
+  case OO_Equal:
+    if (md->isMoveAssignmentOperator())
+      return cir::SmartPtrOp::Move;
+    if (md->isCopyAssignmentOperator())
+      return cir::SmartPtrOp::Copy;
+    if (md->getNumParams() == 1 && isNullptr(md->getParamDecl(0)))
+      return cir::SmartPtrOp::AssignNull;
+    return std::nullopt;
+  default:
+    break;
+  }
+  if (!md->getDeclName().isIdentifier())
+    return std::nullopt;
+  return llvm::StringSwitch<std::optional<cir::SmartPtrOp>>(md->getName())
+      .Case("get", cir::SmartPtrOp::Access)
+      .Case("reset", cir::SmartPtrOp::Reset)
+      .Case("release", cir::SmartPtrOp::Release)
+      .Case("swap", cir::SmartPtrOp::Swap)
+      .Default(std::nullopt);
+}
+
+void CIRGenModule::setNullabilityAttr(mlir::Operation *op, QualType ty) {
+  if (!op)
+    return;
+  if (std::optional<cir::Nullability> kind = getNullability(ty))
+    op->setAttr(cir::CIRDialect::getNullabilityAttrName(),
+                cir::NullabilityAttr::get(&getMLIRContext(), *kind));
+}
+
+void CIRGenModule::addNullabilityAttr(mlir::NamedAttrList &attrs, QualType ty) {
+  if (std::optional<cir::Nullability> kind = getNullability(ty))
+    attrs.set(cir::CIRDialect::getNullabilityAttrName(),
+              cir::NullabilityAttr::get(&getMLIRContext(), *kind));
+}
+
 void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
                                             const CIRGenFunctionInfo &info,
                                             cir::FuncOp func, bool isThunk) {
@@ -3324,6 +3427,44 @@ void CIRGenModule::setCIRFunctionAttributes(GlobalDecl globalDecl,
 
   for (mlir::NamedAttribute attr : pal)
     func->setAttr(attr.getName(), attr.getValue());
+
+  if (const auto *fd =
+          dyn_cast_if_present<FunctionDecl>(globalDecl.getDecl())) {
+    const auto *md = dyn_cast<CXXMethodDecl>(fd);
+    unsigned offset = md && md->isImplicitObjectMemberFunction() ? 1 : 0;
+    if (offset && !argAttrs.empty() && langOpts.NullabilitySafetyCIR) {
+      argAttrs[0].set(cir::CIRDialect::getNullabilityAttrName(),
+                      cir::NullabilityAttr::get(&getMLIRContext(),
+                                                cir::Nullability::NonNull));
+      argAttrs[0].set(cir::CIRDialect::getObjectArgAttrName(),
+                      mlir::UnitAttr::get(&getMLIRContext()));
+    }
+    for (unsigned i = 0, e = fd->getNumParams(); i != e; ++i) {
+      if (i + offset >= argAttrs.size())
+        continue;
+      const ParmVarDecl *param = fd->getParamDecl(i);
+      addNullabilityAttr(argAttrs[i + offset], param->getType());
+      bool gnuNonNull = param->hasAttr<NonNullAttr>() ||
+                        llvm::any_of(fd->specific_attrs<NonNullAttr>(),
+                                     [&](const NonNullAttr *attr) {
+                                       return attr->isNonNull(i);
+                                     }) ||
+                        (langOpts.NullabilityLibcNonnullParams && i < 32 &&
+                         (getLibcNonnullParamMask(fd) & (1u << i)));
+      if (gnuNonNull && param->getType()->isPointerType() &&
+          langOpts.NullabilitySafetyCIR)
+        argAttrs[i + offset].set(
+            cir::CIRDialect::getNullabilityAttrName(),
+            cir::NullabilityAttr::get(&getMLIRContext(),
+                                      cir::Nullability::NonNull));
+    }
+    addNullabilityAttr(retAttrs, fd->getReturnType());
+    if (langOpts.NullabilitySafetyCIR &&
+        langOpts.NullabilityLibcNullableReturns && isLibcNullableReturn(fd))
+      retAttrs.set(cir::CIRDialect::getNullabilityAttrName(),
+                   cir::NullabilityAttr::get(&getMLIRContext(),
+                                             cir::Nullability::Nullable));
+  }
 
   llvm::for_each(llvm::enumerate(argAttrs), [func](auto idx_arg_pair) {
     mlir::function_interface_impl::setArgAttrs(func, idx_arg_pair.index(),
@@ -3399,6 +3540,12 @@ void CIRGenModule::setCIRFunctionAttributesForDefinition(
 
   if (!CodeGenUtils::hasUnwindExceptions(langOpts))
     f->setAttr(cir::CIRDialect::getNoThrowAttrName(),
+               mlir::UnitAttr::get(&getMLIRContext()));
+
+  if (langOpts.NullabilitySafety && langOpts.NullabilitySafetyCIR &&
+      isNullabilitySafetyOptedIn(
+          decl, NullabilitySafetyOptions::fromLangOptions(langOpts)))
+    f->setAttr(cir::CIRDialect::getNullabilitySafetyAttrName(),
                mlir::UnitAttr::get(&getMLIRContext()));
 
   std::optional<cir::InlineKind> existingInlineKind = f.getInlineKind();

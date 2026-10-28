@@ -8,6 +8,7 @@
 
 #include "clang/CIR/FrontendAction/CIRGenAction.h"
 #include "CIRDiagnosticHandler.h"
+#include "CIRModernize.h"
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
@@ -16,8 +17,11 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/Basic/DiagnosticCodeGen.h"
 #include "clang/Basic/DiagnosticFrontend.h"
+#include "clang/Basic/DiagnosticSema.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/CIR/CIRGenerator.h"
 #include "clang/CIR/CIRToCIRPasses.h"
+#include "clang/CIR/Dialect/Analysis/CIRNullabilitySafety.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/InitAllDialects.h"
 #include "clang/CIR/LowerToLLVM.h"
@@ -28,12 +32,14 @@
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Demangle/Demangle.h"
 #include "llvm/Frontend/Offloading/OffloadWrapper.h"
 #include "llvm/IR/DiagnosticHandler.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/LibraryOptionsContext.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
@@ -298,6 +304,161 @@ public:
     Gen->HandleInlineFunctionDefinition(D);
   }
 
+  SourceLocation toSourceLocation(mlir::Location Loc, ASTContext &C) {
+    mlir::FileLineColLoc FileLoc;
+    Loc->walk([&](mlir::Location Inner) {
+      if (auto L = mlir::dyn_cast<mlir::FileLineColLoc>(Inner)) {
+        FileLoc = L;
+        return mlir::WalkResult::interrupt();
+      }
+      return mlir::WalkResult::advance();
+    });
+    if (!FileLoc)
+      return {};
+    SourceManager &SM = C.getSourceManager();
+    auto File = SM.getFileManager().getOptionalFileRef(
+        FileLoc.getFilename().getValue());
+    if (!File)
+      return {};
+    return SM.translateFileLineCol(*File, FileLoc.getLine(),
+                                   FileLoc.getColumn());
+  }
+
+  void runNullabilitySafety(mlir::ModuleOp Module, ASTContext &C) {
+    cir::NullabilitySafetyCIROptions Options;
+    Options.unspecifiedIsNullable =
+        C.getLangOpts().getNullabilityDefault() == NullabilityKind::Nullable;
+    DiagnosticsEngine &Diags = CI.getDiagnostics();
+    llvm::DenseSet<std::pair<unsigned, unsigned>> Seen;
+    cir::runNullabilitySafety(
+        Module, Options, [&](const cir::NullabilityFinding &F) {
+          SourceLocation Loc = toSourceLocation(F.loc, C);
+          if (Loc.isInvalid())
+            return;
+          if (!Seen.insert(
+                       {static_cast<unsigned>(F.kind), Loc.getRawEncoding()})
+                   .second)
+            return;
+          switch (F.kind) {
+          case cir::NullabilityFindingKind::Dereference:
+            Diags.Report(Loc, diag::warn_nullability_safety_dereference)
+                << F.subject;
+            Diags.Report(Loc, diag::note_nullable_dereference_fix);
+            break;
+          case cir::NullabilityFindingKind::Call:
+            Diags.Report(Loc, diag::warn_nullability_safety_call) << F.subject;
+            Diags.Report(Loc, diag::note_nullable_call_fix);
+            break;
+          case cir::NullabilityFindingKind::Return:
+            Diags.Report(Loc, diag::warn_nullability_safety_return);
+            Diags.Report(Loc, diag::note_nullable_return_fix);
+            break;
+          case cir::NullabilityFindingKind::Assignment:
+            Diags.Report(Loc, diag::warn_nullability_safety_assignment)
+                << F.subject;
+            Diags.Report(Loc, diag::note_nullable_assignment_fix);
+            break;
+          case cir::NullabilityFindingKind::Arithmetic:
+            Diags.Report(Loc, diag::warn_nullability_safety_arithmetic)
+                << F.subject;
+            Diags.Report(Loc, diag::note_nullable_arithmetic_fix);
+            break;
+          case cir::NullabilityFindingKind::Argument:
+            Diags.Report(Loc, diag::warn_nullability_safety_argument)
+                << 1 << "" << (F.argIndex + 1);
+            Diags.Report(Loc, diag::note_nullable_argument_fix);
+            break;
+          }
+        });
+  }
+
+  void writeNullabilityFacts(mlir::ModuleOp Module, ASTContext &C) {
+    cir::NullabilitySafetyCIROptions Options;
+    Options.unspecifiedIsNullable =
+        C.getLangOpts().getNullabilityDefault() == NullabilityKind::Nullable;
+    SourceManager &SM = C.getSourceManager();
+    std::error_code EC;
+    llvm::raw_fd_ostream OS(FEOptions.ClangIRNullabilityFactsFile, EC);
+    if (EC) {
+      CI.getDiagnostics().Report(diag::err_fe_unable_to_open_output)
+          << FEOptions.ClangIRNullabilityFactsFile << EC.message();
+      return;
+    }
+    auto kindName = [](cir::NullabilityFactKind Kind) {
+      switch (Kind) {
+      case cir::NullabilityFactKind::Param:
+        return "param";
+      case cir::NullabilityFactKind::Return:
+        return "return";
+      case cir::NullabilityFactKind::Field:
+        return "field";
+      }
+      llvm_unreachable("unknown fact kind");
+    };
+    auto inferredName = [](cir::InferredNullability Inferred) {
+      switch (Inferred) {
+      case cir::InferredNullability::Unknown:
+        return "unknown";
+      case cir::InferredNullability::NonNull:
+        return "nonnull";
+      case cir::InferredNullability::Nullable:
+        return "nullable";
+      }
+      llvm_unreachable("unknown inferred nullability");
+    };
+    llvm::json::OStream J(OS, 2);
+    J.arrayBegin();
+    cir::collectNullabilityFacts(
+        Module, Options,
+        [&](mlir::Location Loc) {
+          SourceLocation L = toSourceLocation(Loc, C);
+          return L.isValid() && !SM.isInSystemHeader(L);
+        },
+        [&](const cir::NullabilityFact &F) {
+          J.objectBegin();
+          J.attribute("kind", kindName(F.kind));
+          if (!F.function.empty()) {
+            J.attribute("function", F.function);
+            J.attribute("demangled", llvm::demangle(F.function));
+          }
+          if (!F.record.empty())
+            J.attribute("record", F.record);
+          if (!F.name.empty())
+            J.attribute("name", F.name);
+          if (F.kind == cir::NullabilityFactKind::Param)
+            J.attribute("index", F.index);
+          SourceLocation L = toSourceLocation(F.loc, C);
+          if (L.isValid()) {
+            PresumedLoc P = SM.getPresumedLoc(L);
+            J.attribute("file", P.getFilename());
+            J.attribute("line", P.getLine());
+            J.attribute("column", P.getColumn());
+          }
+          if (!F.declared.empty())
+            J.attribute("declared", F.declared);
+          J.attributeObject("evidence", [&] {
+            J.attribute("null_checked", F.nullChecked);
+            J.attribute("asserted_nonnull", F.assertedNonNull);
+            J.attribute("deref_unchecked", F.derefUnchecked);
+            J.attribute("forwarded_to_nonnull", F.forwardedToNonNull);
+            J.attribute("assigned_null", F.assignedNull);
+            J.attribute("callers_pass_null", F.callersPassNull);
+            if (F.kind == cir::NullabilityFactKind::Return)
+              J.attribute("all_paths_nonnull", F.allPathsNonNull);
+            if (F.kind == cir::NullabilityFactKind::Param) {
+              J.attribute("must_deref", F.mustDeref);
+              J.attribute("reassigned", F.reassigned);
+              J.attribute("address_taken", F.addressTaken);
+              J.attribute("arithmetic", F.arithmetic);
+            }
+          });
+          J.attribute("inferred", inferredName(F.inferred));
+          J.objectEnd();
+        });
+    J.arrayEnd();
+    OS << "\n";
+  }
+
   void HandleTranslationUnit(ASTContext &C) override {
     Gen->HandleTranslationUnit(C);
 
@@ -316,6 +477,19 @@ public:
 
     mlir::ModuleOp MlirModule = Gen->getModule();
     mlir::MLIRContext &MlirCtx = Gen->getMLIRContext();
+
+    if (C.getLangOpts().NullabilitySafety &&
+        C.getLangOpts().NullabilitySafetyCIR)
+      runNullabilitySafety(MlirModule, C);
+    if (C.getLangOpts().NullabilitySafetyCIR &&
+        !FEOptions.ClangIRNullabilityFactsFile.empty())
+      writeNullabilityFacts(MlirModule, C);
+    if (FEOptions.ClangIRModernize) {
+      CIRModernizeOptions Options;
+      Options.AllowPublic = FEOptions.ClangIRModernizePublic;
+      Options.Apply = FEOptions.ClangIRModernizeApply;
+      runCIRModernize(MlirModule, C, CI.getDiagnostics(), Options);
+    }
 
     if (!FEOptions.ClangIRDisablePasses) {
       std::string LibOptOptions = FEOptions.ClangIRLibOptOptions;

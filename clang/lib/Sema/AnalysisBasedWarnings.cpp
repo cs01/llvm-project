@@ -3296,7 +3296,8 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
   // the warnings are enabled: diagnostic state at an invalid SourceLocation
   // reflects only the command line and would miss warnings re-enabled by a
   // pragma. Each diagnostic is still filtered at its own location.
-  if (S.getLangOpts().NullabilitySafety)
+  if (S.getLangOpts().NullabilitySafety &&
+      !S.getLangOpts().NullabilitySafetyCIR)
     NullabilitySafetyTUAnalysis(S, TU);
 }
 

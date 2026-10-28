@@ -125,8 +125,26 @@ Address CIRGenFunction::emitAddrOfFieldStorage(Address base,
 
 /// Given an expression of pointer type, try to
 /// derive a more accurate bound on the alignment of the pointer.
+void CIRGenFunction::markNullabilityCast(const ExplicitCastExpr *e,
+                                         mlir::Value v) {
+  std::optional<cir::Nullability> to = cgm.getNullability(e->getType());
+  if (!v || !to || to == cgm.getNullability(e->getSubExpr()->getType()))
+    return;
+  if (mlir::Operation *def = v.getDefiningOp())
+    def->setAttr(cir::CIRDialect::getNullabilityCastAttrName(),
+                 cir::NullabilityAttr::get(&getMLIRContext(), *to));
+}
+
 Address CIRGenFunction::emitPointerWithAlignment(const Expr *expr,
                                                  LValueBaseInfo *baseInfo) {
+  Address addr = emitPointerWithAlignmentImpl(expr, baseInfo);
+  if (const auto *ece = dyn_cast<ExplicitCastExpr>(expr->IgnoreParens()))
+    markNullabilityCast(ece, addr.getPointer());
+  return addr;
+}
+
+Address CIRGenFunction::emitPointerWithAlignmentImpl(const Expr *expr,
+                                                     LValueBaseInfo *baseInfo) {
   // We allow this with ObjC object pointers because of fragile ABIs.
   assert(expr->getType()->isPointerType() ||
          expr->getType()->isObjCObjectPointerType());
@@ -777,6 +795,7 @@ mlir::Value CIRGenFunction::emitLoadOfScalar(Address addr, bool isVolatile,
 
   mlir::Value loadOp =
       builder.createLoad(getLoc(loc), addr, isVolatile, isNontemporal);
+  cgm.setNullabilityAttr(loadOp.getDefiningOp(), ty);
 
   // Types with a boolean representation that are not the builtin bool (an enum
   // whose underlying type is bool, or a _BitInt(1)) need no register/memory

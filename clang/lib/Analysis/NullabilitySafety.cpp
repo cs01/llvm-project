@@ -219,7 +219,6 @@ static bool pathHasPrefix(const MemberAccessPath &Path,
 // Lattice
 //===----------------------------------------------------------------------===//
 
-static bool isSmartPointerType(QualType Ty);
 
 /// The variable a local smart pointer reference is bound to (auto &a = p or
 /// auto &&a = std::move(p)), followed through references to references, or VD
@@ -828,7 +827,7 @@ static bool isSmartPointerDeclaredNullable(const Expr *E) {
 /// Uses getAsCXXRecordDecl() which operates on the canonical type, so
 /// type aliases (using/typedef) are handled. Does not match non-std
 /// smart pointers (e.g. boost::shared_ptr).
-static bool isSmartPointerType(QualType Ty) {
+bool clang::isSmartPointerType(QualType Ty) {
   const auto *RD = Ty->getAsCXXRecordDecl();
   if (!RD)
     return false;
@@ -1069,10 +1068,7 @@ static bool isStlNonnullReturnCall(const CallExpr *CE) {
 /// (std::malloc from <cstdlib>). A user function that happens to share the
 /// name (namespace my { int *malloc(); }) is left alone, so a name collision
 /// cannot cause false positives.
-static const FunctionDecl *getLibcCallee(const CallExpr *CE) {
-  if (isa<CXXMemberCallExpr>(CE))
-    return nullptr;
-  const FunctionDecl *FD = CE->getDirectCallee();
+static const FunctionDecl *getLibcFunction(const FunctionDecl *FD) {
   if (!FD || isa<CXXMethodDecl>(FD) || !FD->getDeclName().isIdentifier())
     return nullptr;
   const DeclContext *DC = FD->getDeclContext()->getRedeclContext();
@@ -1081,12 +1077,8 @@ static const FunctionDecl *getLibcCallee(const CallExpr *CE) {
   return FD;
 }
 
-/// C library free functions that return null on failure or not-found
-/// (malloc, fopen, getenv, strchr, ...). Their results are provably _Nullable
-/// regardless of annotations, so unchecked dereferences always warn. Only
-/// free functions at global or std scope match.
-static bool isLibcNullableReturnCall(const CallExpr *CE) {
-  const FunctionDecl *FD = getLibcCallee(CE);
+bool clang::isLibcNullableReturn(const FunctionDecl *FD) {
+  FD = getLibcFunction(FD);
   if (!FD || !FD->getReturnType()->isPointerType())
     return false;
   // Grouped by header (stdlib.h, stdio.h, string.h, ...).
@@ -1100,28 +1092,12 @@ static bool isLibcNullableReturnCall(const CallExpr *CE) {
       .Default(false);
 }
 
-/// Parameters of C library and POSIX functions that must not be null, as a
-/// bit mask of 0-based parameter indices; a nullable argument there warns
-/// like one passed to a _Nonnull parameter. Most system headers declare
-/// these without nullability (glibc's __nonnull becomes
-/// __attribute__((nonnull)) and is honored on its own; Apple's libc headers
-/// carry neither).
-///
-/// Sources: C17 7.1.4p1 makes a null argument to a library function undefined
-/// unless the function's description says otherwise, and the POSIX.1-2017
-/// pages for the POSIX-only entries. Every entry was checked against its
-/// description: parameters documented to accept null are left out, among
-/// them free and realloc's pointer, fflush(NULL), time(NULL), strtol's endptr,
-/// strtok's first argument, setvbuf's and setbuf's buffer, snprintf's buffer
-/// (null with size 0), freopen's path, getline's *lineptr, realpath's
-/// resolved_path, and system(NULL). An entry that wrongly listed a parameter
-/// would warn on correct code, so the list errs toward leaving one out.
-static unsigned getLibcNonnullParamMask(const CallExpr *CE) {
-  const FunctionDecl *FD = getLibcCallee(CE);
+unsigned clang::getLibcNonnullParamMask(const FunctionDecl *FD) {
+  FD = getLibcFunction(FD);
   if (!FD)
     return 0;
   constexpr unsigned P0 = 1u << 0, P1 = 1u << 1, P2 = 1u << 2, P3 = 1u << 3;
-  // Grouped by header, like isLibcNullableReturnCall.
+  // Grouped by header, like isLibcNullableReturn.
   return llvm::StringSwitch<unsigned>(FD->getName())
       // stdio.h: streams, buffers, paths, and format strings.
       .Cases({"fclose", "fgetc", "getc", "feof", "ferror", "clearerr"}, P0)
@@ -1158,6 +1134,19 @@ static unsigned getLibcNonnullParamMask(const CallExpr *CE) {
       .Cases({"stat", "lstat"}, P0 | P1)
       .Case("fstat", P1)
       .Default(0);
+}
+
+static const FunctionDecl *getLibcCallee(const CallExpr *CE) {
+  return isa<CXXMemberCallExpr>(CE) ? nullptr
+                                    : getLibcFunction(CE->getDirectCallee());
+}
+
+static bool isLibcNullableReturnCall(const CallExpr *CE) {
+  return isLibcNullableReturn(getLibcCallee(CE));
+}
+
+static unsigned getLibcNonnullParamMask(const CallExpr *CE) {
+  return getLibcNonnullParamMask(getLibcCallee(CE));
 }
 
 /// The tracked pointer E names, if E is a std smart pointer object (see

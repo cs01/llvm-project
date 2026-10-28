@@ -148,6 +148,33 @@ void runNullabilitySafetyAnalysis(AnalysisDeclContext &AC,
 
 bool hasExplicitNullabilityAnnotations(const Decl *D);
 
+/// C library free functions that return null on failure or not-found
+/// (malloc, fopen, getenv, strchr, ...). Their results are provably _Nullable
+/// regardless of annotations, so unchecked dereferences always warn. Only
+/// free functions at global or std scope match.
+bool isLibcNullableReturn(const FunctionDecl *FD);
+
+/// Whether \p Ty is std::unique_ptr, std::shared_ptr or std::weak_ptr.
+bool isSmartPointerType(QualType Ty);
+
+/// Parameters of C library and POSIX functions that must not be null, as a
+/// bit mask of 0-based parameter indices; a nullable argument there warns
+/// like one passed to a _Nonnull parameter. Most system headers declare
+/// these without nullability (glibc's __nonnull becomes
+/// __attribute__((nonnull)) and is honored on its own; Apple's libc headers
+/// carry neither).
+///
+/// Sources: C17 7.1.4p1 makes a null argument to a library function undefined
+/// unless the function's description says otherwise, and the POSIX.1-2017
+/// pages for the POSIX-only entries. Every entry was checked against its
+/// description: parameters documented to accept null are left out, among
+/// them free and realloc's pointer, fflush(NULL), time(NULL), strtol's endptr,
+/// strtok's first argument, setvbuf's and setbuf's buffer, snprintf's buffer
+/// (null with size 0), freopen's path, getline's *lineptr, realpath's
+/// resolved_path, and system(NULL). An entry that wrongly listed a parameter
+/// would warn on correct code, so the list errs toward leaving one out.
+unsigned getLibcNonnullParamMask(const FunctionDecl *FD);
+
 /// Whether \p D is checked: every function when a default nullability is
 /// set. Otherwise a function is checked when its own signature carries
 /// nullability, when it was defined inside `#pragma clang assume_nonnull`

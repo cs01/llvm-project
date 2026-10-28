@@ -19,6 +19,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/GlobalDecl.h"
+#include "clang/Analysis/Analyses/NullabilitySafety.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "clang/CodeGenUtils/ClassUtils.h"
@@ -280,6 +281,13 @@ void CIRGenFunction::declare(mlir::Value addrVal, const Decl *var, QualType ty,
 
   if (isParam)
     allocaOp.setInitAttr(mlir::UnitAttr::get(&getMLIRContext()));
+  if (const auto *vd = dyn_cast<ValueDecl>(var)) {
+    cgm.setNullabilityAttr(allocaOp, vd->getType());
+    if (getLangOpts().NullabilitySafetyCIR &&
+        isSmartPointerType(vd->getType().getNonReferenceType()))
+      allocaOp->setAttr(cir::CIRDialect::getSmartPtrSlotAttrName(),
+                        mlir::UnitAttr::get(&getMLIRContext()));
+  }
   if (ty->isReferenceType() || ty.isConstQualified())
     allocaOp.setConstantAttr(mlir::UnitAttr::get(&getMLIRContext()));
 

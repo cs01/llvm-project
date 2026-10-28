@@ -1834,6 +1834,11 @@ mlir::Value CIRGenFunction::emitCXXNewExpr(const CXXNewExpr *e) {
                              nullCheckOp.getCondition(), trueVal, nullPtr);
   }
 
+  if (getLangOpts().NullabilitySafetyCIR && !e->shouldNullCheckAllocation())
+    if (mlir::Operation *def = resultValue.getDefiningOp())
+      def->setAttr(cir::CIRDialect::getNullabilityAttrName(),
+                   cir::NullabilityAttr::get(&getMLIRContext(),
+                                             cir::Nullability::NonNull));
   return resultValue;
 }
 

@@ -701,6 +701,19 @@ public:
   void setCIRFunctionAttributes(GlobalDecl gd, const CIRGenFunctionInfo &info,
                                 cir::FuncOp func, bool isThunk);
 
+  /// The source nullability of \p ty, when -fnullability-safety-cir is on.
+  std::optional<cir::Nullability> getNullability(clang::QualType ty) const;
+
+  /// Attach the source nullability of \p ty to \p op as `cir.nullability`.
+  void setNullabilityAttr(mlir::Operation *op, clang::QualType ty);
+
+  /// What a call to \p callee does to a std smart pointer, if anything.
+  std::optional<cir::SmartPtrOp> getSmartPtrOp(const clang::Decl *callee) const;
+
+  /// Add the source nullability of \p ty to an argument or result attribute
+  /// list.
+  void addNullabilityAttr(mlir::NamedAttrList &attrs, clang::QualType ty);
+
   /// Set extra attributes (inline, etc.) for a function.
   void setCIRFunctionAttributesForDefinition(const clang::Decl *decl,
                                              cir::FuncOp f);

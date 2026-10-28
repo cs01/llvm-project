@@ -73,6 +73,7 @@ add_clang_library(clangCIR
 
   LINK_LIBS
   clangAST
+  clangAnalysis
   clangBasic
   clangCodeGenUtils
   clangLex

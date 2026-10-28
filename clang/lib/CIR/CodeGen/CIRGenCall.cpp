@@ -1460,6 +1460,11 @@ RValue CIRGenFunction::emitCall(const CIRGenFunctionInfo &funcInfo,
           builder.getI64IntegerAttr(clangLoc.getBegin().getRawEncoding()));
   }
 
+  if (std::optional<cir::SmartPtrOp> smartOp =
+          cgm.getSmartPtrOp(callee.getAbstractInfo().getCalleeDecl().getDecl()))
+    theCall->setAttr(cir::CIRDialect::getSmartPtrOpAttrName(),
+                     cir::SmartPtrOpAttr::get(&getMLIRContext(), *smartOp));
+
   // Sema/emitAttributedStmt (see
   // https://github.com/llvm/llvm-project/issues/214764) should one-day enforce
   // that only one of these is valid at a time. For now, we have the same 'bug'

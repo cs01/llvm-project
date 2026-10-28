@@ -52,6 +52,12 @@ def CIR_Dialect : Dialect {
     static llvm::StringRef getCallingConvAttrName() { return "calling_conv"; }
     static llvm::StringRef getNoThrowAttrName() { return "nothrow"; }
     static llvm::StringRef getNoReturnAttrName() { return "noreturn"; }
+    static llvm::StringRef getNullabilityAttrName() { return "cir.nullability"; }
+    static llvm::StringRef getNullabilitySafetyAttrName() { return "cir.nullability_safety"; }
+    static llvm::StringRef getNullabilityCastAttrName() { return "cir.nullability_cast"; }
+    static llvm::StringRef getObjectArgAttrName() { return "cir.object_arg"; }
+    static llvm::StringRef getSmartPtrOpAttrName() { return "cir.smart_ptr_op"; }
+    static llvm::StringRef getSmartPtrSlotAttrName() { return "cir.smart_ptr"; }
     static llvm::StringRef getMemoryEffectsAttrName() { return "memory_effects"; }
     static llvm::StringRef getUwtableAttrName() { return "uwtable"; }
     static llvm::StringRef getFramePointerAttrName() { return "frame_pointer"; }

@@ -2503,6 +2503,12 @@ public:
   /// explicit source.
   Address emitPointerWithAlignment(const clang::Expr *expr,
                                    LValueBaseInfo *baseInfo = nullptr);
+  Address emitPointerWithAlignmentImpl(const clang::Expr *expr,
+                                       LValueBaseInfo *baseInfo);
+
+  /// Mark the value of an explicit cast that changes nullability so the
+  /// nullability analysis sees the asserted nullability.
+  void markNullabilityCast(const clang::ExplicitCastExpr *e, mlir::Value v);
 
   /// Emits a reference binding to the passed in expression.
   RValue emitReferenceBindingToExpr(const Expr *e);

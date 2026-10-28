@@ -1,5 +1,6 @@
 set(LLVM_LINK_COMPONENTS
   Core
+  Demangle
   FrontendOffloading
   ipo
   Linker
@@ -9,6 +10,7 @@ set(LLVM_LINK_COMPONENTS
 add_clang_library(clangCIRFrontendAction
   CIRGenAction.cpp
   CIRDiagnosticHandler.cpp
+  CIRModernize.cpp
 
   DEPENDS
   MLIRCIROpsIncGen
@@ -21,6 +23,8 @@ add_clang_library(clangCIRFrontendAction
   clangAST
   clangBasic
   clangFrontend
+  clangLex
+  clangRewrite
   clangCIR
   clangCIRLoweringCommon
   clangCIRLoweringDirectToLLVM
@@ -29,6 +33,7 @@ add_clang_library(clangCIRFrontendAction
   CIRRegisterAllDialects
   MLIRCIR
   MLIRBytecodeWriter
+  MLIRCIRAnalysis
   MLIRIR
   MLIRParser
   )
