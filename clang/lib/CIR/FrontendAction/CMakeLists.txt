@@ -11,6 +11,8 @@ add_clang_library(clangCIRFrontendAction
   CIRGenAction.cpp
   CIRDiagnosticHandler.cpp
   CIRModernize.cpp
+  ParamToReference.cpp
+  PointerToConst.cpp
 
   DEPENDS
   MLIRCIROpsIncGen

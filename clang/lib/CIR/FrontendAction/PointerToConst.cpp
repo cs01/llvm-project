@@ -1,0 +1,180 @@
+//===--- PointerToConst.cpp - Pointer parameter to pointer to const -------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// Pointer parameter to pointer to const. CIR says whether anything writes
+// through the parameter (CIRPointeeWrites); the AST says which callee
+// arguments are read-only, since CIR keeps no const qualifiers. A parameter
+// passed on to another non-const pointer parameter needs that one to become
+// const too. The only edit is `const ` before the pointee in every
+// declaration; calls need none, as T * converts to const T *.
+//
+//===----------------------------------------------------------------------===//
+
+#include "CIRModernizeFramework.h"
+
+#include "clang/CIR/Dialect/Analysis/CIRPointeeWrites.h"
+
+using namespace clang;
+using namespace clang::cirmodernize;
+
+namespace {
+
+class PointerToConst : public Rewrite {
+public:
+  using Rewrite::Rewrite;
+
+  StringRef name() const override { return "const"; }
+  unsigned diagID(DiagnosticsEngine &Diags) const override {
+    return Diags.getCustomDiagID(
+        DiagnosticsEngine::Warning,
+        "pointer parameter %0 of %1 is never written through; it can "
+        "point to const");
+  }
+  StringRef whyNeedBlocked() const override {
+    return "const: forwarded to a parameter that stays non-const";
+  }
+
+  void analyze(mlir::ModuleOp Module) override {
+    cir::collectPointeeWrites(
+        Module,
+        [&](cir::FuncOp Callee, unsigned Index) {
+          return argUse(Callee, Index);
+        },
+        [&](const cir::PointeeWriteFact &F) {
+          Facts[F.function].try_emplace(F.index, F);
+        });
+  }
+
+  void addDefined(FunctionDecl *FD) override {
+    if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD) ||
+        FD->isDependentContext() || FD->isTemplated())
+      return;
+    auto It = Facts.find(Ctx.mangle(FD));
+    const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
+    if (It == Facts.end() && !Planned)
+      return;
+    StringRef FunctionWhy = Ctx.whyIneligible(FD);
+    unsigned Offset = Context::thisOffset(FD);
+    llvm::SmallVector<unsigned> Indices;
+    if (It != Facts.end())
+      for (auto &[ArgIndex, Fact] : It->second)
+        if (ArgIndex >= Offset && ArgIndex - Offset < FD->getNumParams() &&
+            FD->getParamDecl(ArgIndex - Offset)->getType()->isPointerType())
+          Indices.push_back(ArgIndex - Offset);
+    if (Planned)
+      for (unsigned Index : *Planned)
+        if (Index < FD->getNumParams() && !llvm::is_contained(Indices, Index))
+          Indices.push_back(Index);
+    llvm::sort(Indices);
+    for (unsigned Index : Indices) {
+      ParmVarDecl *P = FD->getParamDecl(Index);
+      StringRef Why = whyParamIneligible(P);
+      if (Why == AlreadyConst)
+        continue;
+      Ctx.count("const: pointer parameters");
+      if (Why.empty())
+        Why = FunctionWhy;
+      Candidate Cand{FD, P, Index, Id};
+      if (Why.empty() && It != Facts.end())
+        if (auto Fact = It->second.find(Index + Offset);
+            Fact != It->second.end()) {
+          if (Fact->second.written)
+            Why = Ctx.save("const: " + Fact->second.why);
+          for (auto &[Callee, CalleeIndex] : Fact->second.forwards) {
+            const FunctionDecl *CFD = Ctx.declByMangledName(Callee);
+            unsigned CalleeOffset = CFD ? Context::thisOffset(CFD) : 0;
+            ParmVarDecl *Needed =
+                CFD && CalleeIndex >= CalleeOffset
+                    ? Context::keyParam(CFD, CalleeIndex - CalleeOffset)
+                    : nullptr;
+            if (!Needed && Why.empty())
+              Why = "const: forwarded to an unknown function";
+            if (Needed)
+              Cand.Needs.push_back(Needed);
+          }
+        }
+      if (Why.empty() && !declEdits(Cand))
+        Why = "const: pointer spelled through a typedef or macro";
+      Ctx.add(std::move(Cand), Why);
+    }
+  }
+
+  void addExternal(FunctionDecl *FD, unsigned Index) override {
+    ParmVarDecl *P = FD->getParamDecl(Index);
+    StringRef Why = whyParamIneligible(P);
+    if (Why.empty())
+      Why = Ctx.whyIneligible(FD);
+    Candidate Cand{FD, P, Index, Id};
+    Cand.External = true;
+    if (Why.empty() && !declEdits(Cand))
+      Why = "const: pointer spelled through a typedef or macro";
+    Ctx.add(std::move(Cand), Why);
+  }
+
+private:
+  static constexpr StringRef AlreadyConst = "const: already const";
+
+  static StringRef whyParamIneligible(const ParmVarDecl *P) {
+    const auto *PT = P->getType()->getAs<PointerType>();
+    if (!PT)
+      return "const: not a plain pointer";
+    QualType Pointee = PT->getPointeeType();
+    if (Pointee.isConstQualified())
+      return AlreadyConst;
+    if (Pointee->isFunctionType() || Pointee->isArrayType())
+      return "const: pointer to function or array";
+    return {};
+  }
+
+  // `const ` before the pointee of every declaration this translation unit
+  // sees.
+  bool declEdits(Candidate &Cand) {
+    for (const FunctionDecl *R : Cand.FD->redecls()) {
+      std::optional<PointerTypeLoc> Star =
+          Context::starOf(R->getParamDecl(Cand.Index));
+      if (!Star || Star->getStarLoc().isMacroID())
+        return false;
+      SourceLocation Begin = Star->getPointeeLoc().getBeginLoc();
+      if (Begin.isInvalid() || Begin.isMacroID())
+        return false;
+      Cand.Edits.push_back(FixItHint::CreateInsertion(Begin, "const "));
+    }
+    return true;
+  }
+
+  // Whether a callee only reads through its CIR argument Index. CIR keeps no
+  // const qualifiers, so the answer comes from the callee's declaration.
+  cir::PointerArgUse argUse(cir::FuncOp Callee, unsigned Index) {
+    const FunctionDecl *FD = Ctx.declByMangledName(Callee.getSymName());
+    if (!FD)
+      return cir::PointerArgUse::Writes;
+    unsigned Offset = Context::thisOffset(FD);
+    if (Index < Offset)
+      return cast<CXXMethodDecl>(FD)->isConst() ? cir::PointerArgUse::ReadOnly
+                                                : cir::PointerArgUse::Writes;
+    // Past the named parameters is a variadic argument, which %n can write.
+    if (Index - Offset >= FD->getNumParams())
+      return cir::PointerArgUse::Writes;
+    QualType T = FD->getParamDecl(Index - Offset)->getType();
+    if (!T->isPointerType() && !T->isReferenceType())
+      return cir::PointerArgUse::Writes;
+    if (T->getPointeeType().isConstQualified())
+      return cir::PointerArgUse::ReadOnly;
+    return T->isPointerType() ? cir::PointerArgUse::Forward
+                              : cir::PointerArgUse::Writes;
+  }
+
+  llvm::StringMap<llvm::DenseMap<unsigned, cir::PointeeWriteFact>> Facts;
+};
+
+} // namespace
+
+std::unique_ptr<Rewrite>
+clang::cirmodernize::createPointerToConst(Context &Ctx, unsigned Id) {
+  return std::make_unique<PointerToConst>(Ctx, Id);
+}

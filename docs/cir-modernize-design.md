@@ -91,6 +91,19 @@ Blocking rules, each with a reason recorded for stats:
 - A call site passes a null constant, or has side effects in another
   argument, or decays an array.
 
+### Framework
+
+Each rewrite is a `Rewrite` (`clang/lib/CIR/FrontendAction/CIRModernizeFramework.h`)
+in its own file: `ParamToReference.cpp`, `PointerToConst.cpp`. A rewrite
+supplies a name, a warning, its CIR analysis (`analyze`), candidates for
+functions this translation unit defines (`addDefined`) and for functions
+planned elsewhere (`addExternal`), and optionally edits that depend on which
+other candidates survive (`finalize`). The framework (`CIRModernize.cpp`)
+owns the AST index, eligibility rules shared by every signature change, the
+needs fixpoint, warnings, `-fcir-modernize-apply`, and the project-mode plan
+and export, so a new rewrite gets project mode, the merge and the proof
+without changes elsewhere. `-fcir-modernize-only=<names>` picks rewrites.
+
 ### Project mode
 
 Two cc1 flags, driven by `clang/utils/cirmodernize/project.ts`:
