@@ -54,6 +54,9 @@ export function loadCommands(compdb: string, patterns: string[]): Cmd[] {
       if (DROP.has(raw[i]) || raw[i] === e.file || raw[i] === file) continue;
       args.push(raw[i]);
     }
+    // A project's -Werror would turn this clang's own warnings, or the
+    // unused -S next to -emit-cir, into failures. Warnings never change IR.
+    args.push("-Wno-error", "-Wno-unused-command-line-argument");
     out.push({ file, dir: e.directory, args });
   }
   return out;
