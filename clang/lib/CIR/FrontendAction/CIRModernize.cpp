@@ -274,6 +274,7 @@ constexpr RewriteInfo AllRewrites[] = {
     {"capture-by", "identical", true, createCaptureBy},
     {"span", "refinement", false, createSpan},
     {"lock-guard", "refinement", false, createLockGuard},
+    {"unique-ptr", "refinement", false, createUniquePtr},
 };
 constexpr StringRef Groups[] = {"identical", "refinement"};
 

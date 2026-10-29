@@ -21,6 +21,7 @@
 
 #include "CIRModernizeFramework.h"
 
+#include "clang/AST/ParentMapContext.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Lex/Lexer.h"
 
@@ -55,7 +56,11 @@ public:
   // the defining translation unit has.
   void addExternal(FunctionDecl *, unsigned) override {}
 
-private:
+protected:
+  virtual void block(FunctionDecl *FD, CompoundStmt *CS, unsigned &Ordinal) {
+    lockPair(FD, CS, Ordinal);
+  }
+
   void walk(FunctionDecl *FD, Stmt *S, unsigned &Ordinal) {
     if (!S)
       return;
@@ -78,7 +83,7 @@ private:
     return DRE ? DRE->getDecl() : nullptr;
   }
 
-  void block(FunctionDecl *FD, CompoundStmt *CS, unsigned &Ordinal) {
+  void lockPair(FunctionDecl *FD, CompoundStmt *CS, unsigned &Ordinal) {
     if (CS->body_empty())
       return;
     const ValueDecl *M = lockCall(CS->body_back(), "unlock");
@@ -194,9 +199,120 @@ private:
   }
 };
 
+// A local `T *p = new T(...)` whose block ends with `delete p;` (or with it
+// and then a return that does not name p) becomes
+// `std::unique_ptr<T> p(new T(...));` and the delete goes. p may only be
+// dereferenced (p->m, *p), which a unique_ptr spells the same way. Where
+// something between can throw, the original leaks and the unique_ptr does
+// not; the proof sees the added cleanup and refuses.
+class UniquePtr : public LockGuard {
+public:
+  using LockGuard::LockGuard;
+
+  StringRef name() const override { return "unique-ptr"; }
+  unsigned diagID(DiagnosticsEngine &Diags) const override {
+    return Diags.getCustomDiagID(DiagnosticsEngine::Warning,
+                                 "the new and delete in %1 can be a "
+                                 "std::unique_ptr");
+  }
+  StringRef whyNeedBlocked() const override { return "unique-ptr: needed"; }
+
+private:
+  void block(FunctionDecl *FD, CompoundStmt *CS, unsigned &Ordinal) override {
+    auto Body = CS->body();
+    SmallVector<Stmt *> Stmts(Body.begin(), Body.end());
+    if (Stmts.empty())
+      return;
+    // The delete closes the block, or is followed only by a return.
+    unsigned Last = Stmts.size() - 1;
+    const auto *Ret = dyn_cast<ReturnStmt>(Stmts[Last]);
+    unsigned DelAt = Ret && Last ? Last - 1 : Last;
+    const auto *Del = dyn_cast<CXXDeleteExpr>(Stmts[DelAt]);
+    if (!Del || Del->isArrayForm())
+      return;
+    const auto *DRE =
+        dyn_cast<DeclRefExpr>(Del->getArgument()->IgnoreParenImpCasts());
+    const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (!VD || !VD->isLocalVarDecl())
+      return;
+    const DeclStmt *DS = nullptr;
+    for (unsigned I = 0; I < DelAt; ++I)
+      if (const auto *D = dyn_cast<DeclStmt>(Stmts[I]);
+          D && D->isSingleDecl() && D->getSingleDecl() == VD)
+        DS = D;
+    const auto *New =
+        DS ? dyn_cast_or_null<CXXNewExpr>(VD->getInit()->IgnoreImpCasts())
+           : nullptr;
+    if (!New || New->isArray() || New->getNumPlacementArgs())
+      return;
+    Ctx.count("unique-ptr: new and delete pairs");
+    Candidate Cand{FD, nullptr, Ordinal++, Id};
+    StringRef Why = Ctx.whyVisibleToC(FD);
+    if (Why.empty() && !declared("std", "unique_ptr"))
+      Why = "unique-ptr: std::unique_ptr is not declared in this file";
+    if (Why.empty() && !onlyDereferenced(VD, DRE, Ret))
+      Why = "unique-ptr: the pointer is used other than as p-> or *p";
+    if (Why.empty()) {
+      PrintingPolicy PP(Ctx.C.getLangOpts());
+      PP.SuppressTagKeyword = true;
+      std::string Type = "std::unique_ptr<" +
+                         New->getAllocatedType().getAsString(PP) + "> " +
+                         VD->getName().str() + "(";
+      SourceLocation InitEnd = Lexer::getLocForEndOfToken(
+          VD->getInit()->getEndLoc(), 0, Ctx.SM, Ctx.C.getLangOpts());
+      SourceLocation DelEnd = semi(Del);
+      if (VD->getBeginLoc().isMacroID() || InitEnd.isInvalid() ||
+          InitEnd.isMacroID() || DelEnd.isInvalid() ||
+          Del->getBeginLoc().isMacroID())
+        Why = "unique-ptr: the declaration or delete is in a macro";
+      else {
+        Cand.Edits.push_back(FixItHint::CreateReplacement(
+            CharSourceRange::getCharRange(VD->getBeginLoc(),
+                                          VD->getInit()->getBeginLoc()),
+            Type));
+        Cand.Edits.push_back(FixItHint::CreateInsertion(InitEnd, ")"));
+        Cand.Edits.push_back(
+            FixItHint::CreateRemoval(wholeLine(Del->getBeginLoc(), DelEnd)));
+      }
+    }
+    Ctx.add(std::move(Cand), Why);
+  }
+
+  // Every use but the delete is p->m or *p, and the return does not name p.
+  bool onlyDereferenced(const VarDecl *VD, const DeclRefExpr *Deleted,
+                        const ReturnStmt *Ret) {
+    for (DeclRefExpr *DRE : Ctx.Visitor.Refs) {
+      if (DRE->getDecl() != VD || DRE == Deleted)
+        continue;
+      if (Ret && Ret->getSourceRange().fullyContains(DRE->getSourceRange()))
+        return false;
+      DynTypedNodeList Parents = Ctx.C.getParents(*DRE);
+      const auto *Cast =
+          Parents.empty() ? nullptr : Parents[0].get<ImplicitCastExpr>();
+      if (!Cast || Cast->getCastKind() != CK_LValueToRValue)
+        return false;
+      DynTypedNodeList Up = Ctx.C.getParents(*Cast);
+      if (Up.empty())
+        return false;
+      if (const auto *ME = Up[0].get<MemberExpr>(); ME && ME->isArrow())
+        continue;
+      if (const auto *UO = Up[0].get<UnaryOperator>();
+          UO && UO->getOpcode() == UO_Deref)
+        continue;
+      return false;
+    }
+    return true;
+  }
+};
+
 } // namespace
 
 std::unique_ptr<Rewrite> clang::cirmodernize::createLockGuard(Context &Ctx,
                                                               unsigned Id) {
   return std::make_unique<LockGuard>(Ctx, Id);
+}
+
+std::unique_ptr<Rewrite> clang::cirmodernize::createUniquePtr(Context &Ctx,
+                                                              unsigned Id) {
+  return std::make_unique<UniquePtr>(Ctx, Id);
 }
