@@ -146,6 +146,7 @@ a changed declaration need checking again, so large codebases stay fast.
 | span, unique_ptr, lock_guard, out-parameters | planned |
 | lifetime annotations, checked by clang LifetimeSafety | planned |
 | `counted_by` inference for C | planned |
+| unsafe inventory report (every unsafe site, state and reason) | planned |
 | refinement proofs | planned |
 | integer ranges, constant propagation, taint | planned |
 | LLM proposals | planned |

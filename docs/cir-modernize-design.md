@@ -165,7 +165,23 @@ to a parameter that stays a pointer, 31 address taken, 17 public header.
    ranges and dead code analyses run on any dialect whose control flow
    implements `RegionBranchOpInterface`; CIR's does (commit 12a993c fixed the
    loop exit edge for this). Add taint on top.
-3. **Transforms.**
+3. **Unsafe inventory report.** List every unsafe construct site in a project:
+   owning and non-owning raw pointers, pointer arithmetic and raw indexing, C
+   arrays, casts (`reinterpret_cast`, C-style, `const_cast`), `union`, `void *`,
+   varargs, `memcpy`/`strcpy`-style calls, manual `lock`/`unlock`,
+   uninitialized variables, narrowing and overflow. Each site gets file:line,
+   category and a state: proven (rewritten and passed its gate), checked
+   (already inside an existing checker's model), outside (with a reason, such
+   as escapes to an unannotated callee or stored into a field), or unknown (no
+   analysis ran, such as a CIR skip). Roll up by directory and by reason, and
+   rank fixes by how many sites they would move to proven. This is the
+   project's headline number. Reuse what exists: `--why` drop reasons, the
+   project-mode USR index, LifetimeSafety's missing-origin stats and
+   `-Wunsafe-buffer-usage` sites. Use clang CFG checkers where they already
+   cover a property (lifetimes, thread safety) and CIR where cleanups,
+   exception paths or MLIR dataflow matter (ownership, locks, bounds,
+   overflow); record which source produced each fact.
+4. **Transforms.**
    - const-correctness: "never written through, never escapes to a writer".
      Same IR identity proof. Signature changes need project mode.
    - span: `(T *p, size_t n)` to `std::span<T>`. IR is not identical by
@@ -190,9 +206,9 @@ to a parameter that stays a pointer, 31 address taken, 17 public header.
      run under libc++ hardening. For C translation units, infer
      `__counted_by(n)` where every access to `p[i]` is guarded by `i < n`;
      gate: builds under `-fexperimental-bounds-safety` and tests pass.
-4. **Whole program at scale.** semdeps can limit re-proving to TUs that use a
+5. **Whole program at scale.** semdeps can limit re-proving to TUs that use a
    changed declaration.
-5. **LLM proposes, CIR proves.** The generator can be wrong; the gate cannot.
+6. **LLM proposes, CIR proves.** The generator can be wrong; the gate cannot.
 
 Open design questions: how to run refinement proofs (alive2 needs an LLVM
 built with RTTI and EH); preprocessor configurations (facts hold for one
