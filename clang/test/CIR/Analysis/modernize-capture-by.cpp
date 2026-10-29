@@ -1,7 +1,7 @@
 // A pointer, reference or view parameter stored into memory `this`, another
 // parameter or a global refers to can be [[clang::lifetime_capture_by]].
 
-// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=capture-by -fdiagnostics-parseable-fixits %s -o /dev/null 2>&1 | FileCheck %s
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=capture-by -fdiagnostics-parseable-fixits -fno-caret-diagnostics %s -o /dev/null 2>&1 | FileCheck %s
 // RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fsyntax-only -verify=orig %s
 // RUN: cp %s %t.cpp
 // RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=capture-by -fcir-modernize-apply %t.cpp -o /dev/null
@@ -16,9 +16,14 @@ struct [[gsl::Pointer(char)]] Ref {
 struct Holder {
   const int *p;
   Ref name;
-  // A constructor keeping an argument is lifetimebound's case, not this one.
-  // CHECK-NOT: 'Holder' keeps
+  // A constructor keeping an argument: the object refers to it, which is
+  // lifetimebound on the parameter.
+  // CHECK: warning: 'Holder' keeps what parameter 'x' refers to
+  // FIXED: Holder(const int *x {{\[\[}}clang::lifetimebound{{\]\]}}) : p(x), name{} {}
   Holder(const int *x) : p(x), name{} {}
+  // A view member copied from a view parameter.
+  // FIXED: Holder(Ref r {{\[\[}}clang::lifetimebound{{\]\]}}, int) : p(nullptr), name(r) {}
+  Holder(Ref r, int) : p(nullptr), name(r) {}
   Holder() = default;
   // CHECK: warning: 'set' keeps what parameter 'x' refers to
   // FIXED: void set(const int *x {{\[\[}}clang::lifetime_capture_by_this{{\]\]}}) { p = x; }
@@ -53,6 +58,8 @@ static int use(Holder &h, const int *a) {
 }
 int entry() {
   Holder h{};
+  Holder k(nullptr);
+  Holder m(Ref{}, 0);
   int a = 0;
   return use(h, &a);
 }

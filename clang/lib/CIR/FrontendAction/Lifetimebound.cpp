@@ -191,8 +191,9 @@ protected:
   // no signature. What does: facts for one instantiation are not facts for
   // the template, an override can return something else, and a
   // constructor's result is the object, not a returned value.
-  StringRef whyNot(FunctionDecl *FD) {
-    if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD))
+  StringRef whyNot(FunctionDecl *FD, bool Constructor = false) {
+    if (isa<CXXDestructorDecl>(FD) ||
+        (isa<CXXConstructorDecl>(FD) && !Constructor))
       return "special function";
     if (FD->isTemplated() || FD->isTemplateInstantiation() ||
         FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate)
@@ -250,8 +251,8 @@ public:
   StringRef name() const override { return "capture-by"; }
   unsigned diagID(DiagnosticsEngine &Diags) const override {
     return Diags.getCustomDiagID(DiagnosticsEngine::Warning,
-                                 "%1 keeps what parameter %0 refers to; it "
-                                 "can be [[clang::lifetime_capture_by]]");
+                                 "%1 keeps what parameter %0 refers to; a "
+                                 "lifetime attribute can say so");
   }
   StringRef whyNeedBlocked() const override { return "capture-by: needed"; }
 
@@ -268,11 +269,10 @@ public:
   }
 
   void addDefined(FunctionDecl *FD) override {
-    // A constructor keeping an argument is lifetimebound on that parameter
-    // (the constructed object refers to it), which clang checks instead.
-    if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD) ||
-        FD->isDependentContext())
+    if (FD->isDependentContext() || isa<CXXDestructorDecl>(FD))
       return;
+    if (auto *CD = dyn_cast<CXXConstructorDecl>(FD))
+      return addConstructor(CD);
     auto It = By.find(Ctx.mangle(FD));
     const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
     if (It == By.end() && !Planned)
@@ -305,6 +305,38 @@ public:
   void addExternal(FunctionDecl *, unsigned) override {}
 
 private:
+  // A constructor keeping an argument in the object: clang spells that
+  // [[clang::lifetimebound]] on the parameter (the constructed object refers
+  // to it) and checks it where the object is initialized. The complete and
+  // base constructors are separate CIR functions; either may hold the body.
+  void addConstructor(CXXConstructorDecl *CD) {
+    if (CD->isTemplated() ||
+        CD->getTemplatedKind() != FunctionDecl::TK_NonTemplate)
+      return;
+    llvm::DenseSet<unsigned> Kept;
+    for (CXXCtorType T : {Ctor_Complete, Ctor_Base}) {
+      auto It = By.find(Ctx.mangle(GlobalDecl(CD, T)));
+      if (It == By.end())
+        continue;
+      for (auto &[Arg, Holders] : It->second)
+        if (llvm::is_contained(Holders, 0))
+          Kept.insert(Arg);
+    }
+    StringRef FunctionWhy = whyNot(CD, /*Constructor=*/true);
+    for (unsigned Index = 0; Index < CD->getNumParams(); ++Index) {
+      ParmVarDecl *P = CD->getParamDecl(Index);
+      if (!Kept.contains(Index + 1) || !capturable(P) ||
+          P->hasAttr<LifetimeBoundAttr>())
+        continue;
+      Ctx.count("capture-by: constructor parameters");
+      Candidate Cand{CD, P, Index, Id};
+      StringRef Why = FunctionWhy;
+      if (Why.empty() && !declEdits(Cand))
+        Why = "lifetimebound: parameter name is in a macro";
+      Ctx.add(std::move(Cand), Why);
+    }
+  }
+
   static bool capturable(const ParmVarDecl *P) {
     QualType T = P->getType();
     return (T->isReferenceType() || isView(T) ||
@@ -334,6 +366,14 @@ private:
     unsigned Offset = FD ? Context::thisOffset(FD) : 0;
     if (!FD || Index < Offset || Index - Offset >= FD->getNumParams())
       return Out;
+    // Constructing an object in place keeps what carries() says it keeps,
+    // and a view copied or moved keeps what its source refers to.
+    if (const auto *CD = dyn_cast<CXXConstructorDecl>(FD)) {
+      if (carries(Callee, Index) || (CD->isCopyOrMoveConstructor() &&
+                                     hasGsl(CD->getParent(), /*Owner=*/false)))
+        Out.push_back(0);
+      return Out;
+    }
     // Assigning a view makes it refer to what the source refers to.
     if (const auto *MD = dyn_cast<CXXMethodDecl>(FD))
       if ((MD->isCopyAssignmentOperator() || MD->isMoveAssignmentOperator()) &&
