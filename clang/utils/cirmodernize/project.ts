@@ -52,7 +52,7 @@ type Site = {
   state: "proven" | "covered" | "outside" | "unknown"; why?: string; usr?: string; index?: number;
 };
 // facts is false when CIRGen failed and only the AST half ran.
-type Export = { facts?: boolean; candidates: Candidate[]; sites?: Site[]; skippedNames?: string[] };
+type Export = { facts?: boolean; candidates: Candidate[]; sites?: Site[]; skippedNames?: string[]; cFiles?: string[] };
 
 const argv = process.argv.slice(2);
 let clang = "", compdb = "", root = process.cwd(), jobs = defaultJobs;
@@ -145,9 +145,12 @@ const sites = new Map<string, Site>();
 // Identifiers in #if branches some TU's build skips: a call there gets no
 // edit, so the other configuration would stop compiling.
 const skippedNames = new Set<string>();
+// Files some C TU includes.
+const cFiles = new Set<string>();
 pass1.forEach((e, i) => {
   if (typeof e === "string") return void skipped.set(cmds[i].file, e);
   for (const n of e.skippedNames ?? []) skippedNames.add(n);
+  for (const f of e.cFiles ?? []) cFiles.add(f);
   for (const s of e.sites ?? []) {
     if (!under(s.file, root)) continue;
     if (e.facts === false && s.index !== undefined) s.state = "unknown";
@@ -229,6 +232,11 @@ if (skipped.size && proposals.size) {
   });
 }
 
+// const and nullability are C too; the rest are C++ syntax.
+const inC = new Set(["const", "nonnull", "nullable"]);
+for (const [k, es] of edits)
+  if (!inC.has(proposals.get(k)!.kind) && es.some((e) => cFiles.has(e.file)) && !blockers.has(k))
+    blockers.set(k, "C++ syntax in a file a C TU includes");
 const live = new Set([...proposals.keys()].filter((k) => provenHere.has(k) && !blockers.has(k)));
 for (const k of proposals.keys())
   if (!live.has(k) && !blockers.has(k)) blockers.set(k, "no longer proven by its defining TU");
@@ -370,9 +378,13 @@ function writeInventory() {
   for (const s of sites.values()) {
     if (s.index === undefined || s.state === "unknown" && astOnly.has(s.file)) continue;
     if (s.row === "lifetime") {
-      const k = keyOf({ kind: "capture-by", index: s.index, usr: s.usr! });
-      if (live.has(k)) [s.state, s.why] = ["covered", "rewritten to lifetimebound: clang checks the callers"];
-      else if (blockers.has(k) || why1.has(k)) s.why = blockers.get(k) ?? why1.get(k);
+      const k = keyOf({kind : "capture-by", index : s.index, usr : s.usr!});
+      if (live.has(k))
+        [s.state, s.why] = [
+          "covered", "rewritten to lifetimebound: clang checks the callers"
+        ];
+      else if (blockers.has(k) || why1.has(k))
+        s.why = blockers.get(k) ?? why1.get(k);
       continue;
     }
     const k = keyOf({ kind: "ref", index: s.index, usr: s.usr! });

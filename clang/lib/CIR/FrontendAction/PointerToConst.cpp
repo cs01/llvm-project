@@ -17,6 +17,7 @@
 
 #include "CIRModernizeFramework.h"
 
+#include "clang/AST/ParentMapContext.h"
 #include "clang/CIR/Dialect/Analysis/CIRPointeeWrites.h"
 
 using namespace clang;
@@ -98,6 +99,8 @@ public:
               Cand.Needs.push_back(Needed);
           }
         }
+      if (Why.empty() && usedInFoldedBranch(P))
+        Why = "const: used in a branch the build folds away";
       if (Why.empty() && !declEdits(Cand))
         Why = "const: pointer spelled through a typedef or macro";
       Ctx.add(std::move(Cand), Why);
@@ -117,6 +120,31 @@ public:
   }
 
 protected:
+  // CIRGen emits nothing for the dead branch of `if (0)`, so the facts never
+  // see a use there, yet the branch is still type-checked: passing the
+  // pointer on to a non-const parameter there stops compiling (C++) or warns
+  // (C) once the pointee is const.
+  bool usedInFoldedBranch(const ParmVarDecl *P) {
+    for (DeclRefExpr *DRE : Ctx.Visitor.Refs) {
+      if (DRE->getDecl() != P)
+        continue;
+      DynTypedNode Node = DynTypedNode::create(*DRE);
+      for (DynTypedNodeList Parents = Ctx.C.getParents(Node); !Parents.empty();
+           Parents = Ctx.C.getParents(Node)) {
+        if (const auto *If = Parents[0].get<IfStmt>()) {
+          bool Cond;
+          const Stmt *Child = Node.get<Stmt>();
+          if (!If->getCond()->isValueDependent() &&
+              If->getCond()->EvaluateAsBooleanCondition(Cond, Ctx.C) &&
+              Child == (Cond ? If->getElse() : If->getThen()))
+            return true;
+        }
+        Node = Parents[0];
+      }
+    }
+    return false;
+  }
+
   static constexpr StringRef AlreadyConst = "const: already const";
 
   static StringRef whyParamIneligible(const ParmVarDecl *P) {
@@ -141,7 +169,10 @@ protected:
         return false;
       // A pointee that is itself a pointer takes const after its own '*'
       // (char *const *); in front, const would qualify what that points to.
-      if (auto Inner = Star->getPointeeLoc().getAs<PointerTypeLoc>()) {
+      // The inner pointer may be qualified itself (T *restrict *p).
+      if (auto Inner = Star->getPointeeLoc()
+                           .getUnqualifiedLoc()
+                           .getAs<PointerTypeLoc>()) {
         SourceLocation InnerStar = Inner.getStarLoc();
         if (InnerStar.isInvalid() || InnerStar.isMacroID())
           return false;

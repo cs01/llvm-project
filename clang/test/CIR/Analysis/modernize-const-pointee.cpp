@@ -111,3 +111,17 @@ long useDistance(char *b, char *e) {
   copyOut(b, e);
   return distance(b, e);
 }
+
+// CIRGen emits nothing for `if (0)`, but the call there is still checked.
+// NEG-NOT: of 'deadWrite'
+static int deadWrite(Node *p) {
+  if (0)
+    writer(p);
+  return p->value;
+}
+int useDeadWrite(Node *p) { return deadWrite(p); }
+
+// A qualified inner pointer still takes const after its own '*'.
+// FIXED: {{^}}static int firstRestrict(const char *const __restrict *argv) { return argv[0][0]; }
+static int firstRestrict(const char *__restrict *argv) { return argv[0][0]; }
+int useRestrict(const char *__restrict *argv) { return firstRestrict(argv); }

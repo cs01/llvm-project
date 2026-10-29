@@ -14,6 +14,12 @@
 ; RUN: cir-modernize-ircmp typeinfo.ll typeinfo-ref.ll
 ; RUN: not cir-modernize-ircmp typeinfo.ll typeinfo-other.ll | FileCheck --check-prefix=TYPEINFO %s
 ; RUN: not cir-modernize-ircmp method.ll method-other.ll | FileCheck --check-prefix=METHOD %s
+; RUN: cir-modernize-ircmp asm.ll asm-moved.ll
+; RUN: not cir-modernize-ircmp asm.ll asm-other.ll | FileCheck --check-prefix=ASM %s
+
+; An edit earlier in the file moves inline asm's !srcloc, which is only for
+; diagnostics; the asm itself still has to match.
+; ASM: - call void asm sideeffect "nop", ""()
 
 ; INST:      in define internal noundef i32 @_ZL5firstP4Node
 ; INST-NEXT: - %2 = add i32 %1, 1
@@ -416,3 +422,21 @@ define ptr @_Z5firstR4Node(ptr %n) {
 define ptr @_Z5firstR4Node(ptr %n) {
   ret ptr @_ZTSZ5firstR4NodeE3$_0
 }
+;--- asm.ll
+define void @f() {
+  call void asm sideeffect "nop", ""(), !srcloc !0
+  ret void
+}
+!0 = !{i64 100}
+;--- asm-moved.ll
+define void @f() {
+  call void asm sideeffect "nop", ""(), !srcloc !0
+  ret void
+}
+!0 = !{i64 250}
+;--- asm-other.ll
+define void @f() {
+  call void asm sideeffect "yield", ""(), !srcloc !0
+  ret void
+}
+!0 = !{i64 100}

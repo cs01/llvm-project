@@ -540,6 +540,16 @@ private:
           for (const auto &E : CR->skippedNames())
             J.value(E.getKey());
         });
+      // A header a C translation unit includes can take only C syntax; the
+      // C++ translation units that propose edits to it cannot tell.
+      if (!Ctx.C.getLangOpts().CPlusPlus)
+        J.attributeArray("cFiles", [&] {
+          for (const auto &[FE, Info] : llvm::make_range(
+                   Ctx.SM.fileinfo_begin(), Ctx.SM.fileinfo_end())) {
+            StringRef Path = FE.getFileEntry().tryGetRealPathName();
+            J.value(Path.empty() ? FE.getName() : Path);
+          }
+        });
       exportInventory(J, Ctx);
     });
   }

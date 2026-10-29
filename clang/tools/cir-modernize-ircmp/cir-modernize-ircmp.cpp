@@ -82,9 +82,13 @@ static AttributeList stripParamFacts(LLVMContext &C, AttributeList AL,
 
 static void stripRefFacts(Module &M) {
   LLVMContext &C = M.getContext();
+  unsigned SrcLoc = C.getMDKindID("srcloc");
   for (Function &F : M) {
     F.setAttributes(stripParamFacts(C, F.getAttributes(), F.arg_size()));
     for (Instruction &I : instructions(F)) {
+      // !srcloc is a source offset kept for inline asm diagnostics; an edit
+      // earlier in the file moves it.
+      I.setMetadata(SrcLoc, nullptr);
       if (auto *CB = dyn_cast<CallBase>(&I))
         CB->setAttributes(
             stripParamFacts(C, CB->getAttributes(), CB->arg_size()));
