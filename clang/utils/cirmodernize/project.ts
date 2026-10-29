@@ -42,6 +42,7 @@ type Candidate = {
   blocked?: string;
   internal?: boolean;
   method?: boolean;
+  exported?: boolean;
   changesType?: boolean;
   refines?: boolean;
   edits?: Edit[];
@@ -160,6 +161,7 @@ if (unknownApi)
 const sources = new Set(loadCommands(compdb, []).map((c) => c.file));
 
 function policy(c: Candidate): string | undefined {
+  if (c.exported && !allowPublic && c.changesType !== false) return "exported from the library (export attribute or macro)";
   for (const e of c.edits ?? []) {
     if (!under(e.file, root)) return "declared outside --root";
     if (!allowPublic && (publicFiles.has(e.file) || publicDirs.some((d) => under(e.file, d))))

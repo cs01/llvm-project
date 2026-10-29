@@ -171,6 +171,66 @@ Context::instantiationsOf(const FunctionDecl *FD) const {
   return Out;
 }
 
+// Whether an export macro is spelled in a declaration that starts at Begin
+// and names its entity at End. A macro that expands to nothing is not part
+// of the declaration's range, so the scan starts two lines up and counts only
+// what follows the last `;`, `{` or `}` before Begin.
+static bool spellsExportMacro(const SourceManager &SM, const LangOptions &LO,
+                              SourceLocation Begin, SourceLocation End,
+                              const ConditionalRecord &CR) {
+  Begin = SM.getExpansionLoc(Begin);
+  End = SM.getExpansionLoc(End);
+  auto [FID, At] = SM.getDecomposedLoc(Begin);
+  if (FID != SM.getFileID(End))
+    return false;
+  unsigned To = SM.getFileOffset(End);
+  StringRef Buf = SM.getBufferData(FID);
+  unsigned From = At;
+  for (int Lines = 0; From > 0 && Lines < 3; --From)
+    if (Buf[From - 1] == '\n')
+      ++Lines;
+  Lexer L(SM.getLocForStartOfFile(FID), LO, Buf.begin(), Buf.begin() + From,
+          Buf.end());
+  Token T;
+  bool Found = false;
+  while (!L.LexFromRawLexer(T)) {
+    unsigned Offset = SM.getFileOffset(T.getLocation());
+    if (Offset >= To)
+      break;
+    if (Offset < At && T.isOneOf(tok::semi, tok::l_brace, tok::r_brace))
+      Found = false;
+    else if (T.is(tok::raw_identifier) &&
+             CR.isExportMacro(T.getRawIdentifier()))
+      Found = true;
+  }
+  return Found;
+}
+
+bool Context::exported(const FunctionDecl *FD) const {
+  if (!FD->isExternallyVisible())
+    return false;
+  auto HasAttr = [](const Decl *D) {
+    const auto *VA = D->getAttr<VisibilityAttr>();
+    return (VA && VA->getVisibility() == VisibilityAttr::Default) ||
+           D->hasAttr<DLLExportAttr>() || D->hasAttr<DLLImportAttr>();
+  };
+  const auto *RD = dyn_cast<CXXRecordDecl>(FD->getDeclContext());
+  for (const FunctionDecl *R : FD->redecls())
+    if (HasAttr(R))
+      return true;
+  if (RD && HasAttr(RD))
+    return true;
+  const ConditionalRecord *CR = Options.Conditionals;
+  if (!CR)
+    return false;
+  const LangOptions &LO = C.getLangOpts();
+  for (const FunctionDecl *R : FD->redecls())
+    if (spellsExportMacro(SM, LO, R->getBeginLoc(), R->getLocation(), *CR))
+      return true;
+  return RD &&
+         spellsExportMacro(SM, LO, RD->getBeginLoc(), RD->getLocation(), *CR);
+}
+
 StringRef Context::whyIneligible(FunctionDecl *FD, unsigned Allowed) {
   if (!CalleesIndexed)
     indexCallees();
@@ -605,6 +665,8 @@ private:
             J.attribute("defined", !Cand.External);
             J.attribute("internal", !Cand.FD->isExternallyVisible());
             J.attribute("method", isa<CXXMethodDecl>(Cand.FD));
+            if (Ctx.exported(Cand.FD))
+              J.attribute("exported", true);
             J.attribute("changesType", Rewrites[Cand.Rewrite]->changesType());
             J.attribute("refines", Rewrites[Cand.Rewrite]->refines());
             J.attribute("location", (Cand.Param ? Cand.Param->getLocation()
@@ -691,9 +753,41 @@ void ConditionalRecord::SourceRangeSkipped(SourceRange Range,
   Lexer L(SM.getLocForStartOfFile(FID), PP.getLangOpts(), Buf.begin(),
           Buf.begin() + Offset, Buf.end());
   Token T;
-  while (!L.LexFromRawLexer(T) && SM.getFileOffset(T.getLocation()) <= End)
+  // `#define NAME ...` with an export attribute in its body, in a branch this
+  // build skips: NAME exports in some other build (a shared one).
+  enum { Line, Hash, Define, Body } State = Line;
+  StringRef Defined;
+  while (!L.LexFromRawLexer(T) && SM.getFileOffset(T.getLocation()) <= End) {
+    if (T.isAtStartOfLine())
+      State = T.is(tok::hash) ? Hash : Line;
+    else if (State == Hash)
+      State = T.is(tok::raw_identifier) && T.getRawIdentifier() == "define"
+                  ? Define
+                  : Line;
+    else if (State == Define) {
+      Defined = T.is(tok::raw_identifier) ? T.getRawIdentifier() : "";
+      State = Defined.empty() ? Line : Body;
+    } else if (State == Body && T.is(tok::raw_identifier) &&
+               isExportWord(T.getRawIdentifier()))
+      ExportMacros.insert(Defined);
     if (T.is(tok::raw_identifier))
       Skipped.insert(T.getRawIdentifier());
+  }
+}
+
+bool ConditionalRecord::isExportWord(StringRef Word) {
+  return Word == "visibility" || Word == "dllexport" || Word == "dllimport";
+}
+
+void ConditionalRecord::MacroDefined(const Token &Name,
+                                     const MacroDirective *MD) {
+  const MacroInfo *MI = MD ? MD->getMacroInfo() : nullptr;
+  if (!MI || PP.getSourceManager().isInSystemHeader(MI->getDefinitionLoc()))
+    return;
+  for (const Token &T : MI->tokens())
+    if (const IdentifierInfo *II = T.getIdentifierInfo();
+        II && isExportWord(II->getName()))
+      ExportMacros.insert(Name.getIdentifierInfo()->getName());
 }
 
 void ConditionalRecord::MacroExpands(const Token &Name,

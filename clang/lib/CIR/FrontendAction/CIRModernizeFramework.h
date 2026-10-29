@@ -251,6 +251,10 @@ public:
   /// the template would no longer match it).
   std::optional<llvm::SmallVector<FunctionDecl *>>
   instantiationsOf(const FunctionDecl *FD) const;
+  /// Whether FD is part of the library's exported API: an export attribute
+  /// on it or its class, or an export macro written in its declaration or
+  /// in its class's head.
+  bool exported(const FunctionDecl *FD) const;
 
   /// Why FD must keep a signature C can read (references are C++ only), or
   /// empty if only C++ sees it.

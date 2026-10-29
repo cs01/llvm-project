@@ -50,6 +50,7 @@ public:
   void SourceRangeSkipped(SourceRange Range, SourceLocation EndifLoc) override;
   void MacroExpands(const Token &Name, const MacroDefinition &MD,
                     SourceRange Range, const MacroArgs *Args) override;
+  void MacroDefined(const Token &Name, const MacroDirective *MD) override;
 
   /// Whether the file range R overlaps an #if region other than an include
   /// guard.
@@ -68,6 +69,12 @@ public:
   bool spellsNullability(FileID FID) const {
     return NullabilityFiles.count(FID);
   }
+  /// Macros that are an export attribute (visibility, dllexport, dllimport)
+  /// in this build or in a branch it skips: LEVELDB_EXPORT is empty in a
+  /// static build and still marks the library's API.
+  bool isExportMacro(StringRef Name) const {
+    return ExportMacros.contains(Name);
+  }
 
 private:
   Preprocessor &PP;
@@ -76,6 +83,8 @@ private:
   llvm::StringSet<> Skipped;
   llvm::StringMap<unsigned> NullabilityUses[2];
   llvm::DenseSet<FileID> NullabilityFiles;
+  llvm::StringSet<> ExportMacros;
+  static bool isExportWord(StringRef Word);
 };
 
 struct CIRModernizeOptions {
