@@ -248,14 +248,27 @@ void Context::add(Candidate Cand, StringRef Why) {
   Candidates.push_back(std::move(Cand));
 }
 
+// In project mode a function this translation unit only declares is proven
+// (or not) by the one that defines it, so a need on it is left to project.ts,
+// which settles every need once all translation units are in.
+static bool definedElsewhere(const FunctionDecl *FD) {
+  const FunctionDecl *Def = FD->getDefinition();
+  return !Def || !Def->hasBody();
+}
+
 bool Context::live(const ParmVarDecl *P, unsigned Rewrite) const {
   auto It = ByParam.find({P, Rewrite});
-  return It != ByParam.end() && Candidates[It->second].Live;
+  if (It == ByParam.end())
+    return projectMode() &&
+           definedElsewhere(cast<FunctionDecl>(P->getDeclContext()));
+  return Candidates[It->second].Live;
 }
 
 bool Context::live(const FunctionDecl *FD, unsigned Rewrite) const {
   auto It = ByMethod.find({FD->getCanonicalDecl(), Rewrite});
-  return It != ByMethod.end() && Candidates[It->second].Live;
+  if (It == ByMethod.end())
+    return projectMode() && definedElsewhere(FD);
+  return Candidates[It->second].Live;
 }
 
 ParmVarDecl *Context::keyParam(const FunctionDecl *FD, unsigned Index) {
