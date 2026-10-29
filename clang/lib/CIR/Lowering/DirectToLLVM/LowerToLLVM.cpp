@@ -290,6 +290,8 @@ static mlir::LLVM::CConv convertCallingConv(cir::CallingConv callingConv) {
   switch (callingConv) {
   case CIR::C:
     return LLVM::C;
+  case CIR::CXXFastTLS:
+    return LLVM::CXX_FAST_TLS;
   case CIR::SpirKernel:
     return LLVM::SPIR_KERNEL;
   case CIR::SpirFunction:

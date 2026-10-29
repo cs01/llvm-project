@@ -420,8 +420,16 @@ void LowerItaniumCXXABI::lowerGetMethod(
     if (!useARMMethodPtrABI)
       vtableOffset = cir::SubOp::create(b, loc, vtableOffset.getType(),
                                         vtableOffset, ptrdiffOne);
-    if (use32BitVTableOffsetABI)
-      llvm_unreachable("AppleARM64 method ptr abi NYI");
+    if (use32BitVTableOffsetABI) {
+      mlir::Type ptrdiffTy = vtableOffset.getType();
+      auto u32Ty = cir::IntType::get(b.getContext(), 32, /*isSigned=*/false);
+      // Widening from an unsigned type zero-extends, as classic codegen's
+      // trunc + zext does.
+      vtableOffset = cir::CastOp::create(b, loc, u32Ty, cir::CastKind::integral,
+                                         vtableOffset);
+      vtableOffset = cir::CastOp::create(b, loc, ptrdiffTy,
+                                         cir::CastKind::integral, vtableOffset);
+    }
 
     assert(!cir::MissingFeatures::emitCFICheck());
     assert(!cir::MissingFeatures::emitVFEInfo());

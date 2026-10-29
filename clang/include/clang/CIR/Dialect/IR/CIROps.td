@@ -4309,10 +4309,11 @@ def CIR_OptionalPriorityAttr : OptionalAttr<
 // `clang::CallingConv`.
 def CIR_CallingConv : CIR_I32Enum<"CallingConv", "calling convention", [
   I32EnumCase<"C", 0, "c">,
-  I32EnumCase<"PTXKernel", 1, "ptx_kernel">,
-  I32EnumCase<"SpirFunction", 2, "spir_function">,
-  I32EnumCase<"SpirKernel", 3, "spir_kernel">,
-  I32EnumCase<"AMDGPUKernel", 4, "amdgpu_kernel">
+  I32EnumCase<"CXXFastTLS", 1, "cxx_fast_tls">,
+  I32EnumCase<"PTXKernel", 2, "ptx_kernel">,
+  I32EnumCase<"SpirFunction", 3, "spir_function">,
+  I32EnumCase<"SpirKernel", 4, "spir_kernel">,
+  I32EnumCase<"AMDGPUKernel", 5, "amdgpu_kernel">
 ]>;
 
 def CIR_CallingConvAttr : CIR_EnumAttr<CIR_CallingConv, "calling_conv">;

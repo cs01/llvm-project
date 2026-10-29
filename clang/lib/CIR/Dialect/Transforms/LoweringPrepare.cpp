@@ -1542,8 +1542,15 @@ cir::FuncOp LoweringPreparePass::getTlsInitFn() {
   builder.setInsertionPointToStart(mlirModule.getBody());
   mlir::Location loc = mlirModule.getLoc();
   auto fnType = builder.getVoidFnTy();
-  return buildRuntimeFunction(builder, "__tls_init", loc, fnType,
-                              cir::GlobalLinkageKind::InternalLinkage);
+  cir::FuncOp fn =
+      buildRuntimeFunction(builder, "__tls_init", loc, fnType,
+                           cir::GlobalLinkageKind::InternalLinkage);
+  if (getTargetInfo().getTriple().isOSDarwin()) {
+    fn.setCallingConv(cir::CallingConv::CXXFastTLS);
+    fn->setAttr(cir::CIRDialect::getNoThrowAttrName(),
+                mlir::UnitAttr::get(&getContext()));
+  }
+  return fn;
 }
 
 cir::GlobalOp LoweringPreparePass::createGuardGlobalOp(
@@ -1830,8 +1837,11 @@ LoweringPreparePass::getOrCreateThreadLocalWrapper(CIRBaseBuilderTy &builder,
         op.getGlobalVisibility() == cir::VisibilityKind::Hidden)
       func.setGlobalVisibility(cir::VisibilityKind::Hidden);
   }
-  if (isThreadWrapperReplaceable(getTargetInfo()))
-    op->emitError("Unhandled thread wrapper attributes for CC and Nounwind");
+  if (isThreadWrapperReplaceable(getTargetInfo())) {
+    func.setCallingConv(cir::CallingConv::CXXFastTLS);
+    func->setAttr(cir::CIRDialect::getNoThrowAttrName(),
+                  mlir::UnitAttr::get(&getContext()));
+  }
 
   threadLocalWrappers.insert({wrapperName.getValue(), func});
   return func;
@@ -1848,6 +1858,15 @@ void LoweringPreparePass::defineGlobalThreadLocalWrapper(cir::GlobalOp op,
   // function.
   if (initAlias) {
     mlir::Location aliasLoc = initAlias.getLoc();
+    // Matches classic codegen: only a call through an alias defined in this
+    // TU uses the fast TLS convention, and the aliased init function takes it
+    // too. A call to an extern-weak init function keeps the C convention.
+    if (isVarDefinition && isThreadWrapperReplaceable(getTargetInfo())) {
+      initAlias.setCallingConv(cir::CallingConv::CXXFastTLS);
+      if (std::optional<llvm::StringRef> aliasee = initAlias.getAliasee())
+        if (auto fn = mlirModule.lookupSymbol<cir::FuncOp>(*aliasee))
+          fn.setCallingConv(cir::CallingConv::CXXFastTLS);
+    }
     if (!isVarDefinition) {
       // If this isn't a definition, we have to check that the alias exists.
       mlir::Value funcLoad = cir::GetGlobalOp::create(
