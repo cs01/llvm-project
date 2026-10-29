@@ -73,6 +73,11 @@ const FunctionDecl *Context::declByMangledName(StringRef Mangled) {
       for (Decl *D : RD->decls())
         if (auto *M = dyn_cast<CXXMethodDecl>(D); M && M->isImplicit())
           Decls.insert(M);
+    // CIR calls an instantiation, which the source does not declare.
+    for (FunctionDecl *FD : Visitor.Functions)
+      if (FD->isTemplated())
+        if (auto Insts = instantiationsOf(FD))
+          Decls.insert(Insts->begin(), Insts->end());
     for (FunctionDecl *FD : Decls) {
       // Only what CIR can call is mangled: deduction guides have no symbol,
       // and the mangler does not handle them.
@@ -130,23 +135,53 @@ static bool spellsSignature(const Stmt *S) {
   return false;
 }
 
-StringRef Context::whyIneligibleVirtual(FunctionDecl *FD) {
-  AllowVirtual = true;
-  StringRef Why = whyIneligible(FD);
-  AllowVirtual = false;
-  return Why;
+std::optional<llvm::SmallVector<FunctionDecl *>>
+Context::instantiationsOf(const FunctionDecl *FD) const {
+  llvm::SmallVector<FunctionDecl *> Out;
+  auto Take = [&](FunctionDecl *Spec) {
+    if (Spec->getTemplateSpecializationKind() != TSK_ImplicitInstantiation)
+      return false;
+    Out.push_back(Spec);
+    return true;
+  };
+  if (FD->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate) {
+    if (FD->getDeclContext()->isDependentContext())
+      return std::nullopt;
+    for (FunctionDecl *Spec :
+         FD->getDescribedFunctionTemplate()->specializations())
+      if (!Take(Spec))
+        return std::nullopt;
+    return Out;
+  }
+  // A member of a class template written in the template itself (not a
+  // partial specialization, not nested in another template).
+  const auto *MD = dyn_cast<CXXMethodDecl>(FD);
+  const CXXRecordDecl *RD = MD ? MD->getParent() : nullptr;
+  const ClassTemplateDecl *CTD = RD ? RD->getDescribedClassTemplate() : nullptr;
+  if (!CTD || FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate ||
+      RD->getDeclContext()->isDependentContext())
+    return std::nullopt;
+  const FunctionDecl *Pattern = FD->getCanonicalDecl();
+  for (ClassTemplateSpecializationDecl *Spec : CTD->specializations())
+    for (CXXMethodDecl *M : Spec->methods()) {
+      const FunctionDecl *From = M->getInstantiatedFromMemberFunction();
+      if (From && From->getCanonicalDecl() == Pattern && !Take(M))
+        return std::nullopt;
+    }
+  return Out;
 }
 
-StringRef Context::whyIneligible(FunctionDecl *FD, bool Templates) {
+StringRef Context::whyIneligible(FunctionDecl *FD, unsigned Allowed) {
   if (!CalleesIndexed)
     indexCallees();
   if (isa<CXXConstructorDecl, CXXDestructorDecl, CXXConversionDecl>(FD) ||
       FD->isOverloadedOperator() || FD->isMain() || FD->isVariadic() ||
       !FD->getIdentifier())
     return "special function";
-  bool Template = Templates &&
-                  FD->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate &&
-                  !FD->getDeclContext()->isDependentContext();
+  std::optional<llvm::SmallVector<FunctionDecl *>> Insts;
+  if ((Allowed & AllowTemplates) && FD->isTemplated())
+    Insts = instantiationsOf(FD);
+  bool Template = Insts.has_value();
   if (!Template && (FD->isTemplated() || FD->isTemplateInstantiation() ||
                     FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate))
     return "template";
@@ -154,17 +189,24 @@ StringRef Context::whyIneligible(FunctionDecl *FD, bool Templates) {
     return "coroutine";
   if (auto *MD = dyn_cast<CXXMethodDecl>(FD))
     if (MD->getParent()->isLocalClass() ||
-        (!AllowVirtual && (MD->isVirtual() || MD->size_overridden_methods())))
+        (!(Allowed & AllowVirtual) &&
+         (MD->isVirtual() || MD->size_overridden_methods())))
       return "virtual or local class method";
   if (const FunctionDecl *Def = FD->getDefinition();
       Def && spellsSignature(Def->getBody()))
     return "signature spelled in __PRETTY_FUNCTION__";
   if (FD->isExternallyVisible() && !Options.AllowPublic && !projectMode())
     return "externally visible";
-  for (const FunctionDecl *R : FD->redecls())
-    if (!editable(R->getLocation()))
-      return projectMode() ? "declared in a system header or a macro"
-                           : "declared outside the main file";
+  for (const FunctionDecl *R : FD->redecls()) {
+    SourceLocation Loc = R->getLocation();
+    if (projectMode() && (Allowed & AllowMacro) && Loc.isMacroID() &&
+        editable(SM.getExpansionLoc(Loc)))
+      continue;
+    if (!editable(Loc))
+      return !projectMode()    ? "declared outside the main file"
+             : Loc.isMacroID() ? "declared by a macro"
+                               : "declared in a system header";
+  }
   if (projectMode() && usr(FD).empty())
     return "no USR";
   if (Visitor.UnresolvedFound.contains(FD->getCanonicalDecl()) ||
@@ -173,14 +215,17 @@ StringRef Context::whyIneligible(FunctionDecl *FD, bool Templates) {
           .contains(FD->getDeclName()))
     return "name used in a dependent call";
   const FunctionDecl *Canon = FD->getCanonicalDecl();
-  if (Visitor.UsedInInstantiation.contains(Canon))
+  // A rewrite that needs no edit at call sites only minds an instantiation
+  // taking the address; any other needs every call edited, and calls inside
+  // an instantiation cannot be.
+  const llvm::DenseSet<const FunctionDecl *> &InInstantiation =
+      (Allowed & AllowTemplates) ? Visitor.AddressInInstantiation
+                                 : Visitor.UsedInInstantiation;
+  if (InInstantiation.contains(Canon))
     return "used from a template instantiation";
-  // Uses inside instantiations are not collected, so one there may take the
-  // address of a specialization.
   if (Template)
-    for (FunctionDecl *Spec :
-         FD->getDescribedFunctionTemplate()->specializations())
-      if (Visitor.UsedInInstantiation.contains(Spec->getCanonicalDecl()))
+    for (FunctionDecl *Spec : *Insts)
+      if (InInstantiation.contains(Spec->getCanonicalDecl()))
         return "used from a template instantiation";
   for (const NamedDecl *ND :
        FD->getDeclContext()->getRedeclContext()->lookup(FD->getDeclName())) {

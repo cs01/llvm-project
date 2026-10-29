@@ -238,6 +238,20 @@ const inC = new Set(["const", "nonnull", "nullable"]);
 for (const [k, es] of edits)
   if (!inC.has(proposals.get(k)!.kind) && es.some((e) => cFiles.has(e.file)) && !blockers.has(k))
     blockers.set(k, "C++ syntax in a file a C TU includes");
+// Candidates whose edits overlap at one spot (every function one macro
+// writes, sharing the edit in that macro) are only right together: each
+// needs the others, so settle() drops them as one.
+{
+  const at = new Map<string, Set<string>>();
+  for (const [k, es] of edits)
+    for (const e of es) {
+      const spot = `${e.file}:${e.offset}:${e.length}`;
+      at.set(spot, (at.get(spot) ?? new Set()).add(k));
+    }
+  for (const ks of at.values())
+    if (ks.size > 1)
+      for (const k of ks) for (const o of ks) if (o !== k) needs.get(k)!.add(o);
+}
 const live = new Set([...proposals.keys()].filter((k) => provenHere.has(k) && !blockers.has(k)));
 for (const k of proposals.keys())
   if (!live.has(k) && !blockers.has(k)) blockers.set(k, "no longer proven by its defining TU");

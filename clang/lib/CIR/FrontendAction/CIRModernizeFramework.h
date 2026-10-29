@@ -61,13 +61,21 @@ public:
   bool dataTraverseStmtPre(Stmt *S) {
     if (!InstantiationDepth)
       return true;
+    // Statements are visited before their children, so a call's callee is
+    // known by the time its reference is reached.
+    if (auto *CE = dyn_cast<CallExpr>(S))
+      if (const Expr *Callee = CE->getCallee())
+        InstantiationCallees.insert(Callee->IgnoreParenImpCasts());
     const ValueDecl *Ref = nullptr;
     if (auto *DRE = dyn_cast<DeclRefExpr>(S))
       Ref = DRE->getDecl();
     else if (auto *ME = dyn_cast<MemberExpr>(S))
       Ref = ME->getMemberDecl();
-    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Ref))
+    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Ref)) {
       UsedInInstantiation.insert(FD->getCanonicalDecl());
+      if (!InstantiationCallees.contains(S))
+        AddressInInstantiation.insert(FD->getCanonicalDecl());
+    }
     return true;
   }
 
@@ -140,6 +148,9 @@ public:
   llvm::DenseSet<DeclarationName> UnresolvedMethods;
   llvm::DenseSet<const FunctionDecl *> UnresolvedFound;
   llvm::DenseSet<const FunctionDecl *> UsedInInstantiation;
+  /// Referenced inside an instantiation other than as the callee of a call.
+  llvm::DenseSet<const FunctionDecl *> AddressInInstantiation;
+  llvm::DenseSet<const Stmt *> InstantiationCallees;
 
 private:
   void addFound(OverloadExpr *E) {
@@ -217,12 +228,26 @@ public:
   const FunctionDecl *declByMangledName(StringRef Mangled);
 
   /// Why FD cannot have its signature rewritten, or empty if it can.
-  /// Templates allows a function template that is not a member of a class
-  /// template, for a rewrite that needs no edit at its call sites.
-  StringRef whyIneligible(FunctionDecl *FD, bool Templates = false);
-  /// The same, but a virtual method is eligible: its override set is edited
-  /// together (Candidate::NeedsMethods both ways).
-  StringRef whyIneligibleVirtual(FunctionDecl *FD);
+  /// What a rewrite can take beyond plain functions.
+  enum Allow : unsigned {
+    /// A function template that is not a member of a class template, for a
+    /// rewrite that needs no edit at its call sites.
+    AllowTemplates = 1,
+    /// A virtual method: its override set is edited together
+    /// (Candidate::NeedsMethods both ways).
+    AllowVirtual = 2,
+    /// Project mode: a function a macro in the project's own source writes,
+    /// edited in that macro. Every function the macro writes shares the
+    /// edit, and project.ts keeps candidates that share an edit together.
+    AllowMacro = 4,
+  };
+  StringRef whyIneligible(FunctionDecl *FD, unsigned Allowed = 0);
+  /// The implicit instantiations of FD, a function template or a member of a
+  /// class template, or nullopt when FD is neither or when an explicit
+  /// specialization or instantiation spells its signature again (an edit to
+  /// the template would no longer match it).
+  std::optional<llvm::SmallVector<FunctionDecl *>>
+  instantiationsOf(const FunctionDecl *FD) const;
 
   /// Why FD must keep a signature C can read (references are C++ only), or
   /// empty if only C++ sees it.
@@ -263,7 +288,6 @@ private:
   llvm::StringMap<const FunctionDecl *> ByMangled;
   bool MangledIndexed = false;
   llvm::DenseMap<std::pair<const ParmVarDecl *, unsigned>, size_t> ByParam;
-  bool AllowVirtual = false;
   llvm::DenseMap<std::pair<const FunctionDecl *, unsigned>, size_t> ByMethod;
   llvm::BumpPtrAllocator Alloc;
   llvm::StringSaver Saver{Alloc};

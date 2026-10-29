@@ -89,3 +89,25 @@ int shapes() {
   Shape &s = q;
   return s.area() + s.id() + q.area();
 }
+
+// A member of a class template is proven by every instantiation; one that
+// writes in any instantiation stays.
+namespace {
+template <typename T> struct Cell {
+  T v;
+  // CHECK-DAG: warning: method 'get' never writes through 'this'
+  // FIXED: T get() const { return v; }
+  T get() { return v; }
+  // CHECK-DAG: warning: method 'twiceGet' never writes through 'this'
+  // FIXED: T twiceGet() const { return get() + get(); }
+  T twiceGet() { return get() + get(); }
+  void set(T x) { v = x; }
+};
+} // namespace
+// CHECK-NOT: method 'set' never
+int cells() {
+  Cell<int> a{1};
+  Cell<long> b{2};
+  a.set(3);
+  return a.twiceGet() + (int)b.get();
+}

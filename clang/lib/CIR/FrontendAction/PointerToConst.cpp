@@ -18,7 +18,9 @@
 #include "CIRModernizeFramework.h"
 
 #include "clang/AST/ParentMapContext.h"
+#include "clang/Basic/CharInfo.h"
 #include "clang/CIR/Dialect/Analysis/CIRPointeeWrites.h"
+#include "clang/Lex/Lexer.h"
 
 using namespace clang;
 using namespace clang::cirmodernize;
@@ -54,32 +56,31 @@ public:
   void addDefined(FunctionDecl *FD) override {
     if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD))
       return;
-    // A function template is proven by every instantiation CIR emitted.
+    // A function template, or a member of a class template, is proven by
+    // every instantiation CIR emitted.
     // Callers need no edit: a T * argument converts to const T *.
-    bool Template = FD->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate;
-    if (Template ? FD->getDeclContext()->isDependentContext()
-                 : FD->isDependentContext() || FD->isTemplated())
-      return;
+    std::optional<llvm::SmallVector<FunctionDecl *>> Insts;
+    if (FD->isTemplated()) {
+      Insts = Ctx.instantiationsOf(FD);
+      if (!Insts)
+        return;
+    }
+    bool Template = Insts.has_value();
     llvm::SmallVector<const llvm::DenseMap<unsigned, cir::PointeeWriteFact> *>
         Proofs;
     if (!Template) {
       if (auto It = Facts.find(Ctx.mangle(FD)); It != Facts.end())
         Proofs.push_back(&It->second);
     } else {
-      for (FunctionDecl *Spec :
-           FD->getDescribedFunctionTemplate()->specializations()) {
-        // An explicit specialization or instantiation repeats the
-        // signature, which the edit to the template would no longer match.
-        if (Spec->getTemplateSpecializationKind() != TSK_ImplicitInstantiation)
-          return;
+      for (FunctionDecl *Spec : *Insts)
         if (auto It = Facts.find(Ctx.mangle(Spec)); It != Facts.end())
           Proofs.push_back(&It->second);
-      }
     }
     const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
     if (Proofs.empty() && !Planned)
       return;
-    StringRef FunctionWhy = Ctx.whyIneligible(FD, /*Templates=*/true);
+    StringRef FunctionWhy =
+        Ctx.whyIneligible(FD, Context::AllowTemplates | Context::AllowMacro);
     unsigned Offset = Context::thisOffset(FD);
     llvm::SmallVector<unsigned> Indices;
     for (const auto *Proof : Proofs)
@@ -142,7 +143,8 @@ public:
     ParmVarDecl *P = FD->getParamDecl(Index);
     StringRef Why = whyParamIneligible(P);
     if (Why.empty())
-      Why = Ctx.whyIneligible(FD);
+      Why =
+          Ctx.whyIneligible(FD, Context::AllowTemplates | Context::AllowMacro);
     Candidate Cand{FD, P, Index, Id};
     Cand.External = true;
     if (Why.empty() && !declEdits(Cand))
@@ -194,9 +196,14 @@ protected:
   // sees, or after the pointee's own '*' when it is a pointer.
   bool declEdits(Candidate &Cand) {
     for (const FunctionDecl *R : Cand.FD->redecls()) {
-      std::optional<PointerTypeLoc> Star =
-          Context::starOf(R->getParamDecl(Cand.Index));
-      if (!Star || Star->getStarLoc().isMacroID())
+      const ParmVarDecl *P = R->getParamDecl(Cand.Index);
+      std::optional<PointerTypeLoc> Star = Context::starOf(P);
+      if (!Star) {
+        if (!typedefEdit(Cand, P))
+          return false;
+        continue;
+      }
+      if (!editableIn(Star->getStarLoc(), R))
         return false;
       // A pointee that is itself a pointer takes const after its own '*'
       // (char *const *); in front, const would qualify what that points to.
@@ -205,17 +212,67 @@ protected:
                            .getUnqualifiedLoc()
                            .getAs<PointerTypeLoc>()) {
         SourceLocation InnerStar = Inner.getStarLoc();
-        if (InnerStar.isInvalid() || InnerStar.isMacroID())
+        if (InnerStar.isInvalid() || !editableIn(InnerStar, R))
           return false;
         Cand.Edits.push_back(FixItHint::CreateInsertion(
-            InnerStar.getLocWithOffset(1), "const "));
+            Ctx.SM.getSpellingLoc(InnerStar).getLocWithOffset(1), "const "));
         continue;
       }
       SourceLocation Begin = Star->getPointeeLoc().getBeginLoc();
-      if (Begin.isInvalid() || Begin.isMacroID())
+      // A pointee from a macro argument (T *p in a macro taking T) would put
+      // const into the argument, which the macro may paste elsewhere; the
+      // star is in the macro itself, so const goes before it: T const *p.
+      if (Begin.isMacroID() && Ctx.SM.isMacroArgExpansion(Begin)) {
+        SourceLocation StarLoc = Star->getStarLoc();
+        if (Ctx.SM.isMacroArgExpansion(StarLoc) || !editableIn(StarLoc, R))
+          return false;
+        Cand.Edits.push_back(FixItHint::CreateInsertion(
+            Ctx.SM.getSpellingLoc(StarLoc), "const "));
+        continue;
+      }
+      if (Begin.isInvalid() || !editableIn(Begin, R))
         return false;
-      Cand.Edits.push_back(FixItHint::CreateInsertion(Begin, "const "));
+      Cand.Edits.push_back(
+          FixItHint::CreateInsertion(Ctx.SM.getSpellingLoc(Begin), "const "));
     }
+    return true;
+  }
+  // A token of declaration R that an edit can change: written in the file,
+  // or inside the macro that writes R itself (its name comes from the same
+  // expansion). A type macro shared by other declarations is not edited.
+  bool editableIn(SourceLocation Loc, const FunctionDecl *R) {
+    if (!Loc.isMacroID())
+      return true;
+    const SourceManager &SM = Ctx.SM;
+    SourceLocation Name = R->getLocation();
+    SourceLocation Spelling = SM.getSpellingLoc(Loc);
+    return Ctx.projectMode() && Name.isMacroID() &&
+           SM.getExpansionLoc(Loc) == SM.getExpansionLoc(Name) &&
+           !SM.isWrittenInScratchSpace(Spelling) &&
+           !SM.isInSystemHeader(Spelling);
+  }
+
+  // A pointer named by a typedef (XPtr p) is spelled out: const X *p.
+  bool typedefEdit(Candidate &Cand, const ParmVarDecl *P) {
+    TypeSourceInfo *TSI = P->getTypeSourceInfo();
+    if (!TSI || P->getType().hasLocalQualifiers())
+      return false;
+    auto TTL = TSI->getTypeLoc().getAs<TypedefTypeLoc>();
+    QualType Pointee = P->getType()->getPointeeType();
+    if (!TTL || Pointee.isNull() || Pointee->isPointerType() ||
+        Pointee->isFunctionType() || Pointee->isArrayType())
+      return false;
+    SourceLocation Begin = TTL.getBeginLoc(), End = TTL.getEndLoc();
+    if (Begin.isMacroID() || End.isMacroID())
+      return false;
+    const LangOptions &LO = Ctx.C.getLangOpts();
+    End = Lexer::getLocForEndOfToken(End, 0, Ctx.SM, LO);
+    while (isHorizontalWhitespace(*Ctx.SM.getCharacterData(End)))
+      End = End.getLocWithOffset(1);
+    PrintingPolicy PP(LO);
+    Cand.Edits.push_back(FixItHint::CreateReplacement(
+        CharSourceRange::getCharRange(Begin, End),
+        "const " + Pointee.getAsString(PP) + " *"));
     return true;
   }
 
@@ -265,35 +322,50 @@ public:
     auto *MD = dyn_cast<CXXMethodDecl>(FD);
     if (!MD || !MD->isInstance() || MD->isConst() ||
         isa<CXXConstructorDecl, CXXDestructorDecl>(MD) ||
-        MD->isDependentContext() || MD->isTemplated() ||
         MD->getParent()->isLambda())
       return;
+    // A member of a class template is proven by every instantiation.
+    llvm::SmallVector<const FunctionDecl *> Proven{FD};
+    if (MD->isTemplated()) {
+      auto Insts = Ctx.instantiationsOf(FD);
+      if (!Insts || MD->isVirtual())
+        return;
+      Proven.assign(Insts->begin(), Insts->end());
+    }
     bool Virtual = MD->isVirtual();
-    auto It = Facts.find(Ctx.mangle(FD));
     const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
-    bool Proven = false;
+    bool AnyFact = false;
     StringRef Why;
     llvm::SmallVector<const FunctionDecl *> Needs;
-    if (It != Facts.end())
-      if (auto Fact = It->second.find(0); Fact != It->second.end()) {
-        Proven = true;
-        if (Fact->second.written)
-          Why = Ctx.save("const-method: " + Fact->second.why);
-        // `this` passed on as the `this` of another method: right once that
-        // method is const too.
-        for (auto &[Callee, CalleeIndex] : Fact->second.forwards) {
-          const FunctionDecl *CFD = Ctx.declByMangledName(Callee);
-          if (CFD && CalleeIndex == 0 && Context::thisOffset(CFD))
-            Needs.push_back(CFD);
-          else if (Why.empty())
-            Why = "const-method: this passed to a non-const pointer parameter";
-        }
+    for (const FunctionDecl *Inst : Proven) {
+      auto It = Facts.find(Ctx.mangle(Inst));
+      if (It == Facts.end())
+        continue;
+      auto Fact = It->second.find(0);
+      if (Fact == It->second.end())
+        continue;
+      AnyFact = true;
+      if (Fact->second.written && Why.empty())
+        Why = Ctx.save("const-method: " + Fact->second.why);
+      // `this` passed on as the `this` of another method: right once that
+      // method is const too (the template's, for an instantiation).
+      for (auto &[Callee, CalleeIndex] : Fact->second.forwards) {
+        const FunctionDecl *CFD = Ctx.declByMangledName(Callee);
+        if (CFD && CFD->isTemplateInstantiation())
+          CFD = CFD->getTemplateInstantiationPattern();
+        if (CFD && CalleeIndex == 0 && Context::thisOffset(CFD))
+          Needs.push_back(CFD);
+        else if (Why.empty())
+          Why = "const-method: this passed to a non-const pointer parameter";
       }
-    if (!Proven && !(Planned && Planned->contains(0)))
+    }
+    bool Proven0 = AnyFact;
+    if (!Proven0 && !(Planned && Planned->contains(0)))
       return;
     Ctx.count("const-method: methods");
     if (Why.empty())
-      Why = Virtual ? Ctx.whyIneligibleVirtual(FD) : Ctx.whyIneligible(FD);
+      Why = Ctx.whyIneligible(FD, Virtual ? Context::AllowVirtual
+                                          : Context::AllowTemplates);
     if (Virtual)
       Why = overrideSet(MD, Needs, Why);
     add(MD, Why, /*External=*/false, Needs);
@@ -307,7 +379,8 @@ public:
     if (!MD->isVirtual())
       return add(MD, Ctx.whyIneligible(FD), /*External=*/true);
     llvm::SmallVector<const FunctionDecl *> Needs;
-    StringRef Why = overrideSet(MD, Needs, Ctx.whyIneligibleVirtual(FD));
+    StringRef Why =
+        overrideSet(MD, Needs, Ctx.whyIneligible(FD, Context::AllowVirtual));
     add(MD, Why, /*External=*/true, Needs);
   }
 
@@ -345,7 +418,8 @@ private:
       auto *Member = const_cast<CXXMethodDecl *>(M);
       llvm::SmallVector<const FunctionDecl *> MemberNeeds;
       StringRef MemberWhy =
-          overrideSet(Member, MemberNeeds, Ctx.whyIneligibleVirtual(Member));
+          overrideSet(Member, MemberNeeds,
+                      Ctx.whyIneligible(Member, Context::AllowVirtual));
       add(Member, MemberWhy, /*External=*/!M->isPureVirtual(), MemberNeeds);
     }
     return Why;

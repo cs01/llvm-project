@@ -155,3 +155,25 @@ template <typename T> static T tmplOuter(T *p) {
   return f(p);
 }
 int useTmpl2(int *i) { return tmplExplicit(i) + tmplOuter(i); }
+
+// A pointer named by a typedef is spelled out; a const one is left alone.
+typedef Node *NodePtr;
+// FIXED: {{^}}static int viaTypedef(const Node *p) { return p->value; }
+static int viaTypedef(NodePtr p) { return p->value; }
+// NEG-NOT: of 'constTypedef'
+static int constTypedef(const NodePtr p) { return p->value; }
+int useTypedef(Node *n) { return viaTypedef(n) + constTypedef(n); }
+
+// A member of a class template is proven by every instantiation of it, and
+// one that is called from another member's instantiation still counts.
+// CHECK-DAG: warning: pointer parameter 'p' of 'peek'
+// NEG-NOT: of 'poke'
+// FIXED: {{^}}  static T peek(const T *p) { return *p; }
+namespace {
+template <typename T> struct Box2 {
+  static T peek(T *p) { return *p; }
+  static void poke(T *p) { *p = T(); }
+  static T both(T *p) { poke(p); return peek(p); }
+};
+} // namespace
+int useBox2(int *i, Wr *w) { return Box2<int>::both(i) + Box2<Wr>::peek(w).v; }
