@@ -78,6 +78,8 @@ struct CIRModernizeOptions {
   std::string Only;
   /// Comma-separated rewrites or groups not to make.
   std::string Skip;
+  /// The span rewrite's view type: "llvm" for llvm::ArrayRef, else std::span.
+  std::string View;
   /// Owned by the preprocessor; null if it was not installed.
   const ConditionalRecord *Conditionals = nullptr;
 };

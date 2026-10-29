@@ -279,6 +279,9 @@ public:
   /// edit; an attribute that leaves the type alone needs none, even in an
   /// #if branch this build skips.
   virtual bool changesType() const { return true; }
+  /// Whether the compiled code may change, so the proof is equality after
+  /// normalization (cir-modernize-ircmp --refine) rather than identity.
+  virtual bool refines() const { return false; }
 
   virtual void analyze(mlir::ModuleOp Module) = 0;
   virtual void addDefined(FunctionDecl *FD) = 0;
@@ -300,6 +303,7 @@ std::unique_ptr<Rewrite> createNullable(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createLifetimebound(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createLifetimeboundThis(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createCaptureBy(Context &Ctx, unsigned Id);
+std::unique_ptr<Rewrite> createSpan(Context &Ctx, unsigned Id);
 
 /// Writes the "sites" array of a project-mode export: every unsafe construct
 /// in the translation unit's own source (Inventory.cpp).

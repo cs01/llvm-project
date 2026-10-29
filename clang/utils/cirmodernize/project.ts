@@ -43,6 +43,7 @@ type Candidate = {
   internal?: boolean;
   method?: boolean;
   changesType?: boolean;
+  refines?: boolean;
   edits?: Edit[];
   needs?: { usr: string; index: number; kind: string }[];
 };
@@ -71,6 +72,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--inventory") inventory = resolve(argv[++i]);
   else if (a === "--lifetime-safety") lifetimeSafety = true;
   else if (a === "--only" || a === "--skip") select.push(`-fcir-modernize-${a.slice(2)}=${argv[++i]}`);
+  else if (a === "--view") select.push(`-fcir-modernize-view=${argv[++i]}`);
   else patterns.push(a);
 }
 if (!clang || !compdb) {
@@ -262,6 +264,11 @@ function settle() {
 }
 settle();
 
+// Rewrites that change the code are proven by equality after normalization,
+// which then covers every rewrite in the run.
+const refine = [...live].some((k) => proposals.get(k)?.refines);
+if (refine) console.log("proving by equality after normalization (cir-modernize-ircmp --refine)");
+
 // 4. prove. A TU that fails blocks the rewrites its edits belong to, and the
 // rest are proven again, so one bad edit does not hold back the others. A
 // failing TU with no rewrite of its own to block (one CIR could not compile)
@@ -279,7 +286,7 @@ for (let round = 1; ; round++) {
   const yaml = overlay(mkdtempSync(join(scratch, "overlay-")), all);
   const bad: number[] = [];
   await pool(picked, jobs, async ([c, i]) => {
-    const p = await prove(clang, c, yaml, lifetimeSafety ? ["-Wlifetime-safety"] : []);
+    const p = await prove(clang, c, yaml, lifetimeSafety ? ["-Wlifetime-safety"] : [], refine);
     if (p.status === "ok") proven++;
     // A TU that includes an edited file but cannot be compiled as is (often a
     // generated header the build has not made yet) proves nothing, so it
@@ -294,8 +301,24 @@ for (let round = 1; ; round++) {
       console.log(`${w ? "FINDING" : "FAIL"} ${c.file}\n  ${p.detail}`);
     }
   });
-  const culprits = bad.flatMap((i) => [...tuKeys[i]].filter((k) => live.has(k)));
+  let culprits = bad.flatMap((i) => [...tuKeys[i]].filter((k) => live.has(k)));
   if (!failed || !culprits.length || round === 5) break;
+  // A failing TU with several rewrites: prove it with each one alone (the
+  // others in it held back) and block only those that fail. Rewrites that
+  // fail only together all pass alone; then all of them are blocked, and the
+  // next round proves whatever is left together again.
+  const acquitted = new Set<string>();
+  await pool(bad.flatMap((i) => {
+    const mine = [...tuKeys[i]].filter((k) => live.has(k));
+    return mine.length > 1 && mine.length <= 16 ? mine.map((k) => [i, k, mine] as const) : [];
+  }), jobs, async ([i, k, mine]) => {
+    const solo = [...live].filter((x) => x === k || !mine.includes(x)).flatMap((x) => edits.get(x)!);
+    const p = await prove(clang, cmds[i], overlay(mkdtempSync(join(scratch, "solo-")), solo),
+                          lifetimeSafety ? ["-Wlifetime-safety"] : [], refine);
+    if (p.status === "ok") acquitted.add(k);
+  });
+  const guilty = culprits.filter((k) => !acquitted.has(k));
+  if (guilty.length) culprits = guilty;
   for (const k of culprits) {
     live.delete(k);
     blockers.set(k, "a TU it edits did not prove unchanged");

@@ -272,6 +272,7 @@ constexpr RewriteInfo AllRewrites[] = {
     {"lifetimebound", "identical", true, createLifetimebound},
     {"lifetimebound-this", "identical", true, createLifetimeboundThis},
     {"capture-by", "identical", true, createCaptureBy},
+    {"span", "refinement", false, createSpan},
 };
 constexpr StringRef Groups[] = {"identical", "refinement"};
 
@@ -507,6 +508,7 @@ private:
             J.attribute("internal", !Cand.FD->isExternallyVisible());
             J.attribute("method", isa<CXXMethodDecl>(Cand.FD));
             J.attribute("changesType", Rewrites[Cand.Rewrite]->changesType());
+            J.attribute("refines", Rewrites[Cand.Rewrite]->refines());
             J.attribute("location", (Cand.Param ? Cand.Param->getLocation()
                                                 : Cand.FD->getLocation())
                                         .printToString(Ctx.SM));

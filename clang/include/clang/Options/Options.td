@@ -1792,6 +1792,11 @@ def fcir_modernize_only_EQ : Joined<["-"], "fcir-modernize-only=">,
            "change, for example by adding checks); the default rewrites if "
            "omitted">,
   MarshallingInfoString<FrontendOpts<"ClangIRModernizeOnly">>;
+def fcir_modernize_view_EQ : Joined<["-"], "fcir-modernize-view=">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>, MetaVarName<"std|llvm">,
+  HelpText<"The view type the span rewrite makes: std::span (std, the "
+           "default) or llvm::ArrayRef and MutableArrayRef (llvm)">,
+  MarshallingInfoString<FrontendOpts<"ClangIRModernizeView">>;
 def fcir_modernize_skip_EQ : Joined<["-"], "fcir-modernize-skip=">,
   Visibility<[ClangOption, CC1Option]>, Group<f_Group>, MetaVarName<"<rewrites>">,
   HelpText<"Do not make these -fcir-modernize rewrites, names or groups as "

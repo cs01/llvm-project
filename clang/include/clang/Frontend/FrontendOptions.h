@@ -527,6 +527,9 @@ public:
   /// Comma-separated -fcir-modernize rewrites or groups not to make.
   std::string ClangIRModernizeSkip;
 
+  /// The view type of the -fcir-modernize span rewrite: std or llvm.
+  std::string ClangIRModernizeView;
+
   /// Args to pass to the plugins
   std::map<std::string, std::vector<std::string>> PluginArgs;
 

@@ -16,6 +16,7 @@ add_clang_library(clangCIRFrontendAction
   Nullability.cpp
   ParamToReference.cpp
   PointerToConst.cpp
+  Span.cpp
 
   DEPENDS
   MLIRCIROpsIncGen

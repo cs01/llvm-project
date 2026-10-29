@@ -58,8 +58,8 @@
 // ASTONLY-NEXT: "length": 1,
 // ASTONLY-NEXT: "text": ""
 
-// RUN: not %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref,span a.cpp -o /dev/null 2>&1 | FileCheck --check-prefix=UNKNOWN %s
-// UNKNOWN: error: unknown modernize rewrite 'span'
+// RUN: not %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref,bogus a.cpp -o /dev/null 2>&1 | FileCheck --check-prefix=UNKNOWN %s
+// UNKNOWN: error: unknown modernize rewrite 'bogus'
 
 //--- node.h
 struct Node { int value; Node *next; };

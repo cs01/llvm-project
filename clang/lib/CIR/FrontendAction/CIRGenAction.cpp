@@ -471,6 +471,7 @@ public:
     Options.PlanPath = FEOptions.ClangIRModernizePlan;
     Options.Only = FEOptions.ClangIRModernizeOnly;
     Options.Skip = FEOptions.ClangIRModernizeSkip;
+    Options.View = FEOptions.ClangIRModernizeView;
     Options.Conditionals = Conditionals;
     return Options;
   }

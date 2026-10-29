@@ -186,19 +186,24 @@ export function overlay(dir: string, edits: Edit[]): string {
 }
 
 const IR_FLAGS = ["-emit-llvm", "-c", "-O0", "-g0", "-fno-color-diagnostics"];
+const REFINE_FLAGS = ["-emit-llvm", "-c", "-O1", "-Xclang", "-disable-llvm-passes", "-g0", "-fno-color-diagnostics"];
 
 export type Proof = { status: "ok" | "fail" | "skip"; detail?: string };
 
 // Compiles c as is and with the overlay mounted, and has cir-modernize-ircmp
 // compare the two modules.
-// extra goes to both compiles, for warnings the gate should compare.
-export async function prove(clang: string, c: Cmd, yaml: string, extra: string[] = []): Promise<Proof> {
+// extra goes to both compiles, for warnings the gate should compare. refine
+// is for rewrites that change the code: both modules are compiled without
+// optnone and compared after cir-modernize-ircmp --refine's normalization.
+export async function prove(clang: string, c: Cmd, yaml: string, extra: string[] = [],
+                            refine = false): Promise<Proof> {
+  const flags = refine ? REFINE_FLAGS : IR_FLAGS;
   const dir = mkdtempSync(join(tmpdir(), "cirmodernize-prove-"));
   try {
     const orig = join(dir, "orig.bc"), next = join(dir, "next.bc");
     const [a, b] = await Promise.all([
-      run(clang, [...c.args, ...extra, ...IR_FLAGS, c.file, "-o", orig], c.dir),
-      run(clang, [...c.args, ...extra, "-ivfsoverlay", yaml, ...IR_FLAGS, c.file, "-o", next], c.dir),
+      run(clang, [...c.args, ...extra, ...flags, c.file, "-o", orig], c.dir),
+      run(clang, [...c.args, ...extra, "-ivfsoverlay", yaml, ...flags, c.file, "-o", next], c.dir),
     ]);
     if (a.code !== 0) return { status: "skip", detail: `original does not compile: ${firstError(a.err, a.code)}` };
     if (b.code !== 0) {
@@ -210,7 +215,7 @@ export async function prove(clang: string, c: Cmd, yaml: string, extra: string[]
     // -Wnullability-completeness ask for every other pointer in a header.
     const added = newWarnings(a.err, b.err);
     if (added) return { status: "fail", detail: `new warning: ${added}` };
-    const r = await run(join(dirname(clang), "cir-modernize-ircmp"), [orig, next], dir);
+    const r = await run(join(dirname(clang), "cir-modernize-ircmp"), [...(refine ? ["--refine"] : []), orig, next], dir);
     if (r.code === 0) return { status: "ok" };
     return { status: "fail", detail: (r.out || r.err).trimEnd() };
   } finally {
