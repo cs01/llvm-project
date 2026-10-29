@@ -127,7 +127,8 @@ static void emitCIRModuleOutput(
   CodeGenOptions &CGO = CI.getCodeGenOpts();
   switch (Action) {
   case CIRGenAction::OutputType::EmitCIR:
-    if (OutputStream && MlirModule)
+    if (OutputStream && MlirModule &&
+        CI.getFrontendOpts().OutputFile != "/dev/null")
       printCIRModule(MlirModule, *OutputStream);
     break;
   case CIRGenAction::OutputType::EmitCIRBC:
