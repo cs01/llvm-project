@@ -24,5 +24,6 @@ add_clang_library(clangCIRModernize
   clangCIR
   MLIRCIR
   MLIRCIRAnalysis
+  MLIRAnalysis
   MLIRIR
   )

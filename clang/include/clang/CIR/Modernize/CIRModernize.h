@@ -13,8 +13,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CLANG_LIB_CIR_FRONTENDACTION_CIRMODERNIZE_H
-#define CLANG_LIB_CIR_FRONTENDACTION_CIRMODERNIZE_H
+#ifndef CLANG_CIR_MODERNIZE_CIRMODERNIZE_H
+#define CLANG_CIR_MODERNIZE_CIRMODERNIZE_H
 
 #include "mlir/IR/BuiltinOps.h"
 #include "clang/Lex/PPCallbacks.h"
@@ -116,4 +116,4 @@ void runCIRModernize(mlir::ModuleOp Module, ASTContext &C,
 
 } // namespace clang
 
-#endif // CLANG_LIB_CIR_FRONTENDACTION_CIRMODERNIZE_H
+#endif // CLANG_CIR_MODERNIZE_CIRMODERNIZE_H

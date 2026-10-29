@@ -223,3 +223,15 @@ Or straight from the compiler, as warnings with fix-its:
 ```sh
 clang++ -fclangir -S -emit-cir -fcir-modernize -o /dev/null file.cpp
 ```
+
+Or with the standalone tool, which takes a compilation database like
+clang-tidy, builds CIR in memory and never prints it:
+
+```sh
+clang-cir-modernize -p build file.cpp                         # warnings with fix-its
+clang-cir-modernize -p build file.cpp --export-fixes=f.yaml   # for clang-apply-replacements
+clang-cir-modernize -p build file.cpp --fix                   # apply
+```
+
+Its edits are not checked by itself; check them as described in
+`clang/lib/CIR/Modernize/CIRModernize.cpp`, or with `check.ts` / `project.ts`.
