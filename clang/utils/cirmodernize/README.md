@@ -157,6 +157,7 @@ a changed declaration need checking again, so large codebases stay fast.
 | lifetime annotations (`lifetimebound` on parameters, `this` and returned views; `lifetime_capture_by`), checked by clang LifetimeSafety | working, IR identical; new dangling warnings listed as findings |
 | nullability qualifiers (`nonnull`, `nullable`, opt-in) | working; refused where `-pedantic` warns on them |
 | refuse rewrites inside `#if` | working |
+| proven clang-tidy fixes (`tidy.ts`) | working |
 | `counted_by` inference for C | deferred (changes IR) |
 | unsafe inventory report (every unsafe site, state and reason) | working (`--inventory`) |
 | refinement proofs | planned |
@@ -179,6 +180,20 @@ bun clang/utils/cirmodernize/check.ts --clang $B/clang -p build/compile_commands
 bun clang/utils/cirmodernize/project.ts --clang $B/clang -p build/compile_commands.json \
   --root $PWD --public-headers $PWD/include
 ```
+
+clang-tidy's own fix-its, kept only where every TU that sees them compiles to
+the same IR (`tidy.ts`, default checks `modernize-use-nullptr`,
+`modernize-use-override`, `modernize-use-using`,
+`google-readability-casting`; fixes inside `#if` regions are refused):
+
+```sh
+bun clang/utils/cirmodernize/tidy.ts --clang $B/clang --clang-tidy $(which clang-tidy) \
+  -p build/compile_commands.json --root $PWD/lib "**/lib/*.cpp"
+```
+
+On LLVM's lib/IR it proved 165 of 173 fixes; one cast fix clang-tidy offered
+on a function template's default argument did not compile, and the gate
+dropped it.
 
 Or straight from the compiler, as warnings with fix-its:
 
