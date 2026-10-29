@@ -23,7 +23,7 @@
 //                       [--public-headers <dir>]... [--allow-public-api]
 //                       [--only <rewrites>] [--skip <rewrites>] [--inventory <file>]
 //                       [--lifetime-safety]
-//                       [--apply] [-j N] [-v] [files or globs...]
+//                       [--apply] [--diff <file>] [-j N] [-v] [files or globs...]
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve, sep } from "path";
@@ -56,7 +56,7 @@ type Export = { facts?: boolean; candidates: Candidate[]; sites?: Site[]; skippe
 
 const argv = process.argv.slice(2);
 let clang = "", compdb = "", root = process.cwd(), jobs = defaultJobs;
-let allowPublic = false, apply = false, verbose = false, inventory = "", lifetimeSafety = false;
+let allowPublic = false, apply = false, verbose = false, inventory = "", lifetimeSafety = false, diffPath = "";
 const select: string[] = [];
 const publicDirs: string[] = [], patterns: string[] = [];
 for (let i = 0; i < argv.length; i++) {
@@ -67,6 +67,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--public-headers") publicDirs.push(resolve(argv[++i]));
   else if (a === "--allow-public-api") allowPublic = true;
   else if (a === "--apply") apply = true;
+  else if (a === "--diff") diffPath = resolve(argv[++i]);
   else if (a === "-j") jobs = +argv[++i];
   else if (a === "-v") verbose = true;
   else if (a === "--inventory") inventory = resolve(argv[++i]);
@@ -409,6 +410,21 @@ function writeInventory() {
   console.log(`inventory: ${all.length} unsafe sites, ${proven} proven (${(100 * proven / Math.max(1, all.length)).toFixed(1)}%), written to ${inventory}`);
   for (const [row, r] of Object.entries(rows))
     console.log(`  ${row.padEnd(8)} ${String(r.total).padStart(6)} sites  ${r.proven} proven  ${r.covered} covered  ${r.outside} outside  ${r.unknown} unknown`);
+}
+
+// The proven edits as a unified diff against --root, for review; no source
+// is touched.
+if (diffPath) {
+  let out = "";
+  for (const [file, es] of byFile(all)) {
+    const rel = file.startsWith(root + sep) ? file.slice(root.length + 1) : file;
+    const next = join(scratch, "diff-next");
+    writeFileSync(next, applyEdits(readFileSync(file), es));
+    const r = await run("diff", ["-u", "--label", `a/${rel}`, "--label", `b/${rel}`, file, next], root);
+    out += r.out;
+  }
+  writeFileSync(diffPath, out);
+  console.log(`diff of ${byFile(all).size} files written to ${diffPath}${failed ? " (some TUs failed: not all of it is proven)" : ""}`);
 }
 
 if (apply && all.length) {

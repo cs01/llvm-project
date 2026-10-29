@@ -268,6 +268,7 @@ public:
         MD->isDependentContext() || MD->isTemplated() ||
         MD->getParent()->isLambda())
       return;
+    bool Virtual = MD->isVirtual();
     auto It = Facts.find(Ctx.mangle(FD));
     const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
     bool Proven = false;
@@ -292,17 +293,66 @@ public:
       return;
     Ctx.count("const-method: methods");
     if (Why.empty())
-      Why = Ctx.whyIneligible(FD);
+      Why = Virtual ? Ctx.whyIneligibleVirtual(FD) : Ctx.whyIneligible(FD);
+    if (Virtual)
+      Why = overrideSet(MD, Needs, Why);
     add(MD, Why, /*External=*/false, Needs);
   }
 
   void addExternal(FunctionDecl *FD, unsigned) override {
     auto *MD = dyn_cast<CXXMethodDecl>(FD);
-    if (MD && MD->isInstance() && !MD->isConst())
-      add(MD, Ctx.whyIneligible(FD), /*External=*/true);
+    if (!MD || !MD->isInstance() || MD->isConst() ||
+        !GroupAdded.insert(MD->getCanonicalDecl()).second)
+      return;
+    if (!MD->isVirtual())
+      return add(MD, Ctx.whyIneligible(FD), /*External=*/true);
+    llvm::SmallVector<const FunctionDecl *> Needs;
+    StringRef Why = overrideSet(MD, Needs, Ctx.whyIneligibleVirtual(FD));
+    add(MD, Why, /*External=*/true, Needs);
   }
 
 private:
+  // Every method this one overrides or is overridden by, as far as this
+  // translation unit sees: they stay overrides of each other only if all of
+  // them become const. Each needs all the others, so project mode joins the
+  // sets that different translation units see. A member with no body here
+  // gets a candidate too: a pure virtual one has nothing to prove, and one
+  // defined elsewhere is proven by its own translation unit.
+  StringRef overrideSet(CXXMethodDecl *MD,
+                        llvm::SmallVectorImpl<const FunctionDecl *> &Needs,
+                        StringRef Why) {
+    llvm::SetVector<const CXXMethodDecl *> Set;
+    Set.insert(MD->getCanonicalDecl());
+    for (unsigned I = 0; I < Set.size(); ++I) {
+      for (const CXXMethodDecl *O : Set[I]->overridden_methods())
+        Set.insert(O->getCanonicalDecl());
+      for (CXXRecordDecl *RD : Ctx.Visitor.Records)
+        for (CXXMethodDecl *M : RD->methods())
+          if (llvm::is_contained(M->overridden_methods(), Set[I]))
+            Set.insert(M->getCanonicalDecl());
+    }
+    for (const CXXMethodDecl *M : Set) {
+      if (M == MD->getCanonicalDecl())
+        continue;
+      if (M->isConst() || M->isDependentContext())
+        return "const-method: an override in its set cannot change";
+      Needs.push_back(M);
+      const FunctionDecl *Def = M->getDefinition();
+      if (Def && Def->hasBody())
+        continue; // addDefined proposes it.
+      if (!GroupAdded.insert(M).second)
+        continue;
+      auto *Member = const_cast<CXXMethodDecl *>(M);
+      llvm::SmallVector<const FunctionDecl *> MemberNeeds;
+      StringRef MemberWhy =
+          overrideSet(Member, MemberNeeds, Ctx.whyIneligibleVirtual(Member));
+      add(Member, MemberWhy, /*External=*/!M->isPureVirtual(), MemberNeeds);
+    }
+    return Why;
+  }
+
+  llvm::DenseSet<const CXXMethodDecl *> GroupAdded;
+
   void add(CXXMethodDecl *MD, StringRef Why, bool External,
            ArrayRef<const FunctionDecl *> Needs = {}) {
     Candidate Cand{MD, nullptr, 0, Id};

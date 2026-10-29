@@ -63,3 +63,29 @@ int chain() {
   Chain c{1};
   return c.viaLeaf() + c.viaSet();
 }
+
+// A virtual method's override set changes together: every override proven,
+// pure ones included; one override that writes keeps the whole set.
+namespace {
+struct Shape {
+  // FIXED: virtual int area() const = 0;
+  virtual int area() = 0;
+  // FIXED: virtual int id() { return 0; }
+  virtual int id() { return 0; }
+  virtual ~Shape() {}
+};
+struct Square : Shape {
+  int s, calls;
+  // FIXED: int area() const override { return s * s; }
+  int area() override { return s * s; }
+  int id() override { return ++calls; }
+};
+} // namespace
+// CHECK-DAG: warning: method 'area' never writes through 'this'
+// CHECK-NOT: method 'id' never
+int shapes() {
+  Square q;
+  q.s = 2;
+  Shape &s = q;
+  return s.area() + s.id() + q.area();
+}

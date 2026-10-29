@@ -220,6 +220,9 @@ public:
   /// Templates allows a function template that is not a member of a class
   /// template, for a rewrite that needs no edit at its call sites.
   StringRef whyIneligible(FunctionDecl *FD, bool Templates = false);
+  /// The same, but a virtual method is eligible: its override set is edited
+  /// together (Candidate::NeedsMethods both ways).
+  StringRef whyIneligibleVirtual(FunctionDecl *FD);
 
   /// Why FD must keep a signature C can read (references are C++ only), or
   /// empty if only C++ sees it.
@@ -260,6 +263,7 @@ private:
   llvm::StringMap<const FunctionDecl *> ByMangled;
   bool MangledIndexed = false;
   llvm::DenseMap<std::pair<const ParmVarDecl *, unsigned>, size_t> ByParam;
+  bool AllowVirtual = false;
   llvm::DenseMap<std::pair<const FunctionDecl *, unsigned>, size_t> ByMethod;
   llvm::BumpPtrAllocator Alloc;
   llvm::StringSaver Saver{Alloc};

@@ -130,6 +130,13 @@ static bool spellsSignature(const Stmt *S) {
   return false;
 }
 
+StringRef Context::whyIneligibleVirtual(FunctionDecl *FD) {
+  AllowVirtual = true;
+  StringRef Why = whyIneligible(FD);
+  AllowVirtual = false;
+  return Why;
+}
+
 StringRef Context::whyIneligible(FunctionDecl *FD, bool Templates) {
   if (!CalleesIndexed)
     indexCallees();
@@ -146,8 +153,8 @@ StringRef Context::whyIneligible(FunctionDecl *FD, bool Templates) {
   if (isa_and_nonnull<CoroutineBodyStmt>(FD->getBody()))
     return "coroutine";
   if (auto *MD = dyn_cast<CXXMethodDecl>(FD))
-    if (MD->isVirtual() || MD->size_overridden_methods() ||
-        MD->getParent()->isLocalClass())
+    if (MD->getParent()->isLocalClass() ||
+        (!AllowVirtual && (MD->isVirtual() || MD->size_overridden_methods())))
       return "virtual or local class method";
   if (const FunctionDecl *Def = FD->getDefinition();
       Def && spellsSignature(Def->getBody()))
