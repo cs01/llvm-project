@@ -38,3 +38,25 @@ int guarded(mutex &m, const Flag &f) {
   r = f ? f(1) : 0;
   return r;
 }
+
+// A reference member set from a parameter is settled by project mode from the
+// lifetimebound rewrite; one already annotated is covered, and one bound to a
+// by-value parameter dangles.
+// CHECK:      "category": "reference member",
+// CHECK-NEXT: "row": "lifetime",
+// CHECK-NEXT: "state": "unknown",
+// CHECK-NEXT: "usr": "c:@S@Holder@F@Holder#&1I#",
+// CHECK-NEXT: "index": 0
+// CHECK:      "category": "reference member",
+// CHECK-NEXT: "row": "lifetime",
+// CHECK-NEXT: "state": "covered",
+// CHECK:      "category": "reference member",
+// CHECK-NEXT: "row": "lifetime",
+// CHECK-NEXT: "state": "outside",
+// CHECK-NEXT: "why": "bound to a by-value parameter"
+struct Holder {
+  const int &r;
+  Holder(const int &x) : r(x) {}
+  Holder(const int &x [[clang::lifetimebound]], int) : r(x) {}
+  Holder(int x, char) : r(x) {}
+};

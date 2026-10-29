@@ -9,10 +9,10 @@
 // Lists the sites in a translation unit where C++ gives up a guarantee that
 // Rust's safe subset keeps: raw pointer parameters, pointer arithmetic and raw
 // indexing, unchecked casts, manual memory and locks, unions, varargs,
-// uninitialized locals. Each site gets a category, the row of the comparison
-// table it belongs to, and a state when this translation unit can settle it:
-// proven (a fact shows the hazard cannot happen) or unknown. project.ts
-// settles parameter sites from the rewrites and totals the project.
+// uninitialized locals, reference members. Each site gets a category, the row
+// of the comparison table it belongs to, and a state when this translation unit
+// can settle it: proven (a fact shows the hazard cannot happen) or unknown.
+// project.ts settles parameter sites from the rewrites and totals the project.
 //
 // Only source the project owns is listed: system headers are skipped, and a
 // site written inside a macro is listed once, where the macro is expanded.
@@ -56,6 +56,43 @@ public:
       Site S{P->getLocation(), "raw pointer parameter", "null", "unknown"};
       S.Usr = Ctx.usr(FD);
       S.Index = P->getFunctionScopeIndex();
+      push(std::move(S));
+    }
+    return true;
+  }
+
+  // A reference or view member bound in a constructor's initializer list.
+  // When it comes from a parameter, [[clang::lifetimebound]] on that
+  // parameter lets clang check every caller for a temporary (-Wdangling);
+  // a by-value parameter dangles as soon as the constructor returns.
+  bool VisitCXXConstructorDecl(CXXConstructorDecl *CD) {
+    if (!CD->doesThisDeclarationHaveABody() || CD->isImplicit() ||
+        CD->isTemplated())
+      return true;
+    for (const CXXCtorInitializer *I : CD->inits()) {
+      const FieldDecl *F = I->getMember();
+      if (!I->isWritten() || !F || !holdsReference(F->getType()))
+        continue;
+      Site S{I->getMemberLocation(), "reference member", "lifetime", "unknown"};
+      const Expr *E = I->getInit()->IgnoreImplicit();
+      if (const auto *CE = dyn_cast<CXXConstructExpr>(E);
+          CE && CE->getNumArgs() == 1)
+        E = CE->getArg(0)->IgnoreImplicit();
+      const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+      if (const auto *P =
+              DRE ? dyn_cast<ParmVarDecl>(DRE->getDecl()) : nullptr) {
+        if (P->hasAttr<LifetimeBoundAttr>()) {
+          S.State = "covered";
+          S.Why = "lifetimebound: clang checks the callers";
+        } else if (F->getType()->isReferenceType() &&
+                   !P->getType()->isReferenceType()) {
+          S.State = "outside";
+          S.Why = "bound to a by-value parameter";
+        } else {
+          S.Usr = Ctx.usr(CD);
+          S.Index = P->getFunctionScopeIndex();
+        }
+      }
       push(std::move(S));
     }
     return true;
@@ -203,6 +240,21 @@ public:
   }
 
 private:
+  // A reference, or a [[gsl::Pointer]] class such as llvm::StringRef.
+  static bool holdsReference(QualType T) {
+    if (T->isReferenceType())
+      return true;
+    const CXXRecordDecl *RD = T->getAsCXXRecordDecl();
+    if (!RD)
+      return false;
+    if (RD->hasAttr<PointerAttr>())
+      return true;
+    const auto *Spec = dyn_cast<ClassTemplateSpecializationDecl>(RD);
+    return Spec && Spec->getSpecializedTemplate()
+                       ->getTemplatedDecl()
+                       ->hasAttr<PointerAttr>();
+  }
+
   void cast(const ExplicitCastExpr *E, StringRef Category) {
     if (E->getType()->isDependentType() || E->getType()->isVoidType())
       return;

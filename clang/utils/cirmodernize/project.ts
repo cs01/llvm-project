@@ -364,9 +364,17 @@ if (inventory) writeInventory();
 // A pointer parameter is proven when it became a reference; a candidate that
 // was blocked is outside for that reason; one with no candidate is not
 // dereferenced on every path, so null is a value it may legitimately take.
+// A reference member set from a parameter is covered once that parameter is
+// lifetimebound.
 function writeInventory() {
   for (const s of sites.values()) {
     if (s.index === undefined || s.state === "unknown" && astOnly.has(s.file)) continue;
+    if (s.row === "lifetime") {
+      const k = keyOf({ kind: "capture-by", index: s.index, usr: s.usr! });
+      if (live.has(k)) [s.state, s.why] = ["covered", "rewritten to lifetimebound: clang checks the callers"];
+      else if (blockers.has(k) || why1.has(k)) s.why = blockers.get(k) ?? why1.get(k);
+      continue;
+    }
     const k = keyOf({ kind: "ref", index: s.index, usr: s.usr! });
     if (live.has(k)) [s.state, s.why] = ["proven", "rewritten to a reference"];
     else if (blockers.has(k) || why1.has(k)) [s.state, s.why] = ["outside", blockers.get(k) ?? why1.get(k)];
