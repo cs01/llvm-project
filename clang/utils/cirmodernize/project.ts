@@ -24,9 +24,9 @@
 //                       [--only <rewrites>] [--skip <rewrites>] [--inventory <file>]
 //                       [--lifetime-safety]
 //                       [--apply] [--diff <file>] [-j N] [-v] [files or globs...]
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join, resolve, sep } from "path";
+import { dirname, join, resolve, sep } from "path";
 import {
   type Cmd, type Edit, applyEdits, byFile, defaultJobs, firstError, loadCommands, overlay, pool, prove, run,
 } from "./lib.ts";
@@ -121,10 +121,51 @@ async function exportTU(c: Cmd, out: string, plan?: string): Promise<Export | st
   return e;
 }
 
+// Without --public-headers, what the build installs is the public API: CMake
+// writes every install() rule into cmake_install.cmake files under the build
+// directory, as file(INSTALL ... FILES "<absolute path>"...).
+const publicFiles = new Set<string>();
+if (!publicDirs.length && !allowPublic) {
+  const scripts: string[] = [];
+  const walk = (dir: string, depth: number) => {
+    let names: string[] = [];
+    try { names = readdirSync(dir); } catch { return; }
+    for (const n of names) {
+      if (n === "cmake_install.cmake") scripts.push(join(dir, n));
+      else if (depth < 8 && !n.startsWith(".") && !n.endsWith(".dir")) walk(join(dir, n), depth + 1);
+    }
+  };
+  walk(dirname(compdb), 0);
+  for (const script of scripts)
+    for (const m of readFileSync(script, "utf8").matchAll(/file\(INSTALL\b[^)]*?TYPE (FILE|DIRECTORY)\b[^)]*?FILES((?:\s+"[^"]+")+)/g))
+      for (const [, p] of m[2].matchAll(/"([^"]+)"/g)) {
+        const path = resolve(p.replace(/\/$/, ""));
+        if (m[1] === "DIRECTORY") publicDirs.push(path);
+        else if (/\.(h|hh|hpp|hxx|inc)$/.test(path)) publicFiles.add(path);
+      }
+  if (publicDirs.length || publicFiles.size)
+    console.log(`public API from cmake_install.cmake: ${publicFiles.size} headers, ${publicDirs.length} directories`);
+  else if (existsSync(join(root, "include"))) {
+    publicDirs.push(join(root, "include"));
+    console.log(`public API: ${join(root, "include")} (no install rules found)`);
+  }
+}
+// Nothing says what the API is (no flag, no install rules, no include/): an
+// externally visible function declared in a header may be called from
+// outside the build, so its signature stays.
+const unknownApi = !allowPublic && !publicDirs.length && !publicFiles.size;
+if (unknownApi)
+  console.log("public API unknown: externally visible functions declared in headers are left alone " +
+    "(--public-headers <dir> or --allow-public-api to change that)");
+const sources = new Set(loadCommands(compdb, []).map((c) => c.file));
+
 function policy(c: Candidate): string | undefined {
   for (const e of c.edits ?? []) {
     if (!under(e.file, root)) return "declared outside --root";
-    if (!allowPublic && publicDirs.some((d) => under(e.file, d))) return "declared in a public header";
+    if (!allowPublic && (publicFiles.has(e.file) || publicDirs.some((d) => under(e.file, d))))
+      return "declared in a public header";
+    if (unknownApi && !c.internal && !sources.has(e.file))
+      return "externally visible in a header, public API unknown";
   }
   return undefined;
 }
