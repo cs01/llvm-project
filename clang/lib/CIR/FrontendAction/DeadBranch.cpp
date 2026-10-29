@@ -100,6 +100,12 @@ private:
       return "dead-branch: the condition depends on the target";
     if (StringRef Why = whyConfigVariable(Cond); !Why.empty())
       return Why;
+    // A named constant is usually a knob someone flips by hand (kVerbose),
+    // and code under it is kept on purpose: report it, do not delete it.
+    if (!isa<IntegerLiteral, CXXBoolLiteralExpr>(Cond->IgnoreParenImpCasts()))
+      return "dead-branch: a named constant (report only)";
+    if (commented(If))
+      return "dead-branch: a comment says why the branch is there";
     // Codegen emits a dead branch that holds a label, which a goto or a
     // case can still reach.
     if (Dead && hasLabel(Dead))
@@ -134,6 +140,25 @@ private:
         if (StringRef Why = whyConfigVariable(Child); !Why.empty())
           return Why;
     return {};
+  }
+
+  // A comment in the if or on the line before it, such as "check that this
+  // still compiles".
+  bool commented(const IfStmt *If) {
+    const SourceManager &SM = Ctx.SM;
+    SourceLocation Begin = If->getBeginLoc(), End = If->getEndLoc();
+    if (Begin.isMacroID() || End.isMacroID())
+      return true;
+    FileID FID = SM.getFileID(Begin);
+    StringRef Buffer = SM.getBufferData(FID);
+    unsigned From = SM.getFileOffset(Begin), To = SM.getFileOffset(End);
+    // Back to the start of the previous line.
+    unsigned Prev = From;
+    for (int Lines = 0; Prev > 0 && Lines < 2; --Prev)
+      if (Buffer[Prev - 1] == '\n')
+        ++Lines;
+    StringRef Around = Buffer.slice(Prev, To + 1);
+    return Around.contains("//") || Around.contains("/*");
   }
 
   static bool targetDependent(const Stmt *S) {

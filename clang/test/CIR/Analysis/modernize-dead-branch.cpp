@@ -28,10 +28,10 @@ static int literal(int x) {
   return work(x);
 }
 
-// CHECK: warning: this if in 'flagged' has a constant condition
+// A named constant is a knob: reported, not deleted.
+// CHECK-NOT: in 'flagged'
 // FIXED:      {{^}}static int flagged(int x) {
-// FIXED-NEXT:   {
-// FIXED-NEXT:     x = 2;
+// FIXED-NEXT:   if (kLevel > 1 && !kVerbose) {
 static int flagged(int x) {
   if (kLevel > 1 && !kVerbose) {
     x = 2;
@@ -75,6 +75,15 @@ static int byTarget(int x) {
 // FIXED: {{^}}static int line() { return __LINE__; }
 static int line() { return __LINE__; }
 
+// CHECK-NOT: in 'explained'
+static int explained(int x) {
+  if (false) {
+    // Checks that the overload still compiles.
+    x = work(x);
+  }
+  return x;
+}
+
 // CHECK-NOT: in 'notConstant'
 static int notConstant(int x) {
   if (x > 1) {
@@ -85,5 +94,5 @@ static int notConstant(int x) {
 
 int use(int x) {
   return literal(x) + flagged(x) + fromMacro(x) + labelled(x) + byTarget(x) +
-         line() + notConstant(x);
+         line() + explained(x) + notConstant(x);
 }
