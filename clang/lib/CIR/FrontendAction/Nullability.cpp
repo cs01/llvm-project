@@ -72,8 +72,7 @@ public:
     unsigned Offset = Context::thisOffset(FD);
     for (unsigned Index = 0; Index < FD->getNumParams(); ++Index) {
       ParmVarDecl *P = FD->getParamDecl(Index);
-      if (!P->getType()->isPointerType() ||
-          P->getType()->getNullability())
+      if (!P->getType()->isPointerType() || P->getType()->getNullability())
         continue;
       bool IsPlanned = Planned && Planned->contains(Index);
       const cir::NullabilityFact *Fact = nullptr;

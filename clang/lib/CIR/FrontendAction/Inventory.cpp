@@ -91,10 +91,11 @@ public:
     if (!E->getIdx()->isValueDependent() &&
         E->getIdx()->EvaluateAsInt(R, Ctx.C)) {
       llvm::APSInt I = R.Val.getInt();
-      bool InBounds = !I.isNegative() &&
-                      I.getExtValue() < (int64_t)CAT->getZExtSize();
+      bool InBounds =
+          !I.isNegative() && I.getExtValue() < (int64_t)CAT->getZExtSize();
       S.State = InBounds ? "proven" : "outside";
-      S.Why = InBounds ? "constant index in bounds" : "constant index out of bounds";
+      S.Why = InBounds ? "constant index in bounds"
+                       : "constant index out of bounds";
     }
     push(std::move(S));
     return true;
@@ -107,8 +108,7 @@ public:
       add(VD->getLocation(), "C array", "bounds");
     if (VD->isLocalVarDecl() && !VD->isStaticLocal() && !VD->hasInit() &&
         !VD->getType()->isDependentType() &&
-        (VD->getType()->isScalarType() ||
-         VD->getType().isTrivialType(Ctx.C)))
+        (VD->getType()->isScalarType() || VD->getType().isTrivialType(Ctx.C)))
       add(VD->getLocation(), "uninitialized local", "uninit");
     return true;
   }
@@ -222,8 +222,7 @@ private:
           "value conversion (static_cast)");
       return;
     default:
-      add(E->getBeginLoc(), Category, "types", "unknown",
-          E->getCastKindName());
+      add(E->getBeginLoc(), Category, "types", "unknown", E->getCastKindName());
     }
   }
 

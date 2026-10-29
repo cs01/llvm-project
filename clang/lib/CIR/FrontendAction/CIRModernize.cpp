@@ -407,7 +407,8 @@ private:
       StringRef Kind = E ? E->getString("kind").value_or("ref") : "";
       if (!USR || !Index || *Index < 0 ||
           !llvm::any_of(
-              AllRewrites, [&](const RewriteInfo &R) { return R.Name == Kind; }))
+              AllRewrites,
+              [&](const RewriteInfo &R) { return R.Name == Kind; }))
         return Fail("bad function entry");
       Ctx.plan(Kind, *USR, *Index);
     }
