@@ -48,6 +48,8 @@ public:
   }
   void Endif(SourceLocation Loc, SourceLocation IfLoc) override;
   void SourceRangeSkipped(SourceRange Range, SourceLocation EndifLoc) override;
+  void MacroExpands(const Token &Name, const MacroDefinition &MD,
+                    SourceRange Range, const MacroArgs *Args) override;
 
   /// Whether the file range R overlaps an #if region other than an include
   /// guard.
@@ -55,12 +57,25 @@ public:
   /// Identifiers in the branches this build skipped, outside system headers.
   const llvm::StringSet<> &skippedNames() const { return Skipped; }
   bool skippedAny() const { return !Skipped.empty(); }
+  /// The project's own macro for _Nonnull (NonNull) or _Nullable, the one it
+  /// uses most, or empty. Such a macro is how a project keeps the clang-only
+  /// qualifier out of other compilers, so an edit spelled with it is as
+  /// portable as the project's code.
+  StringRef nullabilityMacro(bool NonNull) const;
+  /// Whether file FID already spells nullability through such a macro. In a
+  /// header, the first nullability qualifier makes -Wnullability-completeness
+  /// warn on every other pointer in it.
+  bool spellsNullability(FileID FID) const {
+    return NullabilityFiles.count(FID);
+  }
 
 private:
   Preprocessor &PP;
   std::vector<SourceLocation> Open;
   std::vector<SourceRange> Regions;
   llvm::StringSet<> Skipped;
+  llvm::StringMap<unsigned> NullabilityUses[2];
+  llvm::DenseSet<FileID> NullabilityFiles;
 };
 
 struct CIRModernizeOptions {

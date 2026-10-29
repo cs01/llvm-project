@@ -649,6 +649,35 @@ void ConditionalRecord::SourceRangeSkipped(SourceRange Range,
       Skipped.insert(T.getRawIdentifier());
 }
 
+void ConditionalRecord::MacroExpands(const Token &Name,
+                                     const MacroDefinition &MD,
+                                     SourceRange Range, const MacroArgs *) {
+  const MacroInfo *MI = MD.getMacroInfo();
+  if (!MI || !MI->isObjectLike() || MI->getNumTokens() != 1)
+    return;
+  const Token &T = MI->getReplacementToken(0);
+  if (!T.isOneOf(tok::kw__Nonnull, tok::kw__Nullable))
+    return;
+  SourceManager &SM = PP.getSourceManager();
+  if (SM.isInSystemHeader(MI->getDefinitionLoc()) ||
+      SM.isInSystemHeader(Range.getBegin()))
+    return;
+  ++NullabilityUses[T.is(tok::kw__Nonnull)]
+                   [Name.getIdentifierInfo()->getName()];
+  NullabilityFiles.insert(SM.getFileID(SM.getExpansionLoc(Range.getBegin())));
+}
+
+StringRef ConditionalRecord::nullabilityMacro(bool NonNull) const {
+  StringRef Best;
+  unsigned Most = 0;
+  for (const auto &E : NullabilityUses[NonNull])
+    if (E.getValue() > Most || (E.getValue() == Most && E.getKey() < Best)) {
+      Best = E.getKey();
+      Most = E.getValue();
+    }
+  return Best;
+}
+
 bool ConditionalRecord::overlaps(SourceRange R) const {
   SourceManager &SM = PP.getSourceManager();
   if (R.isInvalid())

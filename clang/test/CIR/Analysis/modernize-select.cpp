@@ -8,6 +8,9 @@
 // RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-skip=identical %s -o /dev/null 2>&1 | FileCheck --check-prefix=NONE --allow-empty %s
 // RUN: not %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-skip=bogus %s -o /dev/null 2>&1 | FileCheck --check-prefix=BAD %s
 
+// Nullability is spelled through the project's macro.
+#define NN _Nonnull
+int spelled(int *NN p);
 struct N { int v; };
 static int get(N *p) { return p->v; }
 int use(N *q) { return get(q); }

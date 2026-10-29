@@ -28,6 +28,7 @@
 
 #include "CIRModernizeFramework.h"
 
+#include "clang/Basic/CharInfo.h"
 #include "clang/Basic/DiagnosticParse.h"
 #include "clang/CIR/Dialect/Analysis/CIRNullabilitySafety.h"
 
@@ -49,7 +50,12 @@ public:
   }
   StringRef whyNeedBlocked() const override { return "nullability: needed"; }
 
-  StringRef qualifier() const { return NonNull ? "_Nonnull" : "_Nullable"; }
+  // _Nonnull is clang's alone; GCC and MSVC reject it. Only the project's own
+  // macro for it is written.
+  StringRef qualifier() const {
+    const ConditionalRecord *CR = Ctx.Options.Conditionals;
+    return CR ? CR->nullabilityMacro(NonNull) : StringRef();
+  }
 
   void analyze(mlir::ModuleOp Module) override {
     cir::NullabilitySafetyCIROptions FactOptions;
@@ -89,7 +95,8 @@ public:
       if (Why.empty())
         Why = whyExtension(FD);
       if (Why.empty() && !declEdits(Cand))
-        Why = "nullability: declarator is not a plain pointer";
+        Why = "nullability: declarator is not a plain pointer, or a header "
+              "that spells no nullability yet";
       Ctx.add(std::move(Cand), Why);
     }
   }
@@ -110,6 +117,8 @@ private:
   // -pedantic warns on every qualifier outside Objective-C, which a -Werror
   // build turns into an error; there is no spelling it accepts.
   StringRef whyExtension(const FunctionDecl *FD) const {
+    if (qualifier().empty())
+      return "nullability: the project has no macro that spells it";
     if (Ctx.C.getDiagnostics().isIgnored(diag::ext_nullability,
                                          FD->getLocation()))
       return {};
@@ -126,15 +135,23 @@ private:
     return !F.mustDeref && F.nullChecked && !F.derefUnchecked;
   }
 
-  // The qualifier after the '*' of every declaration this TU sees.
+  // The qualifier after the '*' of every declaration this TU sees, spaced
+  // like the declarator: `T* Q p` after `T* p`, `T *Q p` after `T *p`.
   bool declEdits(Candidate &Cand) {
+    const ConditionalRecord *CR = Ctx.Options.Conditionals;
     for (const FunctionDecl *R : Cand.FD->redecls()) {
       std::optional<PointerTypeLoc> Star =
           Context::starOf(R->getParamDecl(Cand.Index));
       if (!Star || Star->getStarLoc().isMacroID())
         return false;
+      SourceLocation After = Star->getStarLoc().getLocWithOffset(1);
+      FileID FID = Ctx.SM.getFileID(After);
+      if (FID != Ctx.SM.getMainFileID() && !CR->spellsNullability(FID))
+        return false;
+      bool Spaced = isWhitespace(*Ctx.SM.getCharacterData(After));
       Cand.Edits.push_back(FixItHint::CreateInsertion(
-          Star->getStarLoc().getLocWithOffset(1), (qualifier() + " ").str()));
+          After,
+          Spaced ? (" " + qualifier()).str() : (qualifier() + " ").str()));
     }
     return true;
   }
