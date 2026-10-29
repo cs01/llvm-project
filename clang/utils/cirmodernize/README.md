@@ -3,9 +3,9 @@
 Proven source-to-source rewrites for C and C++, built on ClangIR.
 
 CIR modernize finds code it can make safer, rewrites it, and proves each
-rewrite does not change what the program does. The first rewrite turns a
-pointer parameter into a reference when every path through the function
-already dereferences it:
+rewrite does not change what the program does. One such rewrite, and the only
+one implemented so far, turns a pointer parameter into a reference when every
+path through the function already dereferences it:
 
 ```c++
 // before                                   // after
