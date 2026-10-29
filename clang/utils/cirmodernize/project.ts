@@ -21,6 +21,8 @@
 //
 // usage: bun project.ts --clang <clang> -p <compile_commands.json> [--root <dir>]
 //                       [--public-headers <dir>]... [--allow-public-api]
+//                       [--private <glob>]... [--private-name <regex>]
+//                       [--exclude <glob>]...
 //                       [--only <rewrites>] [--skip <rewrites>] [--inventory <file>]
 //                       [--lifetime-safety]
 //                       [--apply] [--diff <file>] [-j N] [-v] [files or globs...]
@@ -59,6 +61,12 @@ const argv = process.argv.slice(2);
 let clang = "", compdb = "", root = process.cwd(), jobs = defaultJobs;
 let allowPublic = false, apply = false, verbose = false, inventory = "", lifetimeSafety = false, diffPath = "";
 const select: string[] = [];
+// Filters a person sets, over what the defaults decide: files that are not
+// API even when installed (internal/, detail/), names that are not API
+// (absl::foo_internal::), and files never to edit (vendored code). Globs
+// match the path relative to --root.
+const privateGlobs: InstanceType<typeof Bun.Glob>[] = [], excludeGlobs: InstanceType<typeof Bun.Glob>[] = [];
+let privateName: RegExp | undefined;
 const publicDirs: string[] = [], patterns: string[] = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -75,6 +83,9 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--lifetime-safety") lifetimeSafety = true;
   else if (a === "--only" || a === "--skip") select.push(`-fcir-modernize-${a.slice(2)}=${argv[++i]}`);
   else if (a === "--view") select.push(`-fcir-modernize-view=${argv[++i]}`);
+  else if (a === "--private") privateGlobs.push(new Bun.Glob(argv[++i]));
+  else if (a === "--private-name") privateName = new RegExp(argv[++i]);
+  else if (a === "--exclude") excludeGlobs.push(new Bun.Glob(argv[++i]));
   else patterns.push(a);
 }
 if (!clang || !compdb) {
@@ -160,13 +171,20 @@ if (unknownApi)
     "(--public-headers <dir> or --allow-public-api to change that)");
 const sources = new Set(loadCommands(compdb, []).map((c) => c.file));
 
+const rel = (file: string) => (under(file, root) ? file.slice(root.length + 1) : file);
+const matches = (globs: InstanceType<typeof Bun.Glob>[], file: string) => globs.some((g) => g.match(rel(file)));
+
 function policy(c: Candidate): string | undefined {
-  if (c.exported && !allowPublic && c.changesType !== false) return "exported from the library (export attribute or macro)";
+  const privateByName = privateName?.test(c.function) ?? false;
+  if (c.exported && !allowPublic && !privateByName && c.changesType !== false)
+    return "exported from the library (export attribute or macro)";
   for (const e of c.edits ?? []) {
     if (!under(e.file, root)) return "declared outside --root";
-    if (!allowPublic && (publicFiles.has(e.file) || publicDirs.some((d) => under(e.file, d))))
+    if (matches(excludeGlobs, e.file)) return "excluded (--exclude)";
+    const isPrivate = privateByName || matches(privateGlobs, e.file);
+    if (!allowPublic && !isPrivate && (publicFiles.has(e.file) || publicDirs.some((d) => under(e.file, d))))
       return "declared in a public header";
-    if (unknownApi && !c.internal && !sources.has(e.file))
+    if (unknownApi && !isPrivate && !c.internal && !sources.has(e.file))
       return "externally visible in a header, public API unknown";
   }
   return undefined;

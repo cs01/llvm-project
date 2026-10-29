@@ -184,6 +184,26 @@ bun clang/utils/cirmodernize/project.ts --clang $B/clang -p build/compile_comman
   --root $PWD --public-headers $PWD/include
 ```
 
+`--diff <file>` writes the proven edits as a unified diff without touching
+any source; `--apply` writes them.
+
+What counts as public API (never changed unless `--allow-public-api`):
+`--public-headers <dir>` when given; else the headers the build installs
+(`cmake_install.cmake`); else `include/`; else every externally visible
+function declared in a header. Functions with an export attribute, or written
+with an export macro (even one this build defines empty), are public too.
+
+Filters on top of that:
+
+| flag | effect |
+|---|---|
+| `--only` / `--skip <rewrites or groups>` | which rewrites run (`identical`, `refinement`, or names such as `const`, `lifetimebound`, `dead-branch`) |
+| `--private <glob>` | files that are not API even when installed, e.g. `'**/internal/**'` |
+| `--private-name <regex>` | functions that are not API by qualified name, e.g. `'::(\w*_)?(internal\|detail)::'` |
+| `--exclude <glob>` | files never to edit, e.g. `'third_party/**'` |
+
+Globs match paths relative to `--root`.
+
 clang-tidy's own fix-its, kept only where every TU that sees them compiles to
 the same IR (`tidy.ts`, default checks `modernize-use-nullptr`,
 `modernize-use-override`, `modernize-use-using`,
