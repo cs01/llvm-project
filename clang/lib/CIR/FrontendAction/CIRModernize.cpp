@@ -33,8 +33,11 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/Debug.h"
 
 using namespace clang;
+
+#define DEBUG_TYPE "cir-modernize"
 
 namespace {
 
@@ -158,6 +161,12 @@ public:
       addCandidates(FD);
     resolve();
     report(Diags);
+    LLVM_DEBUG({
+      Drops["rewritten"] = llvm::count_if(
+          Candidates, [](const Candidate &Cand) { return Cand.Live; });
+      for (const auto &[Why, N] : Drops)
+        llvm::dbgs() << "cir-modernize: " << N << " " << Why << "\n";
+    });
   }
 
 private:
@@ -198,49 +207,66 @@ private:
     return Loc.isValid() && !Loc.isMacroID() && SM.isInMainFile(Loc);
   }
 
-  bool functionEligible(FunctionDecl *FD) {
+  // Why FD cannot have its signature rewritten, or empty if it can.
+  StringRef whyIneligible(FunctionDecl *FD) {
     if (isa<CXXConstructorDecl, CXXDestructorDecl, CXXConversionDecl>(FD) ||
         FD->isOverloadedOperator() || FD->isMain() || FD->isVariadic() ||
-        FD->isTemplated() || FD->isTemplateInstantiation() ||
-        FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate ||
-        isa_and_nonnull<CoroutineBodyStmt>(FD->getBody()) ||
         !FD->getIdentifier())
-      return false;
+      return "special function";
+    if (FD->isTemplated() || FD->isTemplateInstantiation() ||
+        FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate)
+      return "template";
+    if (isa_and_nonnull<CoroutineBodyStmt>(FD->getBody()))
+      return "coroutine";
     if (auto *MD = dyn_cast<CXXMethodDecl>(FD))
       if (MD->isVirtual() || MD->size_overridden_methods() ||
           MD->getParent()->isLocalClass())
-        return false;
+        return "virtual or local class method";
     if (FD->isExternallyVisible() && !Options.AllowPublic)
-      return false;
+      return "externally visible";
     for (const FunctionDecl *R : FD->redecls())
       if (!inMainFile(R->getLocation()))
-        return false;
+        return "declared outside the main file";
     if (Visitor.Unresolved.contains(FD->getDeclName()))
-      return false;
+      return "name used in a dependent call";
     const FunctionDecl *Canon = FD->getCanonicalDecl();
     if (Visitor.UsedInInstantiation.contains(Canon))
-      return false;
+      return "used from a template instantiation";
     for (const NamedDecl *ND :
          FD->getDeclContext()->getRedeclContext()->lookup(FD->getDeclName())) {
       auto *Other = dyn_cast<FunctionDecl>(ND);
       if (!Other || Other->getCanonicalDecl() != Canon)
-        return false;
+        return "overloaded";
     }
     for (DeclRefExpr *DRE : Visitor.Refs)
       if (auto *Ref = dyn_cast<FunctionDecl>(DRE->getDecl()))
         if (Ref->getCanonicalDecl() == Canon && !CalleeRefs.contains(DRE))
-          return false;
+          return "address taken";
     for (MemberExpr *ME : Visitor.Members)
       if (auto *Ref = dyn_cast<FunctionDecl>(ME->getMemberDecl()))
         if (Ref->getCanonicalDecl() == Canon && !CalleeRefs.contains(ME))
-          return false;
-    return true;
+          return "address taken";
+    return {};
   }
 
-  static bool factEligible(const cir::NullabilityFact &F) {
-    return F.mustDeref && !F.reassigned && !F.addressTaken && !F.arithmetic &&
-           !F.nullChecked && !F.assignedNull && !F.callersPassNull &&
-           F.declared != "nullable";
+  // Why a must-dereference parameter still cannot become a reference, or
+  // empty if the facts allow it.
+  static StringRef whyFactIneligible(const cir::NullabilityFact &F) {
+    if (F.reassigned)
+      return "fact: reassigned";
+    if (F.addressTaken)
+      return "fact: address taken";
+    if (F.arithmetic)
+      return "fact: pointer arithmetic";
+    if (F.nullChecked)
+      return "fact: null checked";
+    if (F.assignedNull)
+      return "fact: assigned null";
+    if (F.callersPassNull)
+      return "fact: a caller passes null";
+    if (F.declared == "nullable")
+      return "fact: declared nullable";
+    return {};
   }
 
   static std::optional<PointerTypeLoc> starOf(const ParmVarDecl *P) {
@@ -366,19 +392,28 @@ private:
         FD->isDependentContext() || FD->isTemplated())
       return;
     auto It = Facts.find(mangle(FD));
-    if (It == Facts.end() || !functionEligible(FD))
+    if (It == Facts.end())
       return;
+    StringRef FunctionWhy = whyIneligible(FD);
     unsigned Offset =
         isa<CXXMethodDecl>(FD) && cast<CXXMethodDecl>(FD)->isInstance() ? 1 : 0;
     for (auto &[ArgIndex, Fact] : It->second) {
-      if (ArgIndex < Offset || !factEligible(Fact))
+      if (ArgIndex < Offset || !Fact.mustDeref ||
+          ArgIndex - Offset >= FD->getNumParams())
         continue;
       unsigned Index = ArgIndex - Offset;
-      if (Index >= FD->getNumParams())
+      ++Drops["must-dereference parameters"];
+      StringRef Why =
+          FunctionWhy.empty() ? whyFactIneligible(Fact) : FunctionWhy;
+      if (!Why.empty()) {
+        ++Drops[Why];
         continue;
+      }
       ParmVarDecl *P = FD->getParamDecl(Index);
-      if (!paramEligible(P))
+      if (!paramEligible(P)) {
+        ++Drops["parameter type, default argument or lambda capture"];
         continue;
+      }
       Candidate Cand{FD, P, Index};
       bool Ok = true;
       for (const FunctionDecl *R : FD->redecls()) {
@@ -390,7 +425,11 @@ private:
         Cand.BodyEdits.push_back(
             FixItHint::CreateReplacement(chars(Star->getStarLoc(), 1), "&"));
       }
-      if (Ok && bodyEdits(Cand)) {
+      if (!Ok) {
+        ++Drops["declarator is not a plain pointer"];
+      } else if (!bodyEdits(Cand)) {
+        ++Drops["a use in the body has an unhandled shape"];
+      } else {
         ByParam[P] = Candidates.size();
         Candidates.push_back(std::move(Cand));
       }
@@ -456,10 +495,14 @@ private:
       for (Candidate &Cand : Candidates) {
         if (!Cand.Live)
           continue;
-        bool Ok = llvm::all_of(Cand.Needs,
-                               [&](const ParmVarDecl *P) { return live(P); }) &&
-                  callEdits(Cand);
-        if (!Ok) {
+        StringRef Why;
+        if (!llvm::all_of(Cand.Needs,
+                          [&](const ParmVarDecl *P) { return live(P); }))
+          Why = "forwarded to a parameter that stays a pointer";
+        else if (!callEdits(Cand))
+          Why = "a call site has an unhandled shape";
+        if (!Why.empty()) {
+          ++Drops[Why];
           Cand.Live = false;
           Changed = true;
         }
@@ -506,6 +549,8 @@ private:
   llvm::DenseSet<const Expr *> CalleeRefs;
   std::vector<Candidate> Candidates;
   llvm::DenseMap<const ParmVarDecl *, size_t> ByParam;
+  // Must-dereference parameters by the first reason they were not rewritten.
+  llvm::StringMap<unsigned> Drops;
 };
 
 } // namespace

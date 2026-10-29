@@ -15,7 +15,11 @@
 // Classic codegen is deliberately independent of CIR: the analysis that
 // proposed the edit is not the one that checks it.
 //
-// usage: bun check.ts --clang <clang> -p <compile_commands.json> [-j N] [files or globs...]
+// --why (assertions builds only) also totals, over the whole run, why the
+// parameters CIR proved must-dereference were not rewritten.
+//
+// usage: bun check.ts --clang <clang> -p <compile_commands.json> [-j N] [--why]
+// [files or globs...]
 //        bun check.ts --clang <clang> -- <file> <flags...>
 import { spawn, spawnSync } from "child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
@@ -32,7 +36,8 @@ type Result = {
 };
 
 const argv = process.argv.slice(2);
-let clang = "", compdb = "", jobs = navigator.hardwareConcurrency, verbose = false;
+let clang = "", compdb = "", jobs = navigator.hardwareConcurrency,
+    verbose = false, why = false;
 const patterns: string[] = [];
 let direct: string[] | null = null;
 for (let i = 0; i < argv.length; i++) {
@@ -41,6 +46,8 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "-p") compdb = resolve(argv[++i]);
   else if (a === "-j") jobs = +argv[++i];
   else if (a === "-v") verbose = true;
+  else if (a === "--why")
+    why = true;
   else if (a === "--") { direct = argv.slice(i + 1); break; }
   else patterns.push(a);
 }
@@ -256,8 +263,17 @@ function firstDiff(a: string[], b: string[]): string {
 const IR_FLAGS = ["-S", "-emit-llvm", "-O0", "-g0", "-o", "-"];
 
 async function check(c: Cmd, scratch: string): Promise<Result> {
-  const m = await run(clang, [...c.args, "-fclangir", "-S", "-emit-cir", "-fcir-modernize",
-                               "-fdiagnostics-parseable-fixits", "-fno-color-diagnostics", "-o", "/dev/null", c.file], c.dir);
+  const m =
+      await run(clang,
+                [
+                  ...c.args, "-fclangir", "-S", "-emit-cir", "-fcir-modernize",
+                  "-fdiagnostics-parseable-fixits", "-fno-color-diagnostics",
+                  ...(why ? [ "-mllvm", "-debug-only=cir-modernize" ] : []),
+                  "-o", "/dev/null", c.file
+                ],
+                c.dir);
+  for (const [, n, reason] of m.err.matchAll(/^cir-modernize: (\d+) (.*)$/gm))
+    drops.set(reason, (drops.get(reason) ?? 0) + +n);
   if (m.code !== 0) {
     const why = m.err.split("\n").find((l) => /error|NYI|Assertion|LLVM ERROR/.test(l)) ?? `exit ${m.code}`;
     return { file: c.file, status: "skip", rewrites: 0, detail: why.trim() };
@@ -286,6 +302,7 @@ async function check(c: Cmd, scratch: string): Promise<Result> {
   }
 }
 
+const drops = new Map<string, number>();
 const cmds = loadCommands();
 const scratch = mkdtempSync(join(tmpdir(), "cirmodernize-"));
 mkdirSync(scratch, { recursive: true });
@@ -310,4 +327,9 @@ console.log(`${proven} rewrites proven identical`);
 const skips = new Map<string, number>();
 for (const r of results) if (r.status === "skip") skips.set(r.detail!, (skips.get(r.detail!) ?? 0) + 1);
 for (const [why, n] of [...skips].sort((x, y) => y[1] - x[1]).slice(0, 8)) console.log(`  skip x${n}: ${why}`);
+if (why) {
+  console.log("\nmust-dereference parameters, by why they were not rewritten:");
+  for (const [reason, n] of [...drops].sort((x, y) => y[1] - x[1]))
+    console.log(`  ${String(n).padStart(6)}  ${reason}`);
+}
 process.exit(count("fail") ? 1 : 0);
