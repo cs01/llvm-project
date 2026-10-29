@@ -394,6 +394,17 @@ emitCommonNeonSISDBuiltinExpr(CIRGenFunction &cgf,
                      std::string("unimplemented AArch64 builtin call: ") +
                          cgf.getContext().BuiltinInfo.getName(info.BuiltinID));
     break;
+  case NEON::BI__builtin_neon_vmull_p64: {
+    // 64 x 64 -> 128-bit carry-less multiply: the intrinsic returns the
+    // product as 16 bytes, read back as poly128_t.
+    CIRGenBuilderTy &builder = cgf.getBuilder();
+    auto bytes = cir::VectorType::getFixed(builder.getUInt8Ty(), 16);
+    mlir::Value product = builder.emitIntrinsicCallOp(
+        loc, llvmIntrName, bytes,
+        mlir::ValueRange{builder.createIntCast(ops[0], builder.getUInt64Ty()),
+                         builder.createIntCast(ops[1], builder.getUInt64Ty())});
+    return builder.createBitcast(product, cgf.convertType(expr->getType()));
+  }
   case NEON::BI__builtin_neon_vminv_s8:
   case NEON::BI__builtin_neon_vminvq_s8:
   case NEON::BI__builtin_neon_vminv_s16:
@@ -2646,10 +2657,16 @@ CIRGenFunction::emitAArch64BuiltinExpr(unsigned builtinID, const CallExpr *expr,
   }
 
   if (crcIntrinsicID != Intrinsic::not_intrinsic) {
-    cgm.errorNYI(expr->getSourceRange(),
-                 std::string("unimplemented AArch64 builtin call: ") +
-                     getContext().BuiltinInfo.getName(builtinID));
-    return mlir::Value{};
+    // crc32{b,h,w} take the data as i32, crc32x as i64.
+    mlir::Value crc = emitScalarExpr(expr->getArg(0));
+    mlir::Value data = emitScalarExpr(expr->getArg(1));
+    bool wide = crcIntrinsicID == Intrinsic::aarch64_crc32x ||
+                crcIntrinsicID == Intrinsic::aarch64_crc32cx;
+    data = builder.createIntCast(data, wide ? builder.getUInt64Ty()
+                                            : builder.getUInt32Ty());
+    return builder.emitIntrinsicCallOp(
+        getLoc(expr->getExprLoc()), getLLVMIntrNameNoPrefix(crcIntrinsicID),
+        builder.getUInt32Ty(), mlir::ValueRange{crc, data});
   }
 
   // Memory Operations (MOPS)

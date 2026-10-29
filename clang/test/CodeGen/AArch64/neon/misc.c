@@ -1,8 +1,8 @@
 // REQUIRES: aarch64-registered-target || arm-registered-target
 
-// RUN:                   %clang_cc1_cg_arm64_neon           -target-feature +aes -emit-llvm %s -disable-O0-optnone | opt -S -passes=mem2reg,sroa,instcombine | FileCheck %s --check-prefix=LLVM
-// RUN: %if cir-enabled %{%clang_cc1_cg_arm64_neon -target-feature +aes -fclangir -emit-llvm %s -disable-O0-optnone | opt -S -passes=mem2reg,sroa,instcombine | FileCheck %s --check-prefix=LLVM %}
-// RUN: %if cir-enabled %{%clang_cc1_cg_arm64_neon -target-feature +aes -fclangir -emit-cir  %s -disable-O0-optnone |                               FileCheck %s --check-prefix=CIR %}
+// RUN:                   %clang_cc1_cg_arm64_neon           -target-feature +aes -target-feature +crc -emit-llvm %s -disable-O0-optnone | opt -S -passes=mem2reg,sroa,instcombine | FileCheck %s --check-prefix=LLVM
+// RUN: %if cir-enabled %{%clang_cc1_cg_arm64_neon -target-feature +aes -target-feature +crc -fclangir -emit-llvm %s -disable-O0-optnone | opt -S -passes=mem2reg,sroa,instcombine | FileCheck %s --check-prefix=LLVM %}
+// RUN: %if cir-enabled %{%clang_cc1_cg_arm64_neon -target-feature +aes -target-feature +crc -fclangir -emit-cir  %s -disable-O0-optnone |                               FileCheck %s --check-prefix=CIR %}
 
 // Extract, pairwise add, compare against zero, popcount and the AES rounds:
 // each the same LLVM IR through ClangIR as through classic codegen.
@@ -139,4 +139,11 @@ uint8x8_t test_vmovn_u16(uint16x8_t a) {
 int32x2_t test_vmovn_s64(int64x2_t a) {
 // LLVM: trunc <2 x i64> {{.*}} to <2 x i32>
   return vmovn_s64(a);
+}
+
+// LLVM-LABEL: @test_vmull_p64(
+poly128_t test_vmull_p64(poly64_t a, poly64_t b) {
+// LLVM: [[P:%.*]] = call <16 x i8> @llvm.aarch64.neon.pmull64(i64 {{.*}}, i64 {{.*}})
+// LLVM: bitcast <16 x i8> [[P]] to i128
+  return vmull_p64(a, b);
 }

@@ -1127,7 +1127,15 @@ static RValue tryEmitFPMathIntrinsic(CIRGenFunction &cgf, const CallExpr *e,
   case Builtin::BI__builtin_ldexpf:
   case Builtin::BI__builtin_ldexpl:
   case Builtin::BI__builtin_ldexpf16:
-  case Builtin::BI__builtin_ldexpf128:
+  case Builtin::BI__builtin_ldexpf128: {
+    if (cgf.getBuilder().getIsFPConstrained())
+      return errorBuiltinNYI(cgf, e, builtinID);
+    mlir::Value x = cgf.emitScalarExpr(e->getArg(0));
+    mlir::Value exp = cgf.emitScalarExpr(e->getArg(1));
+    return RValue::get(cgf.getBuilder().emitIntrinsicCallOp(
+        cgf.getLoc(e->getExprLoc()), "ldexp", x.getType(),
+        mlir::ValueRange{x, exp}));
+  }
   case Builtin::BI__builtin_elementwise_ldexp:
     return errorBuiltinNYI(cgf, e, builtinID);
   default:
