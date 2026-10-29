@@ -2648,6 +2648,7 @@ def CIR_CmpOpKindAttr : CIR_EnumAttr<CIR_CmpOpKind, "cmp">;
 def CIR_CmpOp : CIR_Op<"cmp",
     !listconcat([SameTypeOperands], CIR_FenvOpTraits)> {
   let summary = "Compare two values and produce a boolean result";
+  let hasFolder = 1;
   let description = [{
     The `cir.cmp` operation compares two operands of the same type and produces
     a `!cir.bool` result. It supports integral, boolean, floating-point, and
@@ -2861,6 +2862,7 @@ class CIR_BinaryOpWithOverflowFlags<string mnemonic, Type type,
 def CIR_AddOp
     : CIR_BinaryOpWithOverflowFlags<"add", CIR_AnyIntOrVecOrMatrixOfIntType> {
   let summary = "Integer addition";
+  let hasFolder = 1;
   let description = [{
     The `cir.add` operation performs addition on integer operands. Both
     operands and the result must have the same integer, vector-of-integer or
@@ -2892,6 +2894,7 @@ def CIR_AddOp
 def CIR_SubOp
     : CIR_BinaryOpWithOverflowFlags<"sub", CIR_AnyIntOrVecOrMatrixOfIntType> {
   let summary = "Integer subtraction";
+  let hasFolder = 1;
   let description = [{
     The `cir.sub` operation performs subtraction on integer operands. Both
     operands and the result must have the same integer, vector-of-integer or
@@ -2921,6 +2924,7 @@ def CIR_SubOp
 
 def CIR_MulOp : CIR_BinaryOp<"mul", CIR_AnyIntOrVecOrMatrixOfIntType> {
   let summary = "Integer multiplication";
+  let hasFolder = 1;
   let description = [{
     The `cir.mul` operation performs multiplication on integer operands. Both
     operands and the result must have the same integer or vector-of-integer
@@ -2961,6 +2965,7 @@ def CIR_MulOp : CIR_BinaryOp<"mul", CIR_AnyIntOrVecOrMatrixOfIntType> {
 
 def CIR_DivOp : CIR_BinaryOp<"div", CIR_AnyIntOrVecOrMatrixOfIntType> {
   let summary = "Integer division";
+  let hasFolder = 1;
   let description = [{
     The `cir.div` operation performs division on integer operands. Both
     operands and the result must have the same integer or vector-of-integer
@@ -2983,6 +2988,7 @@ def CIR_DivOp : CIR_BinaryOp<"div", CIR_AnyIntOrVecOrMatrixOfIntType> {
 
 def CIR_RemOp : CIR_BinaryOp<"rem", CIR_AnyIntOrVecOfIntType> {
   let summary = "Integer remainder";
+  let hasFolder = 1;
   let description = [{
     The `cir.rem` operation computes the remainder of division on integer
     operands. Both operands and the result must have the same integer or
@@ -3159,6 +3165,7 @@ def CIR_AndOp : CIR_BinaryOp<"and", CIR_AnyBitwiseType, [
   Commutative, Idempotent
 ]> {
   let summary = "Bitwise AND";
+  let hasFolder = 1;
   let description = [{
     The `cir.and` operation performs a bitwise AND on integer operands.
     Both operands and the result must have the same integer type.
@@ -3182,6 +3189,7 @@ def CIR_OrOp : CIR_BinaryOp<"or", CIR_AnyBitwiseType, [
   Commutative, Idempotent
 ]> {
   let summary = "Bitwise OR";
+  let hasFolder = 1;
   let description = [{
     The `cir.or` operation performs a bitwise OR on integer operands.
     Both operands and the result must have the same integer type.
@@ -3203,6 +3211,7 @@ def CIR_OrOp : CIR_BinaryOp<"or", CIR_AnyBitwiseType, [
 
 def CIR_XorOp : CIR_BinaryOp<"xor", CIR_AnyBitwiseType, [Commutative]> {
   let summary = "Bitwise XOR";
+  let hasFolder = 1;
   let description = [{
     The `cir.xor` operation performs a bitwise XOR on integer operands.
     Both operands and the result must have the same integer type.

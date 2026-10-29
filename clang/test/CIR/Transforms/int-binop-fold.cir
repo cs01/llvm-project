@@ -1,0 +1,153 @@
+// RUN: cir-opt -cir-canonicalize -o %t.cir %s
+// RUN: FileCheck --input-file=%t.cir %s
+
+// Integer arithmetic, bitwise and compare ops on two constants fold, so MLIR's
+// constant propagation works on CIR. Overflow under nsw or nuw is poison and
+// division by zero or INT_MIN / -1 is undefined behavior; those stay as they
+// are.
+
+!s8i = !cir.int<s, 8>
+!u8i = !cir.int<u, 8>
+!s32i = !cir.int<s, 32>
+!u32i = !cir.int<u, 32>
+
+module {
+  cir.func @add() -> !s32i {
+    %0 = cir.const #cir.int<40> : !s32i
+    %1 = cir.const #cir.int<2> : !s32i
+    %2 = cir.add nsw %0, %1 : !s32i
+    cir.return %2 : !s32i
+  }
+  // CHECK-LABEL: @add
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #cir.int<42> : !s32i
+  // CHECK-NEXT:  cir.return %[[C]]
+
+  cir.func @add_wraps() -> !s8i {
+    %0 = cir.const #cir.int<127> : !s8i
+    %1 = cir.const #cir.int<1> : !s8i
+    %2 = cir.add %0, %1 : !s8i
+    cir.return %2 : !s8i
+  }
+  // CHECK-LABEL: @add_wraps
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #cir.int<-128> : !s8i
+
+  cir.func @add_nsw_overflow() -> !s8i {
+    %0 = cir.const #cir.int<127> : !s8i
+    %1 = cir.const #cir.int<1> : !s8i
+    %2 = cir.add nsw %0, %1 : !s8i
+    cir.return %2 : !s8i
+  }
+  // CHECK-LABEL: @add_nsw_overflow
+  // CHECK:       cir.add nsw
+
+  cir.func @add_sat() -> !u8i {
+    %0 = cir.const #cir.int<250> : !u8i
+    %1 = cir.const #cir.int<10> : !u8i
+    %2 = cir.add sat %0, %1 : !u8i
+    cir.return %2 : !u8i
+  }
+  // CHECK-LABEL: @add_sat
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #cir.int<255> : !u8i
+
+  cir.func @sub() -> !u32i {
+    %0 = cir.const #cir.int<5> : !u32i
+    %1 = cir.const #cir.int<2> : !u32i
+    %2 = cir.sub nuw %0, %1 : !u32i
+    cir.return %2 : !u32i
+  }
+  // CHECK-LABEL: @sub()
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #cir.int<3> : !u32i
+
+  cir.func @sub_nuw_overflow() -> !u32i {
+    %0 = cir.const #cir.int<1> : !u32i
+    %1 = cir.const #cir.int<2> : !u32i
+    %2 = cir.sub nuw %0, %1 : !u32i
+    cir.return %2 : !u32i
+  }
+  // CHECK-LABEL: @sub_nuw_overflow
+  // CHECK:       cir.sub nuw
+
+  cir.func @mul() -> !s32i {
+    %0 = cir.const #cir.int<6> : !s32i
+    %1 = cir.const #cir.int<7> : !s32i
+    %2 = cir.mul nsw %0, %1 : !s32i
+    cir.return %2 : !s32i
+  }
+  // CHECK-LABEL: @mul
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #cir.int<42> : !s32i
+
+  cir.func @mul_nsw_overflow() -> !s8i {
+    %0 = cir.const #cir.int<64> : !s8i
+    %1 = cir.const #cir.int<2> : !s8i
+    %2 = cir.mul nsw %0, %1 : !s8i
+    cir.return %2 : !s8i
+  }
+  // CHECK-LABEL: @mul_nsw_overflow
+  // CHECK:       cir.mul nsw
+
+  cir.func @div_signed() -> !s32i {
+    %0 = cir.const #cir.int<-7> : !s32i
+    %1 = cir.const #cir.int<2> : !s32i
+    %2 = cir.div %0, %1 : !s32i
+    cir.return %2 : !s32i
+  }
+  // CHECK-LABEL: @div_signed
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #cir.int<-3> : !s32i
+
+  cir.func @div_by_zero() -> !s32i {
+    %0 = cir.const #cir.int<7> : !s32i
+    %1 = cir.const #cir.int<0> : !s32i
+    %2 = cir.div %0, %1 : !s32i
+    cir.return %2 : !s32i
+  }
+  // CHECK-LABEL: @div_by_zero
+  // CHECK:       cir.div
+
+  cir.func @div_min_by_minus_one() -> !s8i {
+    %0 = cir.const #cir.int<-128> : !s8i
+    %1 = cir.const #cir.int<-1> : !s8i
+    %2 = cir.div %0, %1 : !s8i
+    cir.return %2 : !s8i
+  }
+  // CHECK-LABEL: @div_min_by_minus_one
+  // CHECK:       cir.div
+
+  cir.func @rem_unsigned() -> !u32i {
+    %0 = cir.const #cir.int<17> : !u32i
+    %1 = cir.const #cir.int<5> : !u32i
+    %2 = cir.rem %0, %1 : !u32i
+    cir.return %2 : !u32i
+  }
+  // CHECK-LABEL: @rem_unsigned
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #cir.int<2> : !u32i
+
+  cir.func @bitwise() -> !u32i {
+    %0 = cir.const #cir.int<12> : !u32i
+    %1 = cir.const #cir.int<10> : !u32i
+    %2 = cir.and %0, %1 : !u32i
+    %3 = cir.or %0, %1 : !u32i
+    %4 = cir.xor %2, %3 : !u32i
+    cir.return %4 : !u32i
+  }
+  // CHECK-LABEL: @bitwise
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #cir.int<6> : !u32i
+
+  // -1 is below 1 signed and above it unsigned.
+  cir.func @cmp_signedness() -> !cir.bool {
+    %0 = cir.const #cir.int<-1> : !s32i
+    %1 = cir.const #cir.int<1> : !s32i
+    %2 = cir.cmp lt %0, %1 : !s32i
+    cir.return %2 : !cir.bool
+  }
+  // CHECK-LABEL: @cmp_signedness
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #true
+
+  cir.func @cmp_unsigned() -> !cir.bool {
+    %0 = cir.const #cir.int<4294967295> : !u32i
+    %1 = cir.const #cir.int<1> : !u32i
+    %2 = cir.cmp lt %0, %1 : !u32i
+    cir.return %2 : !cir.bool
+  }
+  // CHECK-LABEL: @cmp_unsigned
+  // CHECK-NEXT:  %[[C:.+]] = cir.const #false
+}

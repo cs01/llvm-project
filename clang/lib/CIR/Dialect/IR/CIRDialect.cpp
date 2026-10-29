@@ -5858,3 +5858,157 @@ bool cir::StdFindOp::signatureMatches(mlir::TypeRange operands,
 
 #define GET_OP_CLASSES
 #include "clang/CIR/Dialect/IR/CIROps.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// Integer binary op folders
+//===----------------------------------------------------------------------===//
+
+// Folds an integer op on two constant operands with Fold, which returns
+// nothing to leave the op alone.
+static OpFoldResult foldIntBinary(
+    mlir::Type type, mlir::Attribute lhs, mlir::Attribute rhs,
+    llvm::function_ref<std::optional<APInt>(const APInt &, const APInt &, bool)>
+        fold) {
+  auto lhsAttr = mlir::dyn_cast_if_present<cir::IntAttr>(lhs);
+  auto rhsAttr = mlir::dyn_cast_if_present<cir::IntAttr>(rhs);
+  auto intTy = mlir::dyn_cast<cir::IntType>(type);
+  if (!lhsAttr || !rhsAttr || !intTy)
+    return {};
+  if (std::optional<APInt> result =
+          fold(lhsAttr.getValue(), rhsAttr.getValue(), intTy.isSigned()))
+    return cir::IntAttr::get(type, *result);
+  return {};
+}
+
+// An add, sub or mul that overflows under nsw or nuw is poison. It is left
+// for the code that has it rather than given a value here.
+template <typename Op>
+static OpFoldResult
+foldWithOverflow(Op op, mlir::Attribute lhs, mlir::Attribute rhs,
+                 APInt (APInt::*signedOv)(const APInt &, bool &) const,
+                 APInt (APInt::*unsignedOv)(const APInt &, bool &) const,
+                 APInt (APInt::*signedSat)(const APInt &) const,
+                 APInt (APInt::*unsignedSat)(const APInt &) const) {
+  return foldIntBinary(op.getType(), lhs, rhs,
+                       [&](const APInt &x, const APInt &y,
+                           bool isSigned) -> std::optional<APInt> {
+                         if (op.getSaturated())
+                           return isSigned ? (x.*signedSat)(y)
+                                           : (x.*unsignedSat)(y);
+                         bool signedOverflow, unsignedOverflow;
+                         APInt result = (x.*signedOv)(y, signedOverflow);
+                         (void)(x.*unsignedOv)(y, unsignedOverflow);
+                         if ((op.getNoSignedWrap() && signedOverflow) ||
+                             (op.getNoUnsignedWrap() && unsignedOverflow))
+                           return std::nullopt;
+                         return result;
+                       });
+}
+
+OpFoldResult cir::AddOp::fold(FoldAdaptor adaptor) {
+  return foldWithOverflow(*this, adaptor.getLhs(), adaptor.getRhs(),
+                          &APInt::sadd_ov, &APInt::uadd_ov, &APInt::sadd_sat,
+                          &APInt::uadd_sat);
+}
+
+OpFoldResult cir::SubOp::fold(FoldAdaptor adaptor) {
+  return foldWithOverflow(*this, adaptor.getLhs(), adaptor.getRhs(),
+                          &APInt::ssub_ov, &APInt::usub_ov, &APInt::ssub_sat,
+                          &APInt::usub_sat);
+}
+
+OpFoldResult cir::MulOp::fold(FoldAdaptor adaptor) {
+  return foldIntBinary(getType(), adaptor.getLhs(), adaptor.getRhs(),
+                       [&](const APInt &x, const APInt &y,
+                           bool isSigned) -> std::optional<APInt> {
+                         bool signedOverflow, unsignedOverflow;
+                         APInt result = x.smul_ov(y, signedOverflow);
+                         (void)x.umul_ov(y, unsignedOverflow);
+                         // As in foldWithOverflow: overflow under a wrap flag
+                         // is poison.
+                         if ((getNoSignedWrap() && signedOverflow) ||
+                             (getNoUnsignedWrap() && unsignedOverflow))
+                           return std::nullopt;
+                         return result;
+                       });
+}
+
+// Division by zero and INT_MIN / -1 are undefined behavior; they are left
+// alone.
+OpFoldResult cir::DivOp::fold(FoldAdaptor adaptor) {
+  return foldIntBinary(
+      getType(), adaptor.getLhs(), adaptor.getRhs(),
+      [](const APInt &x, const APInt &y,
+         bool isSigned) -> std::optional<APInt> {
+        if (y.isZero() || (isSigned && x.isMinSignedValue() && y.isAllOnes()))
+          return std::nullopt;
+        return isSigned ? x.sdiv(y) : x.udiv(y);
+      });
+}
+
+OpFoldResult cir::RemOp::fold(FoldAdaptor adaptor) {
+  return foldIntBinary(
+      getType(), adaptor.getLhs(), adaptor.getRhs(),
+      [](const APInt &x, const APInt &y,
+         bool isSigned) -> std::optional<APInt> {
+        if (y.isZero() || (isSigned && x.isMinSignedValue() && y.isAllOnes()))
+          return std::nullopt;
+        return isSigned ? x.srem(y) : x.urem(y);
+      });
+}
+
+OpFoldResult cir::AndOp::fold(FoldAdaptor adaptor) {
+  return foldIntBinary(getType(), adaptor.getLhs(), adaptor.getRhs(),
+                       [](const APInt &x, const APInt &y, bool) {
+                         return std::optional<APInt>(x & y);
+                       });
+}
+
+OpFoldResult cir::OrOp::fold(FoldAdaptor adaptor) {
+  return foldIntBinary(getType(), adaptor.getLhs(), adaptor.getRhs(),
+                       [](const APInt &x, const APInt &y, bool) {
+                         return std::optional<APInt>(x | y);
+                       });
+}
+
+OpFoldResult cir::XorOp::fold(FoldAdaptor adaptor) {
+  return foldIntBinary(getType(), adaptor.getLhs(), adaptor.getRhs(),
+                       [](const APInt &x, const APInt &y, bool) {
+                         return std::optional<APInt>(x ^ y);
+                       });
+}
+
+OpFoldResult cir::CmpOp::fold(FoldAdaptor adaptor) {
+  auto lhs = mlir::dyn_cast_if_present<cir::IntAttr>(adaptor.getLhs());
+  auto rhs = mlir::dyn_cast_if_present<cir::IntAttr>(adaptor.getRhs());
+  auto intTy = mlir::dyn_cast<cir::IntType>(getLhs().getType());
+  if (!lhs || !rhs || !intTy)
+    return {};
+  const APInt &x = lhs.getValue(), &y = rhs.getValue();
+  bool isSigned = intTy.isSigned();
+  bool result;
+  switch (getKind()) {
+  case cir::CmpOpKind::lt:
+    result = isSigned ? x.slt(y) : x.ult(y);
+    break;
+  case cir::CmpOpKind::le:
+    result = isSigned ? x.sle(y) : x.ule(y);
+    break;
+  case cir::CmpOpKind::gt:
+    result = isSigned ? x.sgt(y) : x.ugt(y);
+    break;
+  case cir::CmpOpKind::ge:
+    result = isSigned ? x.sge(y) : x.uge(y);
+    break;
+  case cir::CmpOpKind::eq:
+    result = x == y;
+    break;
+  case cir::CmpOpKind::ne:
+    result = x != y;
+    break;
+  default:
+    // one and uno are floating-point comparisons.
+    return {};
+  }
+  return cir::BoolAttr::get(getContext(), result);
+}
