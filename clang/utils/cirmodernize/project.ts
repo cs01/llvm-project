@@ -38,6 +38,8 @@ type Candidate = {
   defined: boolean;
   location: string;
   blocked?: string;
+  internal?: boolean;
+  method?: boolean;
   edits?: Edit[];
   needs?: { usr: string; index: number; kind: "ref" | "const" }[];
 };
@@ -69,6 +71,23 @@ const keyOf = (c: { usr: string; index: number; kind: string }) => `${c.kind}#${
 const under = (file: string, dir: string) => file === dir || file.startsWith(dir + sep);
 const scratch = mkdtempSync(join(tmpdir(), "cirmodernize-project-"));
 const cmds = loadCommands(compdb, patterns);
+// A run on some of the project's TUs also takes every other TU that includes
+// a file under --root, since those see the declarations an edit changes. What
+// -M cannot see is a TU declaring a function itself; see the check after the
+// plan.
+if (patterns.length) {
+  const picked = new Set(cmds.map((c) => c.file));
+  const rest = loadCommands(compdb, []).filter((c) => !picked.has(c.file));
+  const seen = await pool(rest, jobs, async (c) => {
+    const r = await run(clang, [...c.args, "-M", "-o", "-", c.file], c.dir);
+    // A TU that cannot be scanned might include anything.
+    if (r.code !== 0) return true;
+    return r.out.split(/\s+/).some((d) => d && d !== "\\" && !d.endsWith(":") && under(resolve(c.dir, d), root));
+  });
+  const added = rest.filter((_, i) => seen[i]);
+  cmds.push(...added);
+  console.log(`${picked.size} TUs picked, ${added.length} more include a file under --root, ${rest.length - added.length} do not`);
+}
 
 async function exportTU(c: Cmd, out: string, plan?: string): Promise<Export | string> {
   const r = await run(clang, [
@@ -173,6 +192,16 @@ if (skipped.size && proposals.size) {
 const live = new Set([...proposals.keys()].filter((k) => provenHere.has(k) && !blockers.has(k)));
 for (const k of proposals.keys())
   if (!live.has(k) && !blockers.has(k)) blockers.set(k, "no longer proven by its defining TU");
+// The TUs left out of a partial run include nothing under --root, but one
+// can still declare an external free function itself and call it. A method
+// cannot be declared outside its class, which a header under --root holds.
+if (patterns.length)
+  for (const k of live) {
+    const c = proposals.get(k)!;
+    if (c.internal || c.method) continue;
+    live.delete(k);
+    blockers.set(k, "external free function in a partial run");
+  }
 for (let changed = true; changed;) {
   changed = false;
   for (const k of live)

@@ -431,6 +431,8 @@ private:
             J.attribute("function", Cand.FD->getQualifiedNameAsString());
             J.attribute("param", Cand.Param->getName());
             J.attribute("defined", !Cand.External);
+            J.attribute("internal", !Cand.FD->isExternallyVisible());
+            J.attribute("method", isa<CXXMethodDecl>(Cand.FD));
             J.attribute("location",
                         Cand.Param->getLocation().printToString(Ctx.SM));
             if (!Cand.Live) {
