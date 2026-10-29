@@ -38,10 +38,12 @@ public:
   void If(SourceLocation Loc, SourceRange, ConditionValueKind) override {
     Open.push_back(Loc);
   }
-  void Ifdef(SourceLocation Loc, const Token &, const MacroDefinition &) override {
+  void Ifdef(SourceLocation Loc, const Token &,
+             const MacroDefinition &) override {
     Open.push_back(Loc);
   }
-  void Ifndef(SourceLocation Loc, const Token &, const MacroDefinition &) override {
+  void Ifndef(SourceLocation Loc, const Token &,
+              const MacroDefinition &) override {
     Open.push_back(Loc);
   }
   void Endif(SourceLocation Loc, SourceLocation IfLoc) override;
