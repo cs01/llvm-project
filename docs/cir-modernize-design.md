@@ -1,8 +1,8 @@
 # CIR modernize: proven source rewrites for C++ on ClangIR
 
 Status: working prototype on branch `cir-dev` (local). Pointer parameter to
-reference works per translation unit and project-wide, and every applied edit
-is proven.
+reference and pointer to const work per translation unit and project-wide,
+and every applied edit is proven.
 
 ## Goal
 
@@ -136,6 +136,8 @@ fail. It does.
 | Support + IR, per TU (256 TUs) | 21 rewrites proven identical, 0 failed |
 | CIR could not compile | 27 TUs before, 5 after fixing Darwin TLS wrappers and Apple ARM64 virtual member pointers |
 | lib/IR, project mode, public headers excluded (85 TUs, 54s) | 19 rewritten, 21 TUs proven unchanged, 0 failed |
+| Support + IR, per TU, ref and const | 76 rewrites proven identical, 0 failed |
+| lib/IR, project mode, ref and const (85 TUs) | 70 rewritten, 27 TUs proven unchanged, 0 failed |
 
 Why proven must-deref parameters are not rewritten (lib/IR, project mode):
 276 dependent-call name, 83 unhandled body use, 54 overloaded, 34 forwarded
