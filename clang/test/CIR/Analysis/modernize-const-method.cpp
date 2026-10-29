@@ -42,3 +42,24 @@ int entry() {
   c.callsBump();
   return c.get() + c.twice() + c.ref();
 }
+
+// A method that calls another non-const method on `this` is right once that
+// one is const too; a write anywhere down the chain keeps both.
+namespace {
+struct Chain {
+  int n;
+  // CHECK-DAG: warning: method 'leaf' never writes through 'this'
+  // CHECK-DAG: warning: method 'viaLeaf' never writes through 'this'
+  // FIXED: int leaf() const { return n; }
+  // FIXED: int viaLeaf() const { return leaf() + 1; }
+  int leaf() { return n; }
+  int viaLeaf() { return leaf() + 1; }
+  void set() { n = 0; }
+  int viaSet() { set(); return n; }
+};
+} // namespace
+// CHECK-NOT: method 'viaSet'
+int chain() {
+  Chain c{1};
+  return c.viaLeaf() + c.viaSet();
+}

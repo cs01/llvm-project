@@ -178,6 +178,8 @@ struct Candidate {
   llvm::SmallVector<const ParmVarDecl *> Needs;
   /// Like Needs, but found by Rewrite::finalize.
   llvm::SmallVector<const ParmVarDecl *> LateNeeds;
+  /// Methods of the same rewrite, about `this`, this one is only right with.
+  llvm::SmallVector<const FunctionDecl *> NeedsMethods;
   /// Project mode: the function is defined in another translation unit, and
   /// this one only edits its declarations and calls.
   bool External = false;
@@ -235,6 +237,8 @@ public:
   /// mode, so the merge hears why) or dropped.
   void add(Candidate Cand, StringRef Why);
   bool live(const ParmVarDecl *P, unsigned Rewrite) const;
+  /// The same for a candidate about the `this` of method FD.
+  bool live(const FunctionDecl *FD, unsigned Rewrite) const;
 
   /// Counts a reason for --why.
   void count(StringRef Why) { ++Drops[Why]; }
@@ -256,6 +260,7 @@ private:
   llvm::StringMap<const FunctionDecl *> ByMangled;
   bool MangledIndexed = false;
   llvm::DenseMap<std::pair<const ParmVarDecl *, unsigned>, size_t> ByParam;
+  llvm::DenseMap<std::pair<const FunctionDecl *, unsigned>, size_t> ByMethod;
   llvm::BumpPtrAllocator Alloc;
   llvm::StringSaver Saver{Alloc};
   llvm::StringMap<unsigned> Drops;

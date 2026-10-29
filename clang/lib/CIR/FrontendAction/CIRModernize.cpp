@@ -234,15 +234,21 @@ void Context::add(Candidate Cand, StringRef Why) {
     Cand.Live = false;
     Cand.Why = Why;
   }
-  // A candidate about `this` has no parameter, and nothing needs it.
   if (Cand.Param)
     ByParam[{Cand.Param, Cand.Rewrite}] = Candidates.size();
+  else
+    ByMethod[{Cand.FD->getCanonicalDecl(), Cand.Rewrite}] = Candidates.size();
   Candidates.push_back(std::move(Cand));
 }
 
 bool Context::live(const ParmVarDecl *P, unsigned Rewrite) const {
   auto It = ByParam.find({P, Rewrite});
   return It != ByParam.end() && Candidates[It->second].Live;
+}
+
+bool Context::live(const FunctionDecl *FD, unsigned Rewrite) const {
+  auto It = ByMethod.find({FD->getCanonicalDecl(), Rewrite});
+  return It != ByMethod.end() && Candidates[It->second].Live;
 }
 
 ParmVarDecl *Context::keyParam(const FunctionDecl *FD, unsigned Index) {
@@ -373,8 +379,12 @@ private:
           continue;
         Rewrite &R = *Rewrites[Cand.Rewrite];
         StringRef Why;
-        if (!llvm::all_of(Cand.Needs, [&](const ParmVarDecl *P) {
-              return Ctx.live(P, Cand.Rewrite);
+        if (!llvm::all_of(Cand.Needs,
+                          [&](const ParmVarDecl *P) {
+                            return Ctx.live(P, Cand.Rewrite);
+                          }) ||
+            !llvm::all_of(Cand.NeedsMethods, [&](const FunctionDecl *FD) {
+              return Ctx.live(FD, Cand.Rewrite);
             }))
           Why = R.whyNeedBlocked();
         else
@@ -551,6 +561,12 @@ private:
                     J.attribute("index", P->getFunctionScopeIndex());
                     J.attribute("kind", Kind);
                   });
+              for (const FunctionDecl *FD : Cand.NeedsMethods)
+                J.object([&] {
+                  J.attribute("usr", Ctx.usr(FD));
+                  J.attribute("index", 0);
+                  J.attribute("kind", Kind);
+                });
             });
           });
       });

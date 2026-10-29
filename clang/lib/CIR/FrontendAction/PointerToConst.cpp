@@ -115,6 +115,11 @@ public:
           if (CFD && CFD->isTemplateInstantiation())
             CFD = CFD->getTemplateInstantiationPattern();
           unsigned CalleeOffset = CFD ? Context::thisOffset(CFD) : 0;
+          if (CFD && CalleeIndex < CalleeOffset) {
+            if (Why.empty())
+              Why = "const: passed as this to a non-const method";
+            continue;
+          }
           ParmVarDecl *Needed =
               CFD && CalleeIndex >= CalleeOffset
                   ? Context::keyParam(CFD, CalleeIndex - CalleeOffset)
@@ -221,9 +226,10 @@ protected:
     if (!FD)
       return cir::PointerArgUse::Writes;
     unsigned Offset = Context::thisOffset(FD);
+    // A non-const method may still become const itself (const-method).
     if (Index < Offset)
       return cast<CXXMethodDecl>(FD)->isConst() ? cir::PointerArgUse::ReadOnly
-                                                : cir::PointerArgUse::Writes;
+                                                : cir::PointerArgUse::Forward;
     // Past the named parameters is a variadic argument, which %n can write.
     if (Index - Offset >= FD->getNumParams())
       return cir::PointerArgUse::Writes;
@@ -266,20 +272,28 @@ public:
     const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
     bool Proven = false;
     StringRef Why;
+    llvm::SmallVector<const FunctionDecl *> Needs;
     if (It != Facts.end())
       if (auto Fact = It->second.find(0); Fact != It->second.end()) {
         Proven = true;
         if (Fact->second.written)
           Why = Ctx.save("const-method: " + Fact->second.why);
-        else if (!Fact->second.forwards.empty())
-          Why = "const-method: this passed to a non-const pointer parameter";
+        // `this` passed on as the `this` of another method: right once that
+        // method is const too.
+        for (auto &[Callee, CalleeIndex] : Fact->second.forwards) {
+          const FunctionDecl *CFD = Ctx.declByMangledName(Callee);
+          if (CFD && CalleeIndex == 0 && Context::thisOffset(CFD))
+            Needs.push_back(CFD);
+          else if (Why.empty())
+            Why = "const-method: this passed to a non-const pointer parameter";
+        }
       }
     if (!Proven && !(Planned && Planned->contains(0)))
       return;
     Ctx.count("const-method: methods");
     if (Why.empty())
       Why = Ctx.whyIneligible(FD);
-    add(MD, Why, /*External=*/false);
+    add(MD, Why, /*External=*/false, Needs);
   }
 
   void addExternal(FunctionDecl *FD, unsigned) override {
@@ -289,9 +303,11 @@ public:
   }
 
 private:
-  void add(CXXMethodDecl *MD, StringRef Why, bool External) {
+  void add(CXXMethodDecl *MD, StringRef Why, bool External,
+           ArrayRef<const FunctionDecl *> Needs = {}) {
     Candidate Cand{MD, nullptr, 0, Id};
     Cand.External = External;
+    Cand.NeedsMethods.assign(Needs.begin(), Needs.end());
     if (Why.empty() && !methodEdits(Cand))
       Why = "const-method: declarator in a macro";
     Ctx.add(std::move(Cand), Why);
