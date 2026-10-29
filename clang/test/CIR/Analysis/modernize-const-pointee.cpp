@@ -97,3 +97,17 @@ int useBox(Node *n) {
   Box b(n);
   return 0;
 }
+
+// Pointer difference and a memcpy source only read; a memcpy destination is
+// written.
+// CHECK-DAG: warning: pointer parameter 'b' of 'distance'
+// CHECK-DAG: warning: pointer parameter 'src' of 'copyOut'
+// NEG-NOT: parameter 'dst' of 'copyOut'
+// FIXED: {{^}}static long distance(const char *b, const char *e) { return e - b; }
+// FIXED: {{^}}static void copyOut(char *dst, const char *src) { __builtin_memcpy(dst, src, 4); }
+static long distance(char *b, char *e) { return e - b; }
+static void copyOut(char *dst, char *src) { __builtin_memcpy(dst, src, 4); }
+long useDistance(char *b, char *e) {
+  copyOut(b, e);
+  return distance(b, e);
+}

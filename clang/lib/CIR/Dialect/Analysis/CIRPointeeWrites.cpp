@@ -66,8 +66,17 @@ private:
 
   void operand(mlir::OpOperand &use) {
     mlir::Operation *op = use.getOwner();
-    if (mlir::isa<cir::LoadOp, cir::CmpOp>(op))
+    // ptr_diff and objsize read only the address.
+    if (mlir::isa<cir::LoadOp, cir::CmpOp, cir::PtrDiffOp, cir::ObjSizeOp>(op))
       return;
+    if (mlir::isa<cir::MemCpyOp, cir::MemMoveOp>(op)) {
+      mlir::Value dst = mlir::isa<cir::MemCpyOp>(op)
+                            ? mlir::cast<cir::MemCpyOp>(op).getDst()
+                            : mlir::cast<cir::MemMoveOp>(op).getDst();
+      if (dst == use.get())
+        write("memcpy or memmove destination");
+      return;
+    }
     if (auto store = mlir::dyn_cast<cir::StoreOp>(op))
       return write(store.getAddr() == use.get() ? "stored through"
                                                 : "copied");
