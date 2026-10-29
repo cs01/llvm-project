@@ -179,6 +179,9 @@ struct Candidate {
   unsigned Index;
   /// Which rewrite proposed it (Rewrite::id).
   unsigned Rewrite;
+  /// Where to report a candidate about a statement, rather than at the
+  /// parameter or the function.
+  SourceLocation Loc;
   /// Edits fixed when the candidate is proposed.
   llvm::SmallVector<FixItHint> Edits;
   /// Edits recomputed by Rewrite::finalize, which can depend on which other
@@ -341,6 +344,7 @@ std::unique_ptr<Rewrite> createCaptureBy(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createSpan(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createLockGuard(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createUniquePtr(Context &Ctx, unsigned Id);
+std::unique_ptr<Rewrite> createDeadBranch(Context &Ctx, unsigned Id);
 
 /// Writes the "sites" array of a project-mode export: every unsafe construct
 /// in the translation unit's own source (Inventory.cpp).

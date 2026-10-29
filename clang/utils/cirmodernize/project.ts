@@ -275,7 +275,7 @@ if (skipped.size && proposals.size) {
 }
 
 // const and nullability are C too; the rest are C++ syntax.
-const inC = new Set(["const", "nonnull", "nullable"]);
+const inC = new Set(["const", "nonnull", "nullable", "dead-branch"]);
 for (const [k, es] of edits)
   if (!inC.has(proposals.get(k)!.kind) && es.some((e) => cFiles.has(e.file)) && !blockers.has(k))
     blockers.set(k, "C++ syntax in a file a C TU includes");

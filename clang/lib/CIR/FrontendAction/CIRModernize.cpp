@@ -365,6 +365,7 @@ constexpr RewriteInfo AllRewrites[] = {
     {"span", "refinement", false, createSpan},
     {"lock-guard", "refinement", false, createLockGuard},
     {"unique-ptr", "refinement", false, createUniquePtr},
+    {"dead-branch", "identical", false, createDeadBranch},
 };
 constexpr StringRef Groups[] = {"identical", "refinement"};
 
@@ -502,8 +503,9 @@ private:
     for (const Candidate &Cand : Ctx.Candidates) {
       if (!Cand.Live)
         continue;
-      auto Diag = Diags.Report(Cand.Param ? Cand.Param->getLocation()
-                                          : Cand.FD->getLocation(),
+      auto Diag = Diags.Report(Cand.Loc.isValid() ? Cand.Loc
+                               : Cand.Param       ? Cand.Param->getLocation()
+                                                  : Cand.FD->getLocation(),
                                IDs[Cand.Rewrite]);
       if (Cand.Param)
         Diag << Cand.Param;
