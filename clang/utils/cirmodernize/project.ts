@@ -26,13 +26,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs
 import { tmpdir } from "os";
 import { join, resolve, sep } from "path";
 import {
-  type Cmd, type Edit, applyEdits, byFile, firstError, loadCommands, overlay, pool, prove, run,
+  type Cmd, type Edit, applyEdits, byFile, defaultJobs, firstError, loadCommands, overlay, pool, prove, run,
 } from "./lib.ts";
 
 type Candidate = {
   usr: string;
   index: number;
-  kind: "ref" | "const";
+  kind: string;
   function: string;
   param: string;
   defined: boolean;
@@ -41,14 +41,18 @@ type Candidate = {
   internal?: boolean;
   method?: boolean;
   edits?: Edit[];
-  needs?: { usr: string; index: number; kind: "ref" | "const" }[];
+  needs?: { usr: string; index: number; kind: string }[];
+};
+type Site = {
+  file: string; offset: number; line: number; category: string; row: string;
+  state: "proven" | "covered" | "outside" | "unknown"; why?: string; usr?: string; index?: number;
 };
 // facts is false when CIRGen failed and only the AST half ran.
-type Export = { facts?: boolean; candidates: Candidate[] };
+type Export = { facts?: boolean; candidates: Candidate[]; sites?: Site[] };
 
 const argv = process.argv.slice(2);
-let clang = "", compdb = "", root = process.cwd(), jobs = navigator.hardwareConcurrency;
-let allowPublic = false, apply = false, verbose = false;
+let clang = "", compdb = "", root = process.cwd(), jobs = defaultJobs;
+let allowPublic = false, apply = false, verbose = false, inventory = "";
 const publicDirs: string[] = [], patterns: string[] = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -60,6 +64,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "--apply") apply = true;
   else if (a === "-j") jobs = +argv[++i];
   else if (a === "-v") verbose = true;
+  else if (a === "--inventory") inventory = resolve(argv[++i]);
   else patterns.push(a);
 }
 if (!clang || !compdb) {
@@ -92,14 +97,17 @@ if (patterns.length) {
 async function exportTU(c: Cmd, out: string, plan?: string): Promise<Export | string> {
   const r = await run(clang, [
     ...c.args, "-fclangir", "-S", "-emit-cir", "-fcir-modernize", "-fno-color-diagnostics",
-    `-fcir-modernize-export=${out}`, ...(plan ? [`-fcir-modernize-plan=${plan}`] : []),
+    "-fno-crash-diagnostics", `-fcir-modernize-export=${out}`, ...(plan ? [`-fcir-modernize-plan=${plan}`] : []),
     "-o", "/dev/null", c.file,
   ], c.dir);
   // A translation unit CIR cannot compile still writes an export from the AST
   // (or from before the CIR pass that failed); only one without an export
   // is unknown.
   if (!existsSync(out)) return firstError(r.err, r.code);
-  const e = JSON.parse(readFileSync(out, "utf8")) as Export;
+  // A crash partway through the export leaves it truncated.
+  let e: Export;
+  try { e = JSON.parse(readFileSync(out, "utf8")); }
+  catch { return `truncated export: ${firstError(r.err, r.code)}`; }
   if (r.code !== 0 || e.facts === false) astOnly.add(c.file);
   return e;
 }
@@ -122,16 +130,27 @@ const proposals = new Map<string, Candidate>();
 const blockedBy = new Map<string, number>();
 const block = (why: string) => blockedBy.set(why, (blockedBy.get(why) ?? 0) + 1);
 const seen1 = new Set<string>();
+// Why a defining TU did not propose a candidate, for the inventory.
+const why1 = new Map<string, string>();
+// A header's sites come from every TU that includes it; one copy each.
+const sites = new Map<string, Site>();
 pass1.forEach((e, i) => {
   if (typeof e === "string") return void skipped.set(cmds[i].file, e);
+  for (const s of e.sites ?? []) {
+    if (!under(s.file, root)) continue;
+    if (e.facts === false && s.index !== undefined) s.state = "unknown";
+    sites.set(`${s.file}:${s.offset}:${s.category}`, s);
+  }
   for (const c of e.candidates) {
     if (!c.defined || proposals.has(keyOf(c)) || seen1.has(keyOf(c))) continue;
     seen1.add(keyOf(c));
     if (c.blocked) {
       block(c.blocked);
+      why1.set(keyOf(c), c.blocked);
       continue;
     }
     const why = policy(c);
+    if (why) why1.set(keyOf(c), why);
     if (why) block(why);
     else proposals.set(keyOf(c), c);
   }
@@ -192,6 +211,15 @@ if (skipped.size && proposals.size) {
 const live = new Set([...proposals.keys()].filter((k) => provenHere.has(k) && !blockers.has(k)));
 for (const k of proposals.keys())
   if (!live.has(k) && !blockers.has(k)) blockers.set(k, "no longer proven by its defining TU");
+// A parameter that became a reference needs no nullability qualifier, and
+// the two edit the same declarator.
+for (const k of live) {
+  const c = proposals.get(k)!;
+  if ((c.kind === "nonnull" || c.kind === "nullable") && live.has(keyOf({ ...c, kind: "ref" }))) {
+    live.delete(k);
+    blockers.set(k, "nullability: became a reference");
+  }
+}
 // The TUs left out of a partial run include nothing under --root, but one
 // can still declare an external free function itself and call it. A method
 // cannot be declared outside its class, which a header under --root holds.
@@ -202,38 +230,68 @@ if (patterns.length)
     live.delete(k);
     blockers.set(k, "external free function in a partial run");
   }
-for (let changed = true; changed;) {
-  changed = false;
-  for (const k of live)
-    if ([...(needs.get(k) ?? [])].some((d) => !live.has(d))) {
-      live.delete(k);
-      blockers.set(k, "forwarded to or from a parameter that stays a pointer");
-      changed = true;
-    }
+function settle() {
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const k of live)
+      if ([...(needs.get(k) ?? [])].some((d) => !live.has(d))) {
+        live.delete(k);
+        blockers.set(k, "forwarded to or from a parameter that stays a pointer");
+        changed = true;
+      }
+  }
 }
-for (const k of proposals.keys()) if (!live.has(k)) block(blockers.get(k)!);
+settle();
 
-// 4. prove
-const all = [...live].flatMap((k) => edits.get(k)!);
-const toProve = cmds.filter((c, i) => skipped.has(c.file) || astOnly.has(c.file) || [...tuKeys[i]].some((k) => live.has(k)));
+// 4. prove. A TU that fails blocks the rewrites its edits belong to, and the
+// rest are proven again, so one bad edit does not hold back the others. A
+// failing TU with no rewrite of its own to block (one CIR could not compile)
+// stops the run instead.
+let all: Edit[] = [], toProve: Cmd[] = [];
 let failed = 0, proven = 0;
-if (all.length) {
+const unproven = new Map<string, number>();
+for (let round = 1; ; round++) {
+  all = [...live].flatMap((k) => edits.get(k)!);
+  const picked = cmds.map((c, i) => [c, i] as const)
+    .filter(([c, i]) => skipped.has(c.file) || astOnly.has(c.file) || [...tuKeys[i]].some((k) => live.has(k)));
+  toProve = picked.map(([c]) => c);
+  failed = proven = 0;
+  unproven.clear();
+  if (!all.length) break;
   const yaml = overlay(mkdtempSync(join(scratch, "overlay-")), all);
-  await pool(toProve, jobs, async (c) => {
+  const bad: number[] = [];
+  await pool(picked, jobs, async ([c, i]) => {
     const p = await prove(clang, c, yaml);
     if (p.status === "ok") proven++;
+    if (p.status === "skip") unproven.set(p.detail!, (unproven.get(p.detail!) ?? 0) + 1);
     if (p.status === "fail") {
       failed++;
+      bad.push(i);
       console.log(`FAIL ${c.file}\n  ${p.detail}`);
     }
   });
+  const culprits = bad.flatMap((i) => [...tuKeys[i]].filter((k) => live.has(k)));
+  if (!failed || !culprits.length || round === 5) break;
+  for (const k of culprits) {
+    live.delete(k);
+    blockers.set(k, "a TU it edits did not prove unchanged");
+  }
+  settle();
+  console.log(`round ${round}: ${failed} TUs failed, ${culprits.length} rewrites blocked, proving the rest again`);
 }
+for (const k of proposals.keys()) if (!live.has(k)) block(blockers.get(k)!);
 
 const secs = ((performance.now() - t0) / 1000).toFixed(1);
 console.log(`${cmds.length} TUs (${astOnly.size} CIR could not fully compile, ${skipped.size} without an export), ${secs}s`);
+{
+  const why = new Map<string, number>();
+  for (const w of skipped.values()) why.set(w, (why.get(w) ?? 0) + 1);
+  for (const [w, n] of [...why].sort((x, y) => y[1] - x[1]).slice(0, 5)) console.log(`  ${n} without an export: ${w}`);
+}
 console.log(`${proposals.size} parameters proposed, ${live.size} rewritten, ` +
             `${proposals.size - live.size} blocked`);
 console.log(`${proven} TUs proven unchanged, ${failed} failed, ${toProve.length - proven - failed} skipped`);
+for (const [w, n] of [...unproven].sort((x, y) => y[1] - x[1]).slice(0, 5)) console.log(`  ${n} not proven: ${w}`);
 if (blockedBy.size) {
   console.log("not rewritten:");
   for (const [why, n] of [...blockedBy].sort((x, y) => y[1] - x[1])) console.log(`  ${String(n).padStart(6)}  ${why}`);
@@ -243,6 +301,38 @@ if (verbose)
     const c = proposals.get(k)!;
     console.log(`  ${c.location}: ${c.kind} ${c.function}(${c.param})`);
   }
+
+if (inventory) writeInventory();
+
+// A pointer parameter is proven when it became a reference; a candidate that
+// was blocked is outside for that reason; one with no candidate is not
+// dereferenced on every path, so null is a value it may legitimately take.
+function writeInventory() {
+  for (const s of sites.values()) {
+    if (s.index === undefined || s.state === "unknown" && astOnly.has(s.file)) continue;
+    const k = keyOf({ kind: "ref", index: s.index, usr: s.usr! });
+    if (live.has(k)) [s.state, s.why] = ["proven", "rewritten to a reference"];
+    else if (blockers.has(k) || why1.has(k)) [s.state, s.why] = ["outside", blockers.get(k) ?? why1.get(k)];
+    else [s.state, s.why] = ["outside", "may be null: not dereferenced on every path"];
+  }
+  const all = [...sites.values()];
+  const tally = (key: (s: Site) => string) => {
+    const t = new Map<string, Record<string, number>>();
+    for (const s of all) {
+      const r = t.get(key(s)) ?? { total: 0, proven: 0, covered: 0, outside: 0, unknown: 0 };
+      r.total++, r[s.state]++;
+      t.set(key(s), r);
+    }
+    return Object.fromEntries([...t].sort((a, b) => b[1].total - a[1].total));
+  };
+  const rows = tally((s) => s.row), categories = tally((s) => s.category);
+  const reasons = tally((s) => `${s.category}: ${s.state}${s.why ? ` (${s.why})` : ""}`);
+  const proven = all.filter((s) => s.state === "proven").length;
+  writeFileSync(inventory, JSON.stringify({ root, sites: all.length, proven, rows, categories, reasons, list: all }, null, 1));
+  console.log(`inventory: ${all.length} unsafe sites, ${proven} proven (${(100 * proven / Math.max(1, all.length)).toFixed(1)}%), written to ${inventory}`);
+  for (const [row, r] of Object.entries(rows))
+    console.log(`  ${row.padEnd(8)} ${String(r.total).padStart(6)} sites  ${r.proven} proven  ${r.covered} covered  ${r.outside} outside  ${r.unknown} unknown`);
+}
 
 if (apply && all.length) {
   if (failed) {

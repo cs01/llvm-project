@@ -11,7 +11,7 @@
 // proposed the edit is not the one that checks it.
 import { spawn } from "child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { tmpdir, totalmem } from "os";
 import { dirname, isAbsolute, join } from "path";
 
 export type Cmd = { file: string; dir: string; args: string[] };
@@ -77,14 +77,55 @@ function splitCommand(s: string): string[] {
   return out;
 }
 
-export function run(cmd: string, args: string[], cwd: string):
+// A CIR compile of a big TU can take 4-10 GB, and ten at once took a 16 GB
+// machine into swap until the kernel watchdog panicked. So the default job
+// count fits RAM, new compiles wait while running ones already hold most of
+// it, and a compile that grows past PER_JOB_CAP is killed and reported.
+const GB = 1024 ** 3;
+const RAM = totalmem();
+export const defaultJobs = Math.max(1, Math.min(navigator.hardwareConcurrency, Math.floor(RAM / (4 * GB))));
+const BUDGET = RAM * 0.6;
+const PER_JOB_CAP = Math.min(8 * GB, RAM * 0.45);
+const live = new Map<number, number>(); // process group -> resident bytes
+let poller: ReturnType<typeof setInterval> | undefined;
+
+function sample() {
+  // Sum by process group so a driver that spawns -cc1 is counted whole.
+  const ps = Bun.spawnSync(["ps", "-A", "-o", "pgid=,rss="]).stdout.toString();
+  const rss = new Map<number, number>();
+  for (const line of ps.split("\n")) {
+    const [g, k] = line.trim().split(/\s+/).map(Number);
+    if (live.has(g)) rss.set(g, (rss.get(g) ?? 0) + k * 1024);
+  }
+  for (const g of live.keys()) {
+    const b = rss.get(g) ?? 0;
+    live.set(g, b);
+    if (b > PER_JOB_CAP) {
+      console.error(`cir-modernize: killing pid ${g}, ${(b / GB).toFixed(1)} GB resident`);
+      try { process.kill(-g, "SIGKILL"); } catch {}
+    }
+  }
+}
+
+const used = () => [...live.values()].reduce((a, b) => a + b, 0);
+
+export async function run(cmd: string, args: string[], cwd: string):
     Promise<{ code: number; out: string; err: string }> {
+  while (live.size > 0 && used() > BUDGET) await Bun.sleep(500);
+  poller ??= setInterval(sample, 1000);
   return new Promise((res) => {
-    const p = spawn(cmd, args, { cwd });
+    const p = spawn(cmd, args, { cwd, detached: true });
+    const g = p.pid!;
+    live.set(g, 0);
     let out = "", err = "";
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (err += d));
-    p.on("close", (code) => res({ code: code ?? 1, out, err }));
+    p.on("close", (code, signal) => {
+      live.delete(g);
+      if (live.size === 0 && poller) { clearInterval(poller); poller = undefined; }
+      if (signal === "SIGKILL") err = `killed: resident memory over ${(PER_JOB_CAP / GB).toFixed(1)} GB\n` + err;
+      res({ code: code ?? 1, out, err });
+    });
   });
 }
 
@@ -144,7 +185,7 @@ export function overlay(dir: string, edits: Edit[]): string {
   return yaml;
 }
 
-const IR_FLAGS = ["-emit-llvm", "-c", "-O0", "-g0"];
+const IR_FLAGS = ["-emit-llvm", "-c", "-O0", "-g0", "-fno-color-diagnostics"];
 
 export type Proof = { status: "ok" | "fail" | "skip"; detail?: string };
 
@@ -158,17 +199,37 @@ export async function prove(clang: string, c: Cmd, yaml: string): Promise<Proof>
       run(clang, [...c.args, ...IR_FLAGS, c.file, "-o", orig], c.dir),
       run(clang, [...c.args, "-ivfsoverlay", yaml, ...IR_FLAGS, c.file, "-o", next], c.dir),
     ]);
-    if (a.code !== 0) return { status: "skip", detail: "original does not compile" };
+    if (a.code !== 0) return { status: "skip", detail: `original does not compile: ${firstError(a.err, a.code)}` };
     if (b.code !== 0) {
       const why = b.err.split("\n").filter((l) => l.includes("error:")).slice(0, 3).join("\n  ");
       return { status: "fail", detail: `rewritten TU does not compile:\n  ${why}` };
     }
+    // An edit can make the compiler warn where it did not, which breaks a
+    // -Werror build even though the IR is the same: a qualifier that makes
+    // -Wnullability-completeness ask for every other pointer in a header.
+    const added = newWarnings(a.err, b.err);
+    if (added) return { status: "fail", detail: `new warning: ${added}` };
     const r = await run(join(dirname(clang), "cir-modernize-ircmp"), [orig, next], dir);
     if (r.code === 0) return { status: "ok" };
     return { status: "fail", detail: (r.out || r.err).trimEnd() };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// The first warning in next that orig does not have as often, by message; the
+// locations move with the edits.
+function newWarnings(orig: string, next: string): string | undefined {
+  const messages = (err: string) =>
+    err.split("\n").filter((l) => l.includes(" warning: ")).map((l) => l.slice(l.indexOf(" warning: ") + 10));
+  const count = new Map<string, number>();
+  for (const m of messages(orig)) count.set(m, (count.get(m) ?? 0) + 1);
+  for (const m of messages(next)) {
+    const n = count.get(m) ?? 0;
+    if (!n) return m;
+    count.set(m, n - 1);
+  }
+  return undefined;
 }
 
 // The first line of a failed compile that says why.

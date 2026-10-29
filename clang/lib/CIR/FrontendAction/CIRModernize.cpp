@@ -243,7 +243,12 @@ using Factory = std::unique_ptr<Rewrite> (*)(Context &, unsigned);
 constexpr std::pair<StringRef, Factory> AllRewrites[] = {
     {"ref", createParamToReference},
     {"const", createPointerToConst},
+    {"nonnull", createNonNull},
+    {"nullable", createNullable},
 };
+// Clang extensions, and they would annotate the parameters ref turns into
+// references: only when asked for by name.
+constexpr StringRef OptInRewrites[] = {"nonnull", "nullable"};
 
 class Modernizer {
 public:
@@ -301,7 +306,8 @@ private:
         return false;
       }
     for (const auto &[Name, Create] : AllRewrites)
-      if (Only.empty() || llvm::is_contained(Only, Name))
+      if (Only.empty() ? !llvm::is_contained(OptInRewrites, Name)
+                       : llvm::is_contained(Only, Name))
         Rewrites.push_back(Create(Ctx, Rewrites.size()));
     return true;
   }
@@ -456,6 +462,7 @@ private:
             });
           });
       });
+      exportInventory(J, Ctx);
     });
   }
 

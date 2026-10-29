@@ -15,7 +15,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { isAbsolute, join, resolve } from "path";
-import { type Cmd, type Edit, firstError, loadCommands, overlay, pool, prove, run } from "./lib.ts";
+import { type Cmd, type Edit, defaultJobs, firstError, loadCommands, overlay, pool, prove, run } from "./lib.ts";
 
 type Result = {
   file: string;
@@ -25,7 +25,7 @@ type Result = {
 };
 
 const argv = process.argv.slice(2);
-let clang = "", compdb = "", jobs = navigator.hardwareConcurrency, verbose = false, why = false;
+let clang = "", compdb = "", jobs = defaultJobs, verbose = false, why = false;
 const patterns: string[] = [];
 let direct: string[] | null = null;
 for (let i = 0; i < argv.length; i++) {

@@ -32,6 +32,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/StringSaver.h"
 #include <memory>
 #include <optional>
@@ -282,6 +283,12 @@ protected:
 
 std::unique_ptr<Rewrite> createParamToReference(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createPointerToConst(Context &Ctx, unsigned Id);
+std::unique_ptr<Rewrite> createNonNull(Context &Ctx, unsigned Id);
+std::unique_ptr<Rewrite> createNullable(Context &Ctx, unsigned Id);
+
+/// Writes the "sites" array of a project-mode export: every unsafe construct
+/// in the translation unit's own source (Inventory.cpp).
+void exportInventory(llvm::json::OStream &J, Context &Ctx);
 
 } // namespace clang::cirmodernize
 
