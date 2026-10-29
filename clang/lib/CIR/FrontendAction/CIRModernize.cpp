@@ -16,6 +16,7 @@
 
 #include "CIRModernizeFramework.h"
 
+#include "clang/AST/ParentMapContext.h"
 #include "clang/AST/StmtCXX.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/Lexer.h"
@@ -28,6 +29,9 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <set>
+#include <tuple>
 
 using namespace clang;
 using namespace clang::cirmodernize;
@@ -231,6 +235,180 @@ bool Context::exported(const FunctionDecl *FD) const {
          spellsExportMacro(SM, LO, RD->getBeginLoc(), RD->getLocation(), *CR);
 }
 
+// The type a converted function pointer is stored as, where it is stored:
+// an assignment, a variable, an initializer list element, a call argument.
+static QualType slotType(ASTContext &C, const Expr *E) {
+  DynTypedNode Node = DynTypedNode::create(*E);
+  for (;;) {
+    DynTypedNodeList Parents = C.getParents(Node);
+    if (Parents.empty())
+      return {};
+    const DynTypedNode &P = Parents[0];
+    const Stmt *Child = Node.get<Stmt>();
+    if (P.get<ImplicitCastExpr>() || P.get<ParenExpr>()) {
+      Node = P;
+      continue;
+    }
+    if (const auto *UO = P.get<UnaryOperator>()) {
+      if (UO->getOpcode() != UO_AddrOf)
+        return {};
+      Node = P;
+      continue;
+    }
+    if (const auto *BO = P.get<BinaryOperator>())
+      return BO->getOpcode() == BO_Assign && BO->getRHS() == Child
+                 ? BO->getLHS()->getType()
+                 : QualType();
+    if (const auto *VD = P.get<VarDecl>())
+      return VD->getType();
+    // `.field = f`: the designator names the field.
+    if (const auto *DIE = P.get<DesignatedInitExpr>()) {
+      if (!DIE->size())
+        return {};
+      const DesignatedInitExpr::Designator *D =
+          DIE->getDesignator(DIE->size() - 1);
+      return D->isFieldDesignator() && D->getFieldDecl()
+                 ? D->getFieldDecl()->getType()
+                 : QualType();
+    }
+    if (const auto *CE = P.get<CallExpr>()) {
+      const FunctionDecl *Callee = CE->getDirectCallee();
+      for (unsigned I = 0; Callee && I < CE->getNumArgs(); ++I)
+        if (CE->getArg(I) == Child && I < Callee->getNumParams())
+          return Callee->getParamDecl(I)->getType();
+      return {};
+    }
+    if (const auto *ILE = P.get<InitListExpr>()) {
+      // The semantic form wraps the element in implicit casts.
+      unsigned Index = 0;
+      const auto *ChildExpr = dyn_cast_or_null<Expr>(Child);
+      while (Index < ILE->getNumInits() && ChildExpr &&
+             ILE->getInit(Index)->IgnoreParenImpCasts() !=
+                 ChildExpr->IgnoreParenImpCasts())
+        ++Index;
+      if (Index == ILE->getNumInits())
+        return {};
+      QualType T = ILE->getType();
+      if (const auto *AT = C.getAsArrayType(T))
+        return AT->getElementType();
+      if (const RecordDecl *RD = T->getAsRecordDecl()) {
+        if (RD->isUnion())
+          return ILE->getInitializedFieldInUnion()
+                     ? ILE->getInitializedFieldInUnion()->getType()
+                     : QualType();
+        for (const FieldDecl *F : RD->fields())
+          if (Index-- == 0)
+            return F->getType();
+      }
+      return {};
+    }
+    return {};
+  }
+}
+
+// The typedef naming a function-pointer slot type, or null.
+static const TypedefNameDecl *slotTypedef(QualType T) {
+  for (QualType Cur = T; !Cur.isNull();) {
+    if (const auto *TT = Cur->getAs<TypedefType>()) {
+      const TypedefNameDecl *TD = TT->getDecl();
+      QualType U = TD->getUnderlyingType();
+      if (U->isFunctionPointerType() || U->isFunctionProtoType())
+        return TD;
+      Cur = U;
+      continue;
+    }
+    // `fn *slot` with fn a function typedef.
+    Cur = Cur->isPointerType() ? Cur->getPointeeType() : QualType();
+  }
+  return nullptr;
+}
+
+bool Context::fnPtrSlots(const FunctionDecl *FD,
+                         llvm::SmallVectorImpl<const TypedefNameDecl *> &Out) {
+  if (!CalleesIndexed)
+    indexCallees();
+  const FunctionDecl *Canon = FD->getCanonicalDecl();
+  bool Any = false;
+  auto Take = [&](const Expr *E) {
+    const TypedefNameDecl *TD = slotTypedef(slotType(C, E));
+    if (!TD || !editable(TD->getLocation()))
+      return false;
+    if (!llvm::is_contained(Out, TD))
+      Out.push_back(TD);
+    return Any = true;
+  };
+  for (DeclRefExpr *DRE : Visitor.Refs)
+    if (auto *Ref = dyn_cast<FunctionDecl>(DRE->getDecl()))
+      if (Ref->getCanonicalDecl() == Canon && !CalleeRefs.contains(DRE) &&
+          !Take(DRE))
+        return false;
+  for (MemberExpr *ME : Visitor.Members)
+    if (auto *Ref = dyn_cast<FunctionDecl>(ME->getMemberDecl()))
+      if (Ref->getCanonicalDecl() == Canon && !CalleeRefs.contains(ME))
+        return false;
+  return Any;
+}
+
+SourceLocation Context::slotSpot(const TypedefNameDecl *TD, unsigned Index) {
+  TypeLoc TL = TD->getTypeSourceInfo()->getTypeLoc();
+  if (auto PTL = TL.getAs<PointerTypeLoc>())
+    TL = PTL.getPointeeLoc();
+  auto FPTL = TL.IgnoreParens().getAs<FunctionProtoTypeLoc>();
+  if (!FPTL || Index >= FPTL.getNumParams() || !FPTL.getParam(Index))
+    return {};
+  std::optional<PointerTypeLoc> Star = starOf(FPTL.getParam(Index));
+  if (!Star || Star->getPointeeLoc().getType()->isPointerType() ||
+      Star->getPointeeLoc().getType().isConstQualified())
+    return {};
+  SourceLocation Begin = Star->getPointeeLoc().getBeginLoc();
+  return Begin.isMacroID() ? SourceLocation() : Begin;
+}
+
+void Context::exportSlotMembers(llvm::json::OStream &J) {
+  if (!CalleesIndexed)
+    indexCallees();
+  J.attributeArray("slotMembers", [&] {
+    llvm::DenseSet<std::pair<const FunctionDecl *, const TypedefNameDecl *>>
+        Seen;
+    for (DeclRefExpr *DRE : Visitor.Refs) {
+      auto *FD = dyn_cast<FunctionDecl>(DRE->getDecl());
+      if (!FD || CalleeRefs.contains(DRE))
+        continue;
+      const TypedefNameDecl *TD = slotTypedef(slotType(C, DRE));
+      if (!TD || !editable(TD->getLocation()) ||
+          !Seen.insert({FD->getCanonicalDecl(), TD}).second)
+        continue;
+      for (unsigned I = 0; I < FD->getNumParams(); ++I) {
+        SourceLocation Spot = slotSpot(TD, I);
+        if (Spot.isInvalid())
+          continue;
+        auto [FID, Offset] = SM.getDecomposedLoc(Spot);
+        OptionalFileEntryRef FE = SM.getFileEntryRefForID(FID);
+        if (!FE)
+          continue;
+        StringRef Path = FE->getFileEntry().tryGetRealPathName();
+        J.object([&] {
+          J.attribute("file", Path.empty() ? FE->getName() : Path);
+          J.attribute("offset", Offset);
+          J.attribute("usr", usr(FD));
+          J.attribute("index", I);
+        });
+      }
+    }
+  });
+}
+
+llvm::SmallVector<const FunctionDecl *>
+Context::functionsInSlot(const TypedefNameDecl *TD) {
+  llvm::SmallVector<const FunctionDecl *> Out;
+  for (DeclRefExpr *DRE : Visitor.Refs)
+    if (auto *Ref = dyn_cast<FunctionDecl>(DRE->getDecl()))
+      if (!CalleeRefs.contains(DRE) && slotTypedef(slotType(C, DRE)) == TD &&
+          !llvm::is_contained(Out, Ref->getCanonicalDecl()))
+        Out.push_back(Ref->getCanonicalDecl());
+  return Out;
+}
+
 StringRef Context::whyIneligible(FunctionDecl *FD, unsigned Allowed) {
   if (!CalleesIndexed)
     indexCallees();
@@ -302,14 +480,18 @@ StringRef Context::whyIneligible(FunctionDecl *FD, unsigned Allowed) {
       Ref = Primary->getTemplatedDecl();
     return Ref->getCanonicalDecl() == Canon;
   };
-  for (DeclRefExpr *DRE : Visitor.Refs)
-    if (auto *Ref = dyn_cast<FunctionDecl>(DRE->getDecl()))
-      if (Same(Ref) && !CalleeRefs.contains(DRE))
-        return "address taken";
-  for (MemberExpr *ME : Visitor.Members)
-    if (auto *Ref = dyn_cast<FunctionDecl>(ME->getMemberDecl()))
-      if (Same(Ref) && !CalleeRefs.contains(ME))
-        return "address taken";
+  llvm::SmallVector<const TypedefNameDecl *> Slots;
+  bool InSlots = (Allowed & AllowFnPtrSlots) && fnPtrSlots(FD, Slots);
+  if (!InSlots) {
+    for (DeclRefExpr *DRE : Visitor.Refs)
+      if (auto *Ref = dyn_cast<FunctionDecl>(DRE->getDecl()))
+        if (Same(Ref) && !CalleeRefs.contains(DRE))
+          return "address taken";
+    for (MemberExpr *ME : Visitor.Members)
+      if (auto *Ref = dyn_cast<FunctionDecl>(ME->getMemberDecl()))
+        if (Same(Ref) && !CalleeRefs.contains(ME))
+          return "address taken";
+  }
   return {};
 }
 
@@ -560,6 +742,7 @@ private:
     for (auto &R : Rewrites)
       IDs.push_back(R->diagID(Diags));
     Rewriter RW(Ctx.SM, Ctx.C.getLangOpts());
+    std::set<std::tuple<SourceLocation, SourceLocation, std::string>> Applied;
     for (const Candidate &Cand : Ctx.Candidates) {
       if (!Cand.Live)
         continue;
@@ -579,6 +762,13 @@ private:
         continue;
       for (const auto *Edits : {&Cand.Edits, &Cand.LateEdits})
         for (const FixItHint &Hint : *Edits) {
+          // Candidates that share an edit (a callback typedef, a macro) make
+          // it once.
+          if (!Applied
+                   .insert({Hint.RemoveRange.getBegin(),
+                            Hint.RemoveRange.getEnd(), Hint.CodeToInsert})
+                   .second)
+            continue;
           SourceLocation Begin = Hint.RemoveRange.getBegin();
           if (Begin == Hint.RemoveRange.getEnd())
             RW.InsertTextAfter(Begin, Hint.CodeToInsert);
@@ -704,6 +894,7 @@ private:
           for (const auto &E : CR->skippedNames())
             J.value(E.getKey());
         });
+      Ctx.exportSlotMembers(J);
       // A header a C translation unit includes can take only C syntax; the
       // C++ translation units that propose edits to it cannot tell.
       if (!Ctx.C.getLangOpts().CPlusPlus)

@@ -177,3 +177,37 @@ template <typename T> struct Box2 {
 };
 } // namespace
 int useBox2(int *i, Wr *w) { return Box2<int>::both(i) + Box2<Wr>::peek(w).v; }
+
+// Functions stored in a callback table typed by a function-pointer typedef:
+// the typedef's parameter and every function stored there change together;
+// one that writes keeps them all.
+// FIXED: {{^}}typedef int (*ReadFn)(const Node *n);
+// FIXED: {{^}}static int readA(const Node *n) { return n->value; }
+// FIXED: {{^}}static int readB(const Node *n) { return n->value + 1; }
+typedef int (*ReadFn)(Node *n);
+static int readA(Node *n) { return n->value; }
+static int readB(Node *n) { return n->value + 1; }
+struct Table { ReadFn fn; };
+static Table tableA = {readA};
+int useTable(Node *n) {
+  ReadFn f = readB;
+  return tableA.fn(n) + f(n);
+}
+typedef void (*TouchFn)(Node *n);
+// NEG-NOT: of 'touchRead'
+static void touchRead(Node *n) { (void)n->value; }
+static void touchWrite(Node *n) { n->value = 0; }
+static TouchFn touches[] = {touchRead, touchWrite};
+void useTouch(Node *n) { touches[0](n); touches[1](n); }
+
+// A slot initialized through a const aggregate, as C code writes it.
+typedef int (*PeekFn)(Node *n);
+struct PeekDesc { PeekFn fn; int flags; };
+static int peekWrite(Node *n) { n->value = 1; return 0; }
+// NEG-NOT: of 'peekRead'
+static int peekRead(Node *n) { return n->value; }
+int usePeek(Node *n) {
+  const PeekDesc a = {peekWrite, 0};
+  const PeekDesc b = {peekRead, 0};
+  return a.fn(n) + b.fn(n);
+}

@@ -82,7 +82,8 @@ public:
     if (Proofs.empty() && !Planned)
       return;
     StringRef FunctionWhy =
-        Ctx.whyIneligible(FD, Context::AllowTemplates | Context::AllowMacro);
+        Ctx.whyIneligible(FD, Context::AllowTemplates | Context::AllowMacro |
+                                  Context::AllowFnPtrSlots);
     unsigned Offset = Context::thisOffset(FD);
     llvm::SmallVector<unsigned> Indices;
     for (const auto *Proof : Proofs)
@@ -135,6 +136,8 @@ public:
       }
       if (Why.empty() && usedInFoldedBranch(P))
         Why = "const: used in a branch the build folds away";
+      if (Why.empty())
+        Why = slotEdits(Cand);
       if (Why.empty() && !declEdits(Cand))
         Why = "const: pointer spelled through a typedef or macro";
       Ctx.add(std::move(Cand), Why);
@@ -146,9 +149,13 @@ public:
     StringRef Why = whyParamIneligible(P);
     if (Why.empty())
       Why =
-          Ctx.whyIneligible(FD, Context::AllowTemplates | Context::AllowMacro);
+          Ctx.whyIneligible(FD, Context::AllowTemplates | Context::AllowMacro |
+                                    Context::AllowFnPtrSlots);
     Candidate Cand{FD, P, Index, Id};
     Cand.External = true;
+    // This TU may be the one that stores the function in a callback slot.
+    if (Why.empty())
+      Why = slotEdits(Cand);
     if (Why.empty() && !declEdits(Cand))
       Why = "const: pointer spelled through a typedef or macro";
     Ctx.add(std::move(Cand), Why);
@@ -243,6 +250,42 @@ protected:
     }
     return true;
   }
+  // A function stored in a callback slot (a function-pointer typedef): the
+  // typedef's parameter becomes const too, and every function stored in that
+  // slot type must, which the shared edit and the needs tie together.
+  StringRef slotEdits(Candidate &Cand) {
+    llvm::SmallVector<const TypedefNameDecl *> Slots;
+    if (!Ctx.fnPtrSlots(Cand.FD, Slots))
+      return {};
+    for (const TypedefNameDecl *TD : Slots) {
+      TypeLoc TL = TD->getTypeSourceInfo()->getTypeLoc();
+      if (auto PTL = TL.getAs<PointerTypeLoc>())
+        TL = PTL.getPointeeLoc();
+      auto FPTL = TL.IgnoreParens().getAs<FunctionProtoTypeLoc>();
+      if (!FPTL || Cand.Index >= FPTL.getNumParams() ||
+          !FPTL.getParam(Cand.Index))
+        return "const: a callback typedef it is stored as is not plain";
+      std::optional<PointerTypeLoc> Star =
+          Context::starOf(FPTL.getParam(Cand.Index));
+      if (!Star || Star->getPointeeLoc().getType()->isPointerType())
+        return "const: a callback typedef it is stored as is not plain";
+      if (!Star->getPointeeLoc().getType().isConstQualified()) {
+        SourceLocation Begin = Context::slotSpot(TD, Cand.Index);
+        if (Begin.isInvalid())
+          return "const: a callback typedef it is stored as is in a macro";
+        Cand.Edits.push_back(FixItHint::CreateInsertion(Begin, "const "));
+      }
+      for (const FunctionDecl *Other : Ctx.functionsInSlot(TD))
+        if (Other != Cand.FD->getCanonicalDecl()) {
+          ParmVarDecl *Needed = Context::keyParam(Other, Cand.Index);
+          if (!Needed)
+            return "const: a callback typedef it is stored as is not plain";
+          Cand.Needs.push_back(Needed);
+        }
+    }
+    return {};
+  }
+
   // A token of declaration R that an edit can change: written in the file,
   // or inside the macro that writes R itself (its name comes from the same
   // expansion). A type macro shared by other declarations is not edited.

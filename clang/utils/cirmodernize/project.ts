@@ -55,7 +55,11 @@ type Site = {
   state: "proven" | "covered" | "outside" | "unknown"; why?: string; usr?: string; index?: number;
 };
 // facts is false when CIRGen failed and only the AST half ran.
-type Export = { facts?: boolean; candidates: Candidate[]; sites?: Site[]; skippedNames?: string[]; cFiles?: string[] };
+type SlotMember = { file: string; offset: number; usr: string; index: number };
+type Export = {
+  facts?: boolean; candidates: Candidate[]; sites?: Site[]; skippedNames?: string[]; cFiles?: string[];
+  slotMembers?: SlotMember[];
+};
 
 const argv = process.argv.slice(2);
 let clang = "", compdb = "", root = process.cwd(), jobs = defaultJobs;
@@ -209,10 +213,17 @@ const sites = new Map<string, Site>();
 const skippedNames = new Set<string>();
 // Files some C TU includes.
 const cFiles = new Set<string>();
+// Callback typedef parameter spots, and every (function, parameter) any TU
+// stores into that typedef: const lands there only if it lands on all.
+const slotMembers = new Map<string, Set<string>>();
 pass1.forEach((e, i) => {
   if (typeof e === "string") return void skipped.set(cmds[i].file, e);
   for (const n of e.skippedNames ?? []) skippedNames.add(n);
   for (const f of e.cFiles ?? []) cFiles.add(f);
+  for (const m of e.slotMembers ?? []) {
+    const spot = `${m.file}:${m.offset}`;
+    slotMembers.set(spot, (slotMembers.get(spot) ?? new Set()).add(keyOf({ kind: "const", index: m.index, usr: m.usr })));
+  }
   for (const s of e.sites ?? []) {
     if (!under(s.file, root)) continue;
     if (e.facts === false && s.index !== undefined) s.state = "unknown";
@@ -299,6 +310,12 @@ const inC = new Set(["const", "nonnull", "nullable", "dead-branch"]);
 for (const [k, es] of edits)
   if (!inC.has(proposals.get(k)!.kind) && es.some((e) => cFiles.has(e.file)) && !blockers.has(k))
     blockers.set(k, "C++ syntax in a file a C TU includes");
+// An edit on a callback typedef's parameter needs every function stored
+// into that typedef, project-wide, to become const there as well.
+for (const [k, es] of edits)
+  for (const e of es)
+    for (const m of slotMembers.get(`${e.file}:${e.offset}`) ?? [])
+      if (m !== k) needs.get(k)!.add(m);
 // Candidates whose edits overlap at one spot (every function one macro
 // writes, sharing the edit in that macro) are only right together: each
 // needs the others, so settle() drops them as one.

@@ -243,6 +243,11 @@ public:
     /// edited in that macro. Every function the macro writes shares the
     /// edit, and project.ts keeps candidates that share an edit together.
     AllowMacro = 4,
+    /// A function whose address is only taken into slots typed by a
+    /// function-pointer typedef of the project (callback tables): the
+    /// typedef changes with it, and every function stored in that slot type
+    /// needs the same change (see fnPtrSlots).
+    AllowFnPtrSlots = 8,
   };
   StringRef whyIneligible(FunctionDecl *FD, unsigned Allowed = 0);
   /// The implicit instantiations of FD, a function template or a member of a
@@ -255,6 +260,22 @@ public:
   /// on it or its class, or an export macro written in its declaration or
   /// in its class's head.
   bool exported(const FunctionDecl *FD) const;
+  /// The function-pointer typedefs FD's address is taken into, when every
+  /// reference to FD other than a call is such a conversion; false when one
+  /// is not (a cast, an untyped pointer, a typedef outside the project).
+  bool fnPtrSlots(const FunctionDecl *FD,
+                  llvm::SmallVectorImpl<const TypedefNameDecl *> &Out);
+  /// The functions converted to typedef TD anywhere in this TU.
+  llvm::SmallVector<const FunctionDecl *>
+  functionsInSlot(const TypedefNameDecl *TD);
+  /// Where const goes for parameter Index of callback typedef TD (before its
+  /// pointee), or an invalid location when that parameter is not a plain
+  /// non-const pointer written outside a macro.
+  static SourceLocation slotSpot(const TypedefNameDecl *TD, unsigned Index);
+  /// Every (function, parameter) stored into a callback typedef here, with
+  /// the spot that parameter's const would go: project.ts lets no edit land
+  /// on a spot unless all of them become const.
+  void exportSlotMembers(llvm::json::OStream &J);
 
   /// Why FD must keep a signature C can read (references are C++ only), or
   /// empty if only C++ sees it.
