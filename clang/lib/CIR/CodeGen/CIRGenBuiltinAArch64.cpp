@@ -1258,7 +1258,14 @@ static mlir::Value emitCommonNeonBuiltinExpr(
     ops[0] = cgf.getBuilder().createBitcast(loc, ops[0], dTy);
     return cgf.getBuilder().createIntCast(ops[0], ty);
   }
-  case NEON::BI__builtin_neon_vmovn_v:
+  case NEON::BI__builtin_neon_vmovn_v: {
+    // Each lane truncated to half its width.
+    cir::VectorType wideTy =
+        cgf.getBuilder().getExtendedOrTruncatedElementVectorType(
+            ty, /*isExtended=*/true, !usgn);
+    ops[0] = cgf.getBuilder().createBitcast(loc, ops[0], wideTy);
+    return cgf.getBuilder().createIntCast(ops[0], ty);
+  }
   case NEON::BI__builtin_neon_vmull_v:
   case NEON::BI__builtin_neon_vpadal_v:
   case NEON::BI__builtin_neon_vpadalq_v:
@@ -1409,6 +1416,18 @@ static mlir::Value emitCommonNeonBuiltinExpr(
     return emitNeonCall(cgf.getCIRGenModule(), cgf.getBuilder(), argTypes, ops,
                         llvmIntrName, cgf.cgm.voidTy, loc);
   }
+  case NEON::BI__builtin_neon_vdot_s32:
+  case NEON::BI__builtin_neon_vdot_u32:
+  case NEON::BI__builtin_neon_vdotq_s32:
+  case NEON::BI__builtin_neon_vdotq_u32: {
+    // acc + dot products of groups of four bytes.
+    auto inputTy = cir::VectorType::getFixed(cgf.getBuilder().getSIntNTy(8),
+                                             ty.getFixedSize() * 4);
+    llvm::StringRef llvmIntrName = getLLVMIntrNameNoPrefix(
+        static_cast<llvm::Intrinsic::ID>(llvmIntrinsic));
+    return emitNeonCall(cgf.cgm, cgf.getBuilder(), {ty, inputTy, inputTy}, ops,
+                        llvmIntrName, ty, loc);
+  }
   case NEON::BI__builtin_neon_vtst_v:
   case NEON::BI__builtin_neon_vtstq_v: {
     // Each lane: all ones when the operands share a set bit.
@@ -1425,10 +1444,6 @@ static mlir::Value emitCommonNeonBuiltinExpr(
   case NEON::BI__builtin_neon_vxarq_u64:
   case NEON::BI__builtin_neon_vzip_v:
   case NEON::BI__builtin_neon_vzipq_v:
-  case NEON::BI__builtin_neon_vdot_s32:
-  case NEON::BI__builtin_neon_vdot_u32:
-  case NEON::BI__builtin_neon_vdotq_s32:
-  case NEON::BI__builtin_neon_vdotq_u32:
   case NEON::BI__builtin_neon_vfmlal_low_f16:
   case NEON::BI__builtin_neon_vfmlalq_low_f16:
   case NEON::BI__builtin_neon_vfmlsl_low_f16:

@@ -126,3 +126,17 @@ uint32x2_t test_vtst_s32(int32x2_t a, int32x2_t b) {
 // LLVM: icmp ne <2 x i32> {{.*}}, zeroinitializer
   return vtst_s32(a, b);
 }
+
+// LLVM-LABEL: @test_vmovn_u16(
+// CIR-LABEL: @vmovn_u16(
+uint8x8_t test_vmovn_u16(uint16x8_t a) {
+// CIR: cir.cast integral
+// LLVM: trunc <8 x i16> {{.*}} to <8 x i8>
+  return vmovn_u16(a);
+}
+
+// LLVM-LABEL: @test_vmovn_s64(
+int32x2_t test_vmovn_s64(int64x2_t a) {
+// LLVM: trunc <2 x i64> {{.*}} to <2 x i32>
+  return vmovn_s64(a);
+}
