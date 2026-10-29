@@ -52,20 +52,41 @@ public:
   }
 
   void addDefined(FunctionDecl *FD) override {
-    if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD) ||
-        FD->isDependentContext() || FD->isTemplated())
+    if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD))
       return;
-    auto It = Facts.find(Ctx.mangle(FD));
+    // A function template is proven by every instantiation CIR emitted.
+    // Callers need no edit: a T * argument converts to const T *.
+    bool Template = FD->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate;
+    if (Template ? FD->getDeclContext()->isDependentContext()
+                 : FD->isDependentContext() || FD->isTemplated())
+      return;
+    llvm::SmallVector<const llvm::DenseMap<unsigned, cir::PointeeWriteFact> *>
+        Proofs;
+    if (!Template) {
+      if (auto It = Facts.find(Ctx.mangle(FD)); It != Facts.end())
+        Proofs.push_back(&It->second);
+    } else {
+      for (FunctionDecl *Spec :
+           FD->getDescribedFunctionTemplate()->specializations()) {
+        // An explicit specialization or instantiation repeats the
+        // signature, which the edit to the template would no longer match.
+        if (Spec->getTemplateSpecializationKind() != TSK_ImplicitInstantiation)
+          return;
+        if (auto It = Facts.find(Ctx.mangle(Spec)); It != Facts.end())
+          Proofs.push_back(&It->second);
+      }
+    }
     const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
-    if (It == Facts.end() && !Planned)
+    if (Proofs.empty() && !Planned)
       return;
-    StringRef FunctionWhy = Ctx.whyIneligible(FD);
+    StringRef FunctionWhy = Ctx.whyIneligible(FD, /*Templates=*/true);
     unsigned Offset = Context::thisOffset(FD);
     llvm::SmallVector<unsigned> Indices;
-    if (It != Facts.end())
-      for (auto &[ArgIndex, Fact] : It->second)
+    for (const auto *Proof : Proofs)
+      for (auto &[ArgIndex, Fact] : *Proof)
         if (ArgIndex >= Offset && ArgIndex - Offset < FD->getNumParams() &&
-            FD->getParamDecl(ArgIndex - Offset)->getType()->isPointerType())
+            FD->getParamDecl(ArgIndex - Offset)->getType()->isPointerType() &&
+            !llvm::is_contained(Indices, ArgIndex - Offset))
           Indices.push_back(ArgIndex - Offset);
     if (Planned)
       for (unsigned Index : *Planned)
@@ -81,24 +102,29 @@ public:
       if (Why.empty())
         Why = FunctionWhy;
       Candidate Cand{FD, P, Index, Id};
-      if (Why.empty() && It != Facts.end())
-        if (auto Fact = It->second.find(Index + Offset);
-            Fact != It->second.end()) {
-          if (Fact->second.written)
-            Why = Ctx.save("const: " + Fact->second.why);
-          for (auto &[Callee, CalleeIndex] : Fact->second.forwards) {
-            const FunctionDecl *CFD = Ctx.declByMangledName(Callee);
-            unsigned CalleeOffset = CFD ? Context::thisOffset(CFD) : 0;
-            ParmVarDecl *Needed =
-                CFD && CalleeIndex >= CalleeOffset
-                    ? Context::keyParam(CFD, CalleeIndex - CalleeOffset)
-                    : nullptr;
-            if (!Needed && Why.empty())
-              Why = "const: forwarded to an unknown function";
-            if (Needed)
-              Cand.Needs.push_back(Needed);
-          }
+      for (const auto *Proof : Proofs) {
+        auto Fact = Proof->find(Index + Offset);
+        if (!Why.empty() || Fact == Proof->end())
+          continue;
+        if (Fact->second.written)
+          Why = Ctx.save("const: " + Fact->second.why);
+        for (auto &[Callee, CalleeIndex] : Fact->second.forwards) {
+          const FunctionDecl *CFD = Ctx.declByMangledName(Callee);
+          // Forwarded into an instantiation: the template's parameter is
+          // the one that has to become const.
+          if (CFD && CFD->isTemplateInstantiation())
+            CFD = CFD->getTemplateInstantiationPattern();
+          unsigned CalleeOffset = CFD ? Context::thisOffset(CFD) : 0;
+          ParmVarDecl *Needed =
+              CFD && CalleeIndex >= CalleeOffset
+                  ? Context::keyParam(CFD, CalleeIndex - CalleeOffset)
+                  : nullptr;
+          if (!Needed && Why.empty())
+            Why = "const: forwarded to an unknown function";
+          if (Needed)
+            Cand.Needs.push_back(Needed);
         }
+      }
       if (Why.empty() && usedInFoldedBranch(P))
         Why = "const: used in a branch the build folds away";
       if (Why.empty() && !declEdits(Cand))

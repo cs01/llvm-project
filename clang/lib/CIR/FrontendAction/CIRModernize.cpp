@@ -130,15 +130,18 @@ static bool spellsSignature(const Stmt *S) {
   return false;
 }
 
-StringRef Context::whyIneligible(FunctionDecl *FD) {
+StringRef Context::whyIneligible(FunctionDecl *FD, bool Templates) {
   if (!CalleesIndexed)
     indexCallees();
   if (isa<CXXConstructorDecl, CXXDestructorDecl, CXXConversionDecl>(FD) ||
       FD->isOverloadedOperator() || FD->isMain() || FD->isVariadic() ||
       !FD->getIdentifier())
     return "special function";
-  if (FD->isTemplated() || FD->isTemplateInstantiation() ||
-      FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate)
+  bool Template = Templates &&
+                  FD->getTemplatedKind() == FunctionDecl::TK_FunctionTemplate &&
+                  !FD->getDeclContext()->isDependentContext();
+  if (!Template && (FD->isTemplated() || FD->isTemplateInstantiation() ||
+                    FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate))
     return "template";
   if (isa_and_nonnull<CoroutineBodyStmt>(FD->getBody()))
     return "coroutine";
@@ -165,19 +168,35 @@ StringRef Context::whyIneligible(FunctionDecl *FD) {
   const FunctionDecl *Canon = FD->getCanonicalDecl();
   if (Visitor.UsedInInstantiation.contains(Canon))
     return "used from a template instantiation";
+  // Uses inside instantiations are not collected, so one there may take the
+  // address of a specialization.
+  if (Template)
+    for (FunctionDecl *Spec :
+         FD->getDescribedFunctionTemplate()->specializations())
+      if (Visitor.UsedInInstantiation.contains(Spec->getCanonicalDecl()))
+        return "used from a template instantiation";
   for (const NamedDecl *ND :
        FD->getDeclContext()->getRedeclContext()->lookup(FD->getDeclName())) {
     auto *Other = dyn_cast<FunctionDecl>(ND);
+    if (auto *FTD = dyn_cast<FunctionTemplateDecl>(ND))
+      Other = FTD->getTemplatedDecl();
     if (!Other || Other->getCanonicalDecl() != Canon)
       return "overloaded";
   }
+  // A reference to a specialization takes the address of the template's
+  // signature.
+  auto Same = [&](const FunctionDecl *Ref) {
+    if (const FunctionTemplateDecl *Primary = Ref->getPrimaryTemplate())
+      Ref = Primary->getTemplatedDecl();
+    return Ref->getCanonicalDecl() == Canon;
+  };
   for (DeclRefExpr *DRE : Visitor.Refs)
     if (auto *Ref = dyn_cast<FunctionDecl>(DRE->getDecl()))
-      if (Ref->getCanonicalDecl() == Canon && !CalleeRefs.contains(DRE))
+      if (Same(Ref) && !CalleeRefs.contains(DRE))
         return "address taken";
   for (MemberExpr *ME : Visitor.Members)
     if (auto *Ref = dyn_cast<FunctionDecl>(ME->getMemberDecl()))
-      if (Ref->getCanonicalDecl() == Canon && !CalleeRefs.contains(ME))
+      if (Same(Ref) && !CalleeRefs.contains(ME))
         return "address taken";
   return {};
 }

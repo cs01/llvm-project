@@ -125,3 +125,33 @@ int useDeadWrite(Node *p) { return deadWrite(p); }
 // FIXED: {{^}}static int firstRestrict(const char *const __restrict *argv) { return argv[0][0]; }
 static int firstRestrict(const char *__restrict *argv) { return argv[0][0]; }
 int useRestrict(const char *__restrict *argv) { return firstRestrict(argv); }
+
+// A function template is proven by every instantiation; one instantiation
+// that writes keeps it as it is. Callers need no edit.
+// CHECK-DAG: warning: pointer parameter 'p' of 'tmplRead'
+// NEG-NOT: of 'tmplWrite'
+// NEG-NOT: of 'tmplSpecialized'
+// FIXED: {{^}}template <typename T> static T tmplRead(const T *p) { return *p; }
+template <typename T> static T tmplRead(T *p) { return *p; }
+template <typename T> static void tmplWrite(T *p) { *p = T(); }
+template <typename T> static T tmplSpecialized(T *p) { return *p; }
+template <> int tmplSpecialized<int>(int *p) { return *p; }
+struct Wr { int v; };
+int useTmpl(int *i, Node *n, Wr *w) {
+  tmplWrite(w);
+  tmplSpecialized(n);
+  return tmplRead(i) + tmplRead(n).value;
+}
+
+// An explicit instantiation repeats the signature; a use from another
+// template's instantiation may take the address.
+// NEG-NOT: of 'tmplExplicit'
+// NEG-NOT: of 'tmplInner'
+template <typename T> static T tmplExplicit(T *p) { return *p; }
+template int tmplExplicit<int>(int *);
+template <typename T> static T tmplInner(T *p) { return *p; }
+template <typename T> static T tmplOuter(T *p) {
+  T (*f)(T *) = &tmplInner<T>;
+  return f(p);
+}
+int useTmpl2(int *i) { return tmplExplicit(i) + tmplOuter(i); }

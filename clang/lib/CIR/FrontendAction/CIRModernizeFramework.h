@@ -215,7 +215,9 @@ public:
   const FunctionDecl *declByMangledName(StringRef Mangled);
 
   /// Why FD cannot have its signature rewritten, or empty if it can.
-  StringRef whyIneligible(FunctionDecl *FD);
+  /// Templates allows a function template that is not a member of a class
+  /// template, for a rewrite that needs no edit at its call sites.
+  StringRef whyIneligible(FunctionDecl *FD, bool Templates = false);
 
   /// Why FD must keep a signature C can read (references are C++ only), or
   /// empty if only C++ sees it.
