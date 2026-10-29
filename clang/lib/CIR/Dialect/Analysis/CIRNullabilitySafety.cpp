@@ -193,9 +193,10 @@ public:
   Semantics(const NullabilitySafetyCIROptions &options,
             const llvm::DenseSet<Value> &tracked,
             const llvm::DenseSet<Value> &escaped,
-            const llvm::DenseSet<Operation *> &allReturnsNonnull)
+            const llvm::DenseSet<Operation *> &allReturnsNonnull,
+            mlir::SymbolTableCollection &symbols)
       : options(options), tracked(tracked), escaped(escaped),
-        allReturnsNonnull(allReturnsNonnull) {}
+        allReturnsNonnull(allReturnsNonnull), symbols(symbols) {}
 
   std::optional<NullState> fromAttr(Attribute attr) const {
     auto kind = mlir::dyn_cast_if_present<cir::NullabilityAttr>(attr);
@@ -873,7 +874,7 @@ public:
   const llvm::DenseSet<Value> &tracked;
   const llvm::DenseSet<Value> &escaped;
   const llvm::DenseSet<Operation *> &allReturnsNonnull;
-  mutable mlir::SymbolTableCollection symbols;
+  mlir::SymbolTableCollection &symbols;
 };
 
 class NullabilityAnalysis : public DenseForwardDataFlowAnalysis<NullLattice> {
@@ -1105,7 +1106,6 @@ void reportFunction(
         solver.lookupState<NullLattice>(solver.getProgramPointBefore(at));
     return state && state->reached ? state : nullptr;
   };
-  mlir::SymbolTableCollection symbols;
   bool nonnullResult =
       func.getNumResults() == 1 &&
       semantics.fromAttr(func.getResultAttr(
@@ -1175,7 +1175,7 @@ void reportFunction(
               {NullabilityFindingKind::Call, op->getLoc(), describe(callee)});
         return;
       }
-      cir::FuncOp callee = call.resolveCalleeInTable(symbols);
+      cir::FuncOp callee = semantics.callee(call);
       if (!callee)
         return;
       for (auto [index, arg] : llvm::enumerate(call.getArgOperands())) {
@@ -1665,6 +1665,7 @@ void collectFunctionFacts(cir::FuncOp func, DataFlowSolver &solver,
 void analyzeFunction(
     cir::FuncOp func, bool infer, const NullabilitySafetyCIROptions &options,
     llvm::DenseSet<Operation *> &allReturnsNonnull,
+    mlir::SymbolTableCollection &symbols,
     llvm::function_ref<void(const NullabilityFinding &)> report,
     FactCollector *facts = nullptr) {
   llvm::DenseSet<Value> tracked, escaped;
@@ -1675,7 +1676,7 @@ void analyzeFunction(
     if (kind == SlotKind::Escaped)
       escaped.insert(alloca.getAddr());
   });
-  Semantics semantics(options, tracked, escaped, allReturnsNonnull);
+  Semantics semantics(options, tracked, escaped, allReturnsNonnull, symbols);
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   solver.load<DeadCodeAnalysis>();
   solver.load<SparseConstantPropagation>();
@@ -1696,6 +1697,7 @@ void analyzeModule(mlir::ModuleOp module,
                    FactCollector *facts) {
   mlir::CallGraph callGraph(module);
   llvm::DenseSet<Operation *> allReturnsNonnull;
+  mlir::SymbolTableCollection symbols;
   for (auto scc = llvm::scc_begin<const mlir::CallGraph *>(&callGraph);
        !scc.isAtEnd(); ++scc) {
     bool recursive = scc.hasCycle();
@@ -1706,7 +1708,7 @@ void analyzeModule(mlir::ModuleOp module,
           mlir::dyn_cast<cir::FuncOp>(node->getCallableRegion()->getParentOp());
       if (!func || func.isDeclaration())
         continue;
-      analyzeFunction(func, !recursive, options, allReturnsNonnull, report,
+      analyzeFunction(func, !recursive, options, allReturnsNonnull, symbols, report,
                       facts);
     }
   }

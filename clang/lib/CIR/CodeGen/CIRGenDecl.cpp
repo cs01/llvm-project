@@ -298,8 +298,26 @@ void CIRGenFunction::emitAutoVarInit(
     if (trivialAutoVarInit ==
         LangOptions::TrivialAutoVarInitKind::Uninitialized)
       return;
-
-    cgm.errorNYI(d.getSourceRange(), "emitAutoVarInit: trivial initialization");
+    if (trivialAutoVarInit == LangOptions::TrivialAutoVarInitKind::Pattern) {
+      cgm.errorNYI(d.getSourceRange(),
+                   "emitAutoVarInit: pattern initialization");
+      return;
+    }
+    CharUnits size = getContext().getTypeSizeInChars(type);
+    if (size.isZero()) {
+      if (getContext().getAsVariableArrayType(type))
+        cgm.errorNYI(d.getSourceRange(),
+                     "emitAutoVarInit: zero initialization of a VLA");
+      return;
+    }
+    unsigned maxSize = getContext().getLangOpts().TrivialAutoVarInitMaxSize;
+    if (maxSize > 0 && static_cast<uint64_t>(size.getQuantity()) > maxSize)
+      return;
+    mlir::Location loc = getLoc(d.getSourceRange());
+    mlir::Value zero = builder.getNullValue(builder.getUInt8Ty(), loc);
+    mlir::Value len = builder.getConstInt(loc, cgm.uInt64Ty, size.getQuantity());
+    builder.createMemSet(loc, addr.withElementType(builder, cgm.voidTy), zero,
+                         len);
   };
 
   if (isTrivialInitializer(init)) {
@@ -317,8 +335,8 @@ void CIRGenFunction::emitAutoVarInit(
     // some trivial ctor calls and whatnots.
     constant = ConstantEmitter(*this).tryEmitAbstractForInitializer(d);
     if (constant && !mlir::isa<cir::ZeroAttr>(constant) &&
-        (trivialAutoVarInit !=
-         LangOptions::TrivialAutoVarInitKind::Uninitialized)) {
+        (trivialAutoVarInit ==
+         LangOptions::TrivialAutoVarInitKind::Pattern)) {
       cgm.errorNYI(d.getSourceRange(), "emitAutoVarInit: constant aggregate");
       return;
     }
@@ -361,6 +379,7 @@ void CIRGenFunction::emitAutoVarInit(
         RValue::get(builder.getConstant(initLoc, typedConstant)), lv);
   }
 
+  initializeWhatIsTechnicallyUninitialized(addr);
   emitStoresForConstant(cgm, d, addr, type.isVolatileQualified(), builder,
                         typedConstant);
 }

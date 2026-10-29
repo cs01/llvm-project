@@ -110,14 +110,24 @@ verifyControlFlowInterfaceConsistency(RegionBranchOpInterface op,
     regionsWithExit.insert(term->getParentRegion());
     SmallVector<RegionSuccessor> termSuccessors;
     term.getSuccessorRegions(/*operands=*/{}, termSuccessors);
-    SmallPtrSet<Region *, 4> opSet, termSet;
+    auto successorKey = [](const RegionSuccessor &s) -> const void * {
+      if (s.isOperation())
+        return s.getSuccessorOp();
+      return s.getSuccessor();
+    };
+    SmallPtrSet<const void *, 4> opSet, termSet;
     for (RegionSuccessor &s : opSuccessors)
-      opSet.insert(s.getSuccessor());
+      opSet.insert(successorKey(s));
     for (RegionSuccessor &s : termSuccessors)
-      termSet.insert(s.getSuccessor());
+      termSet.insert(successorKey(s));
     EXPECT_EQ(opSet, termSet)
         << "op and terminator disagree on successors from region #"
         << term->getParentRegion()->getRegionNumber();
+    for (RegionSuccessor &s : termSuccessors)
+      EXPECT_TRUE(!s.isOperation() || s.getSuccessorOp() == op.getOperation())
+          << "'" << term->getName().getStringRef().str()
+          << "' exits to an operation other than its parent '"
+          << op->getName().getStringRef().str() << "'";
   }
 
   for (Region &region : op->getRegions()) {

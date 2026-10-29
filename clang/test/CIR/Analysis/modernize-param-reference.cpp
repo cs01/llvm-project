@@ -20,6 +20,10 @@ struct S {
   int get() const { return x; }
 };
 static int method(S *s) { return s->get(); }
+static int initUse(Node *p) {
+  int v = p->value;
+  return v;
+}
 
 static int conditional(Node *p, bool f) {
   if (f)
@@ -58,13 +62,15 @@ int use(Node *n, Node &r, S *s) {
   total += deref(n) + method(s) + conditional(n, true) + failGuard(1, n);
   total += throwGuard(1, n) + callFirst(n) + sized(n) + captured(n);
   total += nullCaller(nullptr) + forwardsToUnsafe(n) + publicFn(n);
+  total += initUse(n);
   return total;
 }
 
-// CHECK-DAG: warning: pointer parameter 'head' of 'first' is dereferenced on every path and never null; it can be a reference
+// CHECK-DAG: warning: pointer parameter 'head' of 'first' is dereferenced on every path, so a null argument is already undefined behavior; it can be a reference
 // CHECK-DAG: warning: pointer parameter 'p' of 'viaCallee'
 // CHECK-DAG: warning: pointer parameter 'p' of 'deref'
 // CHECK-DAG: warning: pointer parameter 's' of 'method'
+// CHECK-DAG: warning: pointer parameter 'p' of 'initUse'
 // CHECK-DAG: fix-it:"{{.*}}":{15:23-15:24}:"&"
 // CHECK-DAG: fix-it:"{{.*}}":{15:43-15:45}:"."
 
@@ -85,3 +91,11 @@ int use(Node *n, Node &r, S *s) {
 // FIXED: {{^}}  int total = first(*n) + first(local) + first(*n->next) + viaCallee(r);
 // FIXED: {{^}}  total += deref(*n) + method(*s) + conditional(n, true) + failGuard(1, n);
 // FIXED: {{^}}  total += throwGuard(1, n) + callFirst(n) + sized(n) + captured(n);
+
+struct WithCtor {
+  int v;
+  WithCtor(Node *n) : v(n->value) {}
+  ~WithCtor() {}
+};
+template <typename T> static int templated(T *t) { return t->value; }
+int useCtor(Node *n) { return WithCtor(n).v + templated(n); }

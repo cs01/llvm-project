@@ -228,8 +228,12 @@ private:
           Node.get<BlockExpr>() || Node.get<UnaryExprOrTypeTraitExpr>() ||
           Node.get<CXXNoexceptExpr>() || Node.get<CXXTypeidExpr>())
         return false;
-      if (const Decl *D = Node.get<Decl>())
-        return D == FD;
+      if (const Decl *D = Node.get<Decl>()) {
+        if (D == FD)
+          return true;
+        if (isa<FunctionDecl, RecordDecl, BlockDecl, CapturedDecl>(D))
+          return false;
+      }
       if (Node.getNodeKind().isNone())
         return false;
     }
@@ -303,6 +307,9 @@ private:
   }
 
   void addCandidates(FunctionDecl *FD) {
+    if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD) ||
+        FD->isDependentContext() || FD->isTemplated())
+      return;
     auto It = Facts.find(mangle(FD));
     if (It == Facts.end() || !functionEligible(FD))
       return;
@@ -408,8 +415,8 @@ private:
   void report(DiagnosticsEngine &Diags) {
     unsigned ID = Diags.getCustomDiagID(
         DiagnosticsEngine::Warning,
-        "pointer parameter %0 of %1 is dereferenced on every path and never "
-        "null; it can be a reference");
+        "pointer parameter %0 of %1 is dereferenced on every path, so a null "
+        "argument is already undefined behavior; it can be a reference");
     Rewriter R(SM, C.getLangOpts());
     for (const Candidate &Cand : Candidates) {
       if (!Cand.Live)
