@@ -80,7 +80,7 @@ So CIR modernize uses each for what it is good at:
 | pointer and length to `std::span` | only used as a bounded array | refinement |
 | owning raw pointer to `std::unique_ptr` | one owner, freed once on every path, never escapes | refinement |
 | `lock`/`unlock` pair to `std::lock_guard` | paired on every path, including exceptions | refinement |
-| add `lifetimebound` / `lifetime_capture_by` / `noescape` | returned or captured pointer derives from that parameter; never escapes (noescape) | IR identical + no new `-Wlifetime-safety-*` warnings |
+| add `lifetimebound` / `lifetime_capture_by` / `noescape` | returned or captured pointer derives from that parameter; never escapes (noescape) | IR identical; a new `-Wdangling*` / `-Wlifetime-safety-*` warning is a finding and holds the rewrite back |
 | add `__counted_by(n)` (C only, deferred) | every access through the pointer is guarded by the count | builds under `-fexperimental-bounds-safety`, tests pass |
 | out-parameter to return value | written on every path before any read | IR identical |
 
@@ -154,9 +154,11 @@ a changed declaration need checking again, so large codebases stay fast.
 | nullability and must-dereference facts | working |
 | pointer to const pointee, one file and project-wide | working, every edit proven (IR identical) |
 | span, unique_ptr, lock_guard, out-parameters | planned |
-| lifetime annotations, checked by clang LifetimeSafety | planned |
-| `counted_by` inference for C | planned |
-| unsafe inventory report (every unsafe site, state and reason) | planned |
+| lifetime annotations (`lifetimebound` on parameters, `this` and returned views; `lifetime_capture_by`), checked by clang LifetimeSafety | working, IR identical; new dangling warnings listed as findings |
+| nullability qualifiers (`nonnull`, `nullable`, opt-in) | working; refused where `-pedantic` warns on them |
+| refuse rewrites inside `#if` | working |
+| `counted_by` inference for C | deferred (changes IR) |
+| unsafe inventory report (every unsafe site, state and reason) | working (`--inventory`) |
 | refinement proofs | planned |
 | integer ranges, constant propagation, taint | planned |
 | LLM proposals | planned |

@@ -158,6 +158,15 @@ to a parameter that stays a pointer, 31 address taken, 17 public header.
 
 ## Roadmap
 
+Order (2026-10-29): rewrites that keep the IR identical first, lifetimes
+first among them; IR-changing rewrites (span, ownership) after, opt-in as the
+`refinement` group; real-world corpora (cbmc, fprime) last. Done: inventory
+(item 3), rewrite groups and `--only`/`--skip`, refusal inside `#if`,
+`lifetimebound` (parameters, `this`, returned views) and
+`lifetime_capture_by`. On LLVM (242+ annotations across 624 TUs) they exposed
+no existing dangling use; a planted one is caught. C `counted_by` is deferred
+because it changes the IR.
+
 1. **Transform framework.** CIR patterns that produce AST edits and blockers
    through one API, instead of a hand-written modernizer per rewrite. The
    export, plan, merge and proof pipeline is already rewrite-agnostic.
