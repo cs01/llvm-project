@@ -13,6 +13,7 @@ add_clang_library(clangCIRFrontendAction
   CIRModernize.cpp
   Inventory.cpp
   Lifetimebound.cpp
+  LockGuard.cpp
   Nullability.cpp
   ParamToReference.cpp
   PointerToConst.cpp

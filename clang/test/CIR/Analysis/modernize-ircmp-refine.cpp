@@ -9,6 +9,11 @@
 // RUN: cir-modernize-ircmp --refine orig.ll view.ll
 // RUN: not cir-modernize-ircmp --refine orig.ll oob.ll | FileCheck %s
 // CHECK: a check the rewrite added did not fold away: 1 more traps
+// A guard's destructor unlocks where the pair did; inlining also changes the
+// order declarations are first needed in, which pairing must not see.
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -O1 -disable-llvm-passes -emit-llvm pair.cpp -o pair.ll
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -O1 -disable-llvm-passes -emit-llvm guard.cpp -o guard.ll
+// RUN: cir-modernize-ircmp --refine pair.ll guard.ll
 // Without the normalization the calls to the view differ.
 // RUN: not cir-modernize-ircmp orig.ll view.ll
 
@@ -52,3 +57,30 @@ static int sum(View v) {
   return s;
 }
 int entry(const int *a, unsigned long n) { return sum({a, n}); }
+
+//--- mutex.h
+struct Mutex {
+  void lock();
+  void unlock();
+};
+void work(int &);
+
+//--- pair.cpp
+#include "mutex.h"
+void f(Mutex &m, int &x) {
+  m.lock();
+  work(x);
+  m.unlock();
+}
+
+//--- guard.cpp
+#include "mutex.h"
+struct Guard {
+  Mutex &m;
+  Guard(Mutex &m) : m(m) { m.lock(); }
+  ~Guard() { m.unlock(); }
+};
+void f(Mutex &m, int &x) {
+  Guard g(m);
+  work(x);
+}

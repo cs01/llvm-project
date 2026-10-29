@@ -154,7 +154,8 @@ a changed declaration need checking again, so large codebases stay fast.
 | nullability and must-dereference facts | working |
 | pointer to const pointee, one file and project-wide | working, every edit proven (IR identical) |
 | span (opt-in `--only span`, `--view std\|llvm`), proven by `ircmp --refine` | working: proven when every added bounds check folds away against an existing guard |
-| unique_ptr, lock_guard, out-parameters | planned |
+| lock_guard (opt-in `--only lock-guard`): `m.lock(); ... m.unlock();` closing a block | working; refused where the original leaks the lock on an early exit or exception |
+| unique_ptr, out-parameters | planned |
 | lifetime annotations (`lifetimebound` on parameters, `this` and returned views; `lifetime_capture_by`), checked by clang LifetimeSafety | working, IR identical; new dangling warnings listed as findings |
 | nullability qualifiers (`nonnull`, `nullable`, opt-in) | working; refused where `-pedantic` warns on them |
 | refuse rewrites inside `#if` | working |

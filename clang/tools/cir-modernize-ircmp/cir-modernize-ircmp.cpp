@@ -351,6 +351,26 @@ static bool normalize(Module &M, std::string &Err) {
       for (PHINode *Phi : llvm::reverse(Phis))
         Phi->moveBefore(BB.begin());
     }
+  // Inlining and globaldce leave declarations in the order they were first
+  // needed, which a rewrite can change; pairing is by position, so put
+  // functions and variables in signature order.
+  auto Sorted = [](auto &&List) {
+    std::vector<std::pair<std::string, GlobalValue *>> Keys;
+    for (auto &G : List)
+      Keys.push_back({signature(G.getName()), &G});
+    llvm::stable_sort(Keys, [](auto &A, auto &B) { return A.first < B.first; });
+    return Keys;
+  };
+  for (auto &[Key, G] : Sorted(M.functions())) {
+    (void)Key;
+    cast<Function>(G)->removeFromParent();
+    M.getFunctionList().push_back(cast<Function>(G));
+  }
+  for (auto &[Key, G] : Sorted(M.globals())) {
+    (void)Key;
+    cast<GlobalVariable>(G)->removeFromParent();
+    M.insertGlobalVariable(cast<GlobalVariable>(G));
+  }
   for (Function &F : M) {
     for (Argument &A : F.args())
       A.setName("");
