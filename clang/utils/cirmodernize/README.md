@@ -2,96 +2,151 @@
 
 Proven source-to-source rewrites for C and C++, built on ClangIR.
 
-CIR modernize finds code it can make safer, rewrites it, and proves each
-rewrite does not change what the program does. One such rewrite, and the only
-one implemented so far, turns a pointer parameter into a reference when every
-path through the function already dereferences it:
+CIR modernize makes existing C++ safer in place. It finds code that can be
+rewritten into a safer form, rewrites it in the source you own, and proves
+each rewrite keeps what the program does. Whole classes of errors (null,
+out-of-bounds, leaks, accidental writes) become impossible in that code,
+without moving it to another language.
 
 ```c++
-// before                                   // after
-static int first(Node *head) {              static int first(Node &head) {
-  return head->value;                         return head.value;
-}                                           }
-int use(Node *n, Node local) {              int use(Node *n, Node local) {
-  return first(n) + first(&local);            return first(*n) + first(local);
-}                                           }
+// before                                       // after
+static int sum(Node *head, int *xs, int n) {    static int sum(const Node &head, std::span<const int> xs) {
+  int s = head->value;                            int s = head.value;
+  for (int i = 0; i < n; ++i)                     for (int x : xs)
+    s += xs[i];                                     s += x;
+  return s;                                       return s;
+}                                               }
 ```
 
-A null argument was already undefined behavior here, so the reference adds
-no new restriction. It does remove, for good, a class of errors from that
-function: it can no longer be passed null, reseated, or indexed past its
-object.
+Each step here is a separate rewrite with its own proof: `head` is
+dereferenced on every path and never written through, so it can be a const
+reference; `xs` and `n` are only used as a bounded array, so they can be a
+span, and every access is proven in bounds.
 
 ## Use cases
 
-- **Hardening existing code in place.** Make whole classes of errors
-  impossible without moving the code to another language. A safety profile
-  is reached by rewriting, not by rule-checking alone.
-- **Large-scale changes people can trust.** Each edit comes with a check a
-  reviewer does not have to redo: the rewritten translation units compile to
-  the same LLVM IR.
+- **Hardening existing code.** Pointers that are never null become
+  references, read-only pointers become const, pointer and length pairs
+  become spans, owning raw pointers become `unique_ptr`, lock pairs become
+  `lock_guard`. A safety profile is reached by rewriting the code, not only
+  by flagging it.
+- **Large-scale changes people can trust.** Every edit comes with a check a
+  reviewer does not have to redo, so a change across thousands of files can
+  land with the review effort of a small one.
 - **A migration engine.** Nullability, ownership, const and bounds facts are
-  what any move to a safer dialect or language needs first.
+  what any move to a safer subset or a safer language needs first.
+- **Analysis.** Taint tracking, constant propagation and integer ranges on
+  ClangIR, for finding bugs as well as fixing them.
+- **AI-assisted refactoring with a gate.** A language model proposes a
+  rewrite; CIR modernize accepts it only if it can prove it. The generator
+  can be wrong; the gate cannot.
 
-## What it can do today
+## Design highlights
 
-- Pointer to reference for parameters that are dereferenced on every path,
-  never reassigned, never null-checked, never used for arithmetic and never
-  passed null.
-- Within one translation unit (`check.ts`) or across a whole compilation
-  database (`project.ts`), including declarations in headers and calls from
-  other files.
-- Prove every applied edit: original and rewritten code compile to identical
-  LLVM IR at -O0 with classic codegen, apart from the reference attributes
-  the rewrite is meant to add.
-- Explain itself: every proven parameter it does not rewrite is counted by
-  reason (`--why`).
+Source-to-source rewriting of C++ has two needs that pull in opposite
+directions:
 
-## What it cannot do (yet)
+- The edits have to land in the source people own: macros, typedef
+  spellings, templates as written, comments.
+- Deciding an edit is safe takes dataflow: does every path dereference this
+  pointer, can this index leave its bounds, who owns this allocation.
 
-- **Rewrites other than pointer to reference.** const, `std::span` and
-  ownership (`unique_ptr`, `lock_guard`) are planned. Span and ownership
-  change the IR on purpose, so they need a refinement proof, not identity.
-- **Code ClangIR cannot compile.** Such files are skipped and block any
-  function they might call. On LLVM's Support and IR libraries this is 5 of
-  256 files.
-- **Templates.** A fact has to hold for every instantiation, including ones
-  not written yet, so templates and functions reached from them are left
-  alone.
-- **Multiple build configurations.** Facts hold for the configuration that
-  was compiled. Code under other `#if` branches is not seen.
-- **Callers outside the compilation database.** Project mode assumes it sees
-  the whole program. Public API headers are excluded unless you allow them.
-- **Lifting IR back to source.** CIR is not lifted. Edits are made on the
-  Clang AST.
+No single representation serves both. The Clang AST is the most faithful
+model of C++ source there is, but flow analysis over it means modeling every
+expression kind by hand. ClangIR is an MLIR dialect that keeps control
+structure as regions (`cir.scope`, `cir.if`, `cir.for`) and spells out what
+C++ leaves implicit (temporaries, conversions, constructors, cleanups,
+exception edges), which makes it a good place for dataflow, but it is not
+meant to be turned back into source.
+
+So CIR modernize uses each for what it is good at:
+
+1. **Prove on CIR.** Analyses compute facts about parameters, locals and
+   allocations.
+2. **Edit on the AST.** Rewrites turn facts into edits on the spellings that
+   have to change. A candidate is dropped whole if any use is a shape it
+   cannot rewrite, or if a template, a dependent call or a function pointer
+   might reach it.
+3. **Check every edit independently.** The rewritten files are compiled with
+   classic codegen, not CIR, and compared with the originals. The analysis
+   that proposed an edit is never the one that checks it.
+
+## Rewrites
+
+| Rewrite | Fact it needs | Proof |
+|---|---|---|
+| pointer parameter to reference | dereferenced on every path, never reassigned or passed null | IR identical |
+| pointer to const pointee | never written through, directly or by a callee | IR identical |
+| pointer and length to `std::span` | only used as a bounded array | refinement |
+| owning raw pointer to `std::unique_ptr` | one owner, freed once on every path, never escapes | refinement |
+| `lock`/`unlock` pair to `std::lock_guard` | paired on every path, including exceptions | refinement |
+| out-parameter to return value | written on every path before any read | IR identical |
+
+**IR identical**: the original and rewritten translation units compile to the
+same LLVM IR, apart from what the rewrite is meant to change (mangled names,
+reference attributes).
+
+**Refinement**: the rewritten code does exactly what the original did on
+every execution the original defined, and traps where the original had
+undefined behavior (for example an out-of-bounds index). Integer ranges let
+proven-in-bounds accesses skip their checks.
+
+## Analyses
+
+All run on ClangIR: nullability and must-dereference, pointee writes,
+ownership and lifetimes, integer ranges and constant propagation (MLIR's
+dataflow framework), and taint.
 
 ## How it works
 
-ClangIR is an MLIR dialect that keeps C++ control structure as regions
-(`cir.scope`, `cir.if`, `cir.for`). That makes it a good place for flow
-analysis, but it drops what source rewriting needs: macros, typedef
-spellings, templates as written. So the work is split:
+Per translation unit, the compiler runs the analyses, builds the candidate
+edits, and reports them as warnings with fix-its, or applies them.
 
-1. **Prove on CIR.** A dataflow analysis computes per-parameter facts: is it
-   dereferenced before every way out of the function (any call that might
-   not return counts as a way out), reassigned, null-checked, used for
-   arithmetic, passed null.
-2. **Edit on the AST.** The Clang AST supplies every spelling that has to
-   change: each declaration's `*`, each `p->m` and `*p`, each call site. A
-   candidate is dropped whole if any use is a shape it does not handle, if
-   its address is taken, or if a template or dependent call might reach it.
-3. **Check independently.** The edits are mounted over the source with a VFS
-   overlay, and the original and rewritten files are compiled with classic
-   codegen, not CIR. The IR must match. The analysis that proposed an edit is
-   never the one that checks it.
+Across a codebase, two passes over the compilation database let signatures in
+headers change with all their callers:
 
-Project mode adds two passes over the compilation database. Each file first
-proposes what it can prove. Then every file reports the edits its own
-declarations and calls need, or why it blocks a function. A function is
-rewritten only if its defining file proves it, no file blocks it, and every
-function it forwards a parameter to is rewritten too.
+1. **Propose.** Each file proposes what it can prove about the functions it
+   defines.
+2. **Plan.** Each file reports the edits its own declarations and calls need
+   for the proposals, or why it blocks one.
+3. **Merge.** A function is rewritten only if its defining file proves it, no
+   file blocks it, and every function it forwards an argument to is
+   rewritten with it.
+4. **Prove and apply.** Every affected file is compiled with all edits
+   mounted over the source, and checked. Edits are written only if every file
+   passes.
 
-See `docs/cir-modernize-design.md` for the design, results and roadmap.
+Public API headers are left alone unless you allow them. Only files that use
+a changed declaration need checking again, so large codebases stay fast.
+
+## What it does not do
+
+- **Decompile.** It does not lift binaries or LLVM IR back to C++, and does
+  not lift ClangIR back to source.
+- **See past the compilation database.** It assumes the database is the whole
+  program; callers elsewhere are not seen, which is why public headers are
+  opt-in.
+- **Reason about code it did not compile.** Facts hold for the build
+  configurations that were compiled. Code under other `#if` branches is not
+  analyzed, and edits inside them are refused.
+- **Guarantee memory safety.** It removes error classes from the code it
+  rewrites; code it cannot prove stays as it is. A memory-safe language makes
+  promises about all code; this makes existing code safer, one proven
+  rewrite at a time.
+
+## Status
+
+| Piece | State |
+|---|---|
+| pointer to reference, one file and project-wide | working, every edit proven (IR identical) |
+| nullability and must-dereference facts | working |
+| pointer to const pointee | in progress |
+| span, unique_ptr, lock_guard, out-parameters | planned |
+| refinement proofs | planned |
+| integer ranges, constant propagation, taint | planned |
+| LLM proposals | planned |
+
+Design, results and roadmap: `docs/cir-modernize-design.md`.
 
 ## Quick start
 
