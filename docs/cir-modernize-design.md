@@ -170,17 +170,23 @@ to a parameter that stays a pointer, 31 address taken, 17 public header.
    arrays, casts (`reinterpret_cast`, C-style, `const_cast`), `union`, `void *`,
    varargs, `memcpy`/`strcpy`-style calls, manual `lock`/`unlock`,
    uninitialized variables, narrowing and overflow. Each site gets file:line,
-   category and a state: proven (rewritten and passed its gate), checked
-   (already inside an existing checker's model), outside (with a reason, such
-   as escapes to an unannotated callee or stored into a field), or unknown (no
-   analysis ran, such as a CIR skip). Roll up by directory and by reason, and
+   category and a state: proven (rewritten and passed its gate), covered
+   (inside the model of an existing checker that did not warn, named per
+   site), outside (with a reason, such as escapes to an unannotated callee or
+   stored into a field), or unknown (no analysis ran, such as a CIR skip).
+   Covered is not proven: LifetimeSafety and thread safety analysis are not
+   sound, so no warning does not mean safe, and the headline number counts
+   proven only. Roll up by directory and by reason, and
    rank fixes by how many sites they would move to proven. This is the
    project's headline number. Reuse what exists: `--why` drop reasons, the
    project-mode USR index, LifetimeSafety's missing-origin stats and
    `-Wunsafe-buffer-usage` sites. Use clang CFG checkers where they already
    cover a property (lifetimes, thread safety) and CIR where cleanups,
    exception paths or MLIR dataflow matter (ownership, locks, bounds,
-   overflow); record which source produced each fact.
+   overflow); record which source produced each fact. Start with the categories
+   the rewrites act on (raw pointer parameters, pointer arithmetic and raw
+   indexing, casts) and add the rest as analyses for them land, so the report
+   ranks real fixes rather than only listing sites.
 4. **Transforms.**
    - const-correctness: "never written through, never escapes to a writer".
      Same IR identity proof. Signature changes need project mode.
@@ -196,7 +202,14 @@ to a parameter that stays a pointer, 31 address taken, 17 public header.
      (`clang/lib/Analysis/LifetimeSafety`, `-Wlifetime-safety-*`) that checks
      each function against its annotated signature, so ownership needs no new
      proof system: the gate is no new lifetime-safety warnings anywhere in the
-     project. Annotations do not change codegen, so IR identity still holds.
+     project. That checker is not sound, so this gate catches contradictions,
+     not every wrong annotation. `lifetimebound` and `lifetime_capture_by` do
+     not change codegen, so IR identity holds for them. `noescape` does: it
+     lowers to the LLVM `captures(none)` parameter attribute, which the
+     optimizer relies on, so a wrong one can miscompile. It needs a CIR proof
+     that the pointer is not captured, and the IR check allows exactly that
+     added attribute, the same refinement argument as `nonnull` on a
+     reference.
      Track the share of functions that fit the model; code outside it
      (pointer graphs, aliasing plus mutation such as iterator invalidation)
      stays unchecked.
