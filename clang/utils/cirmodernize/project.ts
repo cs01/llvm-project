@@ -303,21 +303,28 @@ for (let round = 1; ; round++) {
   });
   let culprits = bad.flatMap((i) => [...tuKeys[i]].filter((k) => live.has(k)));
   if (!failed || !culprits.length || round === 5) break;
-  // A failing TU with several rewrites: prove it with each one alone (the
-  // others in it held back) and block only those that fail. Rewrites that
-  // fail only together all pass alone; then all of them are blocked, and the
-  // next round proves whatever is left together again.
-  const acquitted = new Set<string>();
-  await pool(bad.flatMap((i) => {
-    const mine = [...tuKeys[i]].filter((k) => live.has(k));
-    return mine.length > 1 && mine.length <= 16 ? mine.map((k) => [i, k, mine] as const) : [];
-  }), jobs, async ([i, k, mine]) => {
-    const solo = [...live].filter((x) => x === k || !mine.includes(x)).flatMap((x) => edits.get(x)!);
-    const p = await prove(clang, cmds[i], overlay(mkdtempSync(join(scratch, "solo-")), solo),
+  // A failing TU with several rewrites: find the ones that make it fail by
+  // proving it with halves of them (the others held back), so one bad
+  // rewrite does not take the rest of the TU with it. A set that fails while
+  // neither half does is kept whole.
+  const proves = async (i: number, keep: string[], mine: string[]) => {
+    const held = new Set(mine.filter((k) => !keep.includes(k)));
+    const es = [...live].filter((k) => !held.has(k)).flatMap((k) => edits.get(k)!);
+    const p = await prove(clang, cmds[i], overlay(mkdtempSync(join(scratch, "split-")), es),
                           lifetimeSafety ? ["-Wlifetime-safety"] : [], refine);
-    if (p.status === "ok") acquitted.add(k);
-  });
-  const guilty = culprits.filter((k) => !acquitted.has(k));
+    return p.status === "ok";
+  };
+  const guiltyIn = async (i: number, set: string[], mine: string[], failing: boolean): Promise<string[]> => {
+    if (!failing && (await proves(i, set, mine))) return [];
+    if (set.length === 1) return set;
+    const a = set.slice(0, set.length >> 1), b = set.slice(set.length >> 1);
+    const found = [...await guiltyIn(i, a, mine, false), ...await guiltyIn(i, b, mine, false)];
+    return found.length ? found : set;
+  };
+  const guilty = (await pool(bad, jobs, async (i) => {
+    const mine = [...tuKeys[i]].filter((k) => live.has(k));
+    return mine.length > 1 ? guiltyIn(i, mine, mine, true) : mine;
+  })).flat();
   if (guilty.length) culprits = guilty;
   for (const k of culprits) {
     live.delete(k);
