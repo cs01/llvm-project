@@ -17,6 +17,9 @@
 #include "CIRModernizeFramework.h"
 
 #include "clang/AST/StmtCXX.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/Lexer.h"
+#include "clang/Lex/Preprocessor.h"
 #include "clang/Rewrite/Core/Rewriter.h"
 #include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "llvm/Support/Debug.h"
@@ -340,6 +343,8 @@ private:
           Why = R.whyNeedBlocked();
         else
           Why = R.finalize(Cand);
+        if (Why.empty())
+          Why = whyConditional(Cand);
         if (!Why.empty()) {
           Ctx.count(Why);
           Cand.Live = false;
@@ -348,6 +353,33 @@ private:
         }
       }
     }
+  }
+
+  // The facts behind a candidate hold for this build configuration only.
+  StringRef whyConditional(const Candidate &Cand) {
+    const ConditionalRecord *CR = Ctx.Options.Conditionals;
+    if (!CR)
+      return {};
+    // The body is what the facts come from; another translation unit proved
+    // an external candidate's.
+    if (!Cand.External)
+      if (const FunctionDecl *Def = Cand.FD->getDefinition())
+        if (CR->overlaps(
+                Ctx.SM.getExpansionRange(Def->getSourceRange()).getAsRange()))
+          return "defined in or across an #if region";
+    for (const auto *Edits : {&Cand.Edits, &Cand.LateEdits})
+      for (const FixItHint &Hint : *Edits)
+        if (CR->overlaps(Hint.RemoveRange.getAsRange()))
+          return "an edit is inside an #if region";
+    // A skipped branch may call the function, and nothing here edits that
+    // call. Raw tokens give names only, so an operator or conversion, called
+    // without one, is blocked by any skipped branch.
+    const IdentifierInfo *II = Cand.FD->getIdentifier();
+    if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(Cand.FD))
+      II = Ctor->getParent()->getIdentifier();
+    if (II ? CR->skippedNames().contains(II->getName()) : CR->skippedAny())
+      return "named in an #if branch this build skips";
+    return {};
   }
 
   void report(DiagnosticsEngine &Diags) {
@@ -476,6 +508,11 @@ private:
             });
           });
       });
+      if (const ConditionalRecord *CR = Ctx.Options.Conditionals)
+        J.attributeArray("skippedNames", [&] {
+          for (const auto &E : CR->skippedNames())
+            J.value(E.getKey());
+        });
       exportInventory(J, Ctx);
     });
   }
@@ -491,4 +528,60 @@ void clang::runCIRModernize(mlir::ModuleOp Module, ASTContext &C,
                             DiagnosticsEngine &Diags,
                             const CIRModernizeOptions &Options) {
   Modernizer(C, Options).run(Module, Diags);
+}
+
+void ConditionalRecord::Endif(SourceLocation Loc, SourceLocation IfLoc) {
+  if (Open.empty())
+    return;
+  Regions.push_back({Open.back(), Loc});
+  Open.pop_back();
+}
+
+void ConditionalRecord::SourceRangeSkipped(SourceRange Range,
+                                           SourceLocation EndifLoc) {
+  SourceManager &SM = PP.getSourceManager();
+  SourceLocation Begin = Range.getBegin();
+  if (Begin.isInvalid() || SM.isInSystemHeader(Begin))
+    return;
+  auto [FID, Offset] = SM.getDecomposedLoc(Begin);
+  unsigned End = SM.getFileOffset(Range.getEnd());
+  bool Invalid = false;
+  StringRef Buf = SM.getBufferData(FID, &Invalid);
+  if (Invalid)
+    return;
+  Lexer L(SM.getLocForStartOfFile(FID), PP.getLangOpts(), Buf.begin(),
+          Buf.begin() + Offset, Buf.end());
+  Token T;
+  while (!L.LexFromRawLexer(T) && SM.getFileOffset(T.getLocation()) <= End)
+    if (T.is(tok::raw_identifier))
+      Skipped.insert(T.getRawIdentifier());
+}
+
+bool ConditionalRecord::overlaps(SourceRange R) const {
+  SourceManager &SM = PP.getSourceManager();
+  if (R.isInvalid())
+    return false;
+  auto [FID, Begin] = SM.getDecomposedLoc(SM.getFileLoc(R.getBegin()));
+  auto [EndFID, End] = SM.getDecomposedLoc(SM.getFileLoc(R.getEnd()));
+  if (EndFID != FID)
+    End = Begin;
+  // Clang treats a header as guarded only when nothing but its outermost
+  // #ifndef surrounds the code, so that region is the guard: the first one.
+  std::optional<unsigned> Guard;
+  OptionalFileEntryRef FE = SM.getFileEntryRefForID(FID);
+  if (FE && PP.getHeaderSearchInfo().isFileMultipleIncludeGuarded(*FE))
+    for (SourceRange Region : Regions) {
+      auto [RFID, RBegin] = SM.getDecomposedLoc(Region.getBegin());
+      if (RFID == FID && (!Guard || RBegin < *Guard))
+        Guard = RBegin;
+    }
+  for (SourceRange Region : Regions) {
+    auto [RFID, RBegin] = SM.getDecomposedLoc(Region.getBegin());
+    if (RFID != FID || RBegin == Guard)
+      continue;
+    unsigned REnd = SM.getFileOffset(Region.getEnd());
+    if (RBegin <= End && Begin <= REnd)
+      return true;
+  }
+  return false;
 }

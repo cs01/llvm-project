@@ -19,6 +19,7 @@
 #include "clang/Basic/DiagnosticFrontend.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/Preprocessor.h"
 #include "clang/CIR/CIRGenerator.h"
 #include "clang/CIR/CIRToCIRPasses.h"
 #include "clang/CIR/Dialect/Analysis/CIRNullabilitySafety.h"
@@ -274,6 +275,9 @@ public:
         LinkModules(LinkModules),
         DiagConsumer(CI.getDiagnostics(), CI.getCodeGenOpts()) {}
 
+  /// Installed on the preprocessor for -fcir-modernize.
+  const clang::ConditionalRecord *Conditionals = nullptr;
+
   void Initialize(ASTContext &Ctx) override {
     assert(!Context && "initialized multiple times");
     Context = &Ctx;
@@ -467,6 +471,7 @@ public:
     Options.PlanPath = FEOptions.ClangIRModernizePlan;
     Options.Only = FEOptions.ClangIRModernizeOnly;
     Options.Skip = FEOptions.ClangIRModernizeSkip;
+    Options.Conditionals = Conditionals;
     return Options;
   }
 
@@ -678,6 +683,11 @@ CIRGenAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
 
   auto Result = std::make_unique<cir::CIRGenConsumer>(
       Action, CI, CI.getCodeGenOpts(), std::move(Out), *Ctx, LinkModules);
+  if (CI.getFrontendOpts().ClangIRModernize) {
+    auto Record = std::make_unique<ConditionalRecord>(CI.getPreprocessor());
+    Result->Conditionals = Record.get();
+    CI.getPreprocessor().addPPCallbacks(std::move(Record));
+  }
 
   return Result;
 }

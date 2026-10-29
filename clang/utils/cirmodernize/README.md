@@ -137,7 +137,10 @@ a changed declaration need checking again, so large codebases stay fast.
   opt-in.
 - **Reason about code it did not compile.** Facts hold for the build
   configurations that were compiled. Code under other `#if` branches is not
-  analyzed, and edits inside them are refused.
+  analyzed, so a function is not rewritten when its body or any of its edits
+  is inside an `#if` region (include guards aside), or when any translation
+  unit skips a branch that names it. A partial run sees only the translation
+  units that include a file under `--root` in this configuration.
 - **Guarantee memory safety.** It removes error classes from the code it
   rewrites; code it cannot prove stays as it is. A memory-safe language makes
   promises about all code; this makes existing code safer, one proven

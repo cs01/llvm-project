@@ -49,7 +49,7 @@ type Site = {
   state: "proven" | "covered" | "outside" | "unknown"; why?: string; usr?: string; index?: number;
 };
 // facts is false when CIRGen failed and only the AST half ran.
-type Export = { facts?: boolean; candidates: Candidate[]; sites?: Site[] };
+type Export = { facts?: boolean; candidates: Candidate[]; sites?: Site[]; skippedNames?: string[] };
 
 const argv = process.argv.slice(2);
 let clang = "", compdb = "", root = process.cwd(), jobs = defaultJobs;
@@ -137,8 +137,12 @@ const seen1 = new Set<string>();
 const why1 = new Map<string, string>();
 // A header's sites come from every TU that includes it; one copy each.
 const sites = new Map<string, Site>();
+// Identifiers in #if branches some TU's build skips: a call there gets no
+// edit, so the other configuration would stop compiling.
+const skippedNames = new Set<string>();
 pass1.forEach((e, i) => {
   if (typeof e === "string") return void skipped.set(cmds[i].file, e);
+  for (const n of e.skippedNames ?? []) skippedNames.add(n);
   for (const s of e.sites ?? []) {
     if (!under(s.file, root)) continue;
     if (e.facts === false && s.index !== undefined) s.state = "unknown";
@@ -158,6 +162,14 @@ pass1.forEach((e, i) => {
     else proposals.set(keyOf(c), c);
   }
 });
+for (const [k, c] of proposals) {
+  const name = c.function.split("::").pop()!;
+  if (skippedNames.has(name) || (name.startsWith("operator") && skippedNames.size)) {
+    proposals.delete(k);
+    why1.set(k, "named in an #if branch some TU skips");
+    block("named in an #if branch some TU skips");
+  }
+}
 const planPath = join(scratch, "plan.json");
 writeFileSync(planPath, JSON.stringify({
   functions: [...proposals.values()].map(({ usr, index, kind }) => ({ usr, index, kind })),

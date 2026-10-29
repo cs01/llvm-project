@@ -17,11 +17,49 @@
 #define CLANG_LIB_CIR_FRONTENDACTION_CIRMODERNIZE_H
 
 #include "mlir/IR/BuiltinOps.h"
+#include "clang/Lex/PPCallbacks.h"
+#include "llvm/ADT/StringSet.h"
 #include <string>
+#include <vector>
 
 namespace clang {
 class ASTContext;
 class DiagnosticsEngine;
+class Preprocessor;
+
+/// The preprocessor conditionals of a translation unit. CIR facts and AST
+/// edits describe one build configuration; code inside #if may be different
+/// in another, and a branch this build skips may call a rewritten function
+/// in a way no edit here fixes.
+class ConditionalRecord : public PPCallbacks {
+public:
+  explicit ConditionalRecord(Preprocessor &PP) : PP(PP) {}
+
+  void If(SourceLocation Loc, SourceRange, ConditionValueKind) override {
+    Open.push_back(Loc);
+  }
+  void Ifdef(SourceLocation Loc, const Token &, const MacroDefinition &) override {
+    Open.push_back(Loc);
+  }
+  void Ifndef(SourceLocation Loc, const Token &, const MacroDefinition &) override {
+    Open.push_back(Loc);
+  }
+  void Endif(SourceLocation Loc, SourceLocation IfLoc) override;
+  void SourceRangeSkipped(SourceRange Range, SourceLocation EndifLoc) override;
+
+  /// Whether the file range R overlaps an #if region other than an include
+  /// guard.
+  bool overlaps(SourceRange R) const;
+  /// Identifiers in the branches this build skipped, outside system headers.
+  const llvm::StringSet<> &skippedNames() const { return Skipped; }
+  bool skippedAny() const { return !Skipped.empty(); }
+
+private:
+  Preprocessor &PP;
+  std::vector<SourceLocation> Open;
+  std::vector<SourceRange> Regions;
+  llvm::StringSet<> Skipped;
+};
 
 struct CIRModernizeOptions {
   bool AllowPublic = false;
@@ -38,6 +76,8 @@ struct CIRModernizeOptions {
   std::string Only;
   /// Comma-separated rewrites or groups not to make.
   std::string Skip;
+  /// Owned by the preprocessor; null if it was not installed.
+  const ConditionalRecord *Conditionals = nullptr;
 };
 
 /// Module may be null when CIRGen failed: then only planned candidates, which
