@@ -30,6 +30,27 @@ struct Box {
 // CHECK: warning: the result of 'out' can refer to the object 'out' is called on
 // FIXED: const int &Box::out() const {{\[\[}}clang::lifetimebound{{\]\]}} {
 const int &Box::out() const { return v; }
+
+// A view returned by value: built from an owner the object holds, it points
+// into the object; a stored view copied out does not.
+struct [[gsl::Owner(char)]] Str {
+  char *d;
+  ~Str() {}
+};
+struct [[gsl::Pointer(char)]] Ref {
+  const char *d;
+  Ref(const Str &s) : d(s.d) {}
+  Ref(const Ref &) = default;
+};
+struct Named {
+  Str name;
+  Ref alias;
+  // CHECK: warning: the result of 'getName' can refer to the object 'getName' is called on
+  // FIXED: Ref getName() const {{\[\[}}clang::lifetimebound{{\]\]}} {
+  Ref getName() const { return name; }
+  // CHECK-NOT: 'getAlias'
+  Ref getAlias() const { return alias; }
+};
 } // namespace
 
 // Box has internal linkage, so this does too; entry keeps it emitted.
@@ -37,7 +58,13 @@ static int use(Box &b) {
   const int &r = Box{1, nullptr}.get(); // fixed-warning {{temporary bound to local reference 'r' will be destroyed at the end of the full-expression}}
   return r + b.ref() + *b.ptr() + b.out() + b.trail();
 }
+static const char *views(Named &n) {
+  Ref v = Named{Str{}, n.alias}.getName(); // fixed-warning {{temporary whose address is used as value of local variable 'v' will be destroyed at the end of the full-expression}}
+  return v.d + *n.getAlias().d;
+}
 int entry() {
   Box b{2, nullptr};
-  return use(b);
+  static Str Owner;
+  Named n{Str{}, Ref(Owner)};
+  return use(b) + *views(n);
 }

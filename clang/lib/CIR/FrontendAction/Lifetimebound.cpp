@@ -54,14 +54,17 @@ public:
   bool changesType() const override { return false; }
 
   void analyze(mlir::ModuleOp Module) override {
-    cir::collectReturnOrigins(Module, [&](const cir::ReturnOriginFact &F) {
-      Facts[F.function].insert(F.args.begin(), F.args.end());
-    });
+    cir::collectReturnOrigins(
+        Module,
+        [&](cir::FuncOp Ctor, unsigned Index) { return carries(Ctor, Index); },
+        [&](const cir::ReturnOriginFact &F) {
+          Facts[F.function].insert(F.args.begin(), F.args.end());
+        });
   }
 
   void addDefined(FunctionDecl *FD) override {
     QualType Ret = FD->getReturnType();
-    if (!Ret->isPointerType() && !Ret->isReferenceType())
+    if (!Ret->isPointerType() && !Ret->isReferenceType() && !isView(Ret))
       return;
     auto It = Facts.find(Ctx.mangle(FD));
     const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
@@ -108,6 +111,40 @@ public:
   }
 
 private:
+  static bool hasGsl(const CXXRecordDecl *RD, bool Owner) {
+    if (!RD)
+      return false;
+    auto Has = [&](const Decl *D) {
+      return Owner ? D->hasAttr<OwnerAttr>() : D->hasAttr<PointerAttr>();
+    };
+    if (Has(RD))
+      return true;
+    const auto *Spec = dyn_cast<ClassTemplateSpecializationDecl>(RD);
+    return Spec && Has(Spec->getSpecializedTemplate()->getTemplatedDecl());
+  }
+
+  // A [[gsl::Pointer]] class such as llvm::StringRef, returned by value.
+  static bool isView(QualType T) {
+    return hasGsl(T->getAsCXXRecordDecl(), /*Owner=*/false);
+  }
+
+  // Whether constructing through this argument makes the object refer to
+  // what the argument refers to: the parameter says so, or a view is made
+  // from a reference to an owner (a StringRef from a std::string). A view's
+  // copy constructor copies a pointer kept elsewhere, so it does not.
+  bool carries(cir::FuncOp Callee, unsigned Index) {
+    const auto *Ctor = dyn_cast_or_null<CXXConstructorDecl>(
+        Ctx.declByMangledName(Callee.getSymName()));
+    if (!Ctor || Index == 0 || Index - 1 >= Ctor->getNumParams())
+      return false;
+    const ParmVarDecl *P = Ctor->getParamDecl(Index - 1);
+    if (P->hasAttr<LifetimeBoundAttr>())
+      return true;
+    QualType T = P->getType();
+    return hasGsl(Ctor->getParent(), /*Owner=*/false) && T->isReferenceType() &&
+           hasGsl(T->getPointeeType()->getAsCXXRecordDecl(), /*Owner=*/true);
+  }
+
   void addThis(FunctionDecl *FD, StringRef Why, bool External) {
     if (FD->hasAttr<LifetimeBoundAttr>() ||
         cast<CXXMethodDecl>(FD)->getMethodQualifiers().hasVolatile())

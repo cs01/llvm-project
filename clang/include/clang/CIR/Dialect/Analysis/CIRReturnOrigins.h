@@ -6,11 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// For each function returning a pointer (a C++ reference is one in CIR), the
-// pointer arguments the returned value may be derived from by address
-// arithmetic alone: the argument itself, a member, an element, a base or
-// derived class, a cast. Such an argument can be [[clang::lifetimebound]]:
-// the result refers to what it refers to.
+// For each function returning a pointer (a C++ reference is one in CIR) or a
+// view object such as llvm::StringRef, the pointer arguments the returned
+// value may be derived from by address arithmetic alone: the argument itself,
+// a member, an element, a base or derived class, a cast. A returned object
+// built in the return slot by a constructor derives from the constructor
+// arguments the caller says carry their origin. Such an argument can be
+// [[clang::lifetimebound]]: the result refers to what it refers to.
 //
 // A pointer loaded from memory, returned by a call or made by an op this
 // file does not know is not traced further. That only loses origins: an
@@ -35,8 +37,12 @@ struct ReturnOriginFact {
   llvm::SmallVector<unsigned> args;
 };
 
+/// carries(ctor, index): whether the constructor's CIR argument index (past
+/// `this`) makes the constructed object refer to what that argument refers
+/// to. Only the AST knows, from lifetimebound and gsl attributes.
 void collectReturnOrigins(
     mlir::ModuleOp module,
+    llvm::function_ref<bool(cir::FuncOp ctor, unsigned index)> carries,
     llvm::function_ref<void(const ReturnOriginFact &)> emit);
 
 } // namespace cir

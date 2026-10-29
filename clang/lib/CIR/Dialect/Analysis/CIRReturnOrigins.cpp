@@ -8,9 +8,10 @@
 //===----------------------------------------------------------------------===//
 //
 // Walks back from each returned value. A load from a local slot (a spilled
-// parameter, the return value slot, a local pointer) stands for every value
-// stored into it, which over-approximates what that load can see; that is
-// the safe direction here, since an extra origin only adds a diagnostic.
+// parameter, the return value slot, a local pointer or view) stands for
+// everything put into it, which over-approximates what that load can see;
+// that is the safe direction here, since an extra origin only adds a
+// diagnostic.
 //
 //===----------------------------------------------------------------------===//
 
@@ -22,9 +23,18 @@ using namespace cir;
 
 namespace {
 
+// The alloca an address is, through casts.
+cir::AllocaOp slotOf(mlir::Value addr) {
+  while (auto cast = addr.getDefiningOp<cir::CastOp>())
+    addr = cast.getSrc();
+  return addr.getDefiningOp<cir::AllocaOp>();
+}
+
 class Walker {
 public:
-  explicit Walker(cir::FuncOp func) : entry(func.getBody().front()) {}
+  Walker(cir::FuncOp func, mlir::SymbolTableCollection &symbols,
+         llvm::function_ref<bool(cir::FuncOp, unsigned)> carries)
+      : entry(func.getBody().front()), symbols(symbols), carries(carries) {}
 
   llvm::SetVector<unsigned> args;
 
@@ -38,11 +48,8 @@ public:
     }
     mlir::Operation *op = v.getDefiningOp();
     if (auto load = mlir::dyn_cast<cir::LoadOp>(op)) {
-      if (auto slot = load.getAddr().getDefiningOp<cir::AllocaOp>())
-        for (mlir::Operation *user : slot->getUsers())
-          if (auto store = mlir::dyn_cast<cir::StoreOp>(user))
-            if (store.getAddr() == slot.getResult())
-              value(store.getValue());
+      if (cir::AllocaOp s = slotOf(load.getAddr()))
+        slot(s);
       return;
     }
     if (mlir::isa<cir::GetMemberOp, cir::GetElementOp, cir::PtrStrideOp,
@@ -68,22 +75,67 @@ public:
   }
 
 private:
+  // What a local slot can hold: values stored into it, an object a
+  // constructor builds in it, or what another slot copied into it. A copy
+  // from anywhere else copies a pointer kept in memory, whose origin is not
+  // traced.
+  void slot(cir::AllocaOp alloca) {
+    if (!seenSlots.insert(alloca).second)
+      return;
+    llvm::SmallVector<mlir::Value> addrs{alloca.getResult()};
+    for (unsigned i = 0; i < addrs.size(); ++i)
+      for (mlir::Operation *user : addrs[i].getUsers()) {
+        if (auto cast = mlir::dyn_cast<cir::CastOp>(user)) {
+          if (cast.getKind() == cir::CastKind::bitcast)
+            addrs.push_back(cast.getResult());
+        } else if (auto store = mlir::dyn_cast<cir::StoreOp>(user)) {
+          if (store.getAddr() == addrs[i])
+            value(store.getValue());
+        } else if (auto copy = mlir::dyn_cast<cir::CopyOp>(user)) {
+          if (copy.getDst() == addrs[i])
+            if (cir::AllocaOp src = slotOf(copy.getSrc()))
+              slot(src);
+        } else if (auto call = mlir::dyn_cast<cir::CallOp>(user)) {
+          constructed(call, addrs[i]);
+        }
+      }
+  }
+
+  void constructed(cir::CallOp call, mlir::Value object) {
+    auto args = call.getArgOperands();
+    mlir::FlatSymbolRefAttr name = call.getCalleeAttr();
+    if (args.empty() || args[0] != object || !name)
+      return;
+    auto ctor = symbols.lookupNearestSymbolFrom<cir::FuncOp>(call, name);
+    if (!ctor)
+      return;
+    for (unsigned i = 1; i < args.size(); ++i)
+      if (mlir::isa<cir::PointerType>(args[i].getType()) && carries(ctor, i))
+        value(args[i]);
+  }
+
   mlir::Block &entry;
+  mlir::SymbolTableCollection &symbols;
+  llvm::function_ref<bool(cir::FuncOp, unsigned)> carries;
   llvm::DenseSet<mlir::Value> seen;
+  llvm::DenseSet<mlir::Operation *> seenSlots;
 };
 
 } // namespace
 
 void cir::collectReturnOrigins(
     mlir::ModuleOp module,
+    llvm::function_ref<bool(cir::FuncOp, unsigned)> carries,
     llvm::function_ref<void(const ReturnOriginFact &)> emit) {
+  mlir::SymbolTableCollection symbols;
   module.walk([&](cir::FuncOp func) {
     if (func.isDeclaration() ||
-        !llvm::any_of(
-            func.getFunctionType().getReturnTypes(),
-            [](mlir::Type T) { return mlir::isa<cir::PointerType>(T); }))
+        !llvm::any_of(func.getFunctionType().getReturnTypes(),
+                      [](mlir::Type T) {
+                        return mlir::isa<cir::PointerType, cir::RecordType>(T);
+                      }))
       return;
-    Walker w(func);
+    Walker w(func, symbols, carries);
     func.walk([&](cir::ReturnOp ret) {
       for (mlir::Value v : ret.getOperands())
         w.value(v);
