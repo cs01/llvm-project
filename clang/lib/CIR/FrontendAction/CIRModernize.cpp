@@ -258,6 +258,7 @@ constexpr RewriteInfo AllRewrites[] = {
     {"const", "identical", true, createPointerToConst},
     {"nonnull", "identical", false, createNonNull},
     {"nullable", "identical", false, createNullable},
+    {"lifetimebound", "identical", true, createLifetimebound},
 };
 constexpr StringRef Groups[] = {"identical", "refinement"};
 

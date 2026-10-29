@@ -12,6 +12,7 @@ add_clang_library(clangCIRFrontendAction
   CIRDiagnosticHandler.cpp
   CIRModernize.cpp
   Inventory.cpp
+  Lifetimebound.cpp
   Nullability.cpp
   ParamToReference.cpp
   PointerToConst.cpp

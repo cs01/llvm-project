@@ -285,6 +285,7 @@ std::unique_ptr<Rewrite> createParamToReference(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createPointerToConst(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createNonNull(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createNullable(Context &Ctx, unsigned Id);
+std::unique_ptr<Rewrite> createLifetimebound(Context &Ctx, unsigned Id);
 
 /// Writes the "sites" array of a project-mode export: every unsafe construct
 /// in the translation unit's own source (Inventory.cpp).

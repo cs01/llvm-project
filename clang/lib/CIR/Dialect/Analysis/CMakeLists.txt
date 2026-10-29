@@ -3,6 +3,7 @@ add_clang_library(MLIRCIRAnalysis
   CIRBasicAliasAnalysis.cpp
   CIRNullabilitySafety.cpp
   CIRPointeeWrites.cpp
+  CIRReturnOrigins.cpp
 
   DEPENDS
   MLIRPtrMemorySpaceInterfacesIncGen

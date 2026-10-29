@@ -191,13 +191,14 @@ export type Proof = { status: "ok" | "fail" | "skip"; detail?: string };
 
 // Compiles c as is and with the overlay mounted, and has cir-modernize-ircmp
 // compare the two modules.
-export async function prove(clang: string, c: Cmd, yaml: string): Promise<Proof> {
+// extra goes to both compiles, for warnings the gate should compare.
+export async function prove(clang: string, c: Cmd, yaml: string, extra: string[] = []): Promise<Proof> {
   const dir = mkdtempSync(join(tmpdir(), "cirmodernize-prove-"));
   try {
     const orig = join(dir, "orig.bc"), next = join(dir, "next.bc");
     const [a, b] = await Promise.all([
-      run(clang, [...c.args, ...IR_FLAGS, c.file, "-o", orig], c.dir),
-      run(clang, [...c.args, "-ivfsoverlay", yaml, ...IR_FLAGS, c.file, "-o", next], c.dir),
+      run(clang, [...c.args, ...extra, ...IR_FLAGS, c.file, "-o", orig], c.dir),
+      run(clang, [...c.args, ...extra, "-ivfsoverlay", yaml, ...IR_FLAGS, c.file, "-o", next], c.dir),
     ]);
     if (a.code !== 0) return { status: "skip", detail: `original does not compile: ${firstError(a.err, a.code)}` };
     if (b.code !== 0) {
@@ -219,15 +220,18 @@ export async function prove(clang: string, c: Cmd, yaml: string): Promise<Proof>
 
 // The first warning in next that orig does not have as often, by message; the
 // locations move with the edits.
+// The first warning the rewritten TU gives that the original does not, with
+// its location. Warnings are matched by message alone, since an edit moves
+// the columns after it.
 function newWarnings(orig: string, next: string): string | undefined {
-  const messages = (err: string) =>
-    err.split("\n").filter((l) => l.includes(" warning: ")).map((l) => l.slice(l.indexOf(" warning: ") + 10));
+  const lines = (err: string) => err.split("\n").filter((l) => l.includes(" warning: "));
+  const message = (l: string) => l.slice(l.indexOf(" warning: ") + 10);
   const count = new Map<string, number>();
-  for (const m of messages(orig)) count.set(m, (count.get(m) ?? 0) + 1);
-  for (const m of messages(next)) {
-    const n = count.get(m) ?? 0;
-    if (!n) return m;
-    count.set(m, n - 1);
+  for (const l of lines(orig)) count.set(message(l), (count.get(message(l)) ?? 0) + 1);
+  for (const l of lines(next)) {
+    const n = count.get(message(l)) ?? 0;
+    if (!n) return l.trim();
+    count.set(message(l), n - 1);
   }
   return undefined;
 }

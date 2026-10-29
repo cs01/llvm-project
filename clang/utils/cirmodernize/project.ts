@@ -22,6 +22,7 @@
 // usage: bun project.ts --clang <clang> -p <compile_commands.json> [--root <dir>]
 //                       [--public-headers <dir>]... [--allow-public-api]
 //                       [--only <rewrites>] [--skip <rewrites>] [--inventory <file>]
+//                       [--lifetime-safety]
 //                       [--apply] [-j N] [-v] [files or globs...]
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -53,7 +54,7 @@ type Export = { facts?: boolean; candidates: Candidate[]; sites?: Site[]; skippe
 
 const argv = process.argv.slice(2);
 let clang = "", compdb = "", root = process.cwd(), jobs = defaultJobs;
-let allowPublic = false, apply = false, verbose = false, inventory = "";
+let allowPublic = false, apply = false, verbose = false, inventory = "", lifetimeSafety = false;
 const select: string[] = [];
 const publicDirs: string[] = [], patterns: string[] = [];
 for (let i = 0; i < argv.length; i++) {
@@ -67,6 +68,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "-j") jobs = +argv[++i];
   else if (a === "-v") verbose = true;
   else if (a === "--inventory") inventory = resolve(argv[++i]);
+  else if (a === "--lifetime-safety") lifetimeSafety = true;
   else if (a === "--only" || a === "--skip") select.push(`-fcir-modernize-${a.slice(2)}=${argv[++i]}`);
   else patterns.push(a);
 }
@@ -264,6 +266,7 @@ settle();
 // stops the run instead.
 let all: Edit[] = [], toProve: Cmd[] = [];
 let failed = 0, proven = 0;
+const findings = new Set<string>();
 for (let round = 1; ; round++) {
   all = [...live].flatMap((k) => edits.get(k)!);
   const picked = cmds.map((c, i) => [c, i] as const)
@@ -274,7 +277,7 @@ for (let round = 1; ; round++) {
   const yaml = overlay(mkdtempSync(join(scratch, "overlay-")), all);
   const bad: number[] = [];
   await pool(picked, jobs, async ([c, i]) => {
-    const p = await prove(clang, c, yaml);
+    const p = await prove(clang, c, yaml, lifetimeSafety ? ["-Wlifetime-safety"] : []);
     if (p.status === "ok") proven++;
     // A TU that includes an edited file but cannot be compiled as is (often a
     // generated header the build has not made yet) proves nothing, so it
@@ -282,7 +285,11 @@ for (let round = 1; ; round++) {
     if (p.status !== "ok") {
       failed++;
       bad.push(i);
-      console.log(`FAIL ${c.file}\n  ${p.detail}`);
+      // A right lifetime annotation can make a caller warn: that is a
+      // dangling use it exposed, not a broken rewrite.
+      const w = p.detail?.match(/^new warning: (.*\[-W(dangling[\w-]*|return-stack-address|lifetime-safety[\w-]*)\])$/);
+      if (w) findings.add(w[1]);
+      console.log(`${w ? "FINDING" : "FAIL"} ${c.file}\n  ${p.detail}`);
     }
   });
   const culprits = bad.flatMap((i) => [...tuKeys[i]].filter((k) => live.has(k)));
@@ -306,6 +313,10 @@ console.log(`${cmds.length} TUs (${astOnly.size} CIR could not fully compile, ${
 console.log(`${proposals.size} parameters proposed, ${live.size} rewritten, ` +
             `${proposals.size - live.size} blocked`);
 console.log(`${proven} TUs proven unchanged, ${failed} failed`);
+if (findings.size) {
+  console.log(`${findings.size} dangling uses exposed by the rewrites (each blocks its rewrite):`);
+  for (const f of findings) console.log(`  ${f}`);
+}
 if (blockedBy.size) {
   console.log("not rewritten:");
   for (const [why, n] of [...blockedBy].sort((x, y) => y[1] - x[1])) console.log(`  ${String(n).padStart(6)}  ${why}`);
