@@ -25,6 +25,15 @@
 //    shift when an unrelated type is created first; each name, suffix
 //    dropped, is renumbered by order of first use.
 //
+// With --refine, for rewrites that change the code (span, ownership), both
+// modules first go through one fixed normalization: every defined function
+// is inlined into its callers, then sroa, early-cse, constraint-elimination,
+// instcombine and simplifycfg run, and PHIs are put in name order. A bounds
+// check the rewrite added folds away only when the code already guards the
+// access; one that survives keeps the modules different, and the rewrite is
+// refused. Nothing is deleted on the rewritten side alone. The modules must
+// be compiled without optnone (-O1 -Xclang -disable-llvm-passes).
+//
 // Exits 0 when the modules match, 1 with the first differing line otherwise.
 //
 //===----------------------------------------------------------------------===//
@@ -36,10 +45,12 @@
 #include "llvm/IR/AttributeMask.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/TypeFinder.h"
 #include "llvm/IRReader/IRReader.h"
+#include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
@@ -296,6 +307,62 @@ static std::vector<std::string> renumberMetadata(std::vector<std::string> Lines)
   return Out;
 }
 
+static cl::opt<bool> Refine("refine",
+                            cl::desc("Normalize both modules first; see the "
+                                     "file comment"));
+
+static bool normalize(Module &M, std::string &Err) {
+  for (Function &F : M) {
+    if (F.isDeclaration())
+      continue;
+    F.removeFnAttr(Attribute::OptimizeNone);
+    F.removeFnAttr(Attribute::NoInline);
+    F.addFnAttr(Attribute::AlwaysInline);
+  }
+  LoopAnalysisManager LAM;
+  FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
+  ModuleAnalysisManager MAM;
+  PassBuilder PB(M.getContext());
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
+  PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+  ModulePassManager MPM;
+  if (Error E = PB.parsePassPipeline(
+          MPM, "function(lower-expect),always-inline,"
+               "function(lower-expect,sroa,early-cse,constraint-elimination,"
+               "instcombine,simplifycfg,instcombine),globaldce")) {
+    Err = toString(std::move(E));
+    return false;
+  }
+  MPM.run(M, MAM);
+  // Inlining orders PHIs by when the frontend made them; their names come
+  // from the source, which the rewrite keeps.
+  for (Function &F : M)
+    for (BasicBlock &BB : F) {
+      SmallVector<PHINode *> Phis;
+      for (PHINode &Phi : BB.phis())
+        Phis.push_back(&Phi);
+      llvm::stable_sort(Phis, [](PHINode *A, PHINode *B) {
+        return A->getName() < B->getName();
+      });
+      for (PHINode *Phi : llvm::reverse(Phis))
+        Phi->moveBefore(BB.begin());
+    }
+  for (Function &F : M) {
+    for (Argument &A : F.args())
+      A.setName("");
+    for (BasicBlock &BB : F) {
+      BB.setName("");
+      for (Instruction &I : BB)
+        I.setName("");
+    }
+  }
+  return true;
+}
+
 static std::vector<std::string> print(Module &M) {
   M.setModuleIdentifier("");
   M.setSourceFileName("");
@@ -326,6 +393,27 @@ int main(int argc, char **argv) {
   if (!Next) {
     Err.print(argv[0], errs());
     return 2;
+  }
+  if (Refine) {
+    std::string Why;
+    if (!normalize(*Orig, Why) || !normalize(*Next, Why)) {
+      errs() << Why << "\n";
+      return 2;
+    }
+    auto Traps = [](Module &M) {
+      unsigned N = 0;
+      for (Function &F : M)
+        for (Instruction &I : instructions(F))
+          if (auto *II = dyn_cast<IntrinsicInst>(&I))
+            N += II->getIntrinsicID() == Intrinsic::trap ||
+                 II->getIntrinsicID() == Intrinsic::ubsantrap;
+      return N;
+    };
+    if (unsigned A = Traps(*Orig), B = Traps(*Next); B > A) {
+      outs() << "a check the rewrite added did not fold away: " << B - A
+             << " more traps\n";
+      return 1;
+    }
   }
   stripRefFacts(*Orig);
   stripRefFacts(*Next);

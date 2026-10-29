@@ -2,6 +2,7 @@ set(LLVM_LINK_COMPONENTS
   Core
   Demangle
   IRReader
+  Passes
   Support
   )
 

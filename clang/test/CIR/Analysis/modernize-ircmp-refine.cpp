@@ -1,0 +1,54 @@
+// cir-modernize-ircmp --refine: a view with a checked operator[] is equal to
+// the raw pointer and length it replaces once the check folds away, which it
+// does only where the code already guards the access.
+
+// RUN: rm -rf %t && split-file %s %t && cd %t
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -O1 -disable-llvm-passes -emit-llvm orig.cpp -o orig.ll
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -O1 -disable-llvm-passes -emit-llvm view.cpp -o view.ll
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -O1 -disable-llvm-passes -emit-llvm oob.cpp -o oob.ll
+// RUN: cir-modernize-ircmp --refine orig.ll view.ll
+// RUN: not cir-modernize-ircmp --refine orig.ll oob.ll | FileCheck %s
+// CHECK: a check the rewrite added did not fold away: 1 more traps
+// Without the normalization the calls to the view differ.
+// RUN: not cir-modernize-ircmp orig.ll view.ll
+
+//--- view.h
+struct View {
+  const int *p;
+  unsigned long n;
+  unsigned long size() const { return n; }
+  const int &operator[](unsigned long i) const {
+    if (i >= n)
+      __builtin_trap();
+    return p[i];
+  }
+};
+
+//--- orig.cpp
+static int sum(const int *p, unsigned long n) {
+  int s = 0;
+  for (unsigned long i = 0; i < n; ++i)
+    s += p[i];
+  return s;
+}
+int entry(const int *a, unsigned long n) { return sum(a, n); }
+
+//--- view.cpp
+#include "view.h"
+static int sum(View v) {
+  int s = 0;
+  for (unsigned long i = 0; i < v.size(); ++i)
+    s += v[i];
+  return s;
+}
+int entry(const int *a, unsigned long n) { return sum({a, n}); }
+
+//--- oob.cpp
+#include "view.h"
+static int sum(View v) {
+  int s = 0;
+  for (unsigned long i = 0; i <= v.size(); ++i)
+    s += v[i];
+  return s;
+}
+int entry(const int *a, unsigned long n) { return sum({a, n}); }
