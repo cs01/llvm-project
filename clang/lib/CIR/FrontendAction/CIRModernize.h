@@ -17,6 +17,7 @@
 #define CLANG_LIB_CIR_FRONTENDACTION_CIRMODERNIZE_H
 
 #include "mlir/IR/BuiltinOps.h"
+#include <string>
 
 namespace clang {
 class ASTContext;
@@ -25,6 +26,14 @@ class DiagnosticsEngine;
 struct CIRModernizeOptions {
   bool AllowPublic = false;
   bool Apply = false;
+  /// Project mode: write candidates, edits and blockers here instead of
+  /// reporting. Signatures declared in headers may change, because the driver
+  /// that merges every translation unit's export sees every caller.
+  std::string ExportPath;
+  /// Project mode: functions, by USR and parameter index, that another
+  /// translation unit proposed. This one reports the edits its own
+  /// declarations and calls need, or why it blocks them.
+  std::string PlanPath;
 };
 
 void runCIRModernize(mlir::ModuleOp Module, ASTContext &C,

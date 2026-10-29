@@ -125,3 +125,16 @@ int useTemplates(Node *n) {
 }
 // NEG-NOT: of 'classof'
 // NEG-NOT: of 'fromTemplate'
+
+// A dependent member call can only reach methods, so it does not block a free
+// function of the same name; an unqualified dependent call blocks what its
+// lookup already found.
+namespace {
+int print(Node *p) { return p->value; }
+template <typename T> int callsMember(T &t) { return t.print(); }
+int adlTarget(Node *p) { return p->value; }
+template <typename T> int callsUnqualified(T *t) { return adlTarget(t); }
+} // namespace
+int useDependent(Node *n) { return print(n) + adlTarget(n); }
+// CHECK-DAG: warning: pointer parameter 'p' of 'print'
+// NEG-NOT: of 'adlTarget'

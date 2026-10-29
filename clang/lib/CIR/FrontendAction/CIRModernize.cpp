@@ -30,10 +30,16 @@
 #include "clang/CIR/Dialect/Analysis/CIRNullabilitySafety.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Rewrite/Core/Rewriter.h"
+#include "clang/UnifiedSymbolResolution/USRGeneration.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/IOSandbox.h"
+#include "llvm/Support/JSON.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 
@@ -75,6 +81,7 @@ public:
   bool VisitFunctionDecl(FunctionDecl *FD) {
     if (InstantiationDepth)
       return true;
+    Declared.insert(FD->getCanonicalDecl());
     if (FD->doesThisDeclarationHaveABody())
       Functions.push_back(FD);
     return true;
@@ -94,16 +101,28 @@ public:
       Members.push_back(ME);
     return true;
   }
-  bool VisitOverloadExpr(OverloadExpr *E) {
-    Unresolved.insert(E->getName());
+  // A dependent call resolves when the template is instantiated, possibly
+  // in another translation unit, and its call site cannot be rewritten for
+  // one function. Each form can only reach some functions: an unqualified
+  // call those lookup already found plus, through ADL, any free function of
+  // that name; a member or T:: call, any method of that name.
+  bool VisitUnresolvedLookupExpr(UnresolvedLookupExpr *E) {
+    addFound(E);
+    if (E->requiresADL())
+      UnresolvedFree.insert(E->getName());
+    return true;
+  }
+  bool VisitUnresolvedMemberExpr(UnresolvedMemberExpr *E) {
+    addFound(E);
+    UnresolvedMethods.insert(E->getName());
     return true;
   }
   bool VisitCXXDependentScopeMemberExpr(CXXDependentScopeMemberExpr *E) {
-    Unresolved.insert(E->getMember());
+    UnresolvedMethods.insert(E->getMember());
     return true;
   }
   bool VisitDependentScopeDeclRefExpr(DependentScopeDeclRefExpr *E) {
-    Unresolved.insert(E->getDeclName());
+    UnresolvedMethods.insert(E->getDeclName());
     return true;
   }
   bool VisitLambdaExpr(LambdaExpr *L) {
@@ -113,14 +132,23 @@ public:
   }
 
   std::vector<FunctionDecl *> Functions;
+  llvm::SetVector<FunctionDecl *> Declared;
   std::vector<CallExpr *> Calls;
   std::vector<DeclRefExpr *> Refs;
   std::vector<MemberExpr *> Members;
   std::vector<LambdaExpr *> Lambdas;
-  llvm::DenseSet<DeclarationName> Unresolved;
+  llvm::DenseSet<DeclarationName> UnresolvedFree;
+  llvm::DenseSet<DeclarationName> UnresolvedMethods;
+  llvm::DenseSet<const FunctionDecl *> UnresolvedFound;
   llvm::DenseSet<const FunctionDecl *> UsedInInstantiation;
 
 private:
+  void addFound(OverloadExpr *E) {
+    for (NamedDecl *D : E->decls())
+      if (auto *FD = dyn_cast<FunctionDecl>(D->getUnderlyingDecl()))
+        UnresolvedFound.insert(FD->getCanonicalDecl());
+  }
+
   static bool isInstantiation(const Decl *D) {
     if (const auto *FD = dyn_cast<FunctionDecl>(D))
       return FD->isTemplateInstantiation();
@@ -141,7 +169,14 @@ struct Candidate {
   llvm::SmallVector<FixItHint> BodyEdits;
   llvm::SmallVector<FixItHint> CallEdits;
   llvm::SmallVector<const ParmVarDecl *> Needs;
+  // Parameters passed straight through at a call site, so no edit was made
+  // there; the call is only right while they become references too.
+  llvm::SmallVector<const ParmVarDecl *> CallNeeds;
+  // Project mode: the function is defined in another translation unit, and
+  // this one only edits its declarations and calls.
+  bool External = false;
   bool Live = true;
+  StringRef Why;
 };
 
 CharSourceRange chars(SourceLocation Loc, unsigned Length) {
@@ -154,13 +189,19 @@ public:
       : C(C), SM(C.getSourceManager()), Options(Options) {}
 
   void run(mlir::ModuleOp Module, DiagnosticsEngine &Diags) {
+    if (!Options.PlanPath.empty() && !loadPlan(Diags))
+      return;
     Visitor.TraverseDecl(C.getTranslationUnitDecl());
     collectFacts(Module);
     indexCallees();
     for (FunctionDecl *FD : Visitor.Functions)
       addCandidates(FD);
+    addExternalCandidates();
     resolve();
-    report(Diags);
+    if (projectMode())
+      exportCandidates(Diags);
+    else
+      report(Diags);
     LLVM_DEBUG({
       Drops["rewritten"] = llvm::count_if(
           Candidates, [](const Candidate &Cand) { return Cand.Live; });
@@ -203,8 +244,28 @@ private:
     return Name;
   }
 
-  bool inMainFile(SourceLocation Loc) const {
-    return Loc.isValid() && !Loc.isMacroID() && SM.isInMainFile(Loc);
+  bool projectMode() const { return !Options.ExportPath.empty(); }
+
+  // A project-wide rewrite may edit any header but a system one; otherwise
+  // only the main file, the one place a single translation unit sees all of.
+  bool editable(SourceLocation Loc) const {
+    if (Loc.isInvalid() || Loc.isMacroID())
+      return false;
+    return projectMode() ? !SM.isInSystemHeader(Loc) : SM.isInMainFile(Loc);
+  }
+
+  std::string usr(const FunctionDecl *FD) {
+    llvm::SmallString<128> Buf;
+    if (index::generateUSRForDecl(FD->getCanonicalDecl(), Buf))
+      return {};
+    return std::string(Buf);
+  }
+
+  const llvm::DenseSet<unsigned> *planned(const FunctionDecl *FD) {
+    if (Plan.empty())
+      return nullptr;
+    auto It = Plan.find(usr(FD));
+    return It == Plan.end() ? nullptr : &It->second;
   }
 
   // Why FD cannot have its signature rewritten, or empty if it can.
@@ -222,12 +283,18 @@ private:
       if (MD->isVirtual() || MD->size_overridden_methods() ||
           MD->getParent()->isLocalClass())
         return "virtual or local class method";
-    if (FD->isExternallyVisible() && !Options.AllowPublic)
+    if (FD->isExternallyVisible() && !Options.AllowPublic && !projectMode())
       return "externally visible";
     for (const FunctionDecl *R : FD->redecls())
-      if (!inMainFile(R->getLocation()))
-        return "declared outside the main file";
-    if (Visitor.Unresolved.contains(FD->getDeclName()))
+      if (!editable(R->getLocation()))
+        return projectMode() ? "declared in a system header or a macro"
+                             : "declared outside the main file";
+    if (projectMode() && usr(FD).empty())
+      return "no USR";
+    if (Visitor.UnresolvedFound.contains(FD->getCanonicalDecl()) ||
+        (isa<CXXMethodDecl>(FD) ? Visitor.UnresolvedMethods
+                                : Visitor.UnresolvedFree)
+            .contains(FD->getDeclName()))
       return "name used in a dependent call";
     const FunctionDecl *Canon = FD->getCanonicalDecl();
     if (Visitor.UsedInInstantiation.contains(Canon))
@@ -279,21 +346,29 @@ private:
     return PTL;
   }
 
-  bool paramEligible(const ParmVarDecl *P) {
-    if (P->hasDefaultArg() || !P->getIdentifier())
-      return false;
+  // Why P cannot become a reference whatever the facts say, or empty.
+  StringRef whyParamIneligible(const ParmVarDecl *P) {
+    if (P->hasDefaultArg())
+      return "default argument";
+    if (!P->getIdentifier())
+      return "unnamed parameter";
     const auto *PT = P->getType()->getAs<PointerType>();
     if (!PT)
-      return false;
+      return "not a plain pointer";
     QualType Pointee = PT->getPointeeType();
-    if (Pointee->isVoidType() || Pointee->isFunctionType() ||
-        Pointee->isPointerType() || Pointee->isArrayType())
-      return false;
+    if (Pointee->isVoidType())
+      return "pointer to void";
+    if (Pointee->isFunctionType())
+      return "function pointer";
+    if (Pointee->isPointerType())
+      return "pointer to pointer";
+    if (Pointee->isArrayType())
+      return "pointer to array";
     for (const LambdaExpr *L : Visitor.Lambdas)
       for (const LambdaCapture &Capture : L->captures())
         if (Capture.capturesVariable() && Capture.getCapturedVar() == P)
-          return false;
-    return true;
+          return "captured by a lambda";
+    return {};
   }
 
   DynTypedNode parentOf(const DynTypedNode &Node) {
@@ -387,51 +462,105 @@ private:
     return true;
   }
 
+  // The declarator `*` of every declaration this translation unit sees.
+  bool declEdits(Candidate &Cand) {
+    for (const FunctionDecl *R : Cand.FD->redecls()) {
+      const ParmVarDecl *RP = R->getParamDecl(Cand.Index);
+      std::optional<PointerTypeLoc> Star = starOf(RP);
+      if (RP->hasDefaultArg() || !Star || Star->getStarLoc().isMacroID())
+        return false;
+      Cand.BodyEdits.push_back(
+          FixItHint::CreateReplacement(chars(Star->getStarLoc(), 1), "&"));
+    }
+    return true;
+  }
+
+  void addCandidate(Candidate Cand, StringRef Why) {
+    if (!Why.empty()) {
+      ++Drops[Why];
+      // A project-wide rewrite needs to hear why this translation unit
+      // blocks a function, not just that it found no candidate.
+      if (!projectMode())
+        return;
+      Cand.Live = false;
+      Cand.Why = Why;
+    }
+    ByParam[Cand.Param] = Candidates.size();
+    Candidates.push_back(std::move(Cand));
+  }
+
   void addCandidates(FunctionDecl *FD) {
     if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD) ||
         FD->isDependentContext() || FD->isTemplated())
       return;
     auto It = Facts.find(mangle(FD));
-    if (It == Facts.end())
+    const llvm::DenseSet<unsigned> *Planned = planned(FD);
+    if (It == Facts.end() && !Planned)
       return;
     StringRef FunctionWhy = whyIneligible(FD);
     unsigned Offset =
         isa<CXXMethodDecl>(FD) && cast<CXXMethodDecl>(FD)->isInstance() ? 1 : 0;
-    for (auto &[ArgIndex, Fact] : It->second) {
-      if (ArgIndex < Offset || !Fact.mustDeref ||
-          ArgIndex - Offset >= FD->getNumParams())
-        continue;
-      unsigned Index = ArgIndex - Offset;
+    // Parameters proven here, plus planned ones another translation unit
+    // proved: an inline function in a header is emitted, and so analyzed,
+    // only where it is used, but its body is the same everywhere.
+    llvm::SmallVector<unsigned> Indices;
+    if (It != Facts.end())
+      for (auto &[ArgIndex, Fact] : It->second)
+        // CIR models a reference parameter as a pointer too; it is already
+        // what this rewrite would make it.
+        if (ArgIndex >= Offset && Fact.mustDeref &&
+            ArgIndex - Offset < FD->getNumParams() &&
+            !FD->getParamDecl(ArgIndex - Offset)->getType()->isReferenceType())
+          Indices.push_back(ArgIndex - Offset);
+    if (Planned)
+      for (unsigned Index : *Planned)
+        if (Index < FD->getNumParams() && !llvm::is_contained(Indices, Index))
+          Indices.push_back(Index);
+    llvm::sort(Indices);
+    for (unsigned Index : Indices) {
       ++Drops["must-dereference parameters"];
-      StringRef Why =
-          FunctionWhy.empty() ? whyFactIneligible(Fact) : FunctionWhy;
-      if (!Why.empty()) {
-        ++Drops[Why];
-        continue;
-      }
+      StringRef Why = FunctionWhy;
+      if (Why.empty() && It != Facts.end())
+        if (auto Fact = It->second.find(Index + Offset);
+            Fact != It->second.end())
+          Why = Fact->second.mustDeref
+                    ? whyFactIneligible(Fact->second)
+                    : "fact: not dereferenced on every path in this "
+                      "translation unit";
       ParmVarDecl *P = FD->getParamDecl(Index);
-      if (!paramEligible(P)) {
-        ++Drops["parameter type, default argument or lambda capture"];
-        continue;
-      }
+      if (Why.empty())
+        Why = whyParamIneligible(P);
       Candidate Cand{FD, P, Index};
-      bool Ok = true;
-      for (const FunctionDecl *R : FD->redecls()) {
-        std::optional<PointerTypeLoc> Star = starOf(R->getParamDecl(Index));
-        if (!Star || Star->getStarLoc().isMacroID()) {
-          Ok = false;
-          break;
-        }
-        Cand.BodyEdits.push_back(
-            FixItHint::CreateReplacement(chars(Star->getStarLoc(), 1), "&"));
-      }
-      if (!Ok) {
-        ++Drops["declarator is not a plain pointer"];
-      } else if (!bodyEdits(Cand)) {
-        ++Drops["a use in the body has an unhandled shape"];
-      } else {
-        ByParam[P] = Candidates.size();
-        Candidates.push_back(std::move(Cand));
+      if (Why.empty() && !declEdits(Cand))
+        Why = "declarator is not a plain pointer";
+      if (Why.empty() && !bodyEdits(Cand))
+        Why = "a use in the body has an unhandled shape";
+      addCandidate(std::move(Cand), Why);
+    }
+  }
+
+  // Planned functions this translation unit declares or calls but does not
+  // define: their declarations and calls here have to change with them.
+  void addExternalCandidates() {
+    for (FunctionDecl *FD : Visitor.Declared) {
+      if (FD->getDefinition() && FD->getDefinition()->hasBody())
+        continue;
+      const llvm::DenseSet<unsigned> *Planned = planned(FD);
+      if (!Planned)
+        continue;
+      StringRef FunctionWhy = whyIneligible(FD);
+      for (unsigned Index : *Planned) {
+        if (Index >= FD->getNumParams())
+          continue;
+        StringRef Why = FunctionWhy;
+        ParmVarDecl *P = FD->getParamDecl(Index);
+        if (Why.empty())
+          Why = whyParamIneligible(P);
+        Candidate Cand{FD, P, Index};
+        Cand.External = true;
+        if (Why.empty() && !declEdits(Cand))
+          Why = "declarator is not a plain pointer";
+        addCandidate(std::move(Cand), Why);
       }
     }
   }
@@ -448,6 +577,7 @@ private:
 
   bool callEdits(Candidate &Cand) {
     Cand.CallEdits.clear();
+    Cand.CallNeeds.clear();
     const FunctionDecl *Canon = Cand.FD->getCanonicalDecl();
     for (CallExpr *CE : Visitor.Calls) {
       const FunctionDecl *Callee = CE->getDirectCallee();
@@ -469,8 +599,10 @@ private:
           return false;
       if (const auto *DRE = dyn_cast<DeclRefExpr>(Inner))
         if (const auto *P = dyn_cast<ParmVarDecl>(DRE->getDecl()))
-          if (live(P))
+          if (live(P)) {
+            Cand.CallNeeds.push_back(P);
             continue;
+          }
       if (const auto *UO = dyn_cast<UnaryOperator>(Inner);
           UO && UO->getOpcode() == UO_AddrOf) {
         Cand.CallEdits.push_back(
@@ -504,6 +636,7 @@ private:
         if (!Why.empty()) {
           ++Drops[Why];
           Cand.Live = false;
+          Cand.Why = Why;
           Changed = true;
         }
       }
@@ -540,6 +673,97 @@ private:
       R.overwriteChangedFiles();
   }
 
+  // {"functions": [{"usr": "...", "index": N}, ...]}
+  bool loadPlan(DiagnosticsEngine &Diags) {
+    auto Fail = [&](StringRef Why) {
+      Diags.Report(Diags.getCustomDiagID(DiagnosticsEngine::Error,
+                                         "cannot read modernize plan %0: %1"))
+          << Options.PlanPath << Why;
+      return false;
+    };
+    // The plan and the export are side files of a project-wide rewrite, not
+    // compiler inputs or outputs, like the files -fcir-modernize-apply writes.
+    auto BypassSandbox = llvm::sys::sandbox::scopedDisable();
+    auto Buf = llvm::MemoryBuffer::getFile(Options.PlanPath);
+    if (!Buf)
+      return Fail(Buf.getError().message());
+    llvm::Expected<llvm::json::Value> V =
+        llvm::json::parse((*Buf)->getBuffer());
+    if (!V)
+      return Fail(llvm::toString(V.takeError()));
+    const llvm::json::Object *O = V->getAsObject();
+    const llvm::json::Array *Fns = O ? O->getArray("functions") : nullptr;
+    if (!Fns)
+      return Fail("no functions array");
+    for (const llvm::json::Value &Fn : *Fns) {
+      const llvm::json::Object *E = Fn.getAsObject();
+      std::optional<StringRef> USR = E ? E->getString("usr") : std::nullopt;
+      std::optional<int64_t> Index = E ? E->getInteger("index") : std::nullopt;
+      if (!USR || !Index || *Index < 0)
+        return Fail("bad function entry");
+      Plan[*USR].insert(*Index);
+    }
+    return true;
+  }
+
+  void exportEdit(llvm::json::OStream &J, const FixItHint &Hint) {
+    auto [FID, Begin] = SM.getDecomposedLoc(Hint.RemoveRange.getBegin());
+    unsigned End = SM.getFileOffset(Hint.RemoveRange.getEnd());
+    OptionalFileEntryRef FE = SM.getFileEntryRefForID(FID);
+    StringRef Path = FE ? FE->getFileEntry().tryGetRealPathName() : "";
+    J.object([&] {
+      J.attribute("file", Path.empty() && FE ? FE->getName() : Path);
+      J.attribute("offset", Begin);
+      J.attribute("length", End - Begin);
+      J.attribute("text", Hint.CodeToInsert);
+    });
+  }
+
+  void exportCandidates(DiagnosticsEngine &Diags) {
+    auto BypassSandbox = llvm::sys::sandbox::scopedDisable();
+    std::error_code EC;
+    llvm::raw_fd_ostream OS(Options.ExportPath, EC);
+    if (EC) {
+      Diags.Report(Diags.getCustomDiagID(DiagnosticsEngine::Error,
+                                         "cannot write %0: %1"))
+          << Options.ExportPath << EC.message();
+      return;
+    }
+    llvm::json::OStream J(OS, 1);
+    J.object([&] {
+      J.attributeArray("candidates", [&] {
+        for (const Candidate &Cand : Candidates)
+          J.object([&] {
+            J.attribute("usr", usr(Cand.FD));
+            J.attribute("index", Cand.Index);
+            J.attribute("function", Cand.FD->getQualifiedNameAsString());
+            J.attribute("param", Cand.Param->getName());
+            J.attribute("defined", !Cand.External);
+            J.attribute("location",
+                        Cand.Param->getLocation().printToString(SM));
+            if (!Cand.Live) {
+              J.attribute("blocked", Cand.Why);
+              return;
+            }
+            J.attributeArray("edits", [&] {
+              for (const auto *Edits : {&Cand.BodyEdits, &Cand.CallEdits})
+                for (const FixItHint &Hint : *Edits)
+                  exportEdit(J, Hint);
+            });
+            J.attributeArray("needs", [&] {
+              for (const auto *Needs : {&Cand.Needs, &Cand.CallNeeds})
+                for (const ParmVarDecl *P : *Needs)
+                  J.object([&] {
+                    J.attribute("usr",
+                                usr(cast<FunctionDecl>(P->getDeclContext())));
+                    J.attribute("index", P->getFunctionScopeIndex());
+                  });
+            });
+          });
+      });
+    });
+  }
+
   ASTContext &C;
   SourceManager &SM;
   const CIRModernizeOptions &Options;
@@ -551,6 +775,7 @@ private:
   llvm::DenseMap<const ParmVarDecl *, size_t> ByParam;
   // Must-dereference parameters by the first reason they were not rewritten.
   llvm::StringMap<unsigned> Drops;
+  llvm::StringMap<llvm::DenseSet<unsigned>> Plan;
 };
 
 } // namespace

@@ -488,6 +488,8 @@ public:
       CIRModernizeOptions Options;
       Options.AllowPublic = FEOptions.ClangIRModernizePublic;
       Options.Apply = FEOptions.ClangIRModernizeApply;
+      Options.ExportPath = FEOptions.ClangIRModernizeExport;
+      Options.PlanPath = FEOptions.ClangIRModernizePlan;
       runCIRModernize(MlirModule, C, CI.getDiagnostics(), Options);
     }
 

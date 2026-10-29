@@ -1779,6 +1779,16 @@ def fcir_modernize_apply : Flag<["-"], "fcir-modernize-apply">,
   Visibility<[ClangOption, CC1Option]>, Group<f_Group>,
   HelpText<"Write -fcir-modernize rewrites back to the source files">,
   MarshallingInfoFlag<FrontendOpts<"ClangIRModernizeApply">>;
+def fcir_modernize_export_EQ : Joined<["-"], "fcir-modernize-export=">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>, MetaVarName<"<file>">,
+  HelpText<"Write this translation unit's -fcir-modernize candidates, edits "
+           "and blockers as JSON, for a project-wide rewrite">,
+  MarshallingInfoString<FrontendOpts<"ClangIRModernizeExport">>;
+def fcir_modernize_plan_EQ : Joined<["-"], "fcir-modernize-plan=">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>, MetaVarName<"<file>">,
+  HelpText<"Also consider the functions listed in <file>, defined in other "
+           "translation units, for -fcir-modernize-export">,
+  MarshallingInfoString<FrontendOpts<"ClangIRModernizePlan">>;
 
 defm nullability_safety_cir : BoolFOption<"nullability-safety-cir",
   LangOpts<"NullabilitySafetyCIR">, DefaultFalse,

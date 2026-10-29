@@ -512,6 +512,14 @@ public:
   // be dumped. This overrides regular -o output file specification
   std::string SymbolGraphOutputDir;
 
+  /// Where -fcir-modernize writes this translation unit's candidates, edits
+  /// and blockers for a project-wide rewrite.
+  std::string ClangIRModernizeExport;
+
+  /// Functions defined in other translation units that a project-wide
+  /// -fcir-modernize rewrite is considering.
+  std::string ClangIRModernizePlan;
+
   /// Args to pass to the plugins
   std::map<std::string, std::vector<std::string>> PluginArgs;
 
