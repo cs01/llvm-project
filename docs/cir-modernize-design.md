@@ -237,6 +237,45 @@ built with RTTI and EH); preprocessor configurations (facts hold for one
 build configuration; check several or refuse edits inside `#if`); templates
 (a fact must hold for every instantiation, including future ones).
 
+## Refinement rewrites (design, 2026-10-29)
+
+`span` and the ownership rewrites change the compiled code, so they are the
+opt-in `refinement` group and need a different proof.
+
+**Proof: equal after a trusted normalization.** Compile the original and the
+rewritten TU at -O0 as today, then run the same LLVM pipeline on both:
+inline the new library calls (the view's constructor, `operator[]`, `size`,
+`lock_guard`'s constructor and destructor; `-passes=inline` with the callees
+marked always-inline in a copy of the module), then `sroa`, `early-cse`,
+`constraint-elimination`, `instcombine`, `simplifycfg`. The modules must
+then print identically (cir-modernize-ircmp). The trusted base grows by
+those passes, which are semantics-preserving and heavily fuzzed (alive2).
+
+**No trap stripping.** Deleting the branches that lead to a bounds-check
+trap and comparing the rest would accept a rewrite whose check fires on an
+access the original made legitimately (a length that is not the real
+bound). Instead the check has to fold away: `constraint-elimination` removes
+`i < n` when the code already guards the access with it. A check that
+survives normalization means the rewrite would trap where the original did
+not provably have undefined behavior, and the rewrite is refused. Accepted
+rewrites are therefore equivalent on every execution; the safety they add is
+for future code, which gets the checked type.
+
+**span.** `(T *p, size_t n)` becomes the project's view type: `std::span<T>`
+in C++20, `llvm::ArrayRef<T>` / `MutableArrayRef<T>` in LLVM (C++17, no
+`std::span`), chosen by flag. Facts from CIR: `p` is used only as `p[e]` (or
+`*(p + e)`) and `n` only in comparisons and as a value; every access is
+dominated by a check `e < n` (the same fact constraint-elimination will
+use). Edits: the signature, `p[e]` to `s[e]`, `n` to `s.size()`, and callers
+`f(a, b)` to `f({a, b})`. Same project-mode plan and merge as `ref`.
+
+**Ownership.** `lock()`/`unlock()` pairs in one scope with an unlock on every
+path out (CIR cleanup and exception edges included) become
+`std::lock_guard`; `new` and a `delete` on every path out become
+`std::unique_ptr`. Same proof; with exceptions enabled the lock_guard version
+adds an unwind edge the original lacked if the original leaked the lock on
+throw, which the proof correctly rejects.
+
 ## Running it
 
 ```sh
