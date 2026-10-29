@@ -65,7 +65,15 @@ std::string Context::usr(const FunctionDecl *FD) {
 const FunctionDecl *Context::declByMangledName(StringRef Mangled) {
   if (!MangledIndexed) {
     MangledIndexed = true;
-    for (FunctionDecl *FD : Visitor.Declared) {
+    // The visitor skips implicit code, but CIR calls the special members
+    // Sema declared implicitly, such as a defaulted copy assignment.
+    llvm::SetVector<FunctionDecl *> Decls(Visitor.Declared.begin(),
+                                          Visitor.Declared.end());
+    for (CXXRecordDecl *RD : Visitor.Records)
+      for (Decl *D : RD->decls())
+        if (auto *M = dyn_cast<CXXMethodDecl>(D); M && M->isImplicit())
+          Decls.insert(M);
+    for (FunctionDecl *FD : Decls) {
       // Only what CIR can call is mangled: deduction guides have no symbol,
       // and the mangler does not handle them.
       if (isa<CXXDestructorDecl, CXXDeductionGuideDecl>(FD) ||
@@ -262,6 +270,7 @@ constexpr RewriteInfo AllRewrites[] = {
     {"nullable", "identical", false, createNullable},
     {"lifetimebound", "identical", true, createLifetimebound},
     {"lifetimebound-this", "identical", true, createLifetimeboundThis},
+    {"capture-by", "identical", true, createCaptureBy},
 };
 constexpr StringRef Groups[] = {"identical", "refinement"};
 

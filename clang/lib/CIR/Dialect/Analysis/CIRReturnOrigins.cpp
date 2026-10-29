@@ -17,6 +17,7 @@
 
 #include "clang/CIR/Dialect/Analysis/CIRReturnOrigins.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SetVector.h"
 
 using namespace cir;
@@ -37,6 +38,14 @@ public:
       : entry(func.getBody().front()), symbols(symbols), carries(carries) {}
 
   llvm::SetVector<unsigned> args;
+  /// Set when the value is the address of, or into, a global.
+  bool global = false;
+
+  /// What the slot an address names holds; nothing for any other address.
+  void contents(mlir::Value addr) {
+    if (cir::AllocaOp s = slotOf(addr))
+      slot(s);
+  }
 
   void value(mlir::Value v) {
     if (!seen.insert(v).second)
@@ -47,6 +56,10 @@ public:
       return;
     }
     mlir::Operation *op = v.getDefiningOp();
+    if (mlir::isa<cir::GetGlobalOp>(op)) {
+      global = true;
+      return;
+    }
     if (auto load = mlir::dyn_cast<cir::LoadOp>(op)) {
       if (cir::AllocaOp s = slotOf(load.getAddr()))
         slot(s);
@@ -144,5 +157,73 @@ void cir::collectReturnOrigins(
     fact.function = func.getSymName().str();
     fact.args.assign(w.args.begin(), w.args.end());
     emit(fact);
+  });
+}
+
+void cir::collectCaptures(
+    mlir::ModuleOp module,
+    llvm::function_ref<bool(cir::FuncOp, unsigned)> carries,
+    llvm::function_ref<llvm::SmallVector<int>(cir::FuncOp, unsigned)>
+        capturedBy,
+    llvm::function_ref<void(const CaptureFact &)> emit) {
+  mlir::SymbolTableCollection symbols;
+  module.walk([&](cir::FuncOp func) {
+    if (func.isDeclaration())
+      return;
+    llvm::MapVector<unsigned, llvm::SetVector<int>> by;
+    // Every argument the stored value comes from is captured by every
+    // argument (or global) the destination comes from.
+    auto record = [&](Walker &stored, Walker &into) {
+      for (unsigned arg : stored.args) {
+        for (unsigned holder : into.args)
+          if (holder != arg)
+            by[arg].insert(holder);
+        if (into.global)
+          by[arg].insert(GlobalCapture);
+      }
+    };
+    func.walk([&](mlir::Operation *op) {
+      if (auto store = mlir::dyn_cast<cir::StoreOp>(op)) {
+        if (slotOf(store.getAddr()))
+          return;
+        Walker stored(func, symbols, carries), into(func, symbols, carries);
+        stored.value(store.getValue());
+        into.value(store.getAddr());
+        record(stored, into);
+      } else if (auto copy = mlir::dyn_cast<cir::CopyOp>(op)) {
+        if (slotOf(copy.getDst()))
+          return;
+        Walker stored(func, symbols, carries), into(func, symbols, carries);
+        stored.contents(copy.getSrc());
+        into.value(copy.getDst());
+        record(stored, into);
+      } else if (auto call = mlir::dyn_cast<cir::CallOp>(op)) {
+        mlir::FlatSymbolRefAttr name = call.getCalleeAttr();
+        auto callee =
+            name ? symbols.lookupNearestSymbolFrom<cir::FuncOp>(call, name)
+                 : cir::FuncOp();
+        if (!callee)
+          return;
+        auto args = call.getArgOperands();
+        for (unsigned i = 0; i < args.size(); ++i)
+          for (int j : capturedBy(callee, i)) {
+            Walker stored(func, symbols, carries), into(func, symbols, carries);
+            stored.value(args[i]);
+            stored.contents(args[i]);
+            if (j == GlobalCapture)
+              into.global = true;
+            else if (j >= 0 && unsigned(j) < args.size())
+              into.value(args[j]);
+            record(stored, into);
+          }
+      }
+    });
+    for (auto &[arg, holders] : by) {
+      CaptureFact fact;
+      fact.function = func.getSymName().str();
+      fact.arg = arg;
+      fact.by.assign(holders.begin(), holders.end());
+      emit(fact);
+    }
   });
 }

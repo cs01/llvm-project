@@ -110,7 +110,7 @@ public:
     Ctx.add(std::move(Cand), Why);
   }
 
-private:
+protected:
   static bool hasGsl(const CXXRecordDecl *RD, bool Owner) {
     if (!RD)
       return false;
@@ -238,11 +238,163 @@ private:
   llvm::StringMap<llvm::DenseSet<unsigned>> Facts;
 };
 
+// [[clang::lifetime_capture_by(X)]] on a pointer, reference or view
+// parameter CIR shows is stored into memory X refers to: `this`, another
+// parameter, or a global. Clang then diagnoses a caller passing something
+// that dies before X (-Wdangling-capture).
+class CaptureBy : public Lifetimebound {
+public:
+  CaptureBy(Context &Ctx, unsigned Id)
+      : Lifetimebound(Ctx, Id, /*This=*/false) {}
+
+  StringRef name() const override { return "capture-by"; }
+  unsigned diagID(DiagnosticsEngine &Diags) const override {
+    return Diags.getCustomDiagID(DiagnosticsEngine::Warning,
+                                 "%1 keeps what parameter %0 refers to; it "
+                                 "can be [[clang::lifetime_capture_by]]");
+  }
+  StringRef whyNeedBlocked() const override { return "capture-by: needed"; }
+
+  void analyze(mlir::ModuleOp Module) override {
+    cir::collectCaptures(
+        Module,
+        [&](cir::FuncOp Ctor, unsigned Index) { return carries(Ctor, Index); },
+        [&](cir::FuncOp Callee, unsigned Index) {
+          return capturedBy(Callee, Index);
+        },
+        [&](const cir::CaptureFact &F) {
+          By[F.function][F.arg].append(F.by.begin(), F.by.end());
+        });
+  }
+
+  void addDefined(FunctionDecl *FD) override {
+    // A constructor keeping an argument is lifetimebound on that parameter
+    // (the constructed object refers to it), which clang checks instead.
+    if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD) ||
+        FD->isDependentContext())
+      return;
+    auto It = By.find(Ctx.mangle(FD));
+    const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
+    if (It == By.end() && !Planned)
+      return;
+    StringRef FunctionWhy = whyNot(FD);
+    unsigned Offset = Context::thisOffset(FD);
+    for (unsigned Index = 0; Index < FD->getNumParams(); ++Index) {
+      ParmVarDecl *P = FD->getParamDecl(Index);
+      if (!capturable(P))
+        continue;
+      llvm::SmallVector<int> Holders;
+      if (It != By.end())
+        if (auto H = It->second.find(Index + Offset); H != It->second.end())
+          for (int Q : H->second)
+            if (holder(FD, Q))
+              Holders.push_back(Q);
+      if (Holders.empty())
+        continue;
+      Ctx.count("capture-by: proven parameters");
+      Candidate Cand{FD, P, Index, Id};
+      StringRef Why = FunctionWhy;
+      if (Why.empty() && !captureEdits(Cand, Holders))
+        Why = "capture-by: a parameter is unnamed or in a macro";
+      Ctx.add(std::move(Cand), Why);
+    }
+  }
+
+  // The holders come from the defining TU's facts, which a plan does not
+  // carry; a declaration elsewhere stays as it is.
+  void addExternal(FunctionDecl *, unsigned) override {}
+
+private:
+  static bool capturable(const ParmVarDecl *P) {
+    QualType T = P->getType();
+    return (T->isReferenceType() || isView(T) ||
+            (T->isPointerType() && !T->isFunctionPointerType())) &&
+           !P->hasAttr<LifetimeCaptureByAttr>();
+  }
+
+  // A copy passed by value holds nothing the caller sees.
+  static bool holder(const FunctionDecl *FD, int Q) {
+    if (Q == cir::GlobalCapture)
+      return true;
+    unsigned Offset = Context::thisOffset(FD);
+    if (Q < 0)
+      return false;
+    if (unsigned(Q) < Offset)
+      return true;
+    if (unsigned(Q) - Offset >= FD->getNumParams())
+      return false;
+    QualType T = FD->getParamDecl(Q - Offset)->getType();
+    return T->isReferenceType() || T->isPointerType();
+  }
+
+  // In CIR argument indices, as the attribute numbers them.
+  llvm::SmallVector<int> capturedBy(cir::FuncOp Callee, unsigned Index) {
+    llvm::SmallVector<int> Out;
+    const FunctionDecl *FD = Ctx.declByMangledName(Callee.getSymName());
+    unsigned Offset = FD ? Context::thisOffset(FD) : 0;
+    if (!FD || Index < Offset || Index - Offset >= FD->getNumParams())
+      return Out;
+    // Assigning a view makes it refer to what the source refers to.
+    if (const auto *MD = dyn_cast<CXXMethodDecl>(FD))
+      if ((MD->isCopyAssignmentOperator() || MD->isMoveAssignmentOperator()) &&
+          hasGsl(MD->getParent(), /*Owner=*/false)) {
+        Out.push_back(0);
+        return Out;
+      }
+    for (const auto *A : FD->getParamDecl(Index - Offset)
+                             ->specific_attrs<LifetimeCaptureByAttr>())
+      for (int Q : A->params())
+        if (Q >= 0 || Q == cir::GlobalCapture)
+          Out.push_back(Q);
+    return Out;
+  }
+
+  // `this` and global have spellings of their own, which take no list.
+  bool captureEdits(Candidate &Cand, ArrayRef<int> Holders) {
+    unsigned Offset = Context::thisOffset(Cand.FD);
+    for (const FunctionDecl *R : Cand.FD->redecls()) {
+      std::string Params;
+      llvm::SmallVector<std::string> Attrs;
+      for (int Q : Holders) {
+        if (Q == cir::GlobalCapture) {
+          Attrs.push_back("clang::lifetime_capture_by_global");
+        } else if (unsigned(Q) < Offset) {
+          Attrs.push_back("clang::lifetime_capture_by_this");
+        } else if (const IdentifierInfo *II =
+                       R->getParamDecl(Q - Offset)->getIdentifier()) {
+          Params += (Params.empty() ? "" : ", ") + II->getName().str();
+        } else {
+          return false;
+        }
+      }
+      if (!Params.empty())
+        Attrs.push_back("clang::lifetime_capture_by(" + Params + ")");
+      const ParmVarDecl *P = R->getParamDecl(Cand.Index);
+      if (!P->getIdentifier() || P->getLocation().isMacroID())
+        return false;
+      SourceLocation After = Lexer::getLocForEndOfToken(
+          P->getLocation(), 0, Ctx.SM, Ctx.C.getLangOpts());
+      if (After.isInvalid())
+        return false;
+      Cand.Edits.push_back(FixItHint::CreateInsertion(
+          After, " [[" + llvm::join(Attrs, ", ") + "]]"));
+    }
+    return true;
+  }
+
+  llvm::StringMap<llvm::DenseMap<unsigned, llvm::SmallVector<int>>> By;
+};
+
 } // namespace
 
 std::unique_ptr<Rewrite> clang::cirmodernize::createLifetimebound(Context &Ctx,
                                                                   unsigned Id) {
   return std::make_unique<Lifetimebound>(Ctx, Id, /*This=*/false);
+}
+
+std::unique_ptr<Rewrite> clang::cirmodernize::createCaptureBy(Context &Ctx,
+                                                              unsigned Id) {
+  return std::make_unique<CaptureBy>(Ctx, Id);
 }
 
 std::unique_ptr<Rewrite>

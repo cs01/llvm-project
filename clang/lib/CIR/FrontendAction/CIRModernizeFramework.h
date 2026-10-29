@@ -118,6 +118,11 @@ public:
     UnresolvedMethods.insert(E->getDeclName());
     return true;
   }
+  bool VisitCXXRecordDecl(CXXRecordDecl *RD) {
+    if (RD->isThisDeclarationADefinition() && !RD->isDependentContext())
+      Records.push_back(RD);
+    return true;
+  }
   bool VisitLambdaExpr(LambdaExpr *L) {
     if (!InstantiationDepth)
       Lambdas.push_back(L);
@@ -130,6 +135,7 @@ public:
   std::vector<DeclRefExpr *> Refs;
   std::vector<MemberExpr *> Members;
   std::vector<LambdaExpr *> Lambdas;
+  std::vector<CXXRecordDecl *> Records;
   llvm::DenseSet<DeclarationName> UnresolvedFree;
   llvm::DenseSet<DeclarationName> UnresolvedMethods;
   llvm::DenseSet<const FunctionDecl *> UnresolvedFound;
@@ -292,6 +298,7 @@ std::unique_ptr<Rewrite> createNonNull(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createNullable(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createLifetimebound(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createLifetimeboundThis(Context &Ctx, unsigned Id);
+std::unique_ptr<Rewrite> createCaptureBy(Context &Ctx, unsigned Id);
 
 /// Writes the "sites" array of a project-mode export: every unsafe construct
 /// in the translation unit's own source (Inventory.cpp).

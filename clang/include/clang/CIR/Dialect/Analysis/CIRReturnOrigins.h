@@ -45,6 +45,28 @@ void collectReturnOrigins(
     llvm::function_ref<bool(cir::FuncOp ctor, unsigned index)> carries,
     llvm::function_ref<void(const ReturnOriginFact &)> emit);
 
+/// A pointer or view argument stored, directly or through a callee that
+/// says it captures it, into memory another argument or a global refers to.
+struct CaptureFact {
+  std::string function;
+  /// The captured CIR argument.
+  unsigned arg = 0;
+  /// The CIR arguments it is captured by; GlobalCapture for a global.
+  llvm::SmallVector<int> by;
+};
+constexpr int GlobalCapture = -3;
+
+/// capturedBy(callee, index): the callee arguments, in CIR indices, the
+/// callee's argument index is captured by (GlobalCapture for a global), as
+/// its lifetime_capture_by attributes say.
+void collectCaptures(
+    mlir::ModuleOp module,
+    llvm::function_ref<bool(cir::FuncOp ctor, unsigned index)> carries,
+    llvm::function_ref<llvm::SmallVector<int>(cir::FuncOp callee,
+                                              unsigned index)>
+        capturedBy,
+    llvm::function_ref<void(const CaptureFact &)> emit);
+
 } // namespace cir
 
 #endif // CLANG_CIR_DIALECT_ANALYSIS_CIRRETURNORIGINS_H
