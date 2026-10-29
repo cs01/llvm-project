@@ -1,3 +1,5 @@
+add_subdirectory(IRCompare)
+
 add_clang_library(clangCIRModernize
   CIRModernize.cpp
   DeadBranch.cpp
