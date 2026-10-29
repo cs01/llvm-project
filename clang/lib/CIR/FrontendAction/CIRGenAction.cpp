@@ -8,7 +8,7 @@
 
 #include "clang/CIR/FrontendAction/CIRGenAction.h"
 #include "CIRDiagnosticHandler.h"
-#include "CIRModernize.h"
+#include "clang/CIR/Modernize/CIRModernize.h"
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"

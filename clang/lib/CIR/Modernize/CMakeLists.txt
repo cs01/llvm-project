@@ -1,0 +1,28 @@
+add_clang_library(clangCIRModernize
+  CIRModernize.cpp
+  DeadBranch.cpp
+  Inventory.cpp
+  Lifetimebound.cpp
+  LockGuard.cpp
+  Nullability.cpp
+  ParamToReference.cpp
+  PointerToConst.cpp
+  Span.cpp
+
+  DEPENDS
+  MLIRCIROpsIncGen
+  MLIRCIROpInterfacesIncGen
+  MLIRBuiltinLocationAttributesIncGen
+  MLIRBuiltinOpsIncGen
+
+  LINK_LIBS
+  clangAST
+  clangBasic
+  clangUnifiedSymbolResolution
+  clangLex
+  clangRewrite
+  clangCIR
+  MLIRCIR
+  MLIRCIRAnalysis
+  MLIRIR
+  )

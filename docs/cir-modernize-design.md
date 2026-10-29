@@ -69,7 +69,7 @@ the reference adds no new UB.
 
 ### Edits (AST)
 
-`clang/lib/CIR/FrontendAction/CIRModernize.cpp` turns a proven parameter into
+`clang/lib/CIR/Modernize/CIRModernize.cpp` turns a proven parameter into
 edits: the declarator `*` in every redeclaration, `p->m` and `*p` in the
 body, and each call site (`&x` to `x`, `p` to `*p`, `e` to `*(e)`). A
 candidate is dropped as a whole as soon as any use falls outside the shapes
@@ -93,7 +93,7 @@ Blocking rules, each with a reason recorded for stats:
 
 ### Framework
 
-Each rewrite is a `Rewrite` (`clang/lib/CIR/FrontendAction/CIRModernizeFramework.h`)
+Each rewrite is a `Rewrite` (`clang/lib/CIR/Modernize/CIRModernizeFramework.h`)
 in its own file: `ParamToReference.cpp`, `PointerToConst.cpp`. A rewrite
 supplies a name, a warning, its CIR analysis (`analyze`), candidates for
 functions this translation unit defines (`addDefined`) and for functions

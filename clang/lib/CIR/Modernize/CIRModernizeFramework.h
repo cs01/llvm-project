@@ -18,7 +18,7 @@
 #ifndef CLANG_LIB_CIR_FRONTENDACTION_CIRMODERNIZEFRAMEWORK_H
 #define CLANG_LIB_CIR_FRONTENDACTION_CIRMODERNIZEFRAMEWORK_H
 
-#include "CIRModernize.h"
+#include "clang/CIR/Modernize/CIRModernize.h"
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Expr.h"

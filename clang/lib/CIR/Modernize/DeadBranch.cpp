@@ -21,7 +21,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "CIRModernize.h"
+#include "clang/CIR/Modernize/CIRModernize.h"
 #include "CIRModernizeFramework.h"
 
 #include "clang/Basic/CharInfo.h"

@@ -4,6 +4,7 @@ include_directories(${LLVM_BINARY_DIR}/tools/mlir/include)
 add_subdirectory(Dialect)
 add_subdirectory(CodeGen)
 add_subdirectory(FrontendAction)
+add_subdirectory(Modernize)
 add_subdirectory(Interfaces)
 add_subdirectory(Lowering)
 

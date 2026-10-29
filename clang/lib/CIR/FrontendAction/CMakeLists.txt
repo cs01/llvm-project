@@ -10,15 +10,6 @@ set(LLVM_LINK_COMPONENTS
 add_clang_library(clangCIRFrontendAction
   CIRGenAction.cpp
   CIRDiagnosticHandler.cpp
-  CIRModernize.cpp
-  Inventory.cpp
-  Lifetimebound.cpp
-  DeadBranch.cpp
-  LockGuard.cpp
-  Nullability.cpp
-  ParamToReference.cpp
-  PointerToConst.cpp
-  Span.cpp
 
   DEPENDS
   MLIRCIROpsIncGen
@@ -35,6 +26,7 @@ add_clang_library(clangCIRFrontendAction
   clangLex
   clangRewrite
   clangCIR
+  clangCIRModernize
   clangCIRLoweringCommon
   clangCIRLoweringDirectToLLVM
   clangCodeGen
