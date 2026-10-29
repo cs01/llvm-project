@@ -1,20 +1,22 @@
-// RUN: not %clang_cc1 -triple x86_64-apple-macosx10.15 -fclangir -emit-llvm \
+// RUN: not %clang_cc1 -triple riscv32-unknown-elf -fclangir -emit-llvm \
 // RUN:     %s -o %t.ll 2>&1 | FileCheck %s
 
 // LoweringPrepare emits an MLIR-side error via mlir::Operation::emitError for
-// a thread_local variable on a target whose thread wrapper is replaceable.
-// CIRDiagnosticHandler must surface it in clang's `file:line:col: error: ...`
-// format rather than MLIR's `loc("file":N:M): error: ...` default.
+// a thread-safe function-local static on a target without inline atomics
+// (riscv32 without the A extension). CIRDiagnosticHandler must surface it in
+// clang's `file:line:col: error: ...` format rather than MLIR's
+// `loc("file":N:M): error: ...` default.
 
-// CHECK: mlir-error-routing.cpp:[[#@LINE+7]]:1: error: Unhandled thread wrapper attributes for CC and Nounwind
-// CHECK-NOT: loc({{.*}}): error: Unhandled thread wrapper attributes
+// CHECK: mlir-error-routing.cpp:[[#@LINE+7]]:12: error: NYI: guarded init without inline atomics support
+// CHECK-NOT: loc({{.*}}): error: NYI: guarded init
 
 struct S {
   S();
-  ~S();
 };
-thread_local S s;
-S *use() { return &s; }
+S &get() {
+  static S s;
+  return s;
+}
 
 // The generic CIR-to-CIR transform fatal error must not be reported on top of
 // the specific one: CIRGenAction gates it on hasErrorOccurred().

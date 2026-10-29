@@ -49,9 +49,7 @@ int constexpr_var() {
 // CIR-LABEL: cir.func {{.*}} @_Z13constexpr_varv()
 // CIR:         %[[C:.*]] = cir.alloca "c"
 // CIR:         cir.store {{.*}}, %[[C]]
-// CIR:         %[[SEVEN:.*]] = cir.const #cir.int<7> : !s32i
-// CIR:         %[[TWO:.*]] = cir.const #cir.int<2> : !s32i
-// CIR:         cir.mul nsw %[[SEVEN]], %[[TWO]] : !s32i
+// CIR:         cir.const #cir.int<14> : !s32i
 
 // LLVM-OGCG-LABEL: define {{.*}}i32 @_Z13constexpr_varv()
 // LLVM:              store i32 14, ptr %{{.*}}

@@ -13,9 +13,7 @@ void foo(void) {
   // CIR: %[[V3:.*]] = cir.cast bitcast %[[V2]] : !cir.ptr<!cir.float> -> !cir.ptr<!void>
   // CIR: %[[V4:.*]] = cir.cast array_to_ptrdecay %[[V1]] : !cir.ptr<!cir.array<!cir.float x 8>> -> !cir.ptr<!cir.float>
   // CIR: %[[V5:.*]] = cir.cast bitcast %[[V4]] : !cir.ptr<!cir.float> -> !cir.ptr<!void>
-  // CIR: %[[V6:.*]] = cir.const #cir.int<4> : !u64i
-  // CIR: %[[V7:.*]] = cir.const #cir.int<4> : !u64i
-  // CIR: %[[V8:.*]] = cir.mul %[[V6]], %[[V7]] : !u64i
+  // CIR: %[[V8:.*]] = cir.const #cir.int<16> : !u64i
   // CIR: cir.libc.memmove %[[V8]] bytes from %[[V3]] align(16) to %[[V5]] align(16) : !cir.ptr<!void>, !u64i
   // CIR: cir.return
 

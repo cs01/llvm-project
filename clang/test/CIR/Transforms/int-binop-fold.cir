@@ -1,4 +1,4 @@
-// RUN: cir-opt -cir-canonicalize -o %t.cir %s
+// RUN: cir-opt --sccp -o %t.cir %s
 // RUN: FileCheck --input-file=%t.cir %s
 
 // Integer arithmetic, bitwise and compare ops on two constants fold, so MLIR's
@@ -20,7 +20,7 @@ module {
   }
   // CHECK-LABEL: @add
   // CHECK-NEXT:  %[[C:.+]] = cir.const #cir.int<42> : !s32i
-  // CHECK-NEXT:  cir.return %[[C]]
+  // CHECK:       cir.return %[[C]]
 
   cir.func @add_wraps() -> !s8i {
     %0 = cir.const #cir.int<127> : !s8i
