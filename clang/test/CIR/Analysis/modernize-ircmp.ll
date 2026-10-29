@@ -14,6 +14,7 @@
 ; RUN: cir-modernize-ircmp typeinfo.ll typeinfo-ref.ll
 ; RUN: not cir-modernize-ircmp typeinfo.ll typeinfo-other.ll | FileCheck --check-prefix=TYPEINFO %s
 ; RUN: not cir-modernize-ircmp method.ll method-other.ll | FileCheck --check-prefix=METHOD %s
+; RUN: cir-modernize-ircmp label.ll label-ref.ll
 ; RUN: cir-modernize-ircmp asm.ll asm-moved.ll
 ; RUN: not cir-modernize-ircmp asm.ll asm-other.ll | FileCheck --check-prefix=ASM %s
 
@@ -440,3 +441,17 @@ define void @f() {
   ret void
 }
 !0 = !{i64 100}
+;--- label.ll
+; An inlined callee's blocks are named after its mangled name, which a
+; rewrite changes (P to R); the label is not code.
+define void @f(i1 %c) {
+  br i1 %c, label %_Z1gP4Node.exit, label %_Z1gP4Node.exit
+_Z1gP4Node.exit:
+  ret void
+}
+;--- label-ref.ll
+define void @f(i1 %c) {
+  br i1 %c, label %_Z1gR4Node.exit, label %_Z1gR4Node.exit
+_Z1gR4Node.exit:
+  ret void
+}

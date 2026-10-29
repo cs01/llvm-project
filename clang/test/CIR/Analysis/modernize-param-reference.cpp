@@ -174,3 +174,8 @@ static int logged(Node *p) {
 }
 int useLogged(Node *n) { return logged(n); }
 // NEG-NOT: of 'logged'
+
+// A pointer that is itself const loses that const: a reference takes none.
+// FIXED: {{^}}static int constPointer(const Node &n) { return n.value; }
+static int constPointer(const Node *const n) { return n->value; }
+int useConstPointer(Node *n) { return constPointer(n); }

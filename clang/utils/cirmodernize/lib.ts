@@ -10,7 +10,7 @@
 // Classic codegen is deliberately independent of CIR: the analysis that
 // proposed the edit is not the one that checks it.
 import { spawn } from "child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir, totalmem } from "os";
 import { dirname, isAbsolute, join } from "path";
 
@@ -32,8 +32,14 @@ export function loadCommands(compdb: string, patterns: string[]): Cmd[] {
     const file = isAbsolute(e.file) ? e.file : join(e.directory, e.file);
     if (globs.length && !globs.some((g) => g.match(file))) continue;
     const raw = e.arguments ?? splitCommand(e.command!);
+    // CMake's precompiled-header jobs build a .pch, not code: nothing to
+    // prove.
+    if (/cmake_pch\.(hxx|h)\.(cxx|c)$/.test(file) || raw.some((a) => a === "-emit-pch")) continue;
     const args: string[] = [];
     for (let i = 1; i < raw.length; i++) {
+      // C++20 module scanning (CMake 3.28) passes @<obj>.modmap, which only a
+      // build writes; a TU that imports no module does not need it.
+      if (/^@.*\.modmap$/.test(raw[i]) && !existsSync(join(e.directory, raw[i].slice(1)))) continue;
       if (DROP_WITH_ARG.has(raw[i])) { i++; continue; }
       // Build-speed flags (semninja, codegen cache) would write next to the
       // project's own objects.

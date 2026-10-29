@@ -84,6 +84,15 @@ static void stripRefFacts(Module &M) {
   LLVMContext &C = M.getContext();
   unsigned SrcLoc = C.getMDKindID("srcloc");
   for (Function &F : M) {
+    // At -O0 an inlined always_inline callee names its blocks and values
+    // after its mangled name (`%_Z...PK...exit`), which a rewrite changes.
+    for (BasicBlock &BB : F) {
+      if (BB.getName().contains("_Z"))
+        BB.setName("");
+      for (Instruction &I : BB)
+        if (I.getName().contains("_Z"))
+          I.setName("");
+    }
     F.setAttributes(stripParamFacts(C, F.getAttributes(), F.arg_size()));
     for (Instruction &I : instructions(F)) {
       // !srcloc is a source offset kept for inline asm diagnostics; an edit

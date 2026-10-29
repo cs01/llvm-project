@@ -396,10 +396,14 @@ for (let round = 1; ; round++) {
       failed++;
       bad.push(i);
       // A right lifetime annotation can make a caller warn: that is a
-      // dangling use it exposed, not a broken rewrite.
-      const w = p.detail?.match(/^new warning: (.*\[-W(dangling[\w-]*|return-stack-address|lifetime-safety[\w-]*)\])$/);
+      // dangling use it exposed, not a broken rewrite. Clang refusing the
+      // annotation itself ("could not verify") is neither: the rewrite is
+      // dropped, and nothing in the code is suspect.
+      const unverified = /\[-Wlifetime-safety-lifetimebound-violation\]$/.test(p.detail ?? "");
+      const w = unverified ? null
+        : p.detail?.match(/^new warning: (.*\[-W(dangling[\w-]*|return-stack-address|lifetime-safety[\w-]*)\])$/);
       if (w) findings.add(w[1]);
-      console.log(`${w ? "FINDING" : "FAIL"} ${c.file}\n  ${p.detail}`);
+      console.log(`${w ? "FINDING" : unverified ? "UNVERIFIED" : "FAIL"} ${c.file}\n  ${p.detail}`);
     }
   });
   let culprits = bad.flatMap((i) => [...tuKeys[i]].filter((k) => live.has(k)));

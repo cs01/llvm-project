@@ -271,8 +271,47 @@ private:
         return false;
       Cand.Edits.push_back(
           FixItHint::CreateReplacement(chars(Star->getStarLoc(), 1), "&"));
+      // A reference takes no qualifier of its own: `T *const p` becomes
+      // `T &p`. (The pointer was never reseated; a reference cannot be.)
+      if (RP->getType().hasLocalQualifiers() &&
+          !dropQualifiers(Cand, RP, *Star))
+        return false;
     }
     return true;
+  }
+
+  // Removes the const, volatile and restrict written between the `*` and the
+  // parameter's name.
+  bool dropQualifiers(Candidate &Cand, const ParmVarDecl *P,
+                      const PointerTypeLoc &Star) {
+    const SourceManager &SM = Ctx.SM;
+    const LangOptions &LO = Ctx.C.getLangOpts();
+    SourceLocation From = Star.getStarLoc().getLocWithOffset(1);
+    SourceLocation To = P->getIdentifier() ? P->getLocation() : P->getEndLoc();
+    if (To.isMacroID() || SM.getFileID(From) != SM.getFileID(To))
+      return false;
+    unsigned End = SM.getFileOffset(To);
+    StringRef Buf = SM.getBufferData(SM.getFileID(From));
+    Lexer L(SM.getLocForStartOfFile(SM.getFileID(From)), LO, Buf.begin(),
+            Buf.begin() + SM.getFileOffset(From), Buf.end());
+    bool Dropped = false;
+    Token T;
+    while (!L.LexFromRawLexer(T) && SM.getFileOffset(T.getLocation()) < End) {
+      if (!T.is(tok::raw_identifier))
+        return false;
+      StringRef Word = T.getRawIdentifier();
+      if (Word != "const" && Word != "volatile" && Word != "restrict" &&
+          Word != "__restrict" && Word != "__restrict__")
+        return false;
+      unsigned Len = T.getLength();
+      const char *After = SM.getCharacterData(T.getLocation()) + Len;
+      while (*After == ' ' || *After == '\t')
+        ++After, ++Len;
+      Cand.Edits.push_back(
+          FixItHint::CreateRemoval(chars(T.getLocation(), Len)));
+      Dropped = true;
+    }
+    return Dropped;
   }
 
   static bool simpleOperand(const Expr *E) {
