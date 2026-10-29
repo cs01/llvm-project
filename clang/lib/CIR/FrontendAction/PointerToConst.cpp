@@ -18,6 +18,8 @@
 #include "CIRModernizeFramework.h"
 
 #include "clang/AST/ParentMapContext.h"
+#include "clang/AST/RecordLayout.h"
+#include "clang/AST/VTableBuilder.h"
 #include "clang/Basic/CharInfo.h"
 #include "clang/CIR/Dialect/Analysis/CIRPointeeWrites.h"
 #include "clang/Lex/Lexer.h"
@@ -226,8 +228,12 @@ protected:
         SourceLocation StarLoc = Star->getStarLoc();
         if (Ctx.SM.isMacroArgExpansion(StarLoc) || !editableIn(StarLoc, R))
           return false;
-        Cand.Edits.push_back(FixItHint::CreateInsertion(
-            Ctx.SM.getSpellingLoc(StarLoc), "const "));
+        // `T_*p` must not become `T_const *p`.
+        SourceLocation At = Ctx.SM.getSpellingLoc(StarLoc);
+        bool Spaced =
+            isWhitespace(*Ctx.SM.getCharacterData(At.getLocWithOffset(-1)));
+        Cand.Edits.push_back(
+            FixItHint::CreateInsertion(At, Spaced ? "const " : " const "));
         continue;
       }
       if (Begin.isInvalid() || !editableIn(Begin, R))
@@ -351,6 +357,11 @@ public:
       // method is const too (the template's, for an instantiation).
       for (auto &[Callee, CalleeIndex] : Fact->second.forwards) {
         const FunctionDecl *CFD = Ctx.declByMangledName(Callee);
+        StringRef Name = Callee;
+        uint64_t Slot;
+        if (Name.consume_front(cir::VirtualSlotPrefix) &&
+            !Name.getAsInteger(10, Slot))
+          CFD = virtualAt(cast<CXXMethodDecl>(Inst), Slot);
         if (CFD && CFD->isTemplateInstantiation())
           CFD = CFD->getTemplateInstantiationPattern();
         if (CFD && CalleeIndex == 0 && Context::thisOffset(CFD))
@@ -385,6 +396,22 @@ public:
   }
 
 private:
+  // The virtual method in vtable slot Slot of MD's class: declared there or
+  // in its primary bases, which share that vtable. (A call through another
+  // base adjusts `this` first, so it never reaches here.)
+  const CXXMethodDecl *virtualAt(const CXXMethodDecl *MD, uint64_t Slot) {
+    auto *VTC = dyn_cast<ItaniumVTableContext>(Ctx.C.getVTableContext());
+    if (!VTC || MD->getParent()->isDependentContext())
+      return nullptr;
+    for (const CXXRecordDecl *RD = MD->getParent(); RD;
+         RD = Ctx.C.getASTRecordLayout(RD).getPrimaryBase())
+      for (const CXXMethodDecl *M : RD->methods())
+        if (M->isVirtual() && !isa<CXXDestructorDecl>(M) &&
+            VTC->getMethodVTableIndex(GlobalDecl(M)) == Slot)
+          return M;
+    return nullptr;
+  }
+
   // Every method this one overrides or is overridden by, as far as this
   // translation unit sees: they stay overrides of each other only if all of
   // them become const. Each needs all the others, so project mode joins the

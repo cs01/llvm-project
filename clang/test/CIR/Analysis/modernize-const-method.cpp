@@ -111,3 +111,47 @@ int cells() {
   a.set(3);
   return a.twiceGet() + (int)b.get();
 }
+
+// A virtual call on `this` goes to the method in that vtable slot, which is
+// right once that method's override set is const too.
+namespace {
+struct Base {
+  int n;
+  // CHECK-DAG: warning: method 'size' never writes through 'this'
+  // CHECK-DAG: warning: method 'twiceSize' never writes through 'this'
+  // FIXED: virtual int size() const { return n; }
+  // FIXED: int twiceSize() const { return size() * 2; }
+  virtual int size() { return n; }
+  int twiceSize() { return size() * 2; }
+  virtual void grow() { ++n; }
+  int growAndSize() { grow(); return n; }
+  virtual ~Base() {}
+};
+struct Derived : Base {
+  // FIXED: int size() const override { return n + 1; }
+  int size() override { return n + 1; }
+};
+} // namespace
+// CHECK-NOT: method 'growAndSize' never
+int virtuals() {
+  Derived d;
+  d.n = 1;
+  Base &b = d;
+  return b.twiceSize() + b.growAndSize();
+}
+
+// The slot of a virtual call made from a member of a class template is that
+// of the instantiation's class: the template has no vtable layout.
+namespace {
+template <typename T> struct Shape2 {
+  T n;
+  virtual T area() { return n; }
+  T twiceArea() { return area() * 2; }
+  virtual ~Shape2() {}
+};
+} // namespace
+int shapes2() {
+  Shape2<int> s;
+  s.n = 1;
+  return s.twiceArea();
+}

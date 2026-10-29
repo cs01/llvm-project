@@ -99,12 +99,43 @@ private:
         write("copied over");
       return;
     }
+    // Loading the vptr to make a virtual call only reads the object.
+    if (auto vptr = mlir::dyn_cast<cir::VTableGetVPtrOp>(op)) {
+      for (mlir::Operation *user : vptr->getUsers())
+        if (!mlir::isa<cir::LoadOp>(user))
+          return write("vptr address used other than by a load");
+      return;
+    }
     if (auto call = mlir::dyn_cast<cir::CallOp>(op))
       return callArg(call, use);
     write(("used by " + op->getName().getStringRef()).str());
   }
 
+  // A virtual call through the object's own vptr: the callee is the method in
+  // that vtable slot, which only the AST can name.
+  static std::optional<uint64_t> virtualSlot(cir::CallOp call,
+                                             mlir::Value object) {
+    if (!call.isIndirect() || call.getArgOperands().empty() ||
+        call.getArgOperands().front() != object)
+      return std::nullopt;
+    auto fn = call->getOperand(0).getDefiningOp<cir::LoadOp>();
+    auto slot = fn ? fn.getAddr().getDefiningOp<cir::VTableGetVirtualFnAddrOp>()
+                   : cir::VTableGetVirtualFnAddrOp();
+    auto vptr =
+        slot ? slot.getVptr().getDefiningOp<cir::LoadOp>() : cir::LoadOp();
+    auto addr = vptr ? vptr.getAddr().getDefiningOp<cir::VTableGetVPtrOp>()
+                     : cir::VTableGetVPtrOp();
+    if (!addr || addr.getSrc() != object)
+      return std::nullopt;
+    return slot.getIndex();
+  }
+
   void callArg(cir::CallOp call, mlir::OpOperand &use) {
+    if (std::optional<uint64_t> slot = virtualSlot(call, use.get())) {
+      fact.forwards.push_back(
+          {(llvm::Twine(VirtualSlotPrefix) + llvm::Twine(*slot)).str(), 0});
+      return;
+    }
     mlir::FlatSymbolRefAttr name = call.getCalleeAttr();
     auto callee =
         name ? symbols.lookupNearestSymbolFrom<cir::FuncOp>(call, name)

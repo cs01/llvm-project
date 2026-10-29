@@ -19,10 +19,11 @@
 #ifndef CLANG_CIR_DIALECT_ANALYSIS_CIRPOINTEEWRITES_H
 #define CLANG_CIR_DIALECT_ANALYSIS_CIRPOINTEEWRITES_H
 
-#include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include <string>
 
 namespace cir {
@@ -36,6 +37,10 @@ enum class PointerArgUse {
   /// become a pointer to const; the caller's fact then depends on it.
   Forward,
 };
+
+/// A forward into a virtual call through the object's own vptr names the
+/// callee as this prefix and the vtable slot (Itanium method index).
+inline constexpr llvm::StringLiteral VirtualSlotPrefix = "vtable-slot:";
 
 struct PointeeWriteFact {
   std::string function;

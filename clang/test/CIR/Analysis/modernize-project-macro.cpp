@@ -14,6 +14,9 @@
 // CHECK:      "function": "read_long",
 // CHECK-NOT:  "blocked"
 // CHECK:      "offset": [[OFF]],
+// CHECK:      "function": "peek_short",
+// CHECK-NOT:  "blocked"
+// CHECK:      "text": " const "
 // CHECK:      "function": "viaShared",
 // CHECK-NEXT: "param": "p",
 // CHECK:      "blocked": "const: pointer spelled through a typedef or macro"
@@ -23,6 +26,11 @@
   static T read_##T(T *p) { return *p; }
 GEN_READ(int)
 GEN_READ(long)
+#define GEN_PEEK(T) \
+  static T peek_##T(T* p) { return *p; }
+GEN_PEEK(short)
 #define INTP int *
 static int viaShared(INTP p) { return *p; }
-int use(int *i, long *l) { return read_int(i) + (int)read_long(l) + viaShared(i); }
+int use(int *i, long *l, short *s) {
+  return read_int(i) + (int)read_long(l) + viaShared(i) + peek_short(s);
+}
