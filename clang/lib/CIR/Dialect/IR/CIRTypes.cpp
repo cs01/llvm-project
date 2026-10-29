@@ -26,6 +26,8 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -218,9 +220,14 @@ parseRecordBody(mlir::AsmParser &parser, bool &incomplete,
       });
 }
 
+static thread_local llvm::SmallPtrSetImpl<const void *> *printedRecords =
+    nullptr;
+
 /// Print a complete CIR record body:
 ///   '<' ['class '] [name] ['packed '] body '>'
 /// where body is "incomplete" or "{[mark] members}[, padding = {type}]".
+/// Within one top-level type, a named record's body is printed only where it
+/// first appears; later occurrences print as '<' ['class '] name '>'.
 /// RecordTy must be a mutable MLIR type (StructType or UnionType).
 template <typename RecordTy>
 static void
@@ -233,6 +240,19 @@ printRecordBody(mlir::AsmPrinter &printer, RecordTy self, mlir::StringAttr name,
     printer << "class ";
   if (name)
     printer << name;
+
+  llvm::SmallPtrSet<const void *, 16> printedHere;
+  bool outermost = !printedRecords;
+  if (outermost)
+    printedRecords = &printedHere;
+  llvm::scope_exit resetPrinted([&] {
+    if (outermost)
+      printedRecords = nullptr;
+  });
+  if (name && !printedRecords->insert(self.getAsOpaquePointer()).second) {
+    printer << '>';
+    return;
+  }
 
   FailureOr<AsmPrinter::CyclicPrintReset> cyclicPrintGuard =
       printer.tryStartCyclicPrint(self);
@@ -282,15 +302,10 @@ Type StructType::parse(mlir::AsmParser &parser) {
   mlir::StringAttr name;
   parser.parseOptionalAttribute(name);
 
-  // Self-reference: ensure the referenced type was already parsed.
-  if (name && parser.parseOptionalGreater().succeeded()) {
-    StructType type = StructType::getChecked(eLoc, context, name, is_class);
-    if (succeeded(parser.tryStartCyclicParse(type))) {
-      parser.emitError(loc, "invalid self-reference within record");
-      return {};
-    }
-    return type;
-  }
+  // A name alone refers to the identified record of that name: a
+  // self-reference, or a record whose body was printed earlier.
+  if (name && parser.parseOptionalGreater().succeeded())
+    return StructType::getChecked(eLoc, context, name, is_class);
 
   // Named definition: ensure name has not been parsed yet.
   if (name) {
@@ -437,15 +452,9 @@ Type UnionType::parse(mlir::AsmParser &parser) {
   mlir::StringAttr name;
   parser.parseOptionalAttribute(name);
 
-  // Self-reference.
-  if (name && parser.parseOptionalGreater().succeeded()) {
-    UnionType type = UnionType::getChecked(eLoc, context, name);
-    if (succeeded(parser.tryStartCyclicParse(type))) {
-      parser.emitError(loc, "invalid self-reference within record");
-      return {};
-    }
-    return type;
-  }
+  // A name alone refers to the identified record of that name.
+  if (name && parser.parseOptionalGreater().succeeded())
+    return UnionType::getChecked(eLoc, context, name);
 
   // Named definition.
   if (name) {
