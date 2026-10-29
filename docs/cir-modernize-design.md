@@ -161,6 +161,22 @@ to a parameter that stays a pointer, 31 address taken, 17 public header.
      ranges can prove some accesses in bounds, so their checks can go.
    - ownership: `new`/`delete` to `unique_ptr`, `lock`/`unlock` to
      `lock_guard`. Also refinement.
+   - lifetime annotations: infer `[[clang::lifetimebound]]`,
+     `[[clang::lifetime_capture_by(x)]]` and `[[clang::noescape]]` from CIR
+     dataflow. Clang already has a modular, loan-based lifetime checker
+     (`clang/lib/Analysis/LifetimeSafety`, `-Wlifetime-safety-*`) that checks
+     each function against its annotated signature, so ownership needs no new
+     proof system: the gate is no new lifetime-safety warnings anywhere in the
+     project. Annotations do not change codegen, so IR identity still holds.
+     Track the share of functions that fit the model; code outside it
+     (pointer graphs, aliasing plus mutation such as iterator invalidation)
+     stays unchecked.
+   - bounds annotations: `-fexperimental-bounds-safety` and `counted_by` /
+     `sized_by` are C only upstream, so for C++ the span rewrite is the
+     bounds path, gated also by fewer `-Wunsafe-buffer-usage` warnings and
+     run under libc++ hardening. For C translation units, infer
+     `__counted_by(n)` where every access to `p[i]` is guarded by `i < n`;
+     gate: builds under `-fexperimental-bounds-safety` and tests pass.
 4. **Whole program at scale.** semdeps can limit re-proving to TUs that use a
    changed declaration.
 5. **LLM proposes, CIR proves.** The generator can be wrong; the gate cannot.
