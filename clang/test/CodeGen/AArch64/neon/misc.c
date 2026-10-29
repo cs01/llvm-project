@@ -147,3 +147,33 @@ poly128_t test_vmull_p64(poly64_t a, poly64_t b) {
 // LLVM: bitcast <16 x i8> [[P]] to i128
   return vmull_p64(a, b);
 }
+
+// LLVM-LABEL: @test_vabsq_s32(
+int32x4_t test_vabsq_s32(int32x4_t a) {
+// LLVM: call <4 x i32> @llvm.aarch64.neon.abs.v4i32(<4 x i32> {{.*}})
+  return vabsq_s32(a);
+}
+
+// LLVM-LABEL: @test_vabsq_f32(
+float32x4_t test_vabsq_f32(float32x4_t a) {
+// LLVM: call <4 x float> @llvm.fabs.v4f32(<4 x float> {{.*}})
+  return vabsq_f32(a);
+}
+
+// LLVM-LABEL: @test_vrecpeq_f32(
+float32x4_t test_vrecpeq_f32(float32x4_t a) {
+// LLVM: call <4 x float> @llvm.aarch64.neon.frecpe.v4f32(<4 x float> {{.*}})
+  return vrecpeq_f32(a);
+}
+
+// LLVM-LABEL: @test_vrecpeq_u32(
+uint32x4_t test_vrecpeq_u32(uint32x4_t a) {
+// LLVM: call <4 x i32> @llvm.aarch64.neon.urecpe.v4i32(<4 x i32> {{.*}})
+  return vrecpeq_u32(a);
+}
+
+// LLVM-LABEL: @test_vrsqrteq_f32(
+float32x4_t test_vrsqrteq_f32(float32x4_t a) {
+// LLVM: call <4 x float> @llvm.aarch64.neon.frsqrte.v4f32(<4 x float> {{.*}})
+  return vrsqrteq_f32(a);
+}
