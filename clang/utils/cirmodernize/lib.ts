@@ -194,7 +194,12 @@ function demangle(cxxfilt: string, names: string[]): string[] {
 
 // What a rewrite may change in a demangled name: a pointer parameter becomes
 // a reference ('*' to '&') or points to const (`Node*` to `Node const*`).
-function signature(demangled: string): string {
+// llvm-cxxfilt leaves some names (generic lambdas) mangled; then the same
+// change is undone on the mangled form: R (reference) and P (pointer), each
+// optionally followed by K (const), all read as P. Both sides get the same
+// treatment, and this only pairs symbols: their IR is still compared.
+function signature(demangled: string, mangled: string): string {
+  if (demangled === mangled) return mangled.replace(/[PR]K?/g, "P");
   return demangled.replace(/&/g, "*").replace(/ const(?=\*)/g, "");
 }
 
@@ -209,7 +214,7 @@ function remap(cxxfilt: string, orig: string[], next: string[]): string[] | stri
   const rename = new Map<string, string>();
   for (let i = 0; i < a.length; i++) {
     if (a[i] === b[i]) continue;
-    if (signature(da[i]) !== signature(db[i])) return `symbol ${i}: ${da[i]} vs ${db[i]}`;
+    if (signature(da[i], a[i]) !== signature(db[i], b[i])) return `symbol ${i}: ${da[i]} vs ${db[i]}`;
     rename.set(b[i], a[i]);
   }
   if (!rename.size) return next;
