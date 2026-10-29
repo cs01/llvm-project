@@ -28,6 +28,7 @@
 
 #include "CIRModernizeFramework.h"
 
+#include "clang/Basic/DiagnosticParse.h"
 #include "clang/CIR/Dialect/Analysis/CIRNullabilitySafety.h"
 
 using namespace clang;
@@ -85,6 +86,8 @@ public:
                         : "nullable: proven parameters");
       Candidate Cand{FD, P, Index, Id};
       StringRef Why = FunctionWhy;
+      if (Why.empty())
+        Why = whyExtension(FD);
       if (Why.empty() && !declEdits(Cand))
         Why = "nullability: declarator is not a plain pointer";
       Ctx.add(std::move(Cand), Why);
@@ -96,12 +99,23 @@ public:
     StringRef Why = Ctx.whyIneligible(FD);
     Candidate Cand{FD, P, Index, Id};
     Cand.External = true;
+    if (Why.empty())
+      Why = whyExtension(FD);
     if (Why.empty() && !declEdits(Cand))
       Why = "nullability: declarator is not a plain pointer";
     Ctx.add(std::move(Cand), Why);
   }
 
 private:
+  // -pedantic warns on every qualifier outside Objective-C, which a -Werror
+  // build turns into an error; there is no spelling it accepts.
+  StringRef whyExtension(const FunctionDecl *FD) const {
+    if (Ctx.C.getDiagnostics().isIgnored(diag::ext_nullability,
+                                         FD->getLocation()))
+      return {};
+    return "nullability: -pedantic warns on the extension";
+  }
+
   // A reassigned or address-taken parameter holds other values than the
   // argument, so the facts about it do not describe the argument.
   bool proves(const cir::NullabilityFact &F) const {
