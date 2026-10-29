@@ -22,7 +22,7 @@
 // usage: bun project.ts --clang <clang> -p <compile_commands.json> [--root <dir>]
 //                       [--public-headers <dir>]... [--allow-public-api]
 //                       [--apply] [-j N] [-v] [files or globs...]
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve, sep } from "path";
 import {
@@ -41,7 +41,8 @@ type Candidate = {
   edits?: Edit[];
   needs?: { usr: string; index: number; kind: "ref" | "const" }[];
 };
-type Export = { candidates: Candidate[] };
+// facts is false when CIRGen failed and only the AST half ran.
+type Export = { facts?: boolean; candidates: Candidate[] };
 
 const argv = process.argv.slice(2);
 let clang = "", compdb = "", root = process.cwd(), jobs = navigator.hardwareConcurrency;
@@ -75,8 +76,13 @@ async function exportTU(c: Cmd, out: string, plan?: string): Promise<Export | st
     `-fcir-modernize-export=${out}`, ...(plan ? [`-fcir-modernize-plan=${plan}`] : []),
     "-o", "/dev/null", c.file,
   ], c.dir);
-  if (r.code !== 0) return firstError(r.err, r.code);
-  return JSON.parse(readFileSync(out, "utf8")) as Export;
+  // A translation unit CIR cannot compile still writes an export from the AST
+  // (or from before the CIR pass that failed); only one without an export
+  // is unknown.
+  if (!existsSync(out)) return firstError(r.err, r.code);
+  const e = JSON.parse(readFileSync(out, "utf8")) as Export;
+  if (r.code !== 0 || e.facts === false) astOnly.add(c.file);
+  return e;
 }
 
 function policy(c: Candidate): string | undefined {
@@ -90,6 +96,7 @@ function policy(c: Candidate): string | undefined {
 // 1. propose
 const t0 = performance.now();
 const skipped = new Map<string, string>();
+const astOnly = new Set<string>();
 const pass1 = await pool(cmds.map((c, i) => [c, i] as const), jobs,
                          ([c, i]) => exportTU(c, join(scratch, `p1-${i}.json`)));
 const proposals = new Map<string, Candidate>();
@@ -145,7 +152,7 @@ pass2.forEach((e, i) => {
   }
 });
 
-// CIR could not compile these, so their calls are unknown. Any planned
+// These wrote no export at all, so their calls are unknown. Any planned
 // function they might name is blocked; the preprocessed text is searched so a
 // call written through a macro counts too.
 if (skipped.size && proposals.size) {
@@ -179,7 +186,7 @@ for (const k of proposals.keys()) if (!live.has(k)) block(blockers.get(k)!);
 
 // 4. prove
 const all = [...live].flatMap((k) => edits.get(k)!);
-const toProve = cmds.filter((c, i) => skipped.has(c.file) || [...tuKeys[i]].some((k) => live.has(k)));
+const toProve = cmds.filter((c, i) => skipped.has(c.file) || astOnly.has(c.file) || [...tuKeys[i]].some((k) => live.has(k)));
 let failed = 0, proven = 0;
 if (all.length) {
   const yaml = overlay(mkdtempSync(join(scratch, "overlay-")), all);
@@ -194,7 +201,7 @@ if (all.length) {
 }
 
 const secs = ((performance.now() - t0) / 1000).toFixed(1);
-console.log(`${cmds.length} TUs (${skipped.size} CIR could not compile), ${secs}s`);
+console.log(`${cmds.length} TUs (${astOnly.size} CIR could not fully compile, ${skipped.size} without an export), ${secs}s`);
 console.log(`${proposals.size} parameters proposed, ${live.size} rewritten, ` +
             `${proposals.size - live.size} blocked`);
 console.log(`${proven} TUs proven unchanged, ${failed} failed, ${toProve.length - proven - failed} skipped`);

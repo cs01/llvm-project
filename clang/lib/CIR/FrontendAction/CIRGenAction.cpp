@@ -459,8 +459,29 @@ public:
     OS << "\n";
   }
 
+  CIRModernizeOptions modernizeOptions() const {
+    CIRModernizeOptions Options;
+    Options.AllowPublic = FEOptions.ClangIRModernizePublic;
+    Options.Apply = FEOptions.ClangIRModernizeApply;
+    Options.ExportPath = FEOptions.ClangIRModernizeExport;
+    Options.PlanPath = FEOptions.ClangIRModernizePlan;
+    Options.Only = FEOptions.ClangIRModernizeOnly;
+    return Options;
+  }
+
   void HandleTranslationUnit(ASTContext &C) override {
     Gen->HandleTranslationUnit(C);
+
+    // A project-wide -fcir-modernize still needs this translation unit's
+    // declarations and calls when CIRGen cannot handle it: run on the AST
+    // alone, with no CIR facts, and stop.
+    if (FEOptions.ClangIRModernize &&
+        !FEOptions.ClangIRModernizeExport.empty() &&
+        CI.getDiagnostics().hasErrorOccurred()) {
+      runCIRModernize(mlir::ModuleOp(), C, CI.getDiagnostics(),
+                      modernizeOptions());
+      return;
+    }
 
     if (!FEOptions.ClangIRDisableCIRVerifier) {
       if (!Gen->verifyModule()) {
@@ -484,15 +505,8 @@ public:
     if (C.getLangOpts().NullabilitySafetyCIR &&
         !FEOptions.ClangIRNullabilityFactsFile.empty())
       writeNullabilityFacts(MlirModule, C);
-    if (FEOptions.ClangIRModernize) {
-      CIRModernizeOptions Options;
-      Options.AllowPublic = FEOptions.ClangIRModernizePublic;
-      Options.Apply = FEOptions.ClangIRModernizeApply;
-      Options.ExportPath = FEOptions.ClangIRModernizeExport;
-      Options.PlanPath = FEOptions.ClangIRModernizePlan;
-      Options.Only = FEOptions.ClangIRModernizeOnly;
-      runCIRModernize(MlirModule, C, CI.getDiagnostics(), Options);
-    }
+    if (FEOptions.ClangIRModernize)
+      runCIRModernize(MlirModule, C, CI.getDiagnostics(), modernizeOptions());
 
     if (!FEOptions.ClangIRDisablePasses) {
       std::string LibOptOptions = FEOptions.ClangIRLibOptOptions;

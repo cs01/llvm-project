@@ -38,6 +38,8 @@ struct CIRModernizeOptions {
   std::string Only;
 };
 
+/// Module may be null when CIRGen failed: then only planned candidates, which
+/// need no facts from this translation unit, are considered.
 void runCIRModernize(mlir::ModuleOp Module, ASTContext &C,
                      DiagnosticsEngine &Diags,
                      const CIRModernizeOptions &Options);

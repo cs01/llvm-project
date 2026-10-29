@@ -46,6 +46,18 @@
 
 // NOPLAN: error: cannot read modernize plan missing.json
 
+// CIRGen cannot handle d.cpp (a block pointer), but it still exports its
+// declarations and calls from the AST, without facts.
+// RUN: not %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fblocks -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref -fcir-modernize-plan=plan.json -fcir-modernize-export=d.json d.cpp -o /dev/null
+// RUN: FileCheck --check-prefix=ASTONLY --input-file=d.json %s
+// ASTONLY:      "facts": false,
+// ASTONLY:      "function": "first",
+// ASTONLY:      "defined": false,
+// ASTONLY:      "file": "{{.*}}d.cpp",
+// ASTONLY-NEXT: "offset": {{[0-9]+}},
+// ASTONLY-NEXT: "length": 1,
+// ASTONLY-NEXT: "text": ""
+
 // RUN: not %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref,span a.cpp -o /dev/null 2>&1 | FileCheck --check-prefix=UNKNOWN %s
 // UNKNOWN: error: unknown modernize rewrite 'span'
 
@@ -61,5 +73,9 @@ int use(Node *n) { Node l{1, nullptr}; return first(n) + first(&l); }
 //--- c.cpp
 #include "node.h"
 int (*keep)(Node *) = first;
+//--- d.cpp
+#include "node.h"
+void (^block)(void);
+int viaBlock() { Node l{1, nullptr}; return first(&l); }
 //--- plan.json
 {"functions": [{"usr": "c:@F@first#*$@S@Node#", "index": 0, "kind": "ref"}]}

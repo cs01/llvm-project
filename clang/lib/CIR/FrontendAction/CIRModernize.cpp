@@ -204,13 +204,17 @@ public:
       : Ctx(C, Options) {}
 
   void run(mlir::ModuleOp Module, DiagnosticsEngine &Diags) {
+    HasFacts = static_cast<bool>(Module);
     if (!enableRewrites(Diags))
       return;
     if (!Ctx.Options.PlanPath.empty() && !loadPlan(Diags))
       return;
     Ctx.Visitor.TraverseDecl(Ctx.C.getTranslationUnitDecl());
-    for (auto &R : Rewrites)
-      R->analyze(Module);
+    // Without a module (CIRGen failed) nothing is proven here; candidates
+    // come only from the plan.
+    if (Module)
+      for (auto &R : Rewrites)
+        R->analyze(Module);
     for (FunctionDecl *FD : Ctx.Visitor.Functions)
       for (auto &R : Rewrites)
         R->addDefined(FD);
@@ -369,6 +373,7 @@ private:
     }
     llvm::json::OStream J(OS, 1);
     J.object([&] {
+      J.attribute("facts", HasFacts);
       J.attributeArray("candidates", [&] {
         for (const Candidate &Cand : Ctx.Candidates)
           J.object([&] {
@@ -407,6 +412,7 @@ private:
 
   Context Ctx;
   std::vector<std::unique_ptr<Rewrite>> Rewrites;
+  bool HasFacts = false;
 };
 
 } // namespace
