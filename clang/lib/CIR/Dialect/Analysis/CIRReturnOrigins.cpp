@@ -142,7 +142,7 @@ void cir::collectReturnOrigins(
     llvm::function_ref<void(const ReturnOriginFact &)> emit) {
   mlir::SymbolTableCollection symbols;
   module.walk([&](cir::FuncOp func) {
-    if (func.isDeclaration() ||
+    if (func.isDeclaration() || func.getBody().empty() ||
         !llvm::any_of(func.getFunctionType().getReturnTypes(),
                       [](mlir::Type T) {
                         return mlir::isa<cir::PointerType, cir::RecordType>(T);
@@ -168,7 +168,7 @@ void cir::collectCaptures(
     llvm::function_ref<void(const CaptureFact &)> emit) {
   mlir::SymbolTableCollection symbols;
   module.walk([&](cir::FuncOp func) {
-    if (func.isDeclaration())
+    if (func.isDeclaration() || func.getBody().empty())
       return;
     llvm::MapVector<unsigned, llvm::SetVector<int>> by;
     // Every argument the stored value comes from is captured by every

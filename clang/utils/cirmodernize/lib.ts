@@ -12,7 +12,7 @@
 import { spawn } from "child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir, totalmem } from "os";
-import { dirname, isAbsolute, join } from "path";
+import { dirname, isAbsolute, join, resolve } from "path";
 
 export type Cmd = { file: string; dir: string; args: string[] };
 // A byte range of a file replaced by text; length 0 is an insertion.
@@ -54,7 +54,7 @@ export function loadCommands(compdb: string, patterns: string[]): Cmd[] {
         i += 3;
         continue;
       }
-      if (DROP.has(raw[i]) || raw[i] === e.file || raw[i] === file) continue;
+      if (DROP.has(raw[i]) || raw[i] === e.file || resolve(e.directory, raw[i]) === file) continue;
       args.push(raw[i]);
     }
     // A project's -Werror would turn this clang's own warnings, or the

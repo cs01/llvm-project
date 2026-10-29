@@ -173,7 +173,7 @@ void cir::collectPointeeWrites(
     llvm::function_ref<void(const PointeeWriteFact &)> emit) {
   mlir::SymbolTableCollection symbols;
   module.walk([&](cir::FuncOp func) {
-    if (func.isDeclaration())
+    if (func.isDeclaration() || func.getBody().empty())
       return;
     for (mlir::BlockArgument arg : func.getBody().front().getArguments()) {
       if (!mlir::isa<cir::PointerType>(arg.getType()))

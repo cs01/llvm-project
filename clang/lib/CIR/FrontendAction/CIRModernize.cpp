@@ -699,6 +699,8 @@ private:
           Why = R.finalize(Cand);
         if (Why.empty())
           Why = whyConditional(Cand);
+        if (Why.empty())
+          Why = whyLineDirective(Cand);
         if (!Why.empty()) {
           Ctx.count(Why);
           Cand.Live = false;
@@ -734,6 +736,23 @@ private:
     if (Rewrites[Cand.Rewrite]->changesType() &&
         (II ? CR->skippedNames().contains(II->getName()) : CR->skippedAny()))
       return "named in an #if branch this build skips";
+    return {};
+  }
+
+  StringRef whyLineDirective(const Candidate &Cand) {
+    for (const auto *Edits : {&Cand.Edits, &Cand.LateEdits})
+      for (const FixItHint &Hint : *Edits)
+        for (SourceLocation Loc :
+             {Hint.RemoveRange.getBegin(), Hint.RemoveRange.getEnd()}) {
+          if (Loc.isInvalid())
+            continue;
+          SourceLocation Spelling = Ctx.SM.getSpellingLoc(Loc);
+          PresumedLoc P = Ctx.SM.getPresumedLoc(Spelling);
+          if (P.isInvalid() || P.getFileID() != Ctx.SM.getFileID(Spelling) ||
+              P.getLine() != Ctx.SM.getSpellingLineNumber(Spelling) ||
+              P.getFilename() != Ctx.SM.getFilename(Spelling))
+            return "an edit is under a #line directive";
+        }
     return {};
   }
 
