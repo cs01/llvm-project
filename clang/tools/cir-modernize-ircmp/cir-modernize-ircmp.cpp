@@ -11,12 +11,12 @@
 // follow the spelling, and only those are undone before the modules must
 // print identically:
 //
-//  * pointer to reference (P4Node -> R4Node) and pointer to const
-//    (P4Node -> PK4Node) change mangled names. Globals are paired by position
-//    and must demangle alike once '&' reads as '*' and `const` before a '*'
-//    is dropped; the rewritten module then takes the original's names, also
-//    where a name is embedded in another (__func__._ZL5firstP4Node) or names
-//    a COMDAT.
+//  * pointer to reference (P4Node -> R4Node), pointer to const
+//    (P4Node -> PK4Node) and const method (_ZN -> _ZNK) change mangled names.
+//    Globals are paired by position and must demangle alike once '&' reads
+//    as '*' and `const` before a '*' or after a parameter list is dropped; the
+//    rewritten module then takes the original's names, also where a name is
+//    embedded in another (__func__._ZL5firstP4Node) or names a COMDAT.
 //  * a reference parameter or argument carries nonnull, align and
 //    dereferenceable, and a load of a reference carries !nonnull, !align and
 //    !noundef. Both are stripped from both modules, and metadata is
@@ -101,6 +101,9 @@ static std::string signature(StringRef Mangled) {
       if (I + 1 < Mangled.size() && Mangled[I + 1] == 'K')
         ++I;
     }
+    // NK: a const method's nested name.
+    for (size_t I; (I = Out.find("NK")) != std::string::npos;)
+      Out.erase(I + 1, 1);
     return Out;
   }
   // '&' first, so the combined rewrite (Node const&) reads as Node*.
@@ -109,6 +112,14 @@ static std::string signature(StringRef Mangled) {
     if (StringRef(D).substr(I).starts_with(" const*"))
       I += 6;
     Out += D[I];
+  }
+  // A method's own const, after its parameter list.
+  for (size_t I = 0; (I = Out.find(") const", I)) != std::string::npos;) {
+    size_t After = I + 7;
+    if (After < Out.size() && isAlnum(Out[After]))
+      ++I;
+    else
+      Out.erase(I + 1, 6);
   }
   return Out;
 }

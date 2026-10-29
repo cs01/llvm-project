@@ -10,6 +10,8 @@
 ; RUN: not cir-modernize-ircmp orig.ll range.ll | FileCheck --check-prefix=RANGE %s
 ; RUN: not cir-modernize-ircmp orig.ll fnalign.ll | FileCheck --check-prefix=FNALIGN %s
 ; RUN: not cir-modernize-ircmp orig.ll extra.ll | FileCheck --check-prefix=EXTRA %s
+; RUN: cir-modernize-ircmp method.ll method-const.ll
+; RUN: not cir-modernize-ircmp method.ll method-other.ll | FileCheck --check-prefix=METHOD %s
 
 ; INST:      in define internal noundef i32 @_ZL5firstP4Node
 ; INST-NEXT: - %2 = add i32 %1, 1
@@ -20,6 +22,7 @@
 ; RANGE:     + %1 = load i32, ptr %v, align 8, !range
 ; FNALIGN:   + define {{.*}} align 16 {
 ; EXTRA:     global count
+; METHOD:    symbol {{[0-9]+}}: S::get() vs S::got() const
 
 ;--- orig.ll
 %struct.Node = type { i32, ptr }
@@ -367,3 +370,26 @@ define i32 @use(ptr %n) {
 !0 = distinct !{!0, !1}
 !1 = !{!"llvm.loop.mustprogress"}
 
+;--- method.ll
+%struct.S = type { i32 }
+
+define i32 @_ZN1S3getEv(ptr noundef %this) {
+  %v = load i32, ptr %this, align 4
+  ret i32 %v
+}
+
+;--- method-const.ll
+%struct.S = type { i32 }
+
+define i32 @_ZNK1S3getEv(ptr noundef %this) {
+  %v = load i32, ptr %this, align 4
+  ret i32 %v
+}
+
+;--- method-other.ll
+%struct.S = type { i32 }
+
+define i32 @_ZNK1S3gotEv(ptr noundef %this) {
+  %v = load i32, ptr %this, align 4
+  ret i32 %v
+}

@@ -266,6 +266,7 @@ struct RewriteInfo {
 constexpr RewriteInfo AllRewrites[] = {
     {"ref", "identical", true, createParamToReference},
     {"const", "identical", true, createPointerToConst},
+    {"const-method", "identical", true, createConstMethod},
     {"nonnull", "identical", false, createNonNull},
     {"nullable", "identical", false, createNullable},
     {"lifetimebound", "identical", true, createLifetimebound},

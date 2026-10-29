@@ -116,7 +116,7 @@ public:
     Ctx.add(std::move(Cand), Why);
   }
 
-private:
+protected:
   static constexpr StringRef AlreadyConst = "const: already const";
 
   static StringRef whyParamIneligible(const ParmVarDecl *P) {
@@ -172,9 +172,87 @@ private:
   llvm::StringMap<llvm::DenseMap<unsigned, cir::PointeeWriteFact>> Facts;
 };
 
+// `const` on a method that never writes through `this`: the same fact, about
+// CIR argument 0. Whatever `this` is passed to must only read, so a call to
+// a non-const method, a store of `this` or of an address into the object, or
+// returning one, keeps the method as it is.
+class ConstMethod : public PointerToConst {
+public:
+  using PointerToConst::PointerToConst;
+
+  StringRef name() const override { return "const-method"; }
+  unsigned diagID(DiagnosticsEngine &Diags) const override {
+    return Diags.getCustomDiagID(DiagnosticsEngine::Warning,
+                                 "method %0 never writes through 'this'; it "
+                                 "can be const");
+  }
+  StringRef whyNeedBlocked() const override { return "const-method: needed"; }
+
+  void addDefined(FunctionDecl *FD) override {
+    auto *MD = dyn_cast<CXXMethodDecl>(FD);
+    if (!MD || !MD->isInstance() || MD->isConst() ||
+        isa<CXXConstructorDecl, CXXDestructorDecl>(MD) ||
+        MD->isDependentContext() || MD->isTemplated() ||
+        MD->getParent()->isLambda())
+      return;
+    auto It = Facts.find(Ctx.mangle(FD));
+    const llvm::DenseSet<unsigned> *Planned = Ctx.planned(FD, name());
+    bool Proven = false;
+    StringRef Why;
+    if (It != Facts.end())
+      if (auto Fact = It->second.find(0); Fact != It->second.end()) {
+        Proven = true;
+        if (Fact->second.written)
+          Why = Ctx.save("const-method: " + Fact->second.why);
+        else if (!Fact->second.forwards.empty())
+          Why = "const-method: this passed to a non-const pointer parameter";
+      }
+    if (!Proven && !(Planned && Planned->contains(0)))
+      return;
+    Ctx.count("const-method: methods");
+    if (Why.empty())
+      Why = Ctx.whyIneligible(FD);
+    add(MD, Why, /*External=*/false);
+  }
+
+  void addExternal(FunctionDecl *FD, unsigned) override {
+    auto *MD = dyn_cast<CXXMethodDecl>(FD);
+    if (MD && MD->isInstance() && !MD->isConst())
+      add(MD, Ctx.whyIneligible(FD), /*External=*/true);
+  }
+
+private:
+  void add(CXXMethodDecl *MD, StringRef Why, bool External) {
+    Candidate Cand{MD, nullptr, 0, Id};
+    Cand.External = External;
+    if (Why.empty() && !methodEdits(Cand))
+      Why = "const-method: declarator in a macro";
+    Ctx.add(std::move(Cand), Why);
+  }
+
+  // ` const` after the parameter list of every declaration, before any
+  // ref-qualifier or exception specification.
+  bool methodEdits(Candidate &Cand) {
+    for (const FunctionDecl *R : Cand.FD->redecls()) {
+      FunctionTypeLoc FTL = R->getFunctionTypeLoc();
+      SourceLocation RParen = FTL ? FTL.getRParenLoc() : SourceLocation();
+      if (RParen.isInvalid() || RParen.isMacroID())
+        return false;
+      Cand.Edits.push_back(
+          FixItHint::CreateInsertion(RParen.getLocWithOffset(1), " const"));
+    }
+    return true;
+  }
+};
+
 } // namespace
 
 std::unique_ptr<Rewrite>
 clang::cirmodernize::createPointerToConst(Context &Ctx, unsigned Id) {
   return std::make_unique<PointerToConst>(Ctx, Id);
+}
+
+std::unique_ptr<Rewrite> clang::cirmodernize::createConstMethod(Context &Ctx,
+                                                                unsigned Id) {
+  return std::make_unique<ConstMethod>(Ctx, Id);
 }
