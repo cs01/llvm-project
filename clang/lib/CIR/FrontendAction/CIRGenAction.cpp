@@ -466,6 +466,7 @@ public:
     Options.ExportPath = FEOptions.ClangIRModernizeExport;
     Options.PlanPath = FEOptions.ClangIRModernizePlan;
     Options.Only = FEOptions.ClangIRModernizeOnly;
+    Options.Skip = FEOptions.ClangIRModernizeSkip;
     return Options;
   }
 

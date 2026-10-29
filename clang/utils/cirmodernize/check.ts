@@ -10,6 +10,7 @@
 // parameters CIR proved must-dereference were not rewritten.
 //
 // usage: bun check.ts --clang <clang> -p <compile_commands.json> [-j N] [--why]
+//                     [--only <rewrites>] [--skip <rewrites>]
 //                     [files or globs...]
 //        bun check.ts --clang <clang> -- <file> <flags...>
 import { mkdtempSync, readFileSync, rmSync } from "fs";
@@ -26,7 +27,7 @@ type Result = {
 
 const argv = process.argv.slice(2);
 let clang = "", compdb = "", jobs = defaultJobs, verbose = false, why = false;
-const patterns: string[] = [];
+const patterns: string[] = [], select: string[] = [];
 let direct: string[] | null = null;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -35,6 +36,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "-j") jobs = +argv[++i];
   else if (a === "-v") verbose = true;
   else if (a === "--why") why = true;
+  else if (a === "--only" || a === "--skip") select.push(`-fcir-modernize-${a.slice(2)}=${argv[++i]}`);
   else if (a === "--") { direct = argv.slice(i + 1); break; }
   else patterns.push(a);
 }
@@ -80,7 +82,7 @@ const drops = new Map<string, number>();
 async function check(c: Cmd, scratch: string): Promise<Result> {
   const m = await run(clang, [
     ...c.args, "-fclangir", "-S", "-emit-cir", "-fcir-modernize",
-    "-fdiagnostics-parseable-fixits", "-fno-color-diagnostics",
+    "-fdiagnostics-parseable-fixits", "-fno-color-diagnostics", ...select,
     ...(why ? ["-mllvm", "-debug-only=cir-modernize"] : []),
     "-o", "/dev/null", c.file,
   ], c.dir);
@@ -93,7 +95,8 @@ async function check(c: Cmd, scratch: string): Promise<Result> {
   const dir = mkdtempSync(join(scratch, "tu-"));
   try {
     const p = await prove(clang, c, overlay(dir, edits));
-    return { file: c.file, status: p.status, rewrites, detail: p.detail };
+    // An unprovable TU is a failure here too; "skip" means CIR could not compile it.
+    return { file: c.file, status: p.status === "skip" ? "fail" : p.status, rewrites, detail: p.detail };
   } finally {
     if (!verbose) rmSync(dir, { recursive: true, force: true });
   }

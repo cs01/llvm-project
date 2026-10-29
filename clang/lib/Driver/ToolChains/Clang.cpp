@@ -8164,6 +8164,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   Args.AddLastArg(CmdArgs, options::OPT_fcir_modernize_export_EQ);
   Args.AddLastArg(CmdArgs, options::OPT_fcir_modernize_plan_EQ);
   Args.AddLastArg(CmdArgs, options::OPT_fcir_modernize_only_EQ);
+  Args.AddLastArg(CmdArgs, options::OPT_fcir_modernize_skip_EQ);
   // The built-in libc lists (nullable returns, nonnull parameters) are on by
   // default, so only the -fno- forms need to be forwarded to cc1.
   Args.addOptOutFlag(CmdArgs, options::OPT_fnullability_libc_nullable_returns,

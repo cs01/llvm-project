@@ -81,7 +81,7 @@ So CIR modernize uses each for what it is good at:
 | owning raw pointer to `std::unique_ptr` | one owner, freed once on every path, never escapes | refinement |
 | `lock`/`unlock` pair to `std::lock_guard` | paired on every path, including exceptions | refinement |
 | add `lifetimebound` / `lifetime_capture_by` / `noescape` | returned or captured pointer derives from that parameter; never escapes (noescape) | IR identical + no new `-Wlifetime-safety-*` warnings |
-| add `__counted_by(n)` (C only) | every access through the pointer is guarded by the count | builds under `-fexperimental-bounds-safety`, tests pass |
+| add `__counted_by(n)` (C only, deferred) | every access through the pointer is guarded by the count | builds under `-fexperimental-bounds-safety`, tests pass |
 | out-parameter to return value | written on every path before any read | IR identical |
 
 **IR identical**: the original and rewritten translation units compile to the
@@ -92,6 +92,13 @@ reference attributes).
 every execution the original defined, and traps where the original had
 undefined behavior (for example an out-of-bounds index). Integer ranges let
 proven-in-bounds accesses skip their checks.
+
+Each rewrite belongs to the group of its proof, `identical` or `refinement`.
+`-fcir-modernize-only=` and `-fcir-modernize-skip=` (`--only` and `--skip` in
+`check.ts` and `project.ts`) take rewrite names and group names, comma
+separated. Without `--only` the default rewrites run: `ref` and `const`.
+Naming a group turns on every rewrite in it, including the opt-in ones
+(`nonnull`, `nullable`), and refinement rewrites run only when named.
 
 ## Analyses
 

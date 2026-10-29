@@ -21,6 +21,7 @@
 //
 // usage: bun project.ts --clang <clang> -p <compile_commands.json> [--root <dir>]
 //                       [--public-headers <dir>]... [--allow-public-api]
+//                       [--only <rewrites>] [--skip <rewrites>] [--inventory <file>]
 //                       [--apply] [-j N] [-v] [files or globs...]
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -53,6 +54,7 @@ type Export = { facts?: boolean; candidates: Candidate[]; sites?: Site[] };
 const argv = process.argv.slice(2);
 let clang = "", compdb = "", root = process.cwd(), jobs = defaultJobs;
 let allowPublic = false, apply = false, verbose = false, inventory = "";
+const select: string[] = [];
 const publicDirs: string[] = [], patterns: string[] = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -65,6 +67,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === "-j") jobs = +argv[++i];
   else if (a === "-v") verbose = true;
   else if (a === "--inventory") inventory = resolve(argv[++i]);
+  else if (a === "--only" || a === "--skip") select.push(`-fcir-modernize-${a.slice(2)}=${argv[++i]}`);
   else patterns.push(a);
 }
 if (!clang || !compdb) {
@@ -97,7 +100,7 @@ if (patterns.length) {
 async function exportTU(c: Cmd, out: string, plan?: string): Promise<Export | string> {
   const r = await run(clang, [
     ...c.args, "-fclangir", "-S", "-emit-cir", "-fcir-modernize", "-fno-color-diagnostics",
-    "-fno-crash-diagnostics", `-fcir-modernize-export=${out}`, ...(plan ? [`-fcir-modernize-plan=${plan}`] : []),
+    "-fno-crash-diagnostics", ...select, `-fcir-modernize-export=${out}`, ...(plan ? [`-fcir-modernize-plan=${plan}`] : []),
     "-o", "/dev/null", c.file,
   ], c.dir);
   // A translation unit CIR cannot compile still writes an export from the AST
@@ -249,22 +252,22 @@ settle();
 // stops the run instead.
 let all: Edit[] = [], toProve: Cmd[] = [];
 let failed = 0, proven = 0;
-const unproven = new Map<string, number>();
 for (let round = 1; ; round++) {
   all = [...live].flatMap((k) => edits.get(k)!);
   const picked = cmds.map((c, i) => [c, i] as const)
     .filter(([c, i]) => skipped.has(c.file) || astOnly.has(c.file) || [...tuKeys[i]].some((k) => live.has(k)));
   toProve = picked.map(([c]) => c);
   failed = proven = 0;
-  unproven.clear();
   if (!all.length) break;
   const yaml = overlay(mkdtempSync(join(scratch, "overlay-")), all);
   const bad: number[] = [];
   await pool(picked, jobs, async ([c, i]) => {
     const p = await prove(clang, c, yaml);
     if (p.status === "ok") proven++;
-    if (p.status === "skip") unproven.set(p.detail!, (unproven.get(p.detail!) ?? 0) + 1);
-    if (p.status === "fail") {
+    // A TU that includes an edited file but cannot be compiled as is (often a
+    // generated header the build has not made yet) proves nothing, so it
+    // counts against the rewrites like a failure.
+    if (p.status !== "ok") {
       failed++;
       bad.push(i);
       console.log(`FAIL ${c.file}\n  ${p.detail}`);
@@ -290,8 +293,7 @@ console.log(`${cmds.length} TUs (${astOnly.size} CIR could not fully compile, ${
 }
 console.log(`${proposals.size} parameters proposed, ${live.size} rewritten, ` +
             `${proposals.size - live.size} blocked`);
-console.log(`${proven} TUs proven unchanged, ${failed} failed, ${toProve.length - proven - failed} skipped`);
-for (const [w, n] of [...unproven].sort((x, y) => y[1] - x[1]).slice(0, 5)) console.log(`  ${n} not proven: ${w}`);
+console.log(`${proven} TUs proven unchanged, ${failed} failed`);
 if (blockedBy.size) {
   console.log("not rewritten:");
   for (const [why, n] of [...blockedBy].sort((x, y) => y[1] - x[1])) console.log(`  ${String(n).padStart(6)}  ${why}`);

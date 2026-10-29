@@ -1787,9 +1787,16 @@ def fcir_modernize_export_EQ : Joined<["-"], "fcir-modernize-export=">,
 def fcir_modernize_only_EQ : Joined<["-"], "fcir-modernize-only=">,
   Visibility<[ClangOption, CC1Option]>, Group<f_Group>, MetaVarName<"<rewrites>">,
   HelpText<"Only make these -fcir-modernize rewrites, a comma-separated list "
-           "of ref (pointer parameter to reference) and const (pointer to "
-           "const pointee); all by default">,
+           "of rewrite names (ref, const, nonnull, nullable) or groups "
+           "(identical: the compiled code is unchanged; refinement: it may "
+           "change, for example by adding checks); the default rewrites if "
+           "omitted">,
   MarshallingInfoString<FrontendOpts<"ClangIRModernizeOnly">>;
+def fcir_modernize_skip_EQ : Joined<["-"], "fcir-modernize-skip=">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>, MetaVarName<"<rewrites>">,
+  HelpText<"Do not make these -fcir-modernize rewrites, names or groups as "
+           "for -fcir-modernize-only=">,
+  MarshallingInfoString<FrontendOpts<"ClangIRModernizeSkip">>;
 def fcir_modernize_plan_EQ : Joined<["-"], "fcir-modernize-plan=">,
   Visibility<[ClangOption, CC1Option]>, Group<f_Group>, MetaVarName<"<file>">,
   HelpText<"Also consider the functions listed in <file>, defined in other "

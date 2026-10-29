@@ -34,8 +34,10 @@ struct CIRModernizeOptions {
   /// translation unit proposed. This one reports the edits its own
   /// declarations and calls need, or why it blocks them.
   std::string PlanPath;
-  /// Comma-separated rewrites to make (ref, const); empty means all.
+  /// Comma-separated rewrites or groups to make; empty means the default ones.
   std::string Only;
+  /// Comma-separated rewrites or groups not to make.
+  std::string Skip;
 };
 
 /// Module may be null when CIRGen failed: then only planned candidates, which

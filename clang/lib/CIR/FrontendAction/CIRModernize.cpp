@@ -240,15 +240,23 @@ std::optional<PointerTypeLoc> Context::starOf(const ParmVarDecl *P) {
 namespace {
 
 using Factory = std::unique_ptr<Rewrite> (*)(Context &, unsigned);
-constexpr std::pair<StringRef, Factory> AllRewrites[] = {
-    {"ref", createParamToReference},
-    {"const", createPointerToConst},
-    {"nonnull", createNonNull},
-    {"nullable", createNullable},
+struct RewriteInfo {
+  StringRef Name;
+  // "identical" rewrites leave the compiled code unchanged and are proven by
+  // IR equality; "refinement" ones may change it (added checks, cleanups).
+  StringRef Group;
+  bool Default;
+  Factory Create;
 };
-// Clang extensions, and they would annotate the parameters ref turns into
-// references: only when asked for by name.
-constexpr StringRef OptInRewrites[] = {"nonnull", "nullable"};
+// nonnull and nullable are clang extensions, and would annotate the
+// parameters ref turns into references: only when asked for.
+constexpr RewriteInfo AllRewrites[] = {
+    {"ref", "identical", true, createParamToReference},
+    {"const", "identical", true, createPointerToConst},
+    {"nonnull", "identical", false, createNonNull},
+    {"nullable", "identical", false, createNullable},
+};
+constexpr StringRef Groups[] = {"identical", "refinement"};
 
 class Modernizer {
 public:
@@ -295,20 +303,25 @@ public:
 
 private:
   bool enableRewrites(DiagnosticsEngine &Diags) {
-    llvm::SmallVector<StringRef> Only;
+    llvm::SmallVector<StringRef> Only, Skip;
     StringRef(Ctx.Options.Only).split(Only, ',', -1, /*KeepEmpty=*/false);
-    for (StringRef Name : Only)
-      if (!llvm::any_of(AllRewrites,
-                        [&](const auto &R) { return R.first == Name; })) {
+    StringRef(Ctx.Options.Skip).split(Skip, ',', -1, /*KeepEmpty=*/false);
+    for (StringRef Name : llvm::concat<StringRef>(Only, Skip))
+      if (!llvm::is_contained(Groups, Name) &&
+          !llvm::any_of(AllRewrites,
+                        [&](const RewriteInfo &R) { return R.Name == Name; })) {
         Diags.Report(Diags.getCustomDiagID(DiagnosticsEngine::Error,
                                            "unknown modernize rewrite '%0'"))
             << Name;
         return false;
       }
-    for (const auto &[Name, Create] : AllRewrites)
-      if (Only.empty() ? !llvm::is_contained(OptInRewrites, Name)
-                       : llvm::is_contained(Only, Name))
-        Rewrites.push_back(Create(Ctx, Rewrites.size()));
+    auto Names = [](ArrayRef<StringRef> List, const RewriteInfo &R) {
+      return llvm::is_contained(List, R.Name) ||
+             llvm::is_contained(List, R.Group);
+    };
+    for (const RewriteInfo &R : AllRewrites)
+      if ((Only.empty() ? R.Default : Names(Only, R)) && !Names(Skip, R))
+        Rewrites.push_back(R.Create(Ctx, Rewrites.size()));
     return true;
   }
 
@@ -394,7 +407,7 @@ private:
       StringRef Kind = E ? E->getString("kind").value_or("ref") : "";
       if (!USR || !Index || *Index < 0 ||
           !llvm::any_of(
-              AllRewrites, [&](const auto &R) { return R.first == Kind; }))
+              AllRewrites, [&](const RewriteInfo &R) { return R.Name == Kind; }))
         return Fail("bad function entry");
       Ctx.plan(Kind, *USR, *Index);
     }
