@@ -43,6 +43,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Demangle/Demangle.h"
 #include "llvm/IR/AttributeMask.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -218,6 +219,33 @@ static std::string pairGlobals(Module &Orig, Module &Next) {
     GV->setName(Name);
     if (GV->getName() != Name)
       return "symbol " + Name + " already taken in the rewritten module";
+  }
+
+  // A typeinfo name (_ZTS) holds a mangled type as a string, and the type of
+  // a lambda or local class names its enclosing function: the same change as
+  // in the symbol names, undone the same way.
+  for (size_t I = 0; I < A.size(); ++I) {
+    auto *GA = dyn_cast<GlobalVariable>(A[I]);
+    auto *GB = dyn_cast<GlobalVariable>(B[I]);
+    if (!GA || !GB || !GA->getName().starts_with("_ZTS") ||
+        !GA->hasInitializer() || !GB->hasInitializer())
+      continue;
+    auto *SA = dyn_cast<ConstantDataSequential>(GA->getInitializer());
+    auto *SB = dyn_cast<ConstantDataSequential>(GB->getInitializer());
+    if (!SA || !SB || !SA->isCString() || !SB->isCString())
+      continue;
+    StringRef TA = SA->getAsCString(), TB = SB->getAsCString();
+    if (TA == TB ||
+        signature(("_Z" + TA).str()) != signature(("_Z" + TB).str()))
+      continue;
+    Constant *Init = ConstantDataArray::getString(Next.getContext(), TA);
+    auto *NG = new GlobalVariable(Next, Init->getType(), GB->isConstant(),
+                                  GB->getLinkage(), Init, "", GB,
+                                  GB->getThreadLocalMode());
+    NG->copyAttributesFrom(GB);
+    NG->takeName(GB);
+    GB->replaceAllUsesWith(NG);
+    GB->eraseFromParent();
   }
 
   std::vector<StringRef> Stale;

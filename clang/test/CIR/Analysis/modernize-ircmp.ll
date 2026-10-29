@@ -11,6 +11,8 @@
 ; RUN: not cir-modernize-ircmp orig.ll fnalign.ll | FileCheck --check-prefix=FNALIGN %s
 ; RUN: not cir-modernize-ircmp orig.ll extra.ll | FileCheck --check-prefix=EXTRA %s
 ; RUN: cir-modernize-ircmp method.ll method-const.ll
+; RUN: cir-modernize-ircmp typeinfo.ll typeinfo-ref.ll
+; RUN: not cir-modernize-ircmp typeinfo.ll typeinfo-other.ll | FileCheck --check-prefix=TYPEINFO %s
 ; RUN: not cir-modernize-ircmp method.ll method-other.ll | FileCheck --check-prefix=METHOD %s
 
 ; INST:      in define internal noundef i32 @_ZL5firstP4Node
@@ -23,6 +25,7 @@
 ; FNALIGN:   + define {{.*}} align 16 {
 ; EXTRA:     global count
 ; METHOD:    symbol {{[0-9]+}}: S::get() vs S::got() const
+; TYPEINFO:  + @"_ZTSZ5firstP4NodeE3$_0" = {{.*}}c"Z5firstR4NodeE3$_1\00"
 
 ;--- orig.ll
 %struct.Node = type { i32, ptr }
@@ -392,4 +395,24 @@ define i32 @_ZNK1S3getEv(ptr noundef %this) {
 define i32 @_ZNK1S3gotEv(ptr noundef %this) {
   %v = load i32, ptr %this, align 4
   ret i32 %v
+}
+;--- typeinfo.ll
+@_ZTSZ5firstP4NodeE3$_0 = internal constant [19 x i8] c"Z5firstP4NodeE3$_0\00"
+
+define ptr @_Z5firstP4Node(ptr %n) {
+  ret ptr @_ZTSZ5firstP4NodeE3$_0
+}
+
+;--- typeinfo-ref.ll
+@_ZTSZ5firstR4NodeE3$_0 = internal constant [19 x i8] c"Z5firstR4NodeE3$_0\00"
+
+define ptr @_Z5firstR4Node(ptr %n) {
+  ret ptr @_ZTSZ5firstR4NodeE3$_0
+}
+
+;--- typeinfo-other.ll
+@_ZTSZ5firstR4NodeE3$_0 = internal constant [19 x i8] c"Z5firstR4NodeE3$_1\00"
+
+define ptr @_Z5firstR4Node(ptr %n) {
+  ret ptr @_ZTSZ5firstR4NodeE3$_0
 }
