@@ -82,6 +82,11 @@ int use(Node *n, S *s) {
 // FIXED: {{^}}static bool isNull(const Node *p) { return p == nullptr; }
 // FIXED: {{^}}static int writes(Node *p) {
 
+// A pointer to pointer: const goes after the pointee's own '*'.
+// FIXED: {{^}}static int firstChar(const char *const *argv) { return argv[0][0]; }
+static int firstChar(const char **argv) { return argv[0][0]; }
+int useArgv(const char **argv) { return firstChar(argv); }
+
 // A deduction guide has no symbol; looking callees up by mangled name must
 // not try to mangle it.
 template <typename T> struct Box {

@@ -30,9 +30,15 @@ static int *fresh(int *) {
   return &g;
 }
 
+// An unnamed parameter takes the attribute in front, where it appertains to
+// the parameter and not to its type.
+// CHECK: fix-it:{{.*}}:{[[@LINE+1]]:31-[[@LINE+1]]:31}:"{{\[\[}}clang::lifetimebound{{\]\]}} "
+static const int &unnamedDecl(const int &);
+static const int &unnamedDecl(const int &x) { return x; }
+
 int use(S *s, const int &a, const int &b) {
   return pick(*s) + *elem(s, 1) + follow(s)->x + either(a, b, true) +
-         *fresh(nullptr);
+         *fresh(nullptr) + unnamedDecl(a);
 }
 
 // The annotation is what lets clang see this dangling reference.

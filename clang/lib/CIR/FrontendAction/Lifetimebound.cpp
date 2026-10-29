@@ -215,14 +215,22 @@ protected:
     return {};
   }
 
-  // After the parameter's name in every declaration this TU sees; an
-  // unnamed parameter gets it after its type.
+  // After the parameter's name in every declaration this TU sees, or in
+  // front of an unnamed one.
   bool declEdits(Candidate &Cand) {
     for (const FunctionDecl *R : Cand.FD->redecls()) {
       const ParmVarDecl *P = R->getParamDecl(Cand.Index);
-      SourceLocation Last =
-          P->getDeclName() ? P->getLocation()
-                           : P->getTypeSourceInfo()->getTypeLoc().getEndLoc();
+      // Without a name, an attribute after the declarator would appertain
+      // to the type; one in front of the parameter appertains to it.
+      if (!P->getDeclName()) {
+        SourceLocation Begin = P->getBeginLoc();
+        if (Begin.isInvalid() || Begin.isMacroID())
+          return false;
+        Cand.Edits.push_back(
+            FixItHint::CreateInsertion(Begin, "[[clang::lifetimebound]] "));
+        continue;
+      }
+      SourceLocation Last = P->getLocation();
       if (Last.isInvalid() || Last.isMacroID())
         return false;
       SourceLocation After =

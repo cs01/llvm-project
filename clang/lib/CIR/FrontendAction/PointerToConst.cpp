@@ -132,13 +132,23 @@ protected:
   }
 
   // `const ` before the pointee of every declaration this translation unit
-  // sees.
+  // sees, or after the pointee's own '*' when it is a pointer.
   bool declEdits(Candidate &Cand) {
     for (const FunctionDecl *R : Cand.FD->redecls()) {
       std::optional<PointerTypeLoc> Star =
           Context::starOf(R->getParamDecl(Cand.Index));
       if (!Star || Star->getStarLoc().isMacroID())
         return false;
+      // A pointee that is itself a pointer takes const after its own '*'
+      // (char *const *); in front, const would qualify what that points to.
+      if (auto Inner = Star->getPointeeLoc().getAs<PointerTypeLoc>()) {
+        SourceLocation InnerStar = Inner.getStarLoc();
+        if (InnerStar.isInvalid() || InnerStar.isMacroID())
+          return false;
+        Cand.Edits.push_back(FixItHint::CreateInsertion(
+            InnerStar.getLocWithOffset(1), "const "));
+        continue;
+      }
       SourceLocation Begin = Star->getPointeeLoc().getBeginLoc();
       if (Begin.isInvalid() || Begin.isMacroID())
         return false;
