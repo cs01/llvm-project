@@ -82,7 +82,7 @@ const drops = new Map<string, number>();
 async function check(c: Cmd, scratch: string): Promise<Result> {
   const m = await run(clang, [
     ...c.args, "-fclangir", "-S", "-emit-cir", "-fcir-modernize",
-    "-fdiagnostics-parseable-fixits", "-fno-color-diagnostics", ...select,
+    "-fdiagnostics-parseable-fixits", "-fno-color-diagnostics", "-Wno-everything", ...select,
     ...(why ? ["-mllvm", "-debug-only=cir-modernize"] : []),
     "-o", "/dev/null", c.file,
   ], c.dir);
