@@ -6,11 +6,47 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Runs every enabled rewrite (ParamToReference.cpp, PointerToConst.cpp) over a
-// translation unit: each analyzes the CIR module and proposes candidates on
-// the AST; candidates whose needs are blocked are blocked in turn until
-// nothing changes; the rest are reported as warnings with fix-its, applied,
-// or, in project mode, exported with the blocked ones for project.ts.
+// The driver for -fcir-modernize, which rewrites C++ source into safer,
+// more idiomatic forms (a pointer parameter that is never null becomes a
+// reference, a pointer that is never written through becomes a pointer to
+// const). The design, the list of rewrites and how each is proven are in
+// clang/utils/cirmodernize/README.md and docs/cir-modernize-design.md.
+//
+// It runs inside one clang invocation, after CIRGen has built the CIR module
+// and while the AST is still alive (called from CIRGenConsumer in
+// CIRGenAction.cpp):
+//
+//  1. Analyze. Each enabled rewrite (one per file: ParamToReference.cpp,
+//     PointerToConst.cpp, ...) runs its analysis on the CIR module and
+//     records facts keyed by mangled function name.
+//  2. Propose. The rewrite finds the matching FunctionDecl by mangling AST
+//     declarations the same way (Context::declByMangledName), checks what
+//     only the AST can tell (macros, #if regions, overloads, address taken)
+//     and builds a candidate with the source edits it needs.
+//  3. Settle. A candidate can depend on others, for example a parameter
+//     forwarded to another candidate's parameter. Candidates whose
+//     dependencies are blocked are blocked in turn, until nothing changes.
+//  4. Report. The survivors become warnings carrying fix-its. With
+//     -fcir-modernize-apply the edits are written to the files. In project
+//     mode, survivors and blocked candidates are exported for project.ts,
+//     which merges them across translation units.
+//
+// The analyses that propose an edit cannot be trusted to vouch for it, so the
+// edits are checked outside this file, with classic codegen and no CIR:
+// compile the translation unit before and after the edits and compare the
+// LLVM IR with cir-modernize-ircmp (clang/tools/cir-modernize-ircmp), which
+// exits 0 when the modules match apart from mangled names and reference
+// attributes:
+//
+//   clang++ <flags> -emit-llvm -c -O0 -g0 foo.cpp -o before.bc
+//   clang++ <flags> -fclangir -emit-cir -fcir-modernize \
+//       -fcir-modernize-apply foo.cpp -o /dev/null
+//   clang++ <flags> -emit-llvm -c -O0 -g0 foo.cpp -o after.bc
+//   cir-modernize-ircmp before.bc after.bc
+//
+// Rewrites that change code on purpose (span, unique_ptr, lock_guard) compile
+// with -O1 -Xclang -disable-llvm-passes and compare with
+// cir-modernize-ircmp --refine instead.
 //
 //===----------------------------------------------------------------------===//
 
