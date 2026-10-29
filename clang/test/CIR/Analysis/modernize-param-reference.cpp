@@ -99,3 +99,29 @@ struct WithCtor {
 };
 template <typename T> static int templated(T *t) { return t->value; }
 int useCtor(Node *n) { return WithCtor(n).v + templated(n); }
+
+// Functions reached from a template instantiation are left alone: the edit
+// would have to go in the template, which other instantiations share. classof
+// is the classic case, called as To::classof(&V) by isa<>. With the converting
+// constructor below, a missed call site would still compile, binding the
+// reference to a temporary Shape built from the pointer.
+namespace {
+struct Shape {
+  int kind;
+  Shape(const Shape *Parent = nullptr) : kind(Parent ? Parent->kind : 0) {}
+  static bool classof(const Shape *S) { return S->kind == 1; }
+};
+template <typename To, typename From> bool isaShape(const From &V) {
+  return To::classof(&V);
+}
+int fromTemplate(Node *p) { return p->value; }
+template <typename T> int callsFromTemplate(T, Node *n) {
+  return fromTemplate(n);
+}
+} // namespace
+int useTemplates(Node *n) {
+  Shape s;
+  return isaShape<Shape>(s) + callsFromTemplate(1, n);
+}
+// NEG-NOT: of 'classof'
+// NEG-NOT: of 'fromTemplate'

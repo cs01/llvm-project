@@ -39,22 +39,56 @@ using namespace clang;
 namespace {
 
 class Collector : public RecursiveASTVisitor<Collector> {
+  using Base = RecursiveASTVisitor<Collector>;
+
 public:
+  // Instantiations are walked only to see which functions they reference. An
+  // edit there would land in the template, which every instantiation shares,
+  // so such a function is never a candidate. Nothing inside an instantiation
+  // is collected as a use to rewrite.
+  bool shouldVisitTemplateInstantiations() const { return true; }
+
+  bool TraverseDecl(Decl *D) {
+    bool Inst = D && isInstantiation(D);
+    InstantiationDepth += Inst;
+    bool Result = Base::TraverseDecl(D);
+    InstantiationDepth -= Inst;
+    return Result;
+  }
+
+  bool dataTraverseStmtPre(Stmt *S) {
+    if (!InstantiationDepth)
+      return true;
+    const ValueDecl *Ref = nullptr;
+    if (auto *DRE = dyn_cast<DeclRefExpr>(S))
+      Ref = DRE->getDecl();
+    else if (auto *ME = dyn_cast<MemberExpr>(S))
+      Ref = ME->getMemberDecl();
+    if (const auto *FD = dyn_cast_or_null<FunctionDecl>(Ref))
+      UsedInInstantiation.insert(FD->getCanonicalDecl());
+    return true;
+  }
+
   bool VisitFunctionDecl(FunctionDecl *FD) {
+    if (InstantiationDepth)
+      return true;
     if (FD->doesThisDeclarationHaveABody())
       Functions.push_back(FD);
     return true;
   }
   bool VisitCallExpr(CallExpr *CE) {
-    Calls.push_back(CE);
+    if (!InstantiationDepth)
+      Calls.push_back(CE);
     return true;
   }
   bool VisitDeclRefExpr(DeclRefExpr *DRE) {
-    Refs.push_back(DRE);
+    if (!InstantiationDepth)
+      Refs.push_back(DRE);
     return true;
   }
   bool VisitMemberExpr(MemberExpr *ME) {
-    Members.push_back(ME);
+    if (!InstantiationDepth)
+      Members.push_back(ME);
     return true;
   }
   bool VisitOverloadExpr(OverloadExpr *E) {
@@ -65,8 +99,13 @@ public:
     Unresolved.insert(E->getMember());
     return true;
   }
+  bool VisitDependentScopeDeclRefExpr(DependentScopeDeclRefExpr *E) {
+    Unresolved.insert(E->getDeclName());
+    return true;
+  }
   bool VisitLambdaExpr(LambdaExpr *L) {
-    Lambdas.push_back(L);
+    if (!InstantiationDepth)
+      Lambdas.push_back(L);
     return true;
   }
 
@@ -76,6 +115,20 @@ public:
   std::vector<MemberExpr *> Members;
   std::vector<LambdaExpr *> Lambdas;
   llvm::DenseSet<DeclarationName> Unresolved;
+  llvm::DenseSet<const FunctionDecl *> UsedInInstantiation;
+
+private:
+  static bool isInstantiation(const Decl *D) {
+    if (const auto *FD = dyn_cast<FunctionDecl>(D))
+      return FD->isTemplateInstantiation();
+    if (const auto *CTS = dyn_cast<ClassTemplateSpecializationDecl>(D))
+      return isTemplateInstantiation(CTS->getSpecializationKind());
+    if (const auto *VTS = dyn_cast<VarTemplateSpecializationDecl>(D))
+      return isTemplateInstantiation(VTS->getSpecializationKind());
+    return false;
+  }
+
+  unsigned InstantiationDepth = 0;
 };
 
 struct Candidate {
@@ -165,6 +218,8 @@ private:
     if (Visitor.Unresolved.contains(FD->getDeclName()))
       return false;
     const FunctionDecl *Canon = FD->getCanonicalDecl();
+    if (Visitor.UsedInInstantiation.contains(Canon))
+      return false;
     for (const NamedDecl *ND :
          FD->getDeclContext()->getRedeclContext()->lookup(FD->getDeclName())) {
       auto *Other = dyn_cast<FunctionDecl>(ND);
