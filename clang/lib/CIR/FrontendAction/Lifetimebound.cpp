@@ -7,7 +7,9 @@
 //===----------------------------------------------------------------------===//
 //
 // Marks a pointer or reference parameter [[clang::lifetimebound]] when CIR
-// shows the returned pointer or reference can be derived from it. Clang then
+// shows the returned pointer or reference can be derived from it, and, as
+// the lifetimebound-this rewrite, a method whose result can be derived from
+// `this`: an accessor returning a reference to a member. Clang then
 // diagnoses callers that keep the result past the argument's lifetime
 // (-Wdangling, -Wreturn-stack-address, -Wlifetime-safety).
 //
@@ -31,16 +33,25 @@ namespace {
 
 class Lifetimebound : public Rewrite {
 public:
-  using Rewrite::Rewrite;
+  Lifetimebound(Context &Ctx, unsigned Id, bool This)
+      : Rewrite(Ctx, Id), This(This) {}
 
-  StringRef name() const override { return "lifetimebound"; }
+  StringRef name() const override {
+    return This ? "lifetimebound-this" : "lifetimebound";
+  }
   unsigned diagID(DiagnosticsEngine &Diags) const override {
+    if (This)
+      return Diags.getCustomDiagID(DiagnosticsEngine::Warning,
+                                   "the result of %0 can refer to the object "
+                                   "%1 is called on; it can be "
+                                   "[[clang::lifetimebound]]");
     return Diags.getCustomDiagID(DiagnosticsEngine::Warning,
                                  "the result of %1 can refer to what "
                                  "parameter %0 refers to; it can be "
                                  "[[clang::lifetimebound]]");
   }
   StringRef whyNeedBlocked() const override { return "lifetimebound: needed"; }
+  bool changesType() const override { return false; }
 
   void analyze(mlir::ModuleOp Module) override {
     cir::collectReturnOrigins(Module, [&](const cir::ReturnOriginFact &F) {
@@ -58,6 +69,14 @@ public:
       return;
     StringRef FunctionWhy = whyNot(FD);
     unsigned Offset = Context::thisOffset(FD);
+    if (This) {
+      bool Derived = Offset && It != Facts.end() && It->second.contains(0);
+      if (!Derived && !(Planned && Planned->contains(0)))
+        return;
+      Ctx.count("lifetimebound-this: proven methods");
+      addThis(FD, FunctionWhy, /*External=*/false);
+      return;
+    }
     for (unsigned Index = 0; Index < FD->getNumParams(); ++Index) {
       ParmVarDecl *P = FD->getParamDecl(Index);
       if (!annotatable(P))
@@ -75,6 +94,11 @@ public:
   }
 
   void addExternal(FunctionDecl *FD, unsigned Index) override {
+    if (This) {
+      if (Context::thisOffset(FD))
+        addThis(FD, whyNot(FD), /*External=*/true);
+      return;
+    }
     Candidate Cand{FD, FD->getParamDecl(Index), Index, Id};
     Cand.External = true;
     StringRef Why = whyNot(FD);
@@ -84,6 +108,41 @@ public:
   }
 
 private:
+  void addThis(FunctionDecl *FD, StringRef Why, bool External) {
+    if (FD->hasAttr<LifetimeBoundAttr>() ||
+        cast<CXXMethodDecl>(FD)->getMethodQualifiers().hasVolatile())
+      return;
+    Candidate Cand{FD, nullptr, 0, Id};
+    Cand.External = External;
+    if (Why.empty() && !thisEdits(Cand))
+      Why = "lifetimebound-this: declarator has a trailing return type or "
+            "a macro";
+    Ctx.add(std::move(Cand), Why);
+  }
+
+  // After the qualifiers and exception specification of every declaration:
+  // the attribute then appertains to the implicit object parameter.
+  bool thisEdits(Candidate &Cand) {
+    for (const FunctionDecl *R : Cand.FD->redecls()) {
+      FunctionTypeLoc FTL = R->getFunctionTypeLoc();
+      if (!FTL)
+        return false;
+      if (const auto *FPT = R->getType()->getAs<FunctionProtoType>();
+          FPT && FPT->hasTrailingReturn())
+        return false;
+      SourceLocation End = FTL.getLocalRangeEnd();
+      if (End.isInvalid() || End.isMacroID())
+        return false;
+      SourceLocation After =
+          Lexer::getLocForEndOfToken(End, 0, Ctx.SM, Ctx.C.getLangOpts());
+      if (After.isInvalid())
+        return false;
+      Cand.Edits.push_back(
+          FixItHint::CreateInsertion(After, " [[clang::lifetimebound]]"));
+    }
+    return true;
+  }
+
   static bool annotatable(const ParmVarDecl *P) {
     QualType T = P->getType();
     return (T->isReferenceType() ||
@@ -138,6 +197,7 @@ private:
     return true;
   }
 
+  const bool This;
   llvm::StringMap<llvm::DenseSet<unsigned>> Facts;
 };
 
@@ -145,5 +205,10 @@ private:
 
 std::unique_ptr<Rewrite> clang::cirmodernize::createLifetimebound(Context &Ctx,
                                                                   unsigned Id) {
-  return std::make_unique<Lifetimebound>(Ctx, Id);
+  return std::make_unique<Lifetimebound>(Ctx, Id, /*This=*/false);
+}
+
+std::unique_ptr<Rewrite>
+clang::cirmodernize::createLifetimeboundThis(Context &Ctx, unsigned Id) {
+  return std::make_unique<Lifetimebound>(Ctx, Id, /*This=*/true);
 }

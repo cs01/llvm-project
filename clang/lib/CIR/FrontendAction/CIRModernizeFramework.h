@@ -157,6 +157,7 @@ private:
 
 struct Candidate {
   FunctionDecl *FD;
+  /// Null for a candidate about the implicit object parameter, `this`.
   ParmVarDecl *Param;
   unsigned Index;
   /// Which rewrite proposed it (Rewrite::id).
@@ -268,6 +269,10 @@ public:
   virtual unsigned diagID(DiagnosticsEngine &Diags) const = 0;
   /// Why a candidate is blocked when one it needs is.
   virtual StringRef whyNeedBlocked() const = 0;
+  /// Whether the function's type changes, so code that names it may need an
+  /// edit; an attribute that leaves the type alone needs none, even in an
+  /// #if branch this build skips.
+  virtual bool changesType() const { return true; }
 
   virtual void analyze(mlir::ModuleOp Module) = 0;
   virtual void addDefined(FunctionDecl *FD) = 0;
@@ -286,6 +291,7 @@ std::unique_ptr<Rewrite> createPointerToConst(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createNonNull(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createNullable(Context &Ctx, unsigned Id);
 std::unique_ptr<Rewrite> createLifetimebound(Context &Ctx, unsigned Id);
+std::unique_ptr<Rewrite> createLifetimeboundThis(Context &Ctx, unsigned Id);
 
 /// Writes the "sites" array of a project-mode export: every unsafe construct
 /// in the translation unit's own source (Inventory.cpp).

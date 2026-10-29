@@ -207,7 +207,9 @@ void Context::add(Candidate Cand, StringRef Why) {
     Cand.Live = false;
     Cand.Why = Why;
   }
-  ByParam[{Cand.Param, Cand.Rewrite}] = Candidates.size();
+  // A candidate about `this` has no parameter, and nothing needs it.
+  if (Cand.Param)
+    ByParam[{Cand.Param, Cand.Rewrite}] = Candidates.size();
   Candidates.push_back(std::move(Cand));
 }
 
@@ -259,6 +261,7 @@ constexpr RewriteInfo AllRewrites[] = {
     {"nonnull", "identical", false, createNonNull},
     {"nullable", "identical", false, createNullable},
     {"lifetimebound", "identical", true, createLifetimebound},
+    {"lifetimebound-this", "identical", true, createLifetimeboundThis},
 };
 constexpr StringRef Groups[] = {"identical", "refinement"};
 
@@ -378,7 +381,8 @@ private:
     const IdentifierInfo *II = Cand.FD->getIdentifier();
     if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(Cand.FD))
       II = Ctor->getParent()->getIdentifier();
-    if (II ? CR->skippedNames().contains(II->getName()) : CR->skippedAny())
+    if (Rewrites[Cand.Rewrite]->changesType() &&
+        (II ? CR->skippedNames().contains(II->getName()) : CR->skippedAny()))
       return "named in an #if branch this build skips";
     return {};
   }
@@ -391,8 +395,14 @@ private:
     for (const Candidate &Cand : Ctx.Candidates) {
       if (!Cand.Live)
         continue;
-      auto Diag = Diags.Report(Cand.Param->getLocation(), IDs[Cand.Rewrite]);
-      Diag << Cand.Param << Cand.FD;
+      auto Diag = Diags.Report(Cand.Param ? Cand.Param->getLocation()
+                                          : Cand.FD->getLocation(),
+                               IDs[Cand.Rewrite]);
+      if (Cand.Param)
+        Diag << Cand.Param;
+      else
+        Diag << Cand.FD;
+      Diag << Cand.FD;
       for (const auto *Edits : {&Cand.Edits, &Cand.LateEdits})
         for (const FixItHint &Hint : *Edits)
           Diag << Hint;
@@ -482,12 +492,14 @@ private:
             J.attribute("index", Cand.Index);
             J.attribute("kind", Kind);
             J.attribute("function", Cand.FD->getQualifiedNameAsString());
-            J.attribute("param", Cand.Param->getName());
+            J.attribute("param", Cand.Param ? Cand.Param->getName() : "this");
             J.attribute("defined", !Cand.External);
             J.attribute("internal", !Cand.FD->isExternallyVisible());
             J.attribute("method", isa<CXXMethodDecl>(Cand.FD));
-            J.attribute("location",
-                        Cand.Param->getLocation().printToString(Ctx.SM));
+            J.attribute("changesType", Rewrites[Cand.Rewrite]->changesType());
+            J.attribute("location", (Cand.Param ? Cand.Param->getLocation()
+                                                : Cand.FD->getLocation())
+                                        .printToString(Ctx.SM));
             if (!Cand.Live) {
               J.attribute("blocked", Cand.Why);
               return;

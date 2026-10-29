@@ -6,6 +6,8 @@
 // RUN: rm -rf %t && split-file %s %t && cd %t
 // RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref -fcir-modernize-export=a.json a.cpp -o /dev/null
 // RUN: FileCheck --input-file=a.json %s
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=lifetimebound -fcir-modernize-export=lb.json a.cpp -o /dev/null
+// RUN: FileCheck --check-prefix=ATTR --input-file=lb.json %s
 
 //--- guarded.h
 #ifndef GUARDED_H
@@ -36,8 +38,15 @@ static int calledWhenSkipped(N *p) { return p->v; }
 int other(N n) { return calledWhenSkipped(&n); }
 #endif
 
+// An attribute changes no type, so a skipped call needs no edit.
+static const int &attrWhenSkipped(const N &n) { return n.v; }
+#ifdef NOT_THIS_BUILD
+int third(N n) { return attrWhenSkipped(n); }
+#endif
+
 int use(N *q) {
-  return inGuard(q) + plain(q) + bodyIf(q) + definedIn(q) + calledWhenSkipped(q);
+  return inGuard(q) + plain(q) + bodyIf(q) + definedIn(q) + calledWhenSkipped(q) +
+         attrWhenSkipped(*q);
 }
 
 // CHECK:      "function": "inGuard",
@@ -55,3 +64,8 @@ int use(N *q) {
 // CHECK:      "skippedNames": [
 // CHECK-DAG:  "calledWhenSkipped"
 // CHECK-DAG:  "DEBUG"
+
+// ATTR:      "function": "attrWhenSkipped",
+// ATTR:      "changesType": false,
+// ATTR-NOT:  "blocked"
+// ATTR:      "edits"

@@ -42,6 +42,7 @@ type Candidate = {
   blocked?: string;
   internal?: boolean;
   method?: boolean;
+  changesType?: boolean;
   edits?: Edit[];
   needs?: { usr: string; index: number; kind: string }[];
 };
@@ -165,6 +166,7 @@ pass1.forEach((e, i) => {
   }
 });
 for (const [k, c] of proposals) {
+  if (c.changesType === false) continue;
   const name = c.function.split("::").pop()!;
   if (skippedNames.has(name) || (name.startsWith("operator") && skippedNames.size)) {
     proposals.delete(k);
