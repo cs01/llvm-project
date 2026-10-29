@@ -2,19 +2,16 @@
 // that a rewritten translation unit compiles to the same LLVM IR.
 //
 // The proof compiles the original and the rewritten TU with classic codegen at
-// -O0 and requires identical IR after two normalizations:
-//
-//  * pointer to reference (P4Node -> R4Node) and pointer to const
-//    (P4Node -> PK4Node) change the mangled name; symbols are paired by order
-//    of first appearance and must demangle to the same name once '&' is read
-//    as '*' and `const` before a '*' is dropped;
-//  * a reference parameter or argument gains nonnull/align/dereferenceable,
-//    which are stripped from signatures and call lines only.
+// -O0, and clang/tools/cir-modernize-ircmp requires the modules to print
+// identically once the few differences a spelling change causes (mangled
+// names, reference attributes and load metadata, struct type suffixes) are
+// undone; that tool lists them.
 //
 // Classic codegen is deliberately independent of CIR: the analysis that
 // proposed the edit is not the one that checks it.
-import { spawn, spawnSync } from "child_process";
-import { readFileSync, writeFileSync } from "fs";
+import { spawn } from "child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { dirname, isAbsolute, join } from "path";
 
 export type Cmd = { file: string; dir: string; args: string[] };
@@ -147,110 +144,31 @@ export function overlay(dir: string, edits: Edit[]): string {
   return yaml;
 }
 
-const REF_ATTRS = / (nonnull|align \d+|dereferenceable\(\d+\)|dereferenceable_or_null\(\d+\))(?=[ ,)])/g;
-// A load of a reference from its -O0 stack slot is tagged with the same facts
-// as metadata. The numbered nodes those tags add are dropped on both sides;
-// with -g0 the rest is module flags and ident, identical in both.
-const REF_LOAD_MD = /, !(nonnull|align|noundef) !\d+/g;
-function normalize(ir: string): string[] {
-  const lines = ir.split("\n")
-    .filter((l) => !l.startsWith("; ModuleID") && !l.startsWith("source_filename") && !/^!\d+ = /.test(l))
-    .map((l) => /^(define|declare) |[ =]call |[ =]invoke /.test(l) ? l.replace(REF_ATTRS, "") : l)
-    .map((l) => / = load ptr, /.test(l) ? l.replace(REF_LOAD_MD, "") : l);
-  return renumberTypes(lines);
-}
-
-// Named struct types get a numeric suffix (ArrayRef.1198) in creation order,
-// which shifts when an unrelated type is created earlier. Each base name is
-// renumbered by order of first appearance, the same way in both modules.
-const NUMBERED_TYPE = /%("?)((?:struct|class|union)\.[^"\s,)]*?)\.(\d+)\1(?=[\s,)*\]}]|$)/g;
-function renumberTypes(lines: string[]): string[] {
-  const ids = new Map<string, string>(), count = new Map<string, number>();
-  return lines.map((l) => l.replace(NUMBERED_TYPE, (_, q, base, n) => {
-    const key = `${base}.${n}`;
-    if (!ids.has(key)) {
-      const k = (count.get(base) ?? 0) + 1;
-      count.set(base, k);
-      ids.set(key, `%${q}${base}.#${k}${q}`);
-    }
-    return ids.get(key)!;
-  }));
-}
-
-// Quoted symbols (lambdas, `$` in the name) count too: a lambda's mangled
-// name embeds its enclosing function's parameter types. So do COMDAT names
-// (`$_Z4peekP4Node`), which inline functions get.
-function symbols(lines: string[]): string[] {
-  const seen = new Set<string>();
-  for (const l of lines) for (const m of l.matchAll(/[@$]"?(_Z[\w.$]+)/g)) seen.add(m[1]);
-  return [...seen];
-}
-
-function demangle(cxxfilt: string, names: string[]): string[] {
-  if (!names.length) return [];
-  const r = spawnSync(cxxfilt, [], { input: names.join("\n") + "\n" });
-  return r.stdout.toString().trimEnd().split("\n");
-}
-
-// What a rewrite may change in a demangled name: a pointer parameter becomes
-// a reference ('*' to '&') or points to const (`Node*` to `Node const*`).
-// llvm-cxxfilt leaves some names (generic lambdas) mangled; then the same
-// change is undone on the mangled form: R (reference) and P (pointer), each
-// optionally followed by K (const), all read as P. Both sides get the same
-// treatment, and this only pairs symbols: their IR is still compared.
-function signature(demangled: string, mangled: string): string {
-  if (demangled === mangled) return mangled.replace(/[PR]K?/g, "P");
-  return demangled.replace(/&/g, "*").replace(/ const(?=\*)/g, "");
-}
-
-// Rename the rewritten module's symbols to the original's, or say why the
-// symbol lists do not pair up. A mangled name also appears inside other
-// symbols (`@__func__._ZL5firstP4Node` from assert), so it is renamed wherever
-// it follows '@', '$', '.' or a quote.
-function remap(cxxfilt: string, orig: string[], next: string[]): string[] | string {
-  const a = symbols(orig), b = symbols(next);
-  if (a.length !== b.length) return `symbol count ${a.length} vs ${b.length}`;
-  const da = demangle(cxxfilt, a), db = demangle(cxxfilt, b);
-  const rename = new Map<string, string>();
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] === b[i]) continue;
-    if (signature(da[i], a[i]) !== signature(db[i], b[i])) return `symbol ${i}: ${da[i]} vs ${db[i]}`;
-    rename.set(b[i], a[i]);
-  }
-  if (!rename.size) return next;
-  const re = new RegExp(`(?<=[@."$])(${[...rename.keys()].map((k) => k.replace(/[$.]/g, "\\$&")).join("|")})(?![\\w$])`, "g");
-  return next.map((l) => l.replace(re, (n) => rename.get(n)!));
-}
-
-function firstDiff(a: string[], b: string[]): string {
-  let fn = "";
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if (a[i]?.startsWith("define ")) fn = a[i];
-    if (a[i] !== b[i]) return `in ${fn || "module"}\n  - ${a[i]}\n  + ${b[i]}`;
-  }
-  return "";
-}
-
-const IR_FLAGS = ["-S", "-emit-llvm", "-O0", "-g0", "-o", "-"];
+const IR_FLAGS = ["-emit-llvm", "-c", "-O0", "-g0"];
 
 export type Proof = { status: "ok" | "fail" | "skip"; detail?: string };
 
-// Compiles c as is and with the overlay mounted, and compares the IR.
+// Compiles c as is and with the overlay mounted, and has cir-modernize-ircmp
+// compare the two modules.
 export async function prove(clang: string, c: Cmd, yaml: string): Promise<Proof> {
-  const [a, b] = await Promise.all([
-    run(clang, [...c.args, ...IR_FLAGS, c.file], c.dir),
-    run(clang, [...c.args, "-ivfsoverlay", yaml, ...IR_FLAGS, c.file], c.dir),
-  ]);
-  if (a.code !== 0) return { status: "skip", detail: "original does not compile" };
-  if (b.code !== 0) {
-    const why = b.err.split("\n").filter((l) => l.includes("error:")).slice(0, 3).join("\n  ");
-    return { status: "fail", detail: `rewritten TU does not compile:\n  ${why}` };
+  const dir = mkdtempSync(join(tmpdir(), "cirmodernize-prove-"));
+  try {
+    const orig = join(dir, "orig.bc"), next = join(dir, "next.bc");
+    const [a, b] = await Promise.all([
+      run(clang, [...c.args, ...IR_FLAGS, c.file, "-o", orig], c.dir),
+      run(clang, [...c.args, "-ivfsoverlay", yaml, ...IR_FLAGS, c.file, "-o", next], c.dir),
+    ]);
+    if (a.code !== 0) return { status: "skip", detail: "original does not compile" };
+    if (b.code !== 0) {
+      const why = b.err.split("\n").filter((l) => l.includes("error:")).slice(0, 3).join("\n  ");
+      return { status: "fail", detail: `rewritten TU does not compile:\n  ${why}` };
+    }
+    const r = await run(join(dirname(clang), "cir-modernize-ircmp"), [orig, next], dir);
+    if (r.code === 0) return { status: "ok" };
+    return { status: "fail", detail: (r.out || r.err).trimEnd() };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-  const cxxfilt = join(dirname(clang), "llvm-cxxfilt");
-  const orig = normalize(a.out), next = remap(cxxfilt, orig, normalize(b.out));
-  if (typeof next === "string") return { status: "fail", detail: next };
-  const d = firstDiff(orig, next);
-  return d ? { status: "fail", detail: d } : { status: "ok" };
 }
 
 // The first line of a failed compile that says why.

@@ -155,8 +155,8 @@ Design, results and roadmap: `docs/cir-modernize-design.md`.
 
 ## Quick start
 
-Needs a clang built with `-DCLANG_ENABLE_CIR=ON` (and `llvm-cxxfilt` next to
-it), a `compile_commands.json`, and [bun](https://bun.sh).
+Needs a clang built with `-DCLANG_ENABLE_CIR=ON` (and `cir-modernize-ircmp`
+next to it: `ninja clang cir-modernize-ircmp`), a `compile_commands.json`, and [bun](https://bun.sh).
 
 ```sh
 B=build/bin

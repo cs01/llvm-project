@@ -23,6 +23,7 @@
 #include "llvm/Support/IOSandbox.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -89,6 +90,35 @@ void Context::indexCallees() {
   }
 }
 
+// __PRETTY_FUNCTION__ and friends spell the parameter types into a string,
+// so changing a parameter type changes program output. Lambdas are children
+// of their enclosing body, so their uses count too. std::source_location
+// (logging macros) arrives through a default argument or member initializer,
+// which children() visits only when Sema rewrote it per use (C++20).
+static bool spellsSignature(const Stmt *S) {
+  if (!S)
+    return false;
+  if (auto *PE = dyn_cast<PredefinedExpr>(S))
+    switch (PE->getIdentKind()) {
+    case PredefinedIdentKind::Func:
+    case PredefinedIdentKind::Function:
+      break;
+    default:
+      return true;
+    }
+  if (auto *SL = dyn_cast<SourceLocExpr>(S))
+    return SL->getIdentKind() == SourceLocIdentKind::FuncSig ||
+           SL->getIdentKind() == SourceLocIdentKind::SourceLocStruct;
+  if (auto *DA = dyn_cast<CXXDefaultArgExpr>(S))
+    return spellsSignature(DA->getExpr());
+  if (auto *DI = dyn_cast<CXXDefaultInitExpr>(S))
+    return spellsSignature(DI->getExpr());
+  for (const Stmt *Child : S->children())
+    if (spellsSignature(Child))
+      return true;
+  return false;
+}
+
 StringRef Context::whyIneligible(FunctionDecl *FD) {
   if (!CalleesIndexed)
     indexCallees();
@@ -105,6 +135,9 @@ StringRef Context::whyIneligible(FunctionDecl *FD) {
     if (MD->isVirtual() || MD->size_overridden_methods() ||
         MD->getParent()->isLocalClass())
       return "virtual or local class method";
+  if (const FunctionDecl *Def = FD->getDefinition();
+      Def && spellsSignature(Def->getBody()))
+    return "signature spelled in __PRETTY_FUNCTION__";
   if (FD->isExternallyVisible() && !Options.AllowPublic && !projectMode())
     return "externally visible";
   for (const FunctionDecl *R : FD->redecls())
@@ -135,6 +168,20 @@ StringRef Context::whyIneligible(FunctionDecl *FD) {
     if (auto *Ref = dyn_cast<FunctionDecl>(ME->getMemberDecl()))
       if (Ref->getCanonicalDecl() == Canon && !CalleeRefs.contains(ME))
         return "address taken";
+  return {};
+}
+
+// A C file compiled as C++ (Bitcoin #includes ctaes.c) proves fine, but a
+// C++-only edit breaks it for every C compiler and C caller, which no
+// translation unit in the project shows.
+StringRef Context::whyVisibleToC(const FunctionDecl *FD) const {
+  if (FD->isExternC())
+    return "C language linkage";
+  for (const FunctionDecl *R : FD->redecls()) {
+    StringRef Ext = llvm::sys::path::extension(SM.getFilename(R->getLocation()));
+    if (Ext == ".c" || Ext == ".m")
+      return "declared in a C source file";
+  }
   return {};
 }
 

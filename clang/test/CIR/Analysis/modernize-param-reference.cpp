@@ -138,3 +138,39 @@ template <typename T> int callsUnqualified(T *t) { return adlTarget(t); }
 int useDependent(Node *n) { return print(n) + adlTarget(n); }
 // CHECK-DAG: warning: pointer parameter 'p' of 'print'
 // NEG-NOT: of 'adlTarget'
+
+// __PRETTY_FUNCTION__ spells the parameter types, so the rewrite would change
+// the string; __func__ spells only the name.
+static int pretty(Node *p) {
+  int v = p->value;
+  auto f = [] { return __PRETTY_FUNCTION__[0]; };
+  return v + f();
+}
+static int named(Node *p) { return p->value + __func__[0]; }
+int useNames(Node *n) { return pretty(n) + named(n); }
+// CHECK-DAG: warning: pointer parameter 'p' of 'named'
+// NEG-NOT: of 'pretty'
+
+// A logging helper that captures the caller's location the way
+// std::source_location::current() does: through a default member initializer
+// holding a default argument.
+namespace std {
+struct source_location {
+  struct __impl {
+    const char *_M_file_name;
+    const char *_M_function_name;
+    unsigned _M_line, _M_column;
+  };
+  static const __impl *current(const __impl *l = __builtin_source_location()) {
+    return l;
+  }
+};
+} // namespace std
+struct Where { const std::source_location::__impl *loc = std::source_location::current(); };
+static int logged(Node *p) {
+  int v = p->value;
+  Where w{};
+  return v + w.loc->_M_function_name[0];
+}
+int useLogged(Node *n) { return logged(n); }
+// NEG-NOT: of 'logged'

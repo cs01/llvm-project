@@ -62,6 +62,8 @@ public:
     if (It == Facts.end() && !Planned)
       return;
     StringRef FunctionWhy = Ctx.whyIneligible(FD);
+    if (FunctionWhy.empty())
+      FunctionWhy = Ctx.whyVisibleToC(FD);
     unsigned Offset = Context::thisOffset(FD);
     // Parameters proven here, plus planned ones another translation unit
     // proved: an inline function in a header is emitted, and so analyzed,
@@ -105,6 +107,8 @@ public:
   void addExternal(FunctionDecl *FD, unsigned Index) override {
     StringRef Why = Ctx.whyIneligible(FD);
     ParmVarDecl *P = FD->getParamDecl(Index);
+    if (Why.empty())
+      Why = Ctx.whyVisibleToC(FD);
     if (Why.empty())
       Why = whyParamIneligible(P);
     Candidate Cand{FD, P, Index, Id};

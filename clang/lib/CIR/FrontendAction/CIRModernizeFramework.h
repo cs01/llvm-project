@@ -209,6 +209,10 @@ public:
   /// Why FD cannot have its signature rewritten, or empty if it can.
   StringRef whyIneligible(FunctionDecl *FD);
 
+  /// Why FD must keep a signature C can read (references are C++ only), or
+  /// empty if only C++ sees it.
+  StringRef whyVisibleToC(const FunctionDecl *FD) const;
+
   /// Parameter indices of FD that another translation unit proposed for
   /// Rewrite, or null.
   const llvm::DenseSet<unsigned> *planned(const FunctionDecl *FD,
