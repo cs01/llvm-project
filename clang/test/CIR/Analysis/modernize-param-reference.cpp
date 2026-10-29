@@ -1,7 +1,7 @@
-// RUN: %clang_cc1 -std=c++17 -fcxx-exceptions -fexceptions -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fdiagnostics-parseable-fixits %s -o /dev/null 2>&1 | FileCheck %s
-// RUN: %clang_cc1 -std=c++17 -fcxx-exceptions -fexceptions -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize %s -o /dev/null 2>&1 | FileCheck --check-prefix=NEG %s
+// RUN: %clang_cc1 -std=c++17 -fcxx-exceptions -fexceptions -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref -fdiagnostics-parseable-fixits %s -o /dev/null 2>&1 | FileCheck %s
+// RUN: %clang_cc1 -std=c++17 -fcxx-exceptions -fexceptions -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref %s -o /dev/null 2>&1 | FileCheck --check-prefix=NEG %s
 // RUN: cp %s %t.cpp
-// RUN: %clang_cc1 -std=c++17 -fcxx-exceptions -fexceptions -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-apply %t.cpp -o /dev/null
+// RUN: %clang_cc1 -std=c++17 -fcxx-exceptions -fexceptions -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref -fcir-modernize-apply %t.cpp -o /dev/null
 // RUN: %clang_cc1 -std=c++17 -fcxx-exceptions -fexceptions -triple x86_64-unknown-linux-gnu -fsyntax-only -Wno-unused-function %t.cpp
 // RUN: FileCheck --check-prefix=FIXED --input-file=%t.cpp %s
 

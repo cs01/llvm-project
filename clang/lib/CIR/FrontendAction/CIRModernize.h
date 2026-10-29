@@ -34,6 +34,8 @@ struct CIRModernizeOptions {
   /// translation unit proposed. This one reports the edits its own
   /// declarations and calls need, or why it blocks them.
   std::string PlanPath;
+  /// Comma-separated rewrites to make (ref, const); empty means all.
+  std::string Only;
 };
 
 void runCIRModernize(mlir::ModuleOp Module, ASTContext &C,

@@ -28,6 +28,7 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/CIR/Dialect/Analysis/CIRNullabilitySafety.h"
+#include "clang/CIR/Dialect/Analysis/CIRPointeeWrites.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Rewrite/Core/Rewriter.h"
 #include "clang/UnifiedSymbolResolution/USRGeneration.h"
@@ -39,6 +40,7 @@
 #include "llvm/Support/IOSandbox.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/StringSaver.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -162,10 +164,22 @@ private:
   unsigned InstantiationDepth = 0;
 };
 
+enum class RewriteKind : unsigned {
+  // Pointer parameter to reference.
+  Reference,
+  // Pointer parameter to pointer to const.
+  Const,
+};
+
+StringRef kindName(RewriteKind K) {
+  return K == RewriteKind::Reference ? "ref" : "const";
+}
+
 struct Candidate {
   FunctionDecl *FD;
   ParmVarDecl *Param;
   unsigned Index;
+  RewriteKind Kind = RewriteKind::Reference;
   llvm::SmallVector<FixItHint> BodyEdits;
   llvm::SmallVector<FixItHint> CallEdits;
   llvm::SmallVector<const ParmVarDecl *> Needs;
@@ -193,10 +207,20 @@ public:
       return;
     Visitor.TraverseDecl(C.getTranslationUnitDecl());
     collectFacts(Module);
+    if (enabled("const"))
+      collectConstFacts(Module);
     indexCallees();
-    for (FunctionDecl *FD : Visitor.Functions)
-      addCandidates(FD);
-    addExternalCandidates();
+    bool Ref = enabled("ref"), Const = enabled("const");
+    for (FunctionDecl *FD : Visitor.Functions) {
+      if (Ref)
+        addCandidates(FD);
+      if (Const)
+        addConstCandidates(FD);
+    }
+    if (Ref)
+      addExternalCandidates();
+    if (Const)
+      addExternalConstCandidates();
     resolve();
     if (projectMode())
       exportCandidates(Diags);
@@ -233,18 +257,29 @@ private:
     }
   }
 
-  std::string mangle(const FunctionDecl *FD) {
+  std::string mangle(const FunctionDecl *FD) { return mangle(GlobalDecl(FD)); }
+
+  std::string mangle(GlobalDecl GD) {
     if (!Mangler)
       Mangler.reset(C.createMangleContext());
-    if (!Mangler->shouldMangleDeclName(FD))
-      return FD->getName().str();
+    const auto *ND = cast<NamedDecl>(GD.getDecl());
+    if (!Mangler->shouldMangleDeclName(ND))
+      return ND->getName().str();
     std::string Name;
     llvm::raw_string_ostream OS(Name);
-    Mangler->mangleName(GlobalDecl(FD), OS);
+    Mangler->mangleName(GD, OS);
     return Name;
   }
 
   bool projectMode() const { return !Options.ExportPath.empty(); }
+
+  bool enabled(StringRef Rewrite) const {
+    if (Options.Only.empty())
+      return true;
+    llvm::SmallVector<StringRef> Names;
+    StringRef(Options.Only).split(Names, ',');
+    return llvm::is_contained(Names, Rewrite);
+  }
 
   // A project-wide rewrite may edit any header but a system one; otherwise
   // only the main file, the one place a single translation unit sees all of.
@@ -261,11 +296,30 @@ private:
     return std::string(Buf);
   }
 
-  const llvm::DenseSet<unsigned> *planned(const FunctionDecl *FD) {
-    if (Plan.empty())
+  const llvm::DenseSet<unsigned> *
+  planned(const FunctionDecl *FD,
+          RewriteKind Kind = RewriteKind::Reference) {
+    auto &P = Plan[static_cast<unsigned>(Kind)];
+    if (P.empty())
       return nullptr;
-    auto It = Plan.find(usr(FD));
-    return It == Plan.end() ? nullptr : &It->second;
+    auto It = P.find(usr(FD));
+    return It == P.end() ? nullptr : &It->second;
+  }
+
+  // The parameter candidates are keyed by: the definition's when this
+  // translation unit has the body, otherwise the first declaration's.
+  static ParmVarDecl *keyParam(const FunctionDecl *FD, unsigned Index) {
+    const FunctionDecl *Def = FD->getDefinition();
+    const FunctionDecl *Key =
+        Def && Def->hasBody() ? Def : FD->getCanonicalDecl();
+    return Index < Key->getNumParams()
+               ? const_cast<ParmVarDecl *>(Key->getParamDecl(Index))
+               : nullptr;
+  }
+
+  static unsigned thisOffset(const FunctionDecl *FD) {
+    const auto *MD = dyn_cast<CXXMethodDecl>(FD);
+    return MD && MD->isInstance() ? 1 : 0;
   }
 
   // Why FD cannot have its signature rewritten, or empty if it can.
@@ -451,10 +505,13 @@ private:
       if (const auto *CE = dyn_cast_or_null<CallExpr>(Parent)) {
         std::optional<unsigned> Index = argIndex(CE, Child);
         const FunctionDecl *Callee = CE->getDirectCallee();
-        if (!Index || !Callee || !(Callee = Callee->getDefinition()) ||
-            *Index >= Callee->getNumParams())
+        ParmVarDecl *Needed =
+            Index && Callee ? keyParam(Callee, *Index) : nullptr;
+        // Without a body here the callee can still be a candidate in project
+        // mode, defined in another translation unit.
+        if (!Needed || (!projectMode() && !Callee->getDefinition()))
           return false;
-        Cand.Needs.push_back(Callee->getParamDecl(*Index));
+        Cand.Needs.push_back(Needed);
         continue;
       }
       return false;
@@ -485,8 +542,160 @@ private:
       Cand.Live = false;
       Cand.Why = Why;
     }
-    ByParam[Cand.Param] = Candidates.size();
+    ByParam[{Cand.Param, static_cast<unsigned>(Cand.Kind)}] = Candidates.size();
     Candidates.push_back(std::move(Cand));
+  }
+
+  // `const ` before the pointee of every declaration this translation unit
+  // sees. Calls need no change: T * converts to const T *.
+  bool constDeclEdits(Candidate &Cand) {
+    for (const FunctionDecl *R : Cand.FD->redecls()) {
+      std::optional<PointerTypeLoc> Star = starOf(R->getParamDecl(Cand.Index));
+      if (!Star || Star->getStarLoc().isMacroID())
+        return false;
+      SourceLocation Begin = Star->getPointeeLoc().getBeginLoc();
+      if (Begin.isInvalid() || Begin.isMacroID())
+        return false;
+      Cand.BodyEdits.push_back(FixItHint::CreateInsertion(Begin, "const "));
+    }
+    return true;
+  }
+
+  static StringRef whyConstParamIneligible(const ParmVarDecl *P) {
+    const auto *PT = P->getType()->getAs<PointerType>();
+    if (!PT)
+      return "const: not a plain pointer";
+    QualType Pointee = PT->getPointeeType();
+    if (Pointee.isConstQualified())
+      return "const: already const";
+    if (Pointee->isFunctionType() || Pointee->isArrayType())
+      return "const: pointer to function or array";
+    return {};
+  }
+
+  // Whether a callee only reads through its CIR argument Index. CIR keeps no
+  // const qualifiers, so the answer comes from the callee's declaration.
+  cir::PointerArgUse argUse(cir::FuncOp Callee, unsigned Index) {
+    const FunctionDecl *FD = ByMangled.lookup(Callee.getSymName());
+    if (!FD)
+      return cir::PointerArgUse::Writes;
+    unsigned Offset = thisOffset(FD);
+    if (Index < Offset)
+      return cast<CXXMethodDecl>(FD)->isConst() ? cir::PointerArgUse::ReadOnly
+                                                : cir::PointerArgUse::Writes;
+    // Past the named parameters is a variadic argument, which %n can write.
+    if (Index - Offset >= FD->getNumParams())
+      return cir::PointerArgUse::Writes;
+    QualType T = FD->getParamDecl(Index - Offset)->getType();
+    if (!T->isPointerType() && !T->isReferenceType())
+      return cir::PointerArgUse::Writes;
+    if (T->getPointeeType().isConstQualified())
+      return cir::PointerArgUse::ReadOnly;
+    return T->isPointerType() ? cir::PointerArgUse::Forward
+                              : cir::PointerArgUse::Writes;
+  }
+
+  void collectConstFacts(mlir::ModuleOp Module) {
+    for (FunctionDecl *FD : Visitor.Declared) {
+      // Only what CIR can call is mangled: deduction guides have no symbol,
+      // and the mangler does not handle them.
+      if (isa<CXXDestructorDecl, CXXDeductionGuideDecl>(FD) ||
+          FD->isDependentContext() || FD->getType()->isDependentType())
+        continue;
+      if (auto *CD = dyn_cast<CXXConstructorDecl>(FD)) {
+        for (CXXCtorType T : {Ctor_Complete, Ctor_Base})
+          ByMangled[mangle(GlobalDecl(CD, T))] = CD;
+        continue;
+      }
+      ByMangled[mangle(GlobalDecl(FD))] = FD;
+    }
+    cir::collectPointeeWrites(
+        Module,
+        [&](cir::FuncOp Callee, unsigned Index) {
+          return argUse(Callee, Index);
+        },
+        [&](const cir::PointeeWriteFact &F) {
+          ConstFacts[F.function].try_emplace(F.index, F);
+        });
+  }
+
+  void addConstCandidates(FunctionDecl *FD) {
+    if (isa<CXXConstructorDecl, CXXDestructorDecl>(FD) ||
+        FD->isDependentContext() || FD->isTemplated())
+      return;
+    auto It = ConstFacts.find(mangle(FD));
+    const llvm::DenseSet<unsigned> *Planned = planned(FD, RewriteKind::Const);
+    if (It == ConstFacts.end() && !Planned)
+      return;
+    StringRef FunctionWhy = whyIneligible(FD);
+    unsigned Offset = thisOffset(FD);
+    llvm::SmallVector<unsigned> Indices;
+    if (It != ConstFacts.end())
+      for (auto &[ArgIndex, Fact] : It->second)
+        if (ArgIndex >= Offset && ArgIndex - Offset < FD->getNumParams() &&
+            FD->getParamDecl(ArgIndex - Offset)->getType()->isPointerType())
+          Indices.push_back(ArgIndex - Offset);
+    if (Planned)
+      for (unsigned Index : *Planned)
+        if (Index < FD->getNumParams() && !llvm::is_contained(Indices, Index))
+          Indices.push_back(Index);
+    llvm::sort(Indices);
+    for (unsigned Index : Indices) {
+      ParmVarDecl *P = FD->getParamDecl(Index);
+      StringRef Why = whyConstParamIneligible(P);
+      if (Why == "const: already const")
+        continue;
+      ++Drops["const: pointer parameters"];
+      if (Why.empty())
+        Why = FunctionWhy;
+      Candidate Cand{FD, P, Index, RewriteKind::Const};
+      if (Why.empty() && It != ConstFacts.end())
+        if (auto Fact = It->second.find(Index + Offset);
+            Fact != It->second.end()) {
+          if (Fact->second.written)
+            Why = Saver.save("const: " + Fact->second.why);
+          for (auto &[Callee, CalleeIndex] : Fact->second.forwards) {
+            const FunctionDecl *CFD = ByMangled.lookup(Callee);
+            unsigned CalleeOffset = CFD ? thisOffset(CFD) : 0;
+            ParmVarDecl *Needed =
+                CFD && CalleeIndex >= CalleeOffset
+                    ? keyParam(CFD, CalleeIndex - CalleeOffset)
+                    : nullptr;
+            if (!Needed && Why.empty())
+              Why = "const: forwarded to an unknown function";
+            if (Needed)
+              Cand.Needs.push_back(Needed);
+          }
+        }
+      if (Why.empty() && !constDeclEdits(Cand))
+        Why = "const: pointer spelled through a typedef or macro";
+      addCandidate(std::move(Cand), Why);
+    }
+  }
+
+  void addExternalConstCandidates() {
+    for (FunctionDecl *FD : Visitor.Declared) {
+      if (FD->getDefinition() && FD->getDefinition()->hasBody())
+        continue;
+      const llvm::DenseSet<unsigned> *Planned =
+          planned(FD, RewriteKind::Const);
+      if (!Planned)
+        continue;
+      StringRef FunctionWhy = whyIneligible(FD);
+      for (unsigned Index : *Planned) {
+        if (Index >= FD->getNumParams())
+          continue;
+        ParmVarDecl *P = FD->getParamDecl(Index);
+        StringRef Why = whyConstParamIneligible(P);
+        if (Why.empty())
+          Why = FunctionWhy;
+        Candidate Cand{FD, P, Index, RewriteKind::Const};
+        Cand.External = true;
+        if (Why.empty() && !constDeclEdits(Cand))
+          Why = "const: pointer spelled through a typedef or macro";
+        addCandidate(std::move(Cand), Why);
+      }
+    }
   }
 
   void addCandidates(FunctionDecl *FD) {
@@ -565,8 +774,9 @@ private:
     }
   }
 
-  bool live(const ParmVarDecl *P) const {
-    auto It = ByParam.find(P);
+  bool live(const ParmVarDecl *P,
+            RewriteKind Kind = RewriteKind::Reference) const {
+    auto It = ByParam.find({P, static_cast<unsigned>(Kind)});
     return It != ByParam.end() && Candidates[It->second].Live;
   }
 
@@ -628,10 +838,13 @@ private:
         if (!Cand.Live)
           continue;
         StringRef Why;
-        if (!llvm::all_of(Cand.Needs,
-                          [&](const ParmVarDecl *P) { return live(P); }))
-          Why = "forwarded to a parameter that stays a pointer";
-        else if (!callEdits(Cand))
+        if (!llvm::all_of(Cand.Needs, [&](const ParmVarDecl *P) {
+              return live(P, Cand.Kind);
+            }))
+          Why = Cand.Kind == RewriteKind::Const
+                    ? "const: forwarded to a parameter that stays non-const"
+                    : "forwarded to a parameter that stays a pointer";
+        else if (Cand.Kind == RewriteKind::Reference && !callEdits(Cand))
           Why = "a call site has an unhandled shape";
         if (!Why.empty()) {
           ++Drops[Why];
@@ -644,15 +857,21 @@ private:
   }
 
   void report(DiagnosticsEngine &Diags) {
-    unsigned ID = Diags.getCustomDiagID(
+    unsigned RefID = Diags.getCustomDiagID(
         DiagnosticsEngine::Warning,
         "pointer parameter %0 of %1 is dereferenced on every path, so a null "
         "argument is already undefined behavior; it can be a reference");
+    unsigned ConstID = Diags.getCustomDiagID(
+        DiagnosticsEngine::Warning,
+        "pointer parameter %0 of %1 is never written through; it can point "
+        "to const");
     Rewriter R(SM, C.getLangOpts());
     for (const Candidate &Cand : Candidates) {
       if (!Cand.Live)
         continue;
-      auto Diag = Diags.Report(Cand.Param->getLocation(), ID);
+      auto Diag = Diags.Report(Cand.Param->getLocation(),
+                               Cand.Kind == RewriteKind::Const ? ConstID
+                                                               : RefID);
       Diag << Cand.Param << Cand.FD;
       for (const FixItHint &Hint : Cand.BodyEdits)
         Diag << Hint;
@@ -699,9 +918,13 @@ private:
       const llvm::json::Object *E = Fn.getAsObject();
       std::optional<StringRef> USR = E ? E->getString("usr") : std::nullopt;
       std::optional<int64_t> Index = E ? E->getInteger("index") : std::nullopt;
-      if (!USR || !Index || *Index < 0)
+      std::optional<StringRef> Kind = E ? E->getString("kind") : std::nullopt;
+      if (!USR || !Index || *Index < 0 ||
+          (Kind && *Kind != "ref" && *Kind != "const"))
         return Fail("bad function entry");
-      Plan[*USR].insert(*Index);
+      RewriteKind K = Kind && *Kind == "const" ? RewriteKind::Const
+                                               : RewriteKind::Reference;
+      Plan[static_cast<unsigned>(K)][*USR].insert(*Index);
     }
     return true;
   }
@@ -736,6 +959,7 @@ private:
           J.object([&] {
             J.attribute("usr", usr(Cand.FD));
             J.attribute("index", Cand.Index);
+            J.attribute("kind", kindName(Cand.Kind));
             J.attribute("function", Cand.FD->getQualifiedNameAsString());
             J.attribute("param", Cand.Param->getName());
             J.attribute("defined", !Cand.External);
@@ -757,6 +981,7 @@ private:
                     J.attribute("usr",
                                 usr(cast<FunctionDecl>(P->getDeclContext())));
                     J.attribute("index", P->getFunctionScopeIndex());
+                    J.attribute("kind", kindName(Cand.Kind));
                   });
             });
           });
@@ -772,10 +997,15 @@ private:
   llvm::StringMap<FactMap> Facts;
   llvm::DenseSet<const Expr *> CalleeRefs;
   std::vector<Candidate> Candidates;
-  llvm::DenseMap<const ParmVarDecl *, size_t> ByParam;
+  llvm::DenseMap<std::pair<const ParmVarDecl *, unsigned>, size_t> ByParam;
+  llvm::StringMap<llvm::DenseMap<unsigned, cir::PointeeWriteFact>> ConstFacts;
+  llvm::StringMap<const FunctionDecl *> ByMangled;
+  llvm::BumpPtrAllocator Alloc;
+  llvm::StringSaver Saver{Alloc};
   // Must-dereference parameters by the first reason they were not rewritten.
   llvm::StringMap<unsigned> Drops;
-  llvm::StringMap<llvm::DenseSet<unsigned>> Plan;
+  // Indexed by RewriteKind.
+  llvm::StringMap<llvm::DenseSet<unsigned>> Plan[2];
 };
 
 } // namespace

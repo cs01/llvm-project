@@ -4,9 +4,10 @@
 // The proof compiles the original and the rewritten TU with classic codegen at
 // -O0 and requires identical IR after two normalizations:
 //
-//  * pointer-to-reference changes the mangled name (P4Node -> R4Node); symbols
-//    are paired by order of first appearance and must demangle to the same
-//    name once '&' is read as '*';
+//  * pointer to reference (P4Node -> R4Node) and pointer to const
+//    (P4Node -> PK4Node) change the mangled name; symbols are paired by order
+//    of first appearance and must demangle to the same name once '&' is read
+//    as '*' and `const` before a '*' is dropped;
 //  * a reference parameter or argument gains nonnull/align/dereferenceable,
 //    which are stripped from signatures and call lines only.
 //
@@ -188,6 +189,12 @@ function demangle(cxxfilt: string, names: string[]): string[] {
   return r.stdout.toString().trimEnd().split("\n");
 }
 
+// What a rewrite may change in a demangled name: a pointer parameter becomes
+// a reference ('*' to '&') or points to const (`Node*` to `Node const*`).
+function signature(demangled: string): string {
+  return demangled.replace(/&/g, "*").replace(/ const(?=\*)/g, "");
+}
+
 // Rename the rewritten module's symbols to the original's, or say why the
 // symbol lists do not pair up. A mangled name also appears inside other
 // symbols (`@__func__._ZL5firstP4Node` from assert), so it is renamed wherever
@@ -199,7 +206,7 @@ function remap(cxxfilt: string, orig: string[], next: string[]): string[] | stri
   const rename = new Map<string, string>();
   for (let i = 0; i < a.length; i++) {
     if (a[i] === b[i]) continue;
-    if (da[i].replace(/&/g, "*") !== db[i].replace(/&/g, "*")) return `symbol ${i}: ${da[i]} vs ${db[i]}`;
+    if (signature(da[i]) !== signature(db[i])) return `symbol ${i}: ${da[i]} vs ${db[i]}`;
     rename.set(b[i], a[i]);
   }
   if (!rename.size) return next;

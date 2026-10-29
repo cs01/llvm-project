@@ -140,7 +140,7 @@ a changed declaration need checking again, so large codebases stay fast.
 |---|---|
 | pointer to reference, one file and project-wide | working, every edit proven (IR identical) |
 | nullability and must-dereference facts | working |
-| pointer to const pointee | in progress |
+| pointer to const pointee, one file and project-wide | working, every edit proven (IR identical) |
 | span, unique_ptr, lock_guard, out-parameters | planned |
 | refinement proofs | planned |
 | integer ranges, constant propagation, taint | planned |

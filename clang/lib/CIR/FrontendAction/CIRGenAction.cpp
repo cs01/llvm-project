@@ -490,6 +490,7 @@ public:
       Options.Apply = FEOptions.ClangIRModernizeApply;
       Options.ExportPath = FEOptions.ClangIRModernizeExport;
       Options.PlanPath = FEOptions.ClangIRModernizePlan;
+      Options.Only = FEOptions.ClangIRModernizeOnly;
       runCIRModernize(MlirModule, C, CI.getDiagnostics(), Options);
     }
 

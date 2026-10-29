@@ -3,18 +3,19 @@
 // calls need for functions defined elsewhere.
 
 // RUN: rm -rf %t && split-file %s %t && cd %t
-// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-export=a.json a.cpp -o /dev/null
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref -fcir-modernize-export=a.json a.cpp -o /dev/null
 // RUN: FileCheck --check-prefix=PROPOSE --input-file=a.json %s
-// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-plan=plan.json -fcir-modernize-export=b.json b.cpp -o /dev/null
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref -fcir-modernize-plan=plan.json -fcir-modernize-export=b.json b.cpp -o /dev/null
 // RUN: FileCheck --check-prefix=CALLER --input-file=b.json %s
-// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-plan=plan.json -fcir-modernize-export=c.json c.cpp -o /dev/null
+// RUN: %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref -fcir-modernize-plan=plan.json -fcir-modernize-export=c.json c.cpp -o /dev/null
 // RUN: FileCheck --check-prefix=BLOCK --input-file=c.json %s
-// RUN: not %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-plan=missing.json -fcir-modernize-export=d.json b.cpp -o /dev/null 2>&1 | FileCheck --check-prefix=NOPLAN %s
+// RUN: not %clang_cc1 -std=c++17 -triple x86_64-unknown-linux-gnu -fclangir -emit-cir -fcir-modernize -fcir-modernize-only=ref -fcir-modernize-plan=missing.json -fcir-modernize-export=d.json b.cpp -o /dev/null 2>&1 | FileCheck --check-prefix=NOPLAN %s
 
 // The defining TU proposes an externally visible function and edits its
 // header declaration too.
 // PROPOSE:      "usr": "c:@F@first#*$@S@Node#",
 // PROPOSE-NEXT: "index": 0,
+// PROPOSE-NEXT: "kind": "ref",
 // PROPOSE-NEXT: "function": "first",
 // PROPOSE-NEXT: "param": "head",
 // PROPOSE-NEXT: "defined": true,
@@ -58,4 +59,4 @@ int use(Node *n) { Node l{1, nullptr}; return first(n) + first(&l); }
 #include "node.h"
 int (*keep)(Node *) = first;
 //--- plan.json
-{"functions": [{"usr": "c:@F@first#*$@S@Node#", "index": 0}]}
+{"functions": [{"usr": "c:@F@first#*$@S@Node#", "index": 0, "kind": "ref"}]}

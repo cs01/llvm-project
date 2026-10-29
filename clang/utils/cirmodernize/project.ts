@@ -32,13 +32,14 @@ import {
 type Candidate = {
   usr: string;
   index: number;
+  kind: "ref" | "const";
   function: string;
   param: string;
   defined: boolean;
   location: string;
   blocked?: string;
   edits?: Edit[];
-  needs?: { usr: string; index: number }[];
+  needs?: { usr: string; index: number; kind: "ref" | "const" }[];
 };
 type Export = { candidates: Candidate[] };
 
@@ -63,7 +64,7 @@ if (!clang || !compdb) {
   process.exit(2);
 }
 
-const keyOf = (c: { usr: string; index: number }) => `${c.index}#${c.usr}`;
+const keyOf = (c: { usr: string; index: number; kind: string }) => `${c.kind}#${c.index}#${c.usr}`;
 const under = (file: string, dir: string) => file === dir || file.startsWith(dir + sep);
 const scratch = mkdtempSync(join(tmpdir(), "cirmodernize-project-"));
 const cmds = loadCommands(compdb, patterns);
@@ -111,7 +112,7 @@ pass1.forEach((e, i) => {
 });
 const planPath = join(scratch, "plan.json");
 writeFileSync(planPath, JSON.stringify({
-  functions: [...proposals.values()].map(({ usr, index }) => ({ usr, index })),
+  functions: [...proposals.values()].map(({ usr, index, kind }) => ({ usr, index, kind })),
 }));
 
 // 2. plan
@@ -204,7 +205,7 @@ if (blockedBy.size) {
 if (verbose)
   for (const k of live) {
     const c = proposals.get(k)!;
-    console.log(`  ${c.location}: ${c.function}(${c.param})`);
+    console.log(`  ${c.location}: ${c.kind} ${c.function}(${c.param})`);
   }
 
 if (apply && all.length) {

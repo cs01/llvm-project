@@ -520,6 +520,9 @@ public:
   /// -fcir-modernize rewrite is considering.
   std::string ClangIRModernizePlan;
 
+  /// Comma-separated -fcir-modernize rewrites to make; empty means all.
+  std::string ClangIRModernizeOnly;
+
   /// Args to pass to the plugins
   std::map<std::string, std::vector<std::string>> PluginArgs;
 

@@ -1784,6 +1784,12 @@ def fcir_modernize_export_EQ : Joined<["-"], "fcir-modernize-export=">,
   HelpText<"Write this translation unit's -fcir-modernize candidates, edits "
            "and blockers as JSON, for a project-wide rewrite">,
   MarshallingInfoString<FrontendOpts<"ClangIRModernizeExport">>;
+def fcir_modernize_only_EQ : Joined<["-"], "fcir-modernize-only=">,
+  Visibility<[ClangOption, CC1Option]>, Group<f_Group>, MetaVarName<"<rewrites>">,
+  HelpText<"Only make these -fcir-modernize rewrites, a comma-separated list "
+           "of ref (pointer parameter to reference) and const (pointer to "
+           "const pointee); all by default">,
+  MarshallingInfoString<FrontendOpts<"ClangIRModernizeOnly">>;
 def fcir_modernize_plan_EQ : Joined<["-"], "fcir-modernize-plan=">,
   Visibility<[ClangOption, CC1Option]>, Group<f_Group>, MetaVarName<"<file>">,
   HelpText<"Also consider the functions listed in <file>, defined in other "
