@@ -114,6 +114,13 @@ void runCIRModernize(mlir::ModuleOp Module, ASTContext &C,
                      DiagnosticsEngine &Diags,
                      const CIRModernizeOptions &Options);
 
+namespace cirmodernize {
+/// Whether the rewrites Only and Skip select (as CIRModernizeOptions reads
+/// them) include one that may change the compiled code, whose edits are
+/// proven by IR equality after normalization instead.
+bool selectsRefinement(llvm::StringRef Only, llvm::StringRef Skip);
+} // namespace cirmodernize
+
 } // namespace clang
 
 #endif // CLANG_CIR_MODERNIZE_CIRMODERNIZE_H

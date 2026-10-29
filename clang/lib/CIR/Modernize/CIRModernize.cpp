@@ -1093,3 +1093,18 @@ bool ConditionalRecord::overlaps(SourceRange R) const {
   }
   return false;
 }
+
+bool clang::cirmodernize::selectsRefinement(StringRef Only, StringRef Skip) {
+  llvm::SmallVector<StringRef> OnlyList, SkipList;
+  Only.split(OnlyList, ',', -1, /*KeepEmpty=*/false);
+  Skip.split(SkipList, ',', -1, /*KeepEmpty=*/false);
+  auto Names = [](ArrayRef<StringRef> List, const RewriteInfo &R) {
+    return llvm::is_contained(List, R.Name) ||
+           llvm::is_contained(List, R.Group);
+  };
+  return llvm::any_of(AllRewrites, [&](const RewriteInfo &R) {
+    return R.Group == "refinement" &&
+           (OnlyList.empty() ? R.Default : Names(OnlyList, R)) &&
+           !Names(SkipList, R);
+  });
+}

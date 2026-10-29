@@ -1,4 +1,7 @@
 set(LLVM_LINK_COMPONENTS
+  BitReader
+  BitWriter
+  Core
   Support
   )
 
@@ -20,6 +23,8 @@ clang_target_link_libraries(clang-cir-modernize
   clangToolingCore
   clangCIR
   clangCIRModernize
+  clangCIRModernizeIRCompare
+  clangCodeGen
   )
 
 target_link_libraries(clang-cir-modernize

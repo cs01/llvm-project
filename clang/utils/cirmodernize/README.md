@@ -230,8 +230,13 @@ clang-tidy, builds CIR in memory and never prints it:
 ```sh
 clang-cir-modernize -p build file.cpp                         # warnings with fix-its
 clang-cir-modernize -p build file.cpp --export-fixes=f.yaml   # for clang-apply-replacements
-clang-cir-modernize -p build file.cpp --fix                   # apply
+clang-cir-modernize -p build file.cpp --fix                   # apply the proven ones
 ```
 
-Its edits are not checked by itself; check them as described in
-`clang/lib/CIR/Modernize/CIRModernize.cpp`, or with `check.ts` / `project.ts`.
+`--fix` proves before it writes: it compiles the file with classic codegen
+before and after the edits and compares the IR the way `cir-modernize-ircmp`
+does (`--refine` when `--only` selects a refinement rewrite). Edits that change
+the IR are found by bisection and left out. It edits only the files it
+compiles, never a header, since other translation units include those; for a
+whole project, including headers, use `project.ts`. `--export-fixes` writes
+every proposed edit, unproven.
