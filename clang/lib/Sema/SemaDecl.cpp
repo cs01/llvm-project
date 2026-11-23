@@ -11926,6 +11926,24 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   // Safe C: `int main(int argc, char *argv[])` (or `char **argv`) means argv
   // has argc elements; say so in the type, so the most common main signature
   // compiles and argv[i] is bounds-checked against argc.
+  // Safe C: __safec_owned on a parameter means the function takes ownership of
+  // it. Express that as ownership_takes at the parameter's own index, which
+  // the lifetime analysis and the body checks already understand, so the
+  // annotation never names a parameter by a number that can drift.
+  if (getLangOpts().SafeC) {
+    SmallVector<ParamIdx, 2> Owned;
+    for (unsigned I = 0, N = NewFD->getNumParams(); I != N; ++I)
+      for (const auto *A : NewFD->getParamDecl(I)->specific_attrs<AnnotateAttr>())
+        if (A->getAnnotation() == "safec_owned") {
+          Owned.push_back(ParamIdx(I + 1, NewFD));
+          break;
+        }
+    if (!Owned.empty())
+      NewFD->addAttr(OwnershipAttr::CreateImplicit(
+          Context, &Context.Idents.get("malloc"), Owned.data(), Owned.size(),
+          NewFD->getLocation(), OwnershipAttr::GNU_ownership_takes));
+  }
+
   if (getLangOpts().SafeC && getLangOpts().BoundsSafety && NewFD->isMain() &&
       Params.size() >= 2 && Params[0]->getType()->isIntegerType() &&
       Params[1]->getType()->isPointerType() &&
@@ -17918,7 +17936,9 @@ static bool isSafeCFreshAllocation(
   const FunctionDecl *FD = CE ? CE->getDirectCallee() : nullptr;
   if (!FD)
     return false;
-  if (FD->hasAttr<AllocSizeAttr>())
+  if (FD->hasAttr<AllocSizeAttr>() ||
+      llvm::any_of(FD->specific_attrs<OwnershipAttr>(),
+                   [](const OwnershipAttr *A) { return A->isReturns(); }))
     return true;
   StringRef Name = FD->getIdentifier() ? FD->getName() : StringRef();
   if (Name == "malloc" || Name == "calloc" || Name == "aligned_alloc")
@@ -17927,6 +17947,44 @@ static bool isSafeCFreshAllocation(
     return CE->getArg(0)->IgnoreParenCasts()->isNullPointerConstant(
         Ctx, Expr::NPC_ValueDependentIsNotNull);
   return false;
+}
+
+/// Safe C: a function that hands out memory it allocated must say so
+/// (ownership_returns); otherwise callers' frees and later uses of the result
+/// go untracked by the lifetime analysis.
+static void checkSafeCReturnsOwned(Sema &S, const FunctionDecl *FD,
+                                   const Stmt *Body) {
+  if (!FD->getReturnType()->isPointerType() || FD->hasAttr<AllocSizeAttr>() ||
+      llvm::any_of(FD->specific_attrs<OwnershipAttr>(),
+                   [](const OwnershipAttr *A) { return A->isReturns(); }))
+    return;
+  llvm::SmallPtrSet<const VarDecl *, 4> FreshLocals, Assigned;
+  const ReturnStmt *Found = nullptr;
+  std::function<void(const Stmt *)> Walk = [&](const Stmt *St) {
+    if (!St || Found)
+      return;
+    if (const auto *DS = dyn_cast<DeclStmt>(St))
+      for (const Decl *D : DS->decls())
+        if (const auto *VD = dyn_cast<VarDecl>(D))
+          if (VD->hasLocalStorage() && VD->getInit() &&
+              isSafeCFreshAllocation(S.Context, VD->getInit(), FreshLocals) &&
+              !VD->getInit()->IgnoreParenCasts()->isNullPointerConstant(
+                  S.Context, Expr::NPC_ValueDependentIsNotNull))
+            FreshLocals.insert(VD);
+    if (const auto *RS = dyn_cast<ReturnStmt>(St))
+      if (const Expr *V = RS->getRetValue();
+          V && !V->IgnoreParenCasts()->isNullPointerConstant(
+                   S.Context, Expr::NPC_ValueDependentIsNotNull) &&
+          isSafeCFreshAllocation(S.Context, V, FreshLocals))
+        Found = RS;
+    for (const Stmt *Child : St->children())
+      Walk(Child);
+  };
+  Walk(Body);
+  if (Found)
+    S.Diag(Found->getRetValue()->getExprLoc(),
+           diag::warn_safe_c_returns_fresh)
+        << FD << Found->getRetValue()->getSourceRange();
 }
 
 /// Safe C: an alloc_size function counts as a fresh allocation at its call
@@ -18683,6 +18741,9 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   if (getLangOpts().SafeC && FD && Body &&
       !SourceMgr.isInSystemHeader(FD->getLocation()))
     checkSafeCFreedParams(*this, FD, Body);
+  if (getLangOpts().SafeC && FD && Body &&
+      !SourceMgr.isInSystemHeader(FD->getLocation()))
+    checkSafeCReturnsOwned(*this, FD, Body);
 
   if (FSI->UsesFPIntrin && FD && !FD->hasAttr<StrictFPAttr>())
     FD->addAttr(StrictFPAttr::CreateImplicit(Context));

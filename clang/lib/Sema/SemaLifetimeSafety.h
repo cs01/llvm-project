@@ -244,9 +244,25 @@ class LifetimeSafetySemaHelperImpl final : public LifetimeSafetySemaHelper {
 public:
   LifetimeSafetySemaHelperImpl(Sema &S) : S(S) {}
 
+  /// Safe C: a lifetime error is reported at the allocation or the borrowed
+  /// variable, but the unsafe part is the free or the later use; __unsafe
+  /// around either lifts the error, as it does for errors reported there.
+  bool inSafeCUnsafe(SourceLocation A, SourceLocation B = SourceLocation()) {
+    if (!S.getLangOpts().SafeC)
+      return false;
+    for (SourceLocation L : {A, B})
+      if (L.isValid() && (S.isInSafeCUnsafeRegion(L))) {
+        S.noteSafeCUnsafeRegionUsed(L);
+        return true;
+      }
+    return false;
+  }
+
   void reportUseAfterScope(const Expr *IssueExpr, const UseSite &Use,
                            const Expr *MovedExpr, SourceLocation FreeLoc,
                            llvm::ArrayRef<const Expr *> ExprChain) override {
+    if (inSafeCUnsafe(Use.getLoc(), FreeLoc))
+      return;
     unsigned DiagID;
     if (Use.getKind() == UseKind::Destructor)
       DiagID = diag::warn_lifetime_safety_destructor_use_after_scope;
@@ -860,6 +876,10 @@ private:
                                       const Expr *InvalidationExpr,
                                       llvm::ArrayRef<const Expr *> ExprChain,
                                       const UseSite &Use) {
+    if (inSafeCUnsafe(Use.getLoc(), InvalidationExpr
+                                        ? InvalidationExpr->getExprLoc()
+                                        : SourceLocation()))
+      return;
     auto WarnDiag =
         getInvalidationWarnDiag(isFreeingExpr(InvalidationExpr), Use.getKind());
     // Don't enable this via -Weverything - see rdar://190623069.

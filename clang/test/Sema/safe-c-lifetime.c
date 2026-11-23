@@ -39,3 +39,11 @@ int *escape(void) {
   int *p = &x; // expected-error {{stack memory associated with local variable 'x' is returned}}
   return p;    // expected-note {{returned here}}
 }
+
+// __unsafe around the free or the later use lifts the error, although it is
+// reported at the allocation.
+int lifted(void) {
+  int *_Nullable p = malloc(sizeof(int));
+  __unsafe { free(p); }
+  return p ? *p : 0;
+}

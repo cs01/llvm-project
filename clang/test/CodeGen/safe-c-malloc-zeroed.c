@@ -13,7 +13,7 @@ void *malloc(size_t);
 
 struct node { int v; struct node *next; };
 
-struct node *make(void) { return malloc(sizeof(struct node)); }
+__attribute__((ownership_returns(malloc))) struct node *make(void) { return malloc(sizeof(struct node)); }
 
 // SAFEC-LABEL: define {{.*}} @make(
 // SAFEC: call noalias ptr @calloc(i64 1, i64 16)

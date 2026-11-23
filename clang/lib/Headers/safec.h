@@ -19,18 +19,19 @@
 
 /* What you annotate. One line per annotation; the README's table is generated
    from these lines (clang/utils/safe-c/gen-readme.ts), so keep them current.
-   @annotation `_Nullable` | may be null; must be checked before use | `Option<&T>`: plain `&T` is never null
-   @annotation `__counted_by(n)` | points to `n` elements; `n` is another parameter or field | `&[T]` (a slice: pointer plus length)
-   @annotation `__counted_by_or_null(n)` | as `__counted_by(n)`, or null | `Option<&[T]>`
-   @annotation `__sized_by(n)` | points to `n` bytes | `&[u8]`
-   @annotation `__ended_by(end)` | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`)
-   @annotation `__null_terminated` | a string ending in 0 (string literals and libc strings are already) | `&CStr`
-   @annotation `__safec_takes(i)` | the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move)
-   @annotation `__safec_returns_owned` | the result is new memory the caller must free | returning `Box<T>`
-   @annotation `__safec_lifetimebound` | on a parameter: the result points into it and dies with it | `fn f<'a>(x: &'a T) -> &'a U`
-   @annotation `__safec_noescape` | on a parameter: the function does not keep the pointer | a plain `&T` parameter, which cannot outlive the call
-   @annotation `__unsafe` | a block or function where Safe C's rules are lifted, for code that cannot be checked | `unsafe { }`
-   @annotation `#pragma clang safe_c legacy` | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C
+   @annotation `_Nullable` | may be null; must be checked before use | `Option<&T>`: plain `&T` is never null | `char *_Nullable getenv(const char *name);`
+   @annotation `__counted_by(n)` | points to `n` elements; `n` is another parameter or field | `&[T]` (a slice: pointer plus length) | `int sum(const int *__counted_by(n) v, size_t n);`
+   @annotation `__counted_by_or_null(n)` | as `__counted_by(n)`, or null | `Option<&[T]>` | `struct buf { char *_Nullable __counted_by_or_null(len) data; size_t len; };`
+   @annotation `__sized_by(n)` | points to `n` bytes | `&[u8]` | `void fill(void *__sized_by(n) dst, size_t n);`
+   @annotation `__ended_by(end)` | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`) | `int scan(const char *__ended_by(end) p, const char *end);`
+   @annotation `__null_terminated` | a string ending in 0 (string literals and libc strings are already) | `&CStr` | `size_t my_strlen(const char *__null_terminated s);`
+   @annotation `__safec_takes(i)` | the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move) | `__safec_takes(1) void json_free(struct json *item);` (prefer `__safec_owned` on the parameter)
+   @annotation `__safec_owned` | on a parameter: the function takes ownership (frees it, or keeps it to free later); the caller may not use it afterwards | taking a `Box<T>` by value (a move) | `void json_delete(struct json *__safec_owned item);`
+   @annotation `__safec_returns_owned` | the result is new memory the caller must free | returning `Box<T>` | `__safec_returns_owned struct json *json_parse(const char *text);`
+   @annotation `__safec_lifetimebound` | on a parameter: the result points into it and dies with it | `fn f<'a>(x: &'a T) -> &'a U` | `const char *name_of(const struct json *j __safec_lifetimebound);`
+   @annotation `__safec_noescape` | on a parameter: the function does not keep the pointer | a plain `&T` parameter, which cannot outlive the call | `size_t count_spaces(const char *s __safec_noescape);`
+   @annotation `__unsafe` | a block or function where Safe C's rules are lifted, for code that cannot be checked | `unsafe { }` | `int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }`
+   @annotation `#pragma clang safe_c legacy` | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C | first line of a header not yet ported
    Everything else needs nothing: an unannotated pointer is non-null and points to
    exactly one element, like Rust's `&T`. */
 
@@ -159,11 +160,15 @@ char *getenv(const char *__null_terminated);
 #define __safec_returns_owned __attribute__((ownership_returns(malloc)))
 #define __safec_lifetimebound __attribute__((lifetimebound))
 #define __safec_noescape __attribute__((noescape))
+/* On a parameter: the function takes ownership. Sema turns it into
+   ownership_takes at the parameter's index, so no index can drift. */
+#define __safec_owned __attribute__((annotate("safec_owned")))
 #else
 #define __safec_takes(N)
 #define __safec_returns_owned
 #define __safec_lifetimebound
 #define __safec_noescape
+#define __safec_owned
 #endif
 
 #if !defined(__clang__)

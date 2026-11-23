@@ -18040,11 +18040,84 @@ static void CheckIdentityFieldAssignment(Expr *LHSExpr, Expr *RHSExpr,
 }
 
 // C99 6.5.16.1
+/// Safe C: the automatic local whose storage \p E designates, through '.'
+/// and array indexing but never through a pointer; null otherwise.
+static const VarDecl *safeCLocalStorage(const Expr *E) {
+  while (true) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
+      if (!OVE->getSourceExpr())
+        return nullptr;
+      E = OVE->getSourceExpr();
+    } else if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+      if (ME->isArrow()) {
+        // a->f is local storage when a is a local array (decayed) or &local.
+        const Expr *B = ME->getBase()->IgnoreParenImpCasts();
+        if (const auto *UO = dyn_cast<UnaryOperator>(B);
+            UO && UO->getOpcode() == UO_AddrOf)
+          E = UO->getSubExpr();
+        else if (B->getType()->isArrayType())
+          E = B;
+        else
+          return nullptr;
+        continue;
+      }
+      E = ME->getBase();
+    } else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+      const Expr *Base = ASE->getBase()->IgnoreParenImpCasts();
+      if (!Base->getType()->isArrayType())
+        return nullptr;
+      E = Base;
+    } else if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+      const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+      return VD && VD->hasLocalStorage() ? VD : nullptr;
+    } else {
+      return nullptr;
+    }
+  }
+}
+
+/// Safe C: the local whose address \p E is (&x, &x.f, or a local array that
+/// decays), or null.
+static const VarDecl *safeCAddressOfLocal(const Expr *E) {
+  while (true) {
+    E = E->IgnoreParenCasts();
+    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
+      if (!OVE->getSourceExpr())
+        return nullptr;
+      E = OVE->getSourceExpr();
+    } else if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E)) {
+      E = MSE->getWrappedExpr();
+    } else if (const auto *PPE =
+                   dyn_cast<BoundsSafetyPointerPromotionExpr>(E)) {
+      E = PPE->getPointer();
+    } else {
+      break;
+    }
+  }
+  if (const auto *UO = dyn_cast<UnaryOperator>(E);
+      UO && UO->getOpcode() == UO_AddrOf)
+    return safeCLocalStorage(UO->getSubExpr());
+  if (E->getType()->isArrayType())
+    return safeCLocalStorage(E);
+  return nullptr;
+}
+
 QualType Sema::CheckAssignmentOperands(Expr *LHSExpr, ExprResult &RHS,
                                        SourceLocation Loc,
                                        QualType CompoundType,
                                        BinaryOperatorKind Opc) {
   assert(!LHSExpr->hasPlaceholderType(BuiltinType::PseudoObject));
+
+  // Safe C: a local's address stored anywhere but in a local of this function
+  // (through a pointer, in a global or a static) outlives the local. Storing
+  // it in a local is fine: the lifetime analysis follows locals.
+  if (getLangOpts().SafeC && RHS.isUsable() && CompoundType.isNull() &&
+      !SourceMgr.isInSystemHeader(Loc))
+    if (const VarDecl *Local = safeCAddressOfLocal(RHS.get());
+        Local && !safeCLocalStorage(LHSExpr))
+      Diag(Loc, diag::warn_safe_c_stack_escape)
+          << Local << LHSExpr->getSourceRange() << RHS.get()->getSourceRange();
 
   // Verify that LHS is a modifiable lvalue, and emit error if not.
   if (CheckForModifiableLvalue(LHSExpr, Loc, *this))

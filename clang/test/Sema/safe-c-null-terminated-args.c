@@ -18,5 +18,5 @@ size_t arg(void) {
 
 void field(struct S *s) {
   char buf[16] = "hello";
-  s->name = buf; // expected-error {{is an unsafe operation}} plain-error {{is an unsafe operation}}
+  s->name = buf; // expected-error {{is an unsafe operation}} expected-error {{storing the address of local 'buf'}} plain-error {{is an unsafe operation}}
 }
