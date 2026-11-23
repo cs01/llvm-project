@@ -547,6 +547,7 @@ def SafeCFormat : DiagGroup<"safe-c-format">;
 def SafeCEscape : DiagGroup<"safe-c-escape">;
 def SafeCUnion : DiagGroup<"safe-c-union">;
 def SafeCPure : DiagGroup<"safe-c-pure">;
+def SafeCIntToPointer : DiagGroup<"safe-c-int-to-pointer">;
 def NullabilitySafety : DiagGroup<"nullability-safety", [
   NullabilitySafetyDereference, NullabilitySafetyArithmetic, NullabilitySafetyReturn,
   NullabilitySafetyAssignment, NullabilitySafetyArgument]>;

@@ -13426,6 +13426,12 @@ def warn_safe_c_void_pointer_cast : Warning<
 def note_safe_c_void_pointer_cast_fix : Note<
   "keep the typed pointer instead of 'void *' (annotate the callback or API "
   "with '__attribute__((callback(...)))'), or convert inside '__unsafe'">;
+def warn_safe_c_int_to_pointer : Warning<
+  "converting %0 to %1 makes up an address that no bounds or lifetime check "
+  "can follow; keep the pointer instead of the integer (or an index into the "
+  "array it points into), or convert to 'void *' if only the address value is "
+  "needed">,
+  InGroup<SafeCIntToPointer>, DefaultError;
 def warn_safe_c_pure_body : Warning<
   "%select{'pure'|'const'}0 function %1 %select{writes memory other than its "
   "own local variables|calls %3, which is not marked 'pure' or 'const'|calls "

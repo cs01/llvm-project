@@ -3825,6 +3825,19 @@ ExprResult Sema::BuildCStyleCastExpr(SourceLocation LPLoc,
   if (Op.SrcExpr.isInvalid())
     return ExprError();
 
+  // Safe C: an integer cast to a pointer is a forged pointer. Null, 'void *'
+  // (which cannot be dereferenced, and leaves only by a checked conversion) and
+  // system-header macros such as SIG_IGN and MAP_FAILED are fine.
+  if (getLangOpts().SafeC && Op.Kind == CK_IntegralToPointer &&
+      LPLoc != RPLoc && !SourceMgr.isInSystemHeader(LPLoc) &&
+      !SourceMgr.isInSystemMacro(LPLoc) &&
+      !Op.DestType->getPointeeType()->isVoidType() &&
+      !Op.SrcExpr.get()->isNullPointerConstant(
+          Context, Expr::NPC_ValueDependentIsNotNull))
+    Diag(LPLoc, diag::warn_safe_c_int_to_pointer)
+        << Op.SrcExpr.get()->getType() << Op.DestType
+        << SourceRange(LPLoc, Op.SrcExpr.get()->getEndLoc());
+
   // CK_NoOp: a cast that changes only nested nullability, which the rule
   // also counts.
   if (Op.Kind == CK_BitCast || Op.Kind == CK_NoOp)
