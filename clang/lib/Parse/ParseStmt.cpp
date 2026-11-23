@@ -90,8 +90,12 @@ StmtResult Parser::ParseStatementOrDeclaration(StmtVector &Stmts,
                 return true;
         return false;
       });
-  if (SafeCUnsafe)
+  if (SafeCUnsafe) {
     ++Actions.SafeCUnsafeDepth;
+    // -Rsafe-c-unsafe lists every region, including ones a macro expands to,
+    // so __unsafe hidden behind a library macro is still visible.
+    Diag(CXX11Attrs.Range.getBegin(), diag::remark_safe_c_unsafe_region) << 0;
+  }
   StmtResult Res = ParseStatementOrDeclarationAfterAttributes(
       Stmts, StmtCtx, TrailingElseLoc, CXX11Attrs, GNUOrMSAttrs,
       PrecedingLabel);

@@ -13406,6 +13406,9 @@ def warn_nullability_lost : Warning<
   "implicit conversion from nullable pointer %0 to non-nullable pointer "
   "type %1">,
   InGroup<NullableToNonNullConversion>, DefaultIgnore;
+def remark_safe_c_unsafe_region : Remark<
+  "%select{unsafe block|unsafe function}0: Safe C rules are not enforced here">,
+  InGroup<SafeCUnsafe>;
 def warn_nullability_safety_dereference : Warning<
   "dereference of nullable pointer %0">,
   InGroup<NullabilitySafetyDereference>;

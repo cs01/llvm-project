@@ -17801,8 +17801,10 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
     NullabilitySafetyAssumeNonnullDefs.insert(FD);
 
   // Paired with the decrement in ActOnFinishFunctionBody.
-  if (getLangOpts().SafeC && isSafeCUnsafeDecl(FD))
+  if (getLangOpts().SafeC && isSafeCUnsafeDecl(FD)) {
     ++SafeCUnsafeDepth;
+    Diag(FD->getBeginLoc(), diag::remark_safe_c_unsafe_region) << 1;
+  }
 
   // Do not push if it is a lambda because one is already pushed when building
   // the lambda in ActOnStartOfLambdaDefinition().
