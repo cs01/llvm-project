@@ -142,4 +142,5 @@ for (const w of cwes) {
 const wd = rows[0].map((_, i) => Math.max(...rows.map(r => r[i].length)));
 for (const r of rows) console.log(r.map((c, i) => c.padStart(wd[i])).join("  "));
 console.log("(other = bad compiled-not-run or link failure; total C cases per CWE: " + JSON.stringify(counts) + ")");
-if (outFile) writeFileSync(outFile, JSON.stringify(results.sort((a, b) => a.case.localeCompare(b.case)), null, 1));
+// Paths relative to the suite: results files are committed and must not name a home dir.
+if (outFile) writeFileSync(outFile, JSON.stringify(results.sort((a, b) => a.case.localeCompare(b.case)), null, 1).split(ROOT + "/").join(""));

@@ -37,3 +37,22 @@ compiler rejected the cases by hand. The earlier gate audit only exercised the r
 trap path (`-fsanitize=null`), never compile-time rejection. Fixed: `-w` is now applied
 to the support files only. Audit for the compile path: CWE 476, 20 cases, null safety
 with `-Werror`: 100% rejected, 100% good accepted.
+
+## First result: null safety alone, as-is (2026-11-23)
+
+Flags: `-fnullability-safety -fnullability-default=nonnull -Werror=nullability-safety`,
+no bounds safety, Juliet unannotated. Raw per-case data: `juliet-null-2026-11-23.json`.
+
+| CWE | cases | bad caught | good accepted |
+|---|---|---|---|
+| 476 NULL dereference | 270 | 82.2% (all at compile time) | 77.8% |
+| 690 unchecked return value | 722 | 78.9% (all at compile time) | 76.3% |
+
+Misses are exactly eight Juliet flow variants (25 cases each): 45 and 68 (through a
+global), 44 and 65 (through a function pointer), 32, 63, 64 (through `int **`), 66
+(array of pointers). These are false negatives to fix.
+
+Good cases rejected are mostly annotation burden: the good variants deliberately pass or
+store NULL into functions and fields that check it, which under the nonnull default needs
+`_Nullable` (144 argument, 50 field, 19 return errors). 18 are dereference errors to
+look at as possible real false positives. The annotated mode will separate the two.
