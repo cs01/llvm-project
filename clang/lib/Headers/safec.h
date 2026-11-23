@@ -17,6 +17,23 @@
 #ifndef __SAFEC_H
 #define __SAFEC_H
 
+/* What you annotate. One line per annotation; the README's table is generated
+   from these lines (clang/utils/safe-c/gen-readme.ts), so keep them current.
+   @annotation `_Nullable` | may be null; must be checked before use
+   @annotation `__counted_by(n)` | points to `n` elements; `n` is another parameter or field
+   @annotation `__counted_by_or_null(n)` | as `__counted_by(n)`, or null
+   @annotation `__sized_by(n)` | points to `n` bytes
+   @annotation `__ended_by(end)` | valid up to the pointer `end`
+   @annotation `__null_terminated` | a string ending in 0 (string literals and libc strings are already)
+   @annotation `__safec_takes(i)` | the function frees (or keeps) its `i`th parameter; callers may not use it afterwards
+   @annotation `__safec_returns_owned` | the result is new memory the caller must free
+   @annotation `__safec_lifetimebound` | on a parameter: the result points into it and dies with it
+   @annotation `__safec_noescape` | on a parameter: the function does not keep the pointer
+   @annotation `__unsafe` | a block or function where Safe C's rules are lifted, for code that cannot be checked
+   @annotation `#pragma clang safe_c legacy` | in a header not yet ported: its declarations are trusted, its code unchecked
+   Everything else needs nothing: an unannotated pointer is non-null and points to
+   exactly one element. */
+
 /* Bounds annotations: Apple's ptrcheck.h defines them, and defines them as
    nothing when bounds safety is off. Without ptrcheck.h, do the same here. */
 #if defined(__has_include)

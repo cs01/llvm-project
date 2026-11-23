@@ -194,12 +194,22 @@ struct fields, arrays and globals it is not caught yet (see the status table).
 Most pointers need nothing: unannotated means non-null and one element, which is the
 safe choice. You annotate only where a pointer does more:
 
+<!-- generated:annotations -->
 | Annotation | Meaning |
 |---|---|
 | `_Nullable` | may be null; must be checked before use |
-| `__counted_by(n)` | points to `n` elements, `n` another parameter or field |
+| `__counted_by(n)` | points to `n` elements; `n` is another parameter or field |
+| `__counted_by_or_null(n)` | as `__counted_by(n)`, or null |
 | `__sized_by(n)` | points to `n` bytes |
 | `__ended_by(end)` | valid up to the pointer `end` |
+| `__null_terminated` | a string ending in 0 (string literals and libc strings are already) |
+| `__safec_takes(i)` | the function frees (or keeps) its `i`th parameter; callers may not use it afterwards |
+| `__safec_returns_owned` | the result is new memory the caller must free |
+| `__safec_lifetimebound` | on a parameter: the result points into it and dies with it |
+| `__safec_noescape` | on a parameter: the function does not keep the pointer |
+| `__unsafe` | a block or function where Safe C's rules are lifted, for code that cannot be checked |
+| `#pragma clang safe_c legacy` | in a header not yet ported: its declarations are trusted, its code unchecked |
+<!-- end generated:annotations -->
 
 All of these come from `safec.h`, which `-fsafe-c` includes automatically, so
 Safe C code does not need to include it.
@@ -218,29 +228,38 @@ rejected at compile time. 40-45% of the `good()` versions are also rejected as w
 because they keep NULL in places Safe C requires to be marked `_Nullable`; that is
 annotation burden, and the annotated mode will measure it.
 
-**Full run, all CWEs scored so far** (2026-11-23). `strict` counts only cases whose
-`good()` compiles and runs, so a file-level error that rejects both says nothing:
+**Results, split the way Rust would catch each bug** (2026-11-23):
 
-| CWE | strict caught |
-|---|---|
-| 476 NULL dereference, 690 unchecked return | 100% (all at compile time) |
-| 121 stack overflow | 93.3% |
-| 126 buffer over-read | 84.0% |
-| 127 buffer under-read | 83.3% |
-| 124 buffer underwrite | 80.6% |
-| 122 heap overflow | 72.8% (63 of the misses only overflow on 32-bit targets) |
-| 369 integer divide by zero | every deterministically reachable case traps |
-| 415 double free | 90.0% (all at compile time) |
-| 416 use after free | 100% (all at compile time) |
+<!-- generated:juliet -->
+| CWE | Rust catches it at | Cases | Safe C at compile time | Safe C at run time (trap) | Missed, fixed input | Missed, needs other input |
+|---|---|---|---|---|---|---|
+| 476 NULL dereference | compile time | 162 | 162 (100.0%) | 0 (0.0%) | 0 | 0 |
+| 690 unchecked return value | compile time | 399 | 399 (100.0%) | 0 (0.0%) | 0 | 0 |
+| 415 double free | compile time | 120 | 108 (90.0%) | 0 (0.0%) | 12 | 0 |
+| 416 use after free | compile time | 54 | 54 (100.0%) | 0 (0.0%) | 0 | 0 |
+| 121 stack buffer overflow | run time | 315 | 0 (0.0%) | 288 (91.4%) | 0 | 27 |
+| 122 heap buffer overflow | run time | 327 | 0 (0.0%) | 244 (74.6%) | 60* | 23 |
+| 124 buffer underwrite | run time | 144 | 0 (0.0%) | 59 (41.0%) | 0 | 85 |
+| 126 buffer over-read | run time | 144 | 0 (0.0%) | 118 (81.9%) | 0 | 26 |
+| 127 buffer under-read | run time | 144 | 0 (0.0%) | 56 (38.9%) | 0 | 88 |
+| 369 divide by zero | run time | 444 | 0 (0.0%) | 218 (49.1%) | 36* | 190 |
 
-**Why not 100%.** Bounds misses are almost all Juliet cases whose bug sits behind a
-random index or a randomly taken branch: Safe C traps when the bad access happens, but
-the harness's fixed input never makes it happen (and in CWE 122, 63 misses only overflow
-on 32-bit targets). The 12 double-free misses are real: the pointer travels through a
-function pointer, a global or a struct before the second free, which is the open
-struct-field gap. Use after free scores 100% because Juliet's cases flow through local
-variables; the audit probes through fields and globals still get past. Details and the
-harness's own fixes are in [safe-c-notes/juliet.md](safe-c-notes/juliet.md).
+\* CWE 122: the 60 fixed-input misses are overflow only on 32-bit targets.
+\* CWE 369: the 36 fixed-input misses are floating-point division, which is defined (infinity) in C and Rust.
+
+**Bugs Rust rejects at compile time** (null, unchecked returns, double free, use after free): Safe C rejects 98.4% of them at compile time (723 of 735); the misses are double frees through function pointers and structs, the open struct-field gap.
+
+**Bugs Rust catches at run time** (bounds, division by zero, where Rust panics): Safe C traps on every one whose bug actually happens with the harness's input (983 of 983). The other 439 need an input the harness does not give (a random value, a socket, a file), so a Rust program would not panic on them in this run either, and 96 are not bugs on this target (marked *).
+
+Cases are `strict`: only those whose fixed `good()` version compiles and runs under Safe C. Generated from the saved runs in `safe-c-notes/` by `clang/utils/safe-c/gen-readme.ts`.
+<!-- end generated:juliet -->
+
+**Why not 100%.** In the table above, the only real misses are the 12 double frees,
+where the pointer travels through a function pointer, a global or a struct before the
+second free: that is the struct-field gap static ownership (M2) closes. Use after free
+scores 100% because Juliet's cases flow through local variables; the audit probes through
+fields and globals still get past until M2. Details and the harness's own fixes are in
+[safe-c-notes/juliet.md](safe-c-notes/juliet.md).
 
 **How Rust would compare** (by reasoning, not measured; we know of no Juliet run in safe
 Rust): null, use after free, uninitialized reads and data races are compile errors in
