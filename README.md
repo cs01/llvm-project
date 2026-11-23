@@ -36,7 +36,7 @@ libraries.
 |---|---|---|---|
 | Out of bounds | `__counted_by`, `__sized_by`, `__ended_by` on interfaces; locals carry their own bounds; every access proven at compile time or trapped | Apple's `-fbounds-safety` | works |
 | Null dereference | non-null by default; `_Nullable` must be checked before use, tracked through each function | this fork | works |
-| Use after free, double free | owned pointers, moves and borrows; `lifetimebound` at interfaces | Clang's lifetime analysis, this fork | proved in Lean, compiler planned |
+| Use after free, double free | Clang's lifetime analysis always on, as errors; `ownership_takes`/`ownership_returns`/`lifetimebound` at interfaces; checked ownership annotations and owned fields next | Clang's lifetime safety (usx95), this fork | works within functions and through annotated calls; fields planned |
 | Uninitialized reads | a maybe-uninitialized local is an error; stack aggregates and `malloc` memory start zeroed | Clang's uninitialized analysis, `-ftrivial-auto-var-init` | works |
 | Type confusion | pointer casts only to `void *`, to the same type, or between types without pointers; unions likewise; no integer-to-pointer; no raw bytes over pointers; `printf`/`scanf` arguments checked | this fork, rule from the Lean model | works |
 | Unchecked libc | `strcpy`, `sprintf`, `gets` unavailable; a bounded pointer cannot go to an unchecked parameter | Apple's libc annotations, this fork | works |
@@ -222,7 +222,8 @@ annotation burden, and the annotated mode will measure it.
 | 124 buffer underwrite | 80.6% |
 | 122 heap overflow | 72.8% (63 of the misses only overflow on 32-bit targets) |
 | 369 integer divide by zero | every deterministically reachable case traps |
-| 415 double free, 416 use after free | 0% (ownership not built yet) |
+| 415 double free | 90.0% (all at compile time) |
+| 416 use after free | 100% (all at compile time) |
 
 Almost every remaining bounds miss uses a random index or a randomly taken branch, which
 no fixed input can trigger. Details and the harness's own fixes are in

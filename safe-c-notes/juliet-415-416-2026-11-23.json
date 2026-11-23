@@ -1,0 +1,3986 @@
+[
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_01",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_01.c:29:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_02",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_02.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_03",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_03.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_04",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_04.c:37:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_05",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_05.c:37:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_06",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_06.c:36:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_07",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_07.c:36:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_08",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_08.c:44:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_09",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_09.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_10",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_10.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_11",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_11.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_12",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_12.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_13",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_13.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_14",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_14.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_15",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_15.c:32:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_16",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_16.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_17",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_17.c:32:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_17.c:79:24: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_18",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_18.c:31:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_21",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_21.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_21.c:41:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_21.c:79:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_22",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_22a.c",
+   "CWE415_Double_Free__malloc_free_char_22b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_22a.c:34:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_22a.c:59:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_31",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_31.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_31.c:29:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_32",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_32.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_32.c:27:13: error: initializing 'char *__single*__bidi_indexable' with an expression of incompatible nested pointer type 'char *__bidi_indexable*__bidi_indexable'; use explicit cast to perform ",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_32.c:54:13: error: initializing 'char *__single*__bidi_indexable' with an expression of incompatible nested pointer type 'char *__bidi_indexable*__bidi_indexable'; use explicit cast to perform "
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_34",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_34.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_41",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_41.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_41.c:35:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_41.c:77:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_42",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_42.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_42.c:26:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_42.c:69:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_44",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_44.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_44.c:37:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_44.c:82:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_45",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_45.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_45.c:22:15: error: initializing a variable of nonnull type 'char *__single' with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_45.c:22:15: error: initializing a variable of nonnull type 'char *__single' with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_51",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_51a.c",
+   "CWE415_Double_Free__malloc_free_char_51b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_51a.c:32:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_51a.c:65:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_52",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_52a.c",
+   "CWE415_Double_Free__malloc_free_char_52b.c",
+   "CWE415_Double_Free__malloc_free_char_52c.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_52a.c:32:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_52a.c:65:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_53",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_53a.c",
+   "CWE415_Double_Free__malloc_free_char_53b.c",
+   "CWE415_Double_Free__malloc_free_char_53c.c",
+   "CWE415_Double_Free__malloc_free_char_53d.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_53a.c:32:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_53a.c:65:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_54",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_54a.c",
+   "CWE415_Double_Free__malloc_free_char_54b.c",
+   "CWE415_Double_Free__malloc_free_char_54c.c",
+   "CWE415_Double_Free__malloc_free_char_54d.c",
+   "CWE415_Double_Free__malloc_free_char_54e.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_54a.c:32:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_54a.c:65:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_61",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_61a.c",
+   "CWE415_Double_Free__malloc_free_char_61b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_61a.c:32:63: error: passing nullable pointer to nonnull parameter 'data'",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_61a.c:49:67: error: passing nullable pointer to nonnull parameter 'data'"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_63",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_63a.c",
+   "CWE415_Double_Free__malloc_free_char_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_63a.c:36:54: error: passing 'char *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'char *__single*__single'; use explicit cast to perform this conversion",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_63a.c:54:58: error: passing 'char *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'char *__single*__single'; use explicit cast to perform this conversion"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_64",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_64a.c",
+   "CWE415_Double_Free__malloc_free_char_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_64b.c:27:24: error: converting 'void *__single' to 'char **' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_64b.c:42:24: error: converting 'void *__single' to 'char **' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_65",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_65a.c",
+   "CWE415_Double_Free__malloc_free_char_65b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_65a.c:34:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_65a.c:70:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_66",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_66a.c",
+   "CWE415_Double_Free__malloc_free_char_66b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_66a.c:25:55: error: parameter of array type 'char *[]' decays to a __single pointer, and will not allow arithmetic",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_66a.c:47:59: error: parameter of array type 'char *[]' decays to a __single pointer, and will not allow arithmetic"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_67",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_67a.c",
+   "CWE415_Double_Free__malloc_free_char_67b.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_char_68",
+  "files": [
+   "CWE415_Double_Free__malloc_free_char_68a.c",
+   "CWE415_Double_Free__malloc_free_char_68b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_68a.c:22:8: error: initializing a variable of nonnull type 'char *__single' with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_char_68a.c:22:8: error: initializing a variable of nonnull type 'char *__single' with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_01",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_01.c:29:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_02",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_02.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_03",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_03.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_04",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_04.c:37:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_05",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_05.c:37:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_06",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_06.c:36:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_07",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_07.c:36:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_08",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_08.c:44:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_09",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_09.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_10",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_10.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_11",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_11.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_12",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_12.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_13",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_13.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_14",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_14.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_15",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_15.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_16",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_16.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_17",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_17.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_17.c:79:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_18",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_18.c:31:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_21",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_21.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_21.c:41:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_21.c:79:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_22",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_22a.c",
+   "CWE415_Double_Free__malloc_free_int_22b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_22a.c:34:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_22a.c:59:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_31",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_31.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_31.c:29:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_32",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_32.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_32.c:27:12: error: initializing 'int *__single*__bidi_indexable' with an expression of incompatible nested pointer type 'int *__bidi_indexable*__bidi_indexable'; use explicit cast to perform thi",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_32.c:54:12: error: initializing 'int *__single*__bidi_indexable' with an expression of incompatible nested pointer type 'int *__bidi_indexable*__bidi_indexable'; use explicit cast to perform thi"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_34",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_34.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_41",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_41.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_41.c:35:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_41.c:77:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_42",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_42.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_42.c:26:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_42.c:69:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_44",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_44.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_44.c:37:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_44.c:82:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_45",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_45.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_45.c:22:14: error: initializing a variable of nonnull type 'int *__single' with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_45.c:22:14: error: initializing a variable of nonnull type 'int *__single' with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_51",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_51a.c",
+   "CWE415_Double_Free__malloc_free_int_51b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_51a.c:32:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_51a.c:65:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_52",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_52a.c",
+   "CWE415_Double_Free__malloc_free_int_52b.c",
+   "CWE415_Double_Free__malloc_free_int_52c.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_52a.c:32:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_52a.c:65:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_53",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_53a.c",
+   "CWE415_Double_Free__malloc_free_int_53b.c",
+   "CWE415_Double_Free__malloc_free_int_53c.c",
+   "CWE415_Double_Free__malloc_free_int_53d.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_53a.c:32:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_53a.c:65:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_54",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_54a.c",
+   "CWE415_Double_Free__malloc_free_int_54b.c",
+   "CWE415_Double_Free__malloc_free_int_54c.c",
+   "CWE415_Double_Free__malloc_free_int_54d.c",
+   "CWE415_Double_Free__malloc_free_int_54e.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_54a.c:32:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_54a.c:65:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_61",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_61a.c",
+   "CWE415_Double_Free__malloc_free_int_61b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_61a.c:32:62: error: passing nullable pointer to nonnull parameter 'data'",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_61a.c:49:66: error: passing nullable pointer to nonnull parameter 'data'"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_63",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_63a.c",
+   "CWE415_Double_Free__malloc_free_int_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_63a.c:36:53: error: passing 'int *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'int *__single*__single'; use explicit cast to perform this conversion",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_63a.c:54:57: error: passing 'int *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'int *__single*__single'; use explicit cast to perform this conversion"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_64",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_64a.c",
+   "CWE415_Double_Free__malloc_free_int_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_64b.c:27:23: error: converting 'void *__single' to 'int **' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_64b.c:42:23: error: converting 'void *__single' to 'int **' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_65",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_65a.c",
+   "CWE415_Double_Free__malloc_free_int_65b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_65a.c:34:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_65a.c:70:19: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_66",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_66a.c",
+   "CWE415_Double_Free__malloc_free_int_66b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_66a.c:25:54: error: parameter of array type 'int *[]' decays to a __single pointer, and will not allow arithmetic",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_66a.c:47:58: error: parameter of array type 'int *[]' decays to a __single pointer, and will not allow arithmetic"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_67",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_67a.c",
+   "CWE415_Double_Free__malloc_free_int_67b.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int_68",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int_68a.c",
+   "CWE415_Double_Free__malloc_free_int_68b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_68a.c:22:7: error: initializing a variable of nonnull type 'int *__single' with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int_68a.c:22:7: error: initializing a variable of nonnull type 'int *__single' with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_01",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_01.c:29:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_02",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_02.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_03",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_03.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_04",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_04.c:37:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_05",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_05.c:37:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_06",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_06.c:36:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_07",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_07.c:36:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_08",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_08.c:44:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_09",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_09.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_10",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_10.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_11",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_11.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_12",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_12.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_13",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_13.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_14",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_14.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_15",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_15.c:32:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_16",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_16.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_17",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_17.c:32:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_17.c:79:27: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_18",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_18.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_21",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_21.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_21.c:41:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_21.c:79:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_22",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_22a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_22b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_22a.c:34:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_22a.c:59:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_31",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_31.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_31.c:29:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_32",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_32.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_32.c:27:16: error: initializing 'int64_t *__single*__bidi_indexable' (aka 'long long *__single*__bidi_indexable') with an expression of incompatible nested pointer type 'int64_t *__bidi_inde",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_32.c:54:16: error: initializing 'int64_t *__single*__bidi_indexable' (aka 'long long *__single*__bidi_indexable') with an expression of incompatible nested pointer type 'int64_t *__bidi_inde"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_34",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_34.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_41",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_41.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_41.c:35:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_41.c:77:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_42",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_42.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_42.c:26:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_42.c:69:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_44",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_44.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_44.c:37:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_44.c:82:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_45",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_45.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_45.c:22:18: error: initializing a variable of nonnull type 'int64_t *__single' (aka 'long long *__single') with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_45.c:22:18: error: initializing a variable of nonnull type 'int64_t *__single' (aka 'long long *__single') with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_51",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_51a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_51b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_51a.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_51a.c:65:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_52",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_52a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_52b.c",
+   "CWE415_Double_Free__malloc_free_int64_t_52c.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_52a.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_52a.c:65:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_53",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_53a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_53b.c",
+   "CWE415_Double_Free__malloc_free_int64_t_53c.c",
+   "CWE415_Double_Free__malloc_free_int64_t_53d.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_53a.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_53a.c:65:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_54",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_54a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_54b.c",
+   "CWE415_Double_Free__malloc_free_int64_t_54c.c",
+   "CWE415_Double_Free__malloc_free_int64_t_54d.c",
+   "CWE415_Double_Free__malloc_free_int64_t_54e.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_54a.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_54a.c:65:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_61",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_61a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_61b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_61a.c:32:66: error: passing nullable pointer to nonnull parameter 'data'",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_61a.c:49:70: error: passing nullable pointer to nonnull parameter 'data'"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_63",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_63a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_63a.c:36:57: error: passing 'int64_t *__bidi_indexable*__bidi_indexable' (aka 'long long *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer type 'int64_t *__sin",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_63a.c:54:61: error: passing 'int64_t *__bidi_indexable*__bidi_indexable' (aka 'long long *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer type 'int64_t *__sin"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_64",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_64a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_64b.c:27:27: error: converting 'void *__single' to 'int64_t **' (aka 'long long **') can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_64b.c:42:27: error: converting 'void *__single' to 'int64_t **' (aka 'long long **') can treat memory as the wrong type"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_65",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_65a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_65b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_65a.c:34:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_65a.c:70:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_66",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_66a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_66b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_66a.c:25:58: error: parameter of array type 'int64_t *[]' (aka 'long long *[]') decays to a __single pointer, and will not allow arithmetic",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_66a.c:47:62: error: parameter of array type 'int64_t *[]' (aka 'long long *[]') decays to a __single pointer, and will not allow arithmetic"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_67",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_67a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_67b.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_int64_t_68",
+  "files": [
+   "CWE415_Double_Free__malloc_free_int64_t_68a.c",
+   "CWE415_Double_Free__malloc_free_int64_t_68b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_68a.c:22:11: error: initializing a variable of nonnull type 'int64_t *__single' (aka 'long long *__single') with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_int64_t_68a.c:22:11: error: initializing a variable of nonnull type 'int64_t *__single' (aka 'long long *__single') with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_01",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_01.c:29:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_02",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_02.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_03",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_03.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_04",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_04.c:37:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_05",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_05.c:37:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_06",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_06.c:36:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_07",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_07.c:36:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_08",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_08.c:44:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_09",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_09.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_10",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_10.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_11",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_11.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_12",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_12.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_13",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_13.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_14",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_14.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_15",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_15.c:32:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_16",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_16.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_17",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_17.c:32:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_17.c:79:24: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_18",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_18.c:31:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_21",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_21.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_21.c:41:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_21.c:79:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_22",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_22a.c",
+   "CWE415_Double_Free__malloc_free_long_22b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_22a.c:34:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_22a.c:59:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_31",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_31.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_31.c:29:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_32",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_32.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_32.c:27:13: error: initializing 'long *__single*__bidi_indexable' with an expression of incompatible nested pointer type 'long *__bidi_indexable*__bidi_indexable'; use explicit cast to perform ",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_32.c:54:13: error: initializing 'long *__single*__bidi_indexable' with an expression of incompatible nested pointer type 'long *__bidi_indexable*__bidi_indexable'; use explicit cast to perform "
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_34",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_34.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_41",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_41.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_41.c:35:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_41.c:77:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_42",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_42.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_42.c:26:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_42.c:69:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_44",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_44.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_44.c:37:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_44.c:82:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_45",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_45.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_45.c:22:15: error: initializing a variable of nonnull type 'long *__single' with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_45.c:22:15: error: initializing a variable of nonnull type 'long *__single' with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_51",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_51a.c",
+   "CWE415_Double_Free__malloc_free_long_51b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_51a.c:32:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_51a.c:65:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_52",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_52a.c",
+   "CWE415_Double_Free__malloc_free_long_52b.c",
+   "CWE415_Double_Free__malloc_free_long_52c.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_52a.c:32:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_52a.c:65:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_53",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_53a.c",
+   "CWE415_Double_Free__malloc_free_long_53b.c",
+   "CWE415_Double_Free__malloc_free_long_53c.c",
+   "CWE415_Double_Free__malloc_free_long_53d.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_53a.c:32:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_53a.c:65:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_54",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_54a.c",
+   "CWE415_Double_Free__malloc_free_long_54b.c",
+   "CWE415_Double_Free__malloc_free_long_54c.c",
+   "CWE415_Double_Free__malloc_free_long_54d.c",
+   "CWE415_Double_Free__malloc_free_long_54e.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_54a.c:32:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_54a.c:65:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_61",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_61a.c",
+   "CWE415_Double_Free__malloc_free_long_61b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_61a.c:32:63: error: passing nullable pointer to nonnull parameter 'data'",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_61a.c:49:67: error: passing nullable pointer to nonnull parameter 'data'"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_63",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_63a.c",
+   "CWE415_Double_Free__malloc_free_long_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_63a.c:36:54: error: passing 'long *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'long *__single*__single'; use explicit cast to perform this conversion",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_63a.c:54:58: error: passing 'long *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'long *__single*__single'; use explicit cast to perform this conversion"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_64",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_64a.c",
+   "CWE415_Double_Free__malloc_free_long_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_64b.c:27:24: error: converting 'void *__single' to 'long **' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_64b.c:42:24: error: converting 'void *__single' to 'long **' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_65",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_65a.c",
+   "CWE415_Double_Free__malloc_free_long_65b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_65a.c:34:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_65a.c:70:20: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_66",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_66a.c",
+   "CWE415_Double_Free__malloc_free_long_66b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_66a.c:25:55: error: parameter of array type 'long *[]' decays to a __single pointer, and will not allow arithmetic",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_66a.c:47:59: error: parameter of array type 'long *[]' decays to a __single pointer, and will not allow arithmetic"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_67",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_67a.c",
+   "CWE415_Double_Free__malloc_free_long_67b.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_long_68",
+  "files": [
+   "CWE415_Double_Free__malloc_free_long_68a.c",
+   "CWE415_Double_Free__malloc_free_long_68b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_68a.c:22:8: error: initializing a variable of nonnull type 'long *__single' with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_long_68a.c:22:8: error: initializing a variable of nonnull type 'long *__single' with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_01",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_01.c:29:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_02",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_02.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_03",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_03.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_04",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_04.c:37:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_05",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_05.c:37:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_06",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_06.c:36:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_07",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_07.c:36:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_08",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_08.c:44:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_09",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_09.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_10",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_10.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_11",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_11.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_12",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_12.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_13",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_13.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_14",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_14.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_15",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_15.c:32:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_16",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_16.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_17",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_17.c:32:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_17.c:79:33: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_18",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_18.c:31:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_21",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_21.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_21.c:41:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_21.c:79:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_22",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_22a.c",
+   "CWE415_Double_Free__malloc_free_struct_22b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_22a.c:34:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_22a.c:59:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_31",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_31.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_31.c:29:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_32",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_32.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_32.c:27:22: error: initializing 'twoIntsStruct *__single*__bidi_indexable' (aka 'struct _twoIntsStruct *__single*__bidi_indexable') with an expression of incompatible nested pointer type 'two",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_32.c:54:22: error: initializing 'twoIntsStruct *__single*__bidi_indexable' (aka 'struct _twoIntsStruct *__single*__bidi_indexable') with an expression of incompatible nested pointer type 'two"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_34",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_34.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_41",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_41.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_41.c:35:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_41.c:77:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_42",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_42.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_42.c:26:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_42.c:69:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_44",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_44.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_44.c:37:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_44.c:82:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_45",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_45.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_45.c:22:24: error: initializing a variable of nonnull type 'twoIntsStruct *__single' (aka 'struct _twoIntsStruct *__single') with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_45.c:22:24: error: initializing a variable of nonnull type 'twoIntsStruct *__single' (aka 'struct _twoIntsStruct *__single') with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_51",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_51a.c",
+   "CWE415_Double_Free__malloc_free_struct_51b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_51a.c:32:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_51a.c:65:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_52",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_52a.c",
+   "CWE415_Double_Free__malloc_free_struct_52b.c",
+   "CWE415_Double_Free__malloc_free_struct_52c.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_52a.c:32:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_52a.c:65:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_53",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_53a.c",
+   "CWE415_Double_Free__malloc_free_struct_53b.c",
+   "CWE415_Double_Free__malloc_free_struct_53c.c",
+   "CWE415_Double_Free__malloc_free_struct_53d.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_53a.c:32:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_53a.c:65:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_54",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_54a.c",
+   "CWE415_Double_Free__malloc_free_struct_54b.c",
+   "CWE415_Double_Free__malloc_free_struct_54c.c",
+   "CWE415_Double_Free__malloc_free_struct_54d.c",
+   "CWE415_Double_Free__malloc_free_struct_54e.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_54a.c:32:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_54a.c:65:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_61",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_61a.c",
+   "CWE415_Double_Free__malloc_free_struct_61b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_61a.c:32:65: error: passing nullable pointer to nonnull parameter 'data'",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_61a.c:49:69: error: passing nullable pointer to nonnull parameter 'data'"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_63",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_63a.c",
+   "CWE415_Double_Free__malloc_free_struct_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_63a.c:36:56: error: passing 'twoIntsStruct *__bidi_indexable*__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer typ",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_63a.c:54:60: error: passing 'twoIntsStruct *__bidi_indexable*__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer typ"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_64",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_64a.c",
+   "CWE415_Double_Free__malloc_free_struct_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_64b.c:27:33: error: converting 'void *__single' to 'twoIntsStruct **' (aka 'struct _twoIntsStruct **') can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_64b.c:42:33: error: converting 'void *__single' to 'twoIntsStruct **' (aka 'struct _twoIntsStruct **') can treat memory as the wrong type"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_65",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_65a.c",
+   "CWE415_Double_Free__malloc_free_struct_65b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_65a.c:34:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_65a.c:70:29: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_66",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_66a.c",
+   "CWE415_Double_Free__malloc_free_struct_66b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_66a.c:25:57: error: parameter of array type 'twoIntsStruct *[]' (aka 'struct _twoIntsStruct *[]') decays to a __single pointer, and will not allow arithmetic",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_66a.c:47:61: error: parameter of array type 'twoIntsStruct *[]' (aka 'struct _twoIntsStruct *[]') decays to a __single pointer, and will not allow arithmetic"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_67",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_67a.c",
+   "CWE415_Double_Free__malloc_free_struct_67b.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_struct_68",
+  "files": [
+   "CWE415_Double_Free__malloc_free_struct_68a.c",
+   "CWE415_Double_Free__malloc_free_struct_68b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_68a.c:22:17: error: initializing a variable of nonnull type 'twoIntsStruct *__single' (aka 'struct _twoIntsStruct *__single') with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_struct_68a.c:22:17: error: initializing a variable of nonnull type 'twoIntsStruct *__single' (aka 'struct _twoIntsStruct *__single') with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_01",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_01.c:29:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_02",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_02.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_03",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_03.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_04",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_04.c:37:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_05",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_05.c:37:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_06",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_06.c:36:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_07",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_07.c:36:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_08",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_08.c:44:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_09",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_09.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_10",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_10.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_11",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_11.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_12",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_12.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_13",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_13.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_14",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_14.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_15",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_15.c:32:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_16",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_16.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_17",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_17.c:32:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_17.c:79:27: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_18",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_18.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_21",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_21.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_21.c:41:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_21.c:79:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_22",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_22a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_22b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_22a.c:34:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_22a.c:59:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_31",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_31.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_31.c:29:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_32",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_32.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_32.c:27:16: error: initializing 'wchar_t *__single*__bidi_indexable' (aka 'int *__single*__bidi_indexable') with an expression of incompatible nested pointer type 'wchar_t *__bidi_indexable*",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_32.c:54:16: error: initializing 'wchar_t *__single*__bidi_indexable' (aka 'int *__single*__bidi_indexable') with an expression of incompatible nested pointer type 'wchar_t *__bidi_indexable*"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_34",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_34.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_41",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_41.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_41.c:35:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_41.c:77:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_42",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_42.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_42.c:26:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_42.c:69:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_44",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_44.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_44.c:37:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_44.c:82:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_45",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_45.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_45.c:22:18: error: initializing a variable of nonnull type 'wchar_t *__single' (aka 'int *__single') with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_45.c:22:18: error: initializing a variable of nonnull type 'wchar_t *__single' (aka 'int *__single') with null"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_51",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_51a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_51b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_51a.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_51a.c:65:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_52",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_52a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_52b.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_52c.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_52a.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_52a.c:65:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_53",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_53a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_53b.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_53c.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_53d.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_53a.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_53a.c:65:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_54",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_54a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_54b.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_54c.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_54d.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_54e.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_54a.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_54a.c:65:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_61",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_61a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_61b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_61a.c:32:66: error: passing nullable pointer to nonnull parameter 'data'",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_61a.c:49:70: error: passing nullable pointer to nonnull parameter 'data'"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_63",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_63a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_63a.c:36:57: error: passing 'wchar_t *__bidi_indexable*__bidi_indexable' (aka 'int *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer type 'wchar_t *__single*__",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_63a.c:54:61: error: passing 'wchar_t *__bidi_indexable*__bidi_indexable' (aka 'int *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer type 'wchar_t *__single*__"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_64",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_64a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_64b.c:27:27: error: converting 'void *__single' to 'wchar_t **' (aka 'int **') can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_64b.c:42:27: error: converting 'void *__single' to 'wchar_t **' (aka 'int **') can treat memory as the wrong type"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_65",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_65a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_65b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_65a.c:34:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_65a.c:70:23: error: object allocated by 'malloc' does not live long enough"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_66",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_66a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_66b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_66a.c:25:58: error: parameter of array type 'wchar_t *[]' (aka 'int *[]') decays to a __single pointer, and will not allow arithmetic",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_66a.c:47:62: error: parameter of array type 'wchar_t *[]' (aka 'int *[]') decays to a __single pointer, and will not allow arithmetic"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_67",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_67a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_67b.c"
+  ],
+  "bad": "missed",
+  "badSignal": "SIGTRAP",
+  "badExit": "platform SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "415",
+  "case": "CWE415_Double_Free__malloc_free_wchar_t_68",
+  "files": [
+   "CWE415_Double_Free__malloc_free_wchar_t_68a.c",
+   "CWE415_Double_Free__malloc_free_wchar_t_68b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_68a.c:22:11: error: initializing a variable of nonnull type 'wchar_t *__single' (aka 'int *__single') with null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE415_Double_Free/s01/CWE415_Double_Free__malloc_free_wchar_t_68a.c:22:11: error: initializing a variable of nonnull type 'wchar_t *__single' (aka 'int *__single') with null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_01",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_01.c:29:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_02",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_02.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_03",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_03.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_04",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_04.c:37:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_05",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_05.c:37:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_05.c:131:19: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_06",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_06.c:36:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_07",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_07.c:36:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_07.c:130:19: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_08",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_08.c:44:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_08.c:138:19: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_09",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_09.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_09.c:125:19: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_10",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_10.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_10.c:125:19: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_11",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_11.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_11.c:125:19: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_12",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_12.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_13",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_13.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_13.c:125:19: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_14",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_14.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_14.c:125:19: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_15",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_15.c:32:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_16",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_16.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_17",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_17.c:32:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_17.c:94:19: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_18",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_18.c:31:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_63",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_63a.c",
+   "CWE416_Use_After_Free__malloc_free_char_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_63a.c:38:57: error: passing 'char *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'char *__single*__single'; use explicit cast to perform this conversion",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_63a.c:58:61: error: passing 'char *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'char *__single*__single'; use explicit cast to perform this conversion"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_char_64",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_char_64a.c",
+   "CWE416_Use_After_Free__malloc_free_char_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_64b.c:27:24: error: converting 'void *__single' to 'char **' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_char_64b.c:43:24: error: converting 'void *__single' to 'char **' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_01",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_01.c:29:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_02",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_02.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_03",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_03.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_04",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_04.c:37:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_05",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_05.c:37:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_05.c:151:22: error: dereference of nullable pointer 'int *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_06",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_06.c:36:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_07",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_07.c:36:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_07.c:150:22: error: dereference of nullable pointer 'int *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_08",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_08.c:44:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_08.c:158:22: error: dereference of nullable pointer 'int *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_09",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_09.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_09.c:145:22: error: dereference of nullable pointer 'int *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_10",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_10.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_10.c:145:22: error: dereference of nullable pointer 'int *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_11",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_11.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_11.c:145:22: error: dereference of nullable pointer 'int *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_12",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_12.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_13",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_13.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_13.c:145:22: error: dereference of nullable pointer 'int *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_14",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_14.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_14.c:145:22: error: dereference of nullable pointer 'int *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_15",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_15.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_16",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_16.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_17",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_17.c:32:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_17.c:109:22: error: dereference of nullable pointer 'int *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_18",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_18.c:31:19: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_63",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_63a.c",
+   "CWE416_Use_After_Free__malloc_free_int_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_63a.c:43:56: error: passing 'int *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'int *__single*__single'; use explicit cast to perform this conversion",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_63a.c:68:60: error: passing 'int *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'int *__single*__single'; use explicit cast to perform this conversion"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int_64",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int_64a.c",
+   "CWE416_Use_After_Free__malloc_free_int_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_64b.c:27:23: error: converting 'void *__single' to 'int **' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int_64b.c:43:23: error: converting 'void *__single' to 'int **' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_01",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_01.c:29:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_02",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_02.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_03",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_03.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_04",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_04.c:37:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_05",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_05.c:37:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_05.c:151:27: error: dereference of nullable pointer 'int64_t *__bidi_indexable' (aka 'long long *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_06",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_06.c:36:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_07",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_07.c:36:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_07.c:150:27: error: dereference of nullable pointer 'int64_t *__bidi_indexable' (aka 'long long *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_08",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_08.c:44:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_08.c:158:27: error: dereference of nullable pointer 'int64_t *__bidi_indexable' (aka 'long long *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_09",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_09.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_09.c:145:27: error: dereference of nullable pointer 'int64_t *__bidi_indexable' (aka 'long long *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_10",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_10.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_10.c:145:27: error: dereference of nullable pointer 'int64_t *__bidi_indexable' (aka 'long long *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_11",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_11.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_11.c:145:27: error: dereference of nullable pointer 'int64_t *__bidi_indexable' (aka 'long long *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_12",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_12.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_13",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_13.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_13.c:145:27: error: dereference of nullable pointer 'int64_t *__bidi_indexable' (aka 'long long *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_14",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_14.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_14.c:145:27: error: dereference of nullable pointer 'int64_t *__bidi_indexable' (aka 'long long *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_15",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_15.c:32:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_16",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_16.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_17",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_17.c:32:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_17.c:109:27: error: dereference of nullable pointer 'int64_t *__bidi_indexable' (aka 'long long *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_18",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_18.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_63",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_63a.c",
+   "CWE416_Use_After_Free__malloc_free_int64_t_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_63a.c:43:60: error: passing 'int64_t *__bidi_indexable*__bidi_indexable' (aka 'long long *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer type 'int64_t *__s",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_63a.c:68:64: error: passing 'int64_t *__bidi_indexable*__bidi_indexable' (aka 'long long *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer type 'int64_t *__s"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_int64_t_64",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_int64_t_64a.c",
+   "CWE416_Use_After_Free__malloc_free_int64_t_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_64b.c:27:27: error: converting 'void *__single' to 'int64_t **' (aka 'long long **') can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_int64_t_64b.c:43:27: error: converting 'void *__single' to 'int64_t **' (aka 'long long **') can treat memory as the wrong type"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_01",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_01.c:29:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_02",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_02.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_03",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_03.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_04",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_04.c:37:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_05",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_05.c:37:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_05.c:151:23: error: dereference of nullable pointer 'long *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_06",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_06.c:36:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_07",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_07.c:36:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_07.c:150:23: error: dereference of nullable pointer 'long *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_08",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_08.c:44:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_08.c:158:23: error: dereference of nullable pointer 'long *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_09",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_09.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_09.c:145:23: error: dereference of nullable pointer 'long *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_10",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_10.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_10.c:145:23: error: dereference of nullable pointer 'long *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_11",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_11.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_11.c:145:23: error: dereference of nullable pointer 'long *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_12",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_12.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_13",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_13.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_13.c:145:23: error: dereference of nullable pointer 'long *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_14",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_14.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_14.c:145:23: error: dereference of nullable pointer 'long *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_15",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_15.c:32:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_16",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_16.c:31:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_17",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_17.c:32:24: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_17.c:109:23: error: dereference of nullable pointer 'long *__bidi_indexable'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_18",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_18.c:31:20: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_63",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_63a.c",
+   "CWE416_Use_After_Free__malloc_free_long_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_63a.c:43:57: error: passing 'long *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'long *__single*__single'; use explicit cast to perform this conversion",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_63a.c:68:61: error: passing 'long *__bidi_indexable*__bidi_indexable' to parameter of incompatible nested pointer type 'long *__single*__single'; use explicit cast to perform this conversion"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_long_64",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_long_64a.c",
+   "CWE416_Use_After_Free__malloc_free_long_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_64b.c:27:24: error: converting 'void *__single' to 'long **' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_long_64b.c:43:24: error: converting 'void *__single' to 'long **' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_01",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_01.c:29:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_02",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_02.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_03",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_03.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_04",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_04.c:37:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_05",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_05.c:37:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_05.c:155:26: error: dereference of nullable pointer 'twoIntsStruct *__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_06",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_06.c:36:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_07",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_07.c:36:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_07.c:154:26: error: dereference of nullable pointer 'twoIntsStruct *__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_08",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_08.c:44:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_08.c:162:26: error: dereference of nullable pointer 'twoIntsStruct *__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_09",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_09.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_09.c:149:26: error: dereference of nullable pointer 'twoIntsStruct *__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_10",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_10.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_10.c:149:26: error: dereference of nullable pointer 'twoIntsStruct *__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_11",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_11.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_11.c:149:26: error: dereference of nullable pointer 'twoIntsStruct *__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_12",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_12.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_13",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_13.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_13.c:149:26: error: dereference of nullable pointer 'twoIntsStruct *__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_14",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_14.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_14.c:149:26: error: dereference of nullable pointer 'twoIntsStruct *__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_15",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_15.c:32:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_16",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_16.c:31:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_17",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_17.c:32:33: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_17.c:112:26: error: dereference of nullable pointer 'twoIntsStruct *__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable')"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_18",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_18.c:31:29: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_63",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_63a.c",
+   "CWE416_Use_After_Free__malloc_free_struct_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_63a.c:44:59: error: passing 'twoIntsStruct *__bidi_indexable*__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer t",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_63a.c:70:63: error: passing 'twoIntsStruct *__bidi_indexable*__bidi_indexable' (aka 'struct _twoIntsStruct *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer t"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_struct_64",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_struct_64a.c",
+   "CWE416_Use_After_Free__malloc_free_struct_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_64b.c:27:33: error: converting 'void *__single' to 'twoIntsStruct **' (aka 'struct _twoIntsStruct **') can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_struct_64b.c:43:33: error: converting 'void *__single' to 'twoIntsStruct **' (aka 'struct _twoIntsStruct **') can treat memory as the wrong type"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_01",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_01.c:29:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_02",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_02.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_03",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_03.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_04",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_04.c:37:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_05",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_05.c:37:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_05.c:131:20: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_06",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_06.c:36:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_07",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_07.c:36:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_07.c:130:20: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_08",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_08.c:44:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_08.c:138:20: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_09",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_09.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_09.c:125:20: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_10",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_10.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_10.c:125:20: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_11",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_11.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_11.c:125:20: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_12",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_12.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_13",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_13.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_13.c:125:20: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_14",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_14.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_14.c:125:20: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_15",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_15.c:32:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_16",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_16.c:31:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_17",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_17.c:32:27: error: object allocated by 'malloc' does not live long enough",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_17.c:94:20: error: passing nullable pointer to nonnull parameter 'line'"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_18",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_18.c:31:23: error: object allocated by 'malloc' does not live long enough",
+  "good": "accepted"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_63",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_63a.c",
+   "CWE416_Use_After_Free__malloc_free_wchar_t_63b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_63a.c:38:60: error: passing 'wchar_t *__bidi_indexable*__bidi_indexable' (aka 'int *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer type 'wchar_t *__single*",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_63a.c:58:64: error: passing 'wchar_t *__bidi_indexable*__bidi_indexable' (aka 'int *__bidi_indexable*__bidi_indexable') to parameter of incompatible nested pointer type 'wchar_t *__single*"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__malloc_free_wchar_t_64",
+  "files": [
+   "CWE416_Use_After_Free__malloc_free_wchar_t_64a.c",
+   "CWE416_Use_After_Free__malloc_free_wchar_t_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_64b.c:27:27: error: converting 'void *__single' to 'wchar_t **' (aka 'int **') can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__malloc_free_wchar_t_64b.c:43:27: error: converting 'void *__single' to 'wchar_t **' (aka 'int **') can treat memory as the wrong type"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_01",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_01.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_01.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_01.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_02",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_02.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_02.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_02.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_03",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_03.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_03.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_03.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_04",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_04.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_04.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_04.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_05",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_05.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_05.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_05.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_06",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_06.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_06.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_06.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_07",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_07.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_07.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_07.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_08",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_08.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_08.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_08.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_09",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_09.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_09.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_09.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_10",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_10.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_10.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_10.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_11",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_11.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_11.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_11.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_12",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_12.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_12.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_12.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_13",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_13.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_13.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_13.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_14",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_14.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_14.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_14.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_15",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_15.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_15.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_15.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_16",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_16.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_16.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_16.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_17",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_17.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_17.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_17.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ },
+ {
+  "cwe": "416",
+  "case": "CWE416_Use_After_Free__return_freed_ptr_18",
+  "files": [
+   "CWE416_Use_After_Free__return_freed_ptr_18.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_18.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE416_Use_After_Free/CWE416_Use_After_Free__return_freed_ptr_18.c:25:20: error: passing 'char *__single' to parameter of incompatible type 'const char *__single __terminated_by(0)' (aka 'const char *__single') is an unsafe operation; use '__unsafe_null"
+ }
+]

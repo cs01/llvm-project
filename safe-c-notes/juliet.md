@@ -160,3 +160,24 @@ strict 20.9% (was 14.0%): uninitialized scalar locals are now compile errors. Th
   neither a trap nor an error, so Juliet counts them as missed. Safe as designed.
 - arrays from `malloc` (~108 cases): heap memory is neither zeroed nor tracked. A real
   gap. Planned fix: under `-fsafe-c`, `malloc` allocates zeroed memory (as `calloc`).
+
+## CWE 415/416 with lifetime safety on (2026-11-23, 31801a1d)
+
+Clang's lifetime safety analysis (made to work under -fbounds-safety in d539542c) runs
+on every Safe C function and its findings are errors.
+
+| CWE | cases | bad caught | strict | good rejected |
+|---|---|---|---|---|
+| 415 double free | 228 | 94.7% (all at compile time) | 90.0% | 108 |
+| 416 use after free | 138 | 100% (all at compile time) | 100% | 84 |
+
+Before: 0% for both. Why goods are rejected (192 total, first error each): 66 are
+lifetime errors, the rest are the older null and bounds rules (unchecked results,
+nullable stored in nonnull, NT conversions), the same burden as CWE 476/690.
+
+The 66 lifetime rejections are two Juliet idioms, both rejected the way Rust rejects
+them: a free inside `for (j = 0; j < 1; j++)` (the analysis does not count loop
+iterations, so a second pass would free twice), and `free(data); sink(data)` where the
+sink ignores its argument (passing a freed pointer is itself undefined in C). The 12
+missed bads in 415 free through calls the analysis cannot see (function pointers, data
+stored in globals or structs between source and sink).
