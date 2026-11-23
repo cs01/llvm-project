@@ -28,3 +28,12 @@ Decision (claude, 2026-11-22): score two modes.
    inference), bad and good together since they share the source. Then good must pass
    and bad must still be caught. This is the headline number, and it also measures
    annotation burden (annotations added per case).
+
+## Gate bug found 2026-11-23
+
+The harness compiled test sources with `-w`, which also silences warnings promoted by
+`-Werror=...`. A null-safety run scored 0% caught on CWE 476 and 690 even though the
+compiler rejected the cases by hand. The earlier gate audit only exercised the run-time
+trap path (`-fsanitize=null`), never compile-time rejection. Fixed: `-w` is now applied
+to the support files only. Audit for the compile path: CWE 476, 20 cases, null safety
+with `-Werror`: 100% rejected, 100% good accepted.

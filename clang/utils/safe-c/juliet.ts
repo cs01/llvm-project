@@ -58,7 +58,9 @@ const sh = async (cmd: string[], o: { cwd?: string; timeoutMs?: number } = {}) =
   return { code: p.exitCode, signal: p.signalCode as string | null, out, err, timedOut };
 };
 
-const base = ["-w", "-I", SUP, "-DINCLUDEMAIN", ...sys, ...extra];
+// No -w here: it would also silence warnings the flags promote with -Werror, and
+// a gate that cannot see compile-time rejections reports 0% forever.
+const base = ["-I", SUP, "-DINCLUDEMAIN", ...sys, ...extra];
 const supBase = ["-w", "-I", SUP, ...sys];
 const firstError = (s: string) => (s.split("\n").find(l => /error|undefined|ld:/.test(l)) ?? s.split("\n")[0] ?? "").trim().slice(0, 300);
 
