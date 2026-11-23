@@ -80,7 +80,9 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
   // Falling off the end of a non-void function returns garbage the caller may
   // use as a pointer. Dropping const (a string literal is const under
   // -fsafe-c) would let code write memory that must not be written.
-  if (Group == "return-type" ||
+  // A noreturn function that returns runs off into whatever follows the
+  // call, which the optimizer assumed unreachable.
+  if (Group == "return-type" || Group == "invalid-noreturn" ||
       Group == "incompatible-pointer-types-discards-qualifiers")
     return true;
   // Variadic calls are checked only through their format string, so a format

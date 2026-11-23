@@ -5227,6 +5227,14 @@ bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
   unsigned CMId = FDecl->getMemoryFunctionKind();
 
   if (getLangOpts().SafeC) {
+    // longjmp resumes a frame that may have returned already, and skips
+    // every cleanup in between; nothing checks either.
+    if (FnInfo && !SourceMgr.isInSystemHeader(TheCall->getExprLoc()) &&
+        llvm::is_contained({"setjmp", "_setjmp", "sigsetjmp", "longjmp",
+                            "_longjmp", "siglongjmp"},
+                           safeCLibcName(FDecl)))
+      Diag(TheCall->getExprLoc(), diag::warn_safe_c_escape)
+          << ("'" + FnInfo->getName() + "'").str();
     checkSafeCByteWrite(*this, TheCall, FDecl, CMId);
     checkSafeCUncheckedParams(*this, TheCall, FDecl);
   }

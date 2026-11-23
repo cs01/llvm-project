@@ -9258,6 +9258,10 @@ NamedDecl *Sema::ActOnVariableDeclarator(
   LoadExternalExtnameUndeclaredIdentifiers();
 
   if (Expr *E = D.getAsmLabel()) {
+    // Safe C: an asm label binds this declaration to any symbol, of any type,
+    // bypassing the type the rest of the program sees.
+    if (getLangOpts().SafeC && !SourceMgr.isInSystemHeader(E->getExprLoc()))
+      Diag(E->getExprLoc(), diag::warn_safe_c_escape) << "an asm label";
     // The parser guarantees this is a string.
     StringLiteral *SE = cast<StringLiteral>(E);
     StringRef Label = SE->getString();
@@ -11745,6 +11749,10 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
 
   // Handle GNU asm-label extension (encoded as an attribute).
   if (Expr *E = D.getAsmLabel()) {
+    // Safe C: an asm label binds this declaration to any symbol, of any type,
+    // bypassing the type the rest of the program sees.
+    if (getLangOpts().SafeC && !SourceMgr.isInSystemHeader(E->getExprLoc()))
+      Diag(E->getExprLoc(), diag::warn_safe_c_escape) << "an asm label";
     // The parser guarantees this is a string.
     StringLiteral *SE = cast<StringLiteral>(E);
     NewFD->addAttr(
@@ -17941,7 +17949,9 @@ static void checkSafeCAllocatorBody(Sema &S, const FunctionDecl *FD,
 static bool safeCTakesParam(const Decl *D, unsigned Idx) {
   if (const auto *FD = dyn_cast<FunctionDecl>(D))
     if (FD->isExternC() && FD->getIdentifier() && Idx == 0 &&
-        llvm::is_contained({"free", "realloc", "reallocf"}, FD->getName()))
+        llvm::is_contained({"free", "realloc", "reallocf", "fclose", "pclose",
+                            "closedir"},
+                           FD->getName()))
       return true;
   for (const auto *OA : D->specific_attrs<OwnershipAttr>())
     if (OA->isTakes())
