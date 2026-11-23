@@ -589,7 +589,20 @@ static const Expr *ignoreExplicitBoolCast(const Expr *E) {
 /// it returns null when the runtime type check fails, so a non-null source can
 /// yield a null result and dynamic_cast<T*>(p)->f must still warn.
 static const Expr *lookThroughPtrToPtrCasts(const Expr *E) {
-  while (const auto *CE = dyn_cast<ExplicitCastExpr>(E)) {
+  while (true) {
+    // Bounds-safety terminator conversions keep the pointer value (null in,
+    // null out), so a narrowed operand stays narrowed through them.
+    if (const auto *TI = dyn_cast<TerminatedByToIndexableExpr>(E)) {
+      E = TI->getPointer()->IgnoreParenImpCasts();
+      continue;
+    }
+    if (const auto *TF = dyn_cast<TerminatedByFromIndexableExpr>(E)) {
+      E = TF->getPointer()->IgnoreParenImpCasts();
+      continue;
+    }
+    const auto *CE = dyn_cast<ExplicitCastExpr>(E);
+    if (!CE)
+      break;
     if (isa<CXXDynamicCastExpr>(CE))
       break;
     const Expr *Sub = CE->getSubExpr()->IgnoreParenImpCasts();
@@ -3578,6 +3591,11 @@ private:
     E = E->IgnoreParenImpCasts();
     if (!ExplicitOnly)
       E = stripOpaqueValue(E);
+    // Terminator conversions keep the pointer value: judge their operand.
+    if (const auto *TI = dyn_cast<TerminatedByToIndexableExpr>(E))
+      return isExprNullable(TI->getPointer(), ExplicitOnly, MustOnly);
+    if (const auto *TF = dyn_cast<TerminatedByFromIndexableExpr>(E))
+      return isExprNullable(TF->getPointer(), ExplicitOnly, MustOnly);
     // Null pointer constants (nullptr, NULL, (T*)0) are always nullable.
     // The common type of a ternary like cond ? p : (T*)0 may strip the
     // qualifier, so the arm is judged directly rather than by the
