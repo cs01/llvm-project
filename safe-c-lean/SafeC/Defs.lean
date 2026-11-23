@@ -300,48 +300,39 @@ def Out.isUB : Out → Bool
   | .ub => true
   | _ => false
 
+def Res.then {α : Type} (r : Res α) (f : α → Out) : Out :=
+  match r with
+  | .ok a => f a
+  | .trap => .trap
+  | .ub => .ub
+
+def Out.then (o : Out) (f : Env → Mem → Out) : Out :=
+  match o with
+  | .ok ρ μ => f ρ μ
+  | o => o
+
+/-- Fuel-bounded big-step execution; `outOfFuel` stands for divergence. -/
 def exec (R : Rules) : Bool → Nat → Env → Mem → Stmt → Out
   | _, 0, _, _, _ => .outOfFuel
   | raw, n + 1, ρ, μ, s =>
     match s with
     | .skip => .ok ρ μ
-    | .seq a b =>
-      match exec R raw n ρ μ a with
-      | .ok ρ' μ' => exec R raw n ρ' μ' b
-      | o => o
-    | .assign x e =>
-      match evalE R raw ρ μ e with
-      | .ok v => .ok (ρ.set x v) μ
-      | .trap => .trap
-      | .ub => .ub
-    | .store k p i e =>
-      match storeR R raw ρ μ k p i e with
-      | .ok μ' => .ok ρ μ'
-      | .trap => .trap
-      | .ub => .ub
+    | .seq a b => (exec R raw n ρ μ a).then fun ρ' μ' => exec R raw n ρ' μ' b
+    | .assign x e => (evalE R raw ρ μ e).then fun v => .ok (ρ.set x v) μ
+    | .store k p i e => (storeR R raw ρ μ k p i e).then fun μ' => .ok ρ μ'
     | .alloc x t m =>
       .ok (ρ.set x (.ptr μ.length 0 0 m)) (μ ++ [⟨t, List.replicate m (zeroOf t)⟩])
-    | .ifz c a b =>
-      match evalE R raw ρ μ c with
-      | .ok (.int z) => if z ≠ 0 then exec R raw n ρ μ a else exec R raw n ρ μ b
-      | .ok _ => .ub
-      | .trap => .trap
-      | .ub => .ub
-    | .ifNull x a b =>
-      match ρ x with
-      | .null => exec R raw n ρ μ a
-      | .ptr _ _ _ _ => exec R raw n ρ μ b
+    | .ifz c a b => (evalE R raw ρ μ c).then fun v =>
+      match v with
+      | .int z => if z ≠ 0 then exec R raw n ρ μ a else exec R raw n ρ μ b
       | _ => .ub
-    | .loop c body =>
-      match evalE R raw ρ μ c with
-      | .ok (.int z) =>
+    | .ifNull x a b => if ρ x = .null then exec R raw n ρ μ a else exec R raw n ρ μ b
+    | .loop c body => (evalE R raw ρ μ c).then fun v =>
+      match v with
+      | .int z =>
         if z = 0 then .ok ρ μ else
-        match exec R raw n ρ μ body with
-        | .ok ρ' μ' => exec R raw n ρ' μ' (.loop c body)
-        | o => o
-      | .ok _ => .ub
-      | .trap => .trap
-      | .ub => .ub
+        (exec R raw n ρ μ body).then fun ρ' μ' => exec R raw n ρ' μ' (.loop c body)
+      | _ => .ub
     | .unsafeBlk s => exec R true n ρ μ s
     | .call body => exec R raw n ρ μ body
 
@@ -372,9 +363,9 @@ def castOK (R : Rules) (u : Bool) (t t' : Ty) : Bool :=
 
 /-- Assignment compatibility: equal, both pointer-free, or nonnull to nullable
 at the top level only (pointees are invariant). -/
-def Sub : Ty → Ty → Prop
-  | .ptr .nonnull k t, .ptr .nullable k' t' => k = k' ∧ t = t'
-  | τ, σ => τ = σ ∨ (τ.ptrFree = true ∧ σ.ptrFree = true)
+def Sub (τ σ : Ty) : Prop :=
+  τ = σ ∨ (τ.ptrFree = true ∧ σ.ptrFree = true) ∨
+  ∃ k t, τ = .ptr .nonnull k t ∧ σ = .ptr .nullable k t
 
 inductive HasTy (R : Rules) (u : Bool) (D : Decls) (F : Facts) : Expr → Ty → Prop
   | lit : HasTy R u D F (.lit n) .int

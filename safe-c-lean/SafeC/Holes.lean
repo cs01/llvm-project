@@ -1,6 +1,7 @@
 -- The review's design holes as concrete well-typed programs that reach UB
 -- under the rule that has the hole, checked by evaluation in the kernel.
 import SafeC.Defs
+import SafeC.Sound
 
 namespace SafeC
 
@@ -124,5 +125,48 @@ theorem hole4_typed (R : Rules) : ∃ G, HasTyS R h4D false .empty h4P G := by t
 theorem hole4_ub_current : (run Rules.current h4P).isUB = true := by decide
 /-- With bounded null-terminated pointers the read past the old terminator traps. -/
 theorem hole4_trap_bounded : (run { Rules.current with ntBounded := true } h4P).isTrap = true := by decide
+
+/-! ### The proposed rules, and why each part of `Rules.Sound` is needed -/
+
+/-- Current rules plus the two changes the proof needs: pointee casts only
+between equal or pointer-free types, and bounded null-terminated pointers. -/
+def Rules.proposed : Rules := { Rules.current with castAny := false, ntBounded := true }
+
+theorem proposed_sound : Rules.proposed.Sound := ⟨Or.inl rfl, rfl, rfl⟩
+
+theorem hole4_trap_proposed : (run Rules.proposed h4P).isTrap = true := by decide
+
+/-- The casts behind holes 2a, 2b and 2c are rejected by the proposed rule. -/
+theorem hole2_casts_rejected :
+    castOK Rules.proposed false .int (ptr nonnull single int) = false ∧
+    castOK Rules.proposed false (ptr nonnull single int) char = false ∧
+    castOK Rules.proposed false (ptr nonnull single int) (ptr nullable single int) = false := by decide
+
+/-! Each rule set below differs from a sound one in exactly one conjunct of
+`Rules.Sound`, and admits a well-typed program that reaches UB. So no
+conjunct can be dropped. -/
+
+def Rules.dropCast : Rules := { Rules.proposed with castAny := true }
+theorem need_cast : (∃ G, HasTyS Rules.dropCast h2aD false .empty h2aP G) ∧
+    (run Rules.dropCast h2aP).isUB = true := ⟨by typecheck, by decide⟩
+
+def Rules.dropBounded : Rules := { Rules.proposed with ntBounded := false }
+theorem need_bounded : (∃ G, HasTyS Rules.dropBounded h4D false .empty h4P G) ∧
+    (run Rules.dropBounded h4P).isUB = true := ⟨hole4_typed _, by decide⟩
+
+/-- No null trap, narrowing killed at calls, but zero-filled nonnull slots allowed. -/
+def Rules.dropZero : Rules := { Rules.proposed with nullTrap := false, callKeepsNarrowing := false }
+theorem need_zero : (∃ G, HasTyS Rules.dropZero h1D false .empty h1P G) ∧
+    (run Rules.dropZero h1P).isUB = true := ⟨hole1_typed _ rfl, by decide⟩
+
+/-- No null trap, no zero-filled nonnull slots, but narrowing survives calls. -/
+def Rules.dropCall : Rules := { Rules.proposed with nullTrap := false, zeroNonnull := false }
+theorem need_call : (∃ G, HasTyS Rules.dropCall h3D false .empty h3P G) ∧
+    (run Rules.dropCall h3P).isUB = true := ⟨by typecheck, by decide⟩
+
+/-- The static alternative to the null trap: sound, with nonnull meaning nonnull. -/
+def Rules.staticNull : Rules :=
+  { Rules.proposed with nullTrap := false, zeroNonnull := false, callKeepsNarrowing := false }
+theorem staticNull_sound : Rules.staticNull.Sound := ⟨Or.inr ⟨rfl, rfl⟩, rfl, rfl⟩
 
 end SafeC
