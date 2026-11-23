@@ -4984,6 +4984,107 @@ void Sema::CheckConstructorCall(FunctionDecl *FDecl, QualType ThisType,
             /*IsMemberFunction=*/true, Loc, SourceRange(), CallType);
 }
 
+/// The pointee type a call argument had before it became 'void *'.
+static QualType safeCOriginalPointee(const Expr *E) {
+  while (true) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
+      if (!OVE->getSourceExpr())
+        break;
+      E = OVE->getSourceExpr();
+    } else if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E)) {
+      E = MSE->getWrappedExpr();
+    } else if (const auto *PPE =
+                   dyn_cast<BoundsSafetyPointerPromotionExpr>(E)) {
+      E = PPE->getPointer();
+    } else {
+      break;
+    }
+  }
+  if (const auto *PT = E->getType()->getAs<PointerType>())
+    return PT->getPointeeType();
+  return QualType();
+}
+
+/// Whether memory of type \p T holds no pointers, so arbitrary bytes written
+/// into it cannot forge one. Unknown (void) counts as pointer-free: the
+/// conversion to 'void *' is where Safe C stops tracking.
+static bool safeCHoldsNoPointers(ASTContext &Ctx, QualType T) {
+  T = Ctx.getCanonicalType(T).getUnqualifiedType();
+  if (T->isVoidType())
+    return true;
+  if (T->isPointerType() || T->isBlockPointerType() || T->isFunctionType())
+    return false;
+  if (const auto *AT = Ctx.getAsArrayType(T))
+    return safeCHoldsNoPointers(Ctx, AT->getElementType());
+  if (const auto *RD = T->getAsRecordDecl()) {
+    for (const FieldDecl *F : RD->fields())
+      if (!safeCHoldsNoPointers(Ctx, F->getType()))
+        return false;
+  }
+  return true;
+}
+
+/// Safe C: memcpy, memset, read and friends write raw bytes through 'void *'.
+/// Into memory that holds pointers, those bytes are forged pointers unless
+/// they come from the same type (memcpy/memmove) or are zero (memset).
+static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
+                                const FunctionDecl *FD, unsigned CMId) {
+  if (S.SourceMgr.isInSystemHeader(TheCall->getExprLoc()))
+    return;
+  enum { Copy, Fill, Read };
+  int Kind;
+  unsigned DestArg = 0;
+  switch (CMId) {
+  case Builtin::BImemcpy:
+  case Builtin::BImemmove:
+  case Builtin::BImempcpy:
+    Kind = Copy;
+    break;
+  case Builtin::BImemset:
+    Kind = Fill;
+    break;
+  default: {
+    StringRef Name = FD->getIdentifier() && FD->isExternC() ? FD->getName()
+                                                            : StringRef();
+    if (Name == "fread" || Name == "fgets")
+      Kind = Read;
+    else if (Name == "read" || Name == "pread" || Name == "recv" ||
+             Name == "recvfrom") {
+      Kind = Read;
+      DestArg = 1;
+    } else {
+      return;
+    }
+  }
+  }
+  if (TheCall->getNumArgs() <= DestArg + (Kind == Read ? 0 : 1))
+    return;
+  QualType Dest = safeCOriginalPointee(TheCall->getArg(DestArg));
+  if (Dest.isNull() || safeCHoldsNoPointers(S.Context, Dest))
+    return;
+  if (Kind == Copy) {
+    QualType Src = safeCOriginalPointee(TheCall->getArg(1));
+    if (!Src.isNull() &&
+        S.Context.hasSameUnqualifiedType(S.Context.getCanonicalType(Src),
+                                         S.Context.getCanonicalType(Dest)))
+      return;
+    S.Diag(TheCall->getArg(1)->getExprLoc(), diag::warn_safe_c_byte_write)
+        << Kind << Dest << (Src.isNull() ? S.Context.VoidTy : Src)
+        << TheCall->getArg(DestArg)->getSourceRange();
+    return;
+  }
+  if (Kind == Fill) {
+    Expr::EvalResult R;
+    if (TheCall->getArg(1)->EvaluateAsInt(R, S.Context) &&
+        R.Val.getInt().isZero())
+      return;
+  }
+  S.Diag(TheCall->getArg(DestArg)->getExprLoc(), diag::warn_safe_c_byte_write)
+      << Kind << Dest << S.Context.VoidTy
+      << TheCall->getArg(DestArg)->getSourceRange();
+}
+
 bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
                              const FunctionProtoType *Proto) {
   bool IsMemberOperatorCall = isa<CXXOperatorCallExpr>(TheCall) &&
@@ -5046,6 +5147,9 @@ bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
     ObjC().DiagnoseCStringFormatDirectiveInCFAPI(FDecl, Args, NumArgs);
 
   unsigned CMId = FDecl->getMemoryFunctionKind();
+
+  if (getLangOpts().SafeC)
+    checkSafeCByteWrite(*this, TheCall, FDecl, CMId);
 
   // Handle memory setting and copying functions.
   switch (CMId) {

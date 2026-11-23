@@ -13432,6 +13432,12 @@ def warn_safe_c_int_to_pointer : Warning<
   "array it points into), or convert to 'void *' if only the address value is "
   "needed">,
   InGroup<SafeCIntToPointer>, DefaultError;
+def warn_safe_c_byte_write : Warning<
+  "%select{copying %2 into|filling|reading bytes into}0 %1, which holds "
+  "pointers, can forge a pointer; %select{copy from the same type, or assign "
+  "the fields|fill with 0, which makes every pointer null|read into a "
+  "pointer-free buffer and set the pointers from it}0">,
+  InGroup<SafeCByteWrite>, DefaultError;
 def warn_safe_c_pure_body : Warning<
   "%select{'pure'|'const'}0 function %1 %select{writes memory other than its "
   "own local variables|calls %3, which is not marked 'pure' or 'const'|calls "
