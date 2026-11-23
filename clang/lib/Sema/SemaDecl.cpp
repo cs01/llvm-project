@@ -12,6 +12,7 @@
 
 #include "DynamicCountPointerAssignmentAnalysis.h"
 #include "TreeTransform.h"
+#include "SafeCState.h"
 #include "TypeLocBuilder.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
@@ -16823,6 +16824,8 @@ static void checkSafeCTakesInit(Sema &S, const Expr *Init, const Decl *Dst,
                                 QualType T);
 
 void Sema::FinalizeDeclaration(Decl *ThisDecl) {
+  if (getLangOpts().SafeC && ThisDecl && isa<VarDecl>(ThisDecl))
+    checkSafeCPointerStorage(*this, ThisDecl);
   // Safe C: file-scope initializers (struct hooks h = { my_free, ... }) are
   // not in any function body; locals are checked with their function.
   if (getLangOpts().SafeC)
@@ -22563,6 +22566,9 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
 
   if (Record && !isa<ClassTemplateSpecializationDecl>(Record))
     ProcessAPINotes(Record);
+
+  if (Record && getLangOpts().SafeC)
+    checkSafeCPointerStorage(*this, Record);
 }
 
 // Given an integral type, return the next larger integral type

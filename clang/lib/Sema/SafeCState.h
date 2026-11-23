@@ -20,6 +20,18 @@
 
 namespace clang {
 
+class Decl;
+class Sema;
+
+/// M2 ownership checks, staged behind -mllvm -safe-c-ownership until the
+/// ports are annotated for them.
+bool safeCOwnershipEnabled(const Sema &S);
+
+/// Rule 10: a struct field or global holds no borrow. Its pointers are
+/// __safec_owned, __safec_static or __safec_unchecked, unless the struct is a
+/// __safec_view (which lives only in locals and parameters).
+void checkSafeCPointerStorage(Sema &S, Decl *D);
+
 class SafeCState {
 public:
   /// An `__unsafe` region (a statement or function carrying

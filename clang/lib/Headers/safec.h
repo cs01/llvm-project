@@ -163,12 +163,22 @@ char *getenv(const char *__null_terminated);
 /* On a parameter: the function takes ownership. Sema turns it into
    ownership_takes at the parameter's index, so no index can drift. */
 #define __safec_owned __attribute__((annotate("safec_owned")))
+/* On a field or global: points only at static data (string literals,
+   globals, functions), like Rust's &'static. */
+#define __safec_static __attribute__((annotate("safec_static")))
+/* On a field or global: may point anywhere; dereferencing needs __unsafe. */
+#define __safec_unchecked __attribute__((annotate("safec_unchecked")))
+/* On a struct: holds borrows, so it lives only in locals and parameters. */
+#define __safec_view __attribute__((annotate("safec_view")))
 #else
 #define __safec_takes(N)
 #define __safec_returns_owned
 #define __safec_lifetimebound
 #define __safec_noescape
 #define __safec_owned
+#define __safec_static
+#define __safec_unchecked
+#define __safec_view
 #endif
 
 #if !defined(__clang__)
