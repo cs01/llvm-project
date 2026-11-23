@@ -16,13 +16,13 @@ int uninit(void) {
 }
 
 int assume(int *__counted_by(2) a, int i) {
-  __builtin_assume(i >= 0 && i < 2); // expected-error {{'__builtin_assume' can switch off Safe C's checks}}
+  __builtin_assume(i >= 0 && i < 2); // checked: traps when false
   return a[i];
 }
 
 int unreach(int i) {
   if (i > 3)
-    __builtin_unreachable(); // expected-error {{'__builtin_unreachable' can switch off Safe C's checks}}
+    __builtin_unreachable(); // checked: traps when reached
   return i;
 }
 

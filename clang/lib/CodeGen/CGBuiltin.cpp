@@ -3656,6 +3656,12 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
       return RValue::get(nullptr);
 
     Value *ArgValue = EmitCheckedArgForAssume(E->getArg(0));
+    // Safe C: a false assumption traps instead of being undefined behavior.
+    // The trap still lets later code rely on the condition.
+    if (getLangOpts().SafeC) {
+      EmitTrapCheck(ArgValue, SanitizerHandler::BuiltinUnreachable);
+      return RValue::get(nullptr);
+    }
     Function *FnAssume = CGM.getIntrinsic(Intrinsic::assume);
     Builder.CreateCall(FnAssume, ArgValue);
     return RValue::get(nullptr);
@@ -4215,7 +4221,12 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
     EmitTrapCall(Intrinsic::debugtrap);
     return RValue::get(nullptr);
   case Builtin::BI__builtin_unreachable: {
-    EmitUnreachable(E->getExprLoc());
+    // Safe C: reaching it traps (Rust's unreachable!) instead of being
+    // undefined behavior.
+    if (getLangOpts().SafeC)
+      EmitTrapCheck(Builder.getFalse(), SanitizerHandler::BuiltinUnreachable);
+    else
+      EmitUnreachable(E->getExprLoc());
 
     // We do need to preserve an insertion point.
     EmitBlock(createBasicBlock("unreachable.cont"));
