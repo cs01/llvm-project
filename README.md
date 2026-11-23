@@ -13,8 +13,7 @@ Safe C is a **fork of Clang** with one flag, `-fsafe-c`. It combines three thing
   ownership and borrowing, checked `pure`/`const`/`alloc_size`, and `__unsafe` blocks.
 - **A fixed configuration** that no flag, pragma or attribute can weaken.
 
-**The goal:** code outside `__unsafe` is memory safe, as in Rust. Where it stands today is
-in the table below.
+**The goal:** code outside `__unsafe` is memory safe, as in Rust.
 
 ## What makes C unsafe
 
