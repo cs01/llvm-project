@@ -22,6 +22,7 @@ namespace clang {
 
 class Decl;
 class Sema;
+class Stmt;
 
 /// M2 ownership checks, staged behind -mllvm -safe-c-ownership until the
 /// ports are annotated for them.
@@ -31,6 +32,13 @@ bool safeCOwnershipEnabled(const Sema &S);
 /// __safec_owned, __safec_static or __safec_unchecked, unless the struct is a
 /// __safec_view (which lives only in locals and parameters).
 void checkSafeCPointerStorage(Sema &S, Decl *D);
+
+/// Rules 11 and 12 and the static kind, per expression: a __safec_static
+/// holds only static addresses, an __safec_unchecked is read only in
+/// __unsafe (or copied to another unchecked), a view is written only by name.
+/// Run on a function body or a global's initializer.
+void checkSafeCPointerKindsIn(Sema &S, Stmt *Body);
+void checkSafeCPointerKindsIn(Sema &S, Decl *GlobalVar);
 
 class SafeCState {
 public:

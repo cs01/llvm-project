@@ -16824,8 +16824,14 @@ static void checkSafeCTakesInit(Sema &S, const Expr *Init, const Decl *Dst,
                                 QualType T);
 
 void Sema::FinalizeDeclaration(Decl *ThisDecl) {
-  if (getLangOpts().SafeC && ThisDecl && isa<VarDecl>(ThisDecl))
+  if (getLangOpts().SafeC && ThisDecl && isa<VarDecl>(ThisDecl)) {
     checkSafeCPointerStorage(*this, ThisDecl);
+    // Locals are checked with their function body.
+    auto *VD = cast<VarDecl>(ThisDecl);
+    if (VD->hasGlobalStorage() && !VD->isLocalVarDecl() && VD->getInit() &&
+        !SourceMgr.isInSystemHeader(VD->getLocation()))
+      checkSafeCPointerKindsIn(*this, VD);
+  }
   // Safe C: file-scope initializers (struct hooks h = { my_free, ... }) are
   // not in any function body; locals are checked with their function.
   if (getLangOpts().SafeC)
@@ -18746,6 +18752,9 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   if (getLangOpts().SafeC && FD && Body &&
       !SourceMgr.isInSystemHeader(FD->getLocation()))
     checkSafeCReturnsOwned(*this, FD, Body);
+  if (getLangOpts().SafeC && FD && Body &&
+      !SourceMgr.isInSystemHeader(FD->getLocation()))
+    checkSafeCPointerKindsIn(*this, Body);
 
   if (FSI->UsesFPIntrin && FD && !FD->hasAttr<StrictFPAttr>())
     FD->addAttr(StrictFPAttr::CreateImplicit(Context));
