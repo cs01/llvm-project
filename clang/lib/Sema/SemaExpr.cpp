@@ -29,6 +29,7 @@
 #include "clang/AST/EvaluatedExprVisitor.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
+#include "clang/AST/FormatString.h"
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/MangleNumberingContext.h"
 #include "clang/AST/OperationKinds.h"
@@ -7146,6 +7147,75 @@ Sema::ConvertArgumentsForCall(CallExpr *Call, Expr *Fn,
   return false;
 }
 
+namespace {
+/// Collects the data-argument indices of %s conversions without a precision
+/// (they read up to the terminator).
+class SafeCStringConversions
+    : public analyze_format_string::FormatStringHandler {
+public:
+  llvm::SmallDenseSet<unsigned, 4> &Out;
+  explicit SafeCStringConversions(llvm::SmallDenseSet<unsigned, 4> &Out)
+      : Out(Out) {}
+  bool HandlePrintfSpecifier(const analyze_printf::PrintfSpecifier &FS,
+                             const char *, unsigned,
+                             const TargetInfo &) override {
+    if (FS.getConversionSpecifier().getKind() ==
+            analyze_format_string::ConversionSpecifier::sArg &&
+        FS.getPrecision().getHowSpecified() ==
+            analyze_format_string::OptionalAmount::NotSpecified)
+      Out.insert(FS.getArgIndex());
+    return true;
+  }
+};
+} // namespace
+
+/// Safe C: for a printf-style callee, the %s data arguments; returns the call
+/// index of the first data argument, or 0 when there is nothing to check.
+static unsigned safeCPrintfStringArgs(Sema &S, const FunctionDecl *FD,
+                                      ArrayRef<Expr *> Args,
+                                      llvm::SmallDenseSet<unsigned, 4> &Out) {
+  for (const auto *FA : FD->specific_attrs<FormatAttr>()) {
+    FormatStringType T = Sema::GetFormatStringType(FA);
+    if (T != FormatStringType::Printf &&
+        T != FormatStringType::FreeBSDKPrintf &&
+        T != FormatStringType::OSLog)
+      continue;
+    unsigned FmtIdx = FA->getFormatIdx(), First = FA->getFirstArg();
+    if (FmtIdx == 0 || First == 0 || FmtIdx > Args.size())
+      continue;
+    const auto *SL = dyn_cast<StringLiteral>(
+        Args[FmtIdx - 1]->IgnoreParenImpCasts());
+    if (!SL || !SL->isOrdinary())
+      continue;
+    StringRef Fmt = SL->getString();
+    SafeCStringConversions H(Out);
+    analyze_format_string::ParsePrintfString(
+        H, Fmt.data(), Fmt.data() + Fmt.size(), S.getLangOpts(),
+        S.Context.getTargetInfo(), T == FormatStringType::FreeBSDKPrintf);
+    return Out.empty() ? 0 : First - 1;
+  }
+  return 0;
+}
+
+/// Safe C: a bounded character buffer passed for %s becomes a checked
+/// terminated string (scan for the 0 within its bounds, trap if none).
+static Expr *safeCTerminatedStringArg(Sema &S, Expr *A) {
+  ExprResult Conv = S.DefaultFunctionArrayLvalueConversion(A);
+  if (!Conv.isUsable())
+    return A;
+  const auto *PT = Conv.get()->getType()->getAs<PointerType>();
+  if (!PT || !PT->getPointeeType()->isCharType() ||
+      !(PT->isIndexable() || PT->isBidiIndexable()))
+    return A;
+  SourceLocation Loc = A->getExprLoc();
+  Expr *Zero = IntegerLiteral::Create(
+      S.Context, llvm::APInt(S.Context.getIntWidth(S.Context.IntTy), 0),
+      S.Context.IntTy, Loc);
+  ExprResult NT = S.BuildTerminatedByFromIndexableExpr(
+      Zero, Conv.get(), /*PointerToTerminatorExpr=*/nullptr, Loc, Loc);
+  return NT.isUsable() ? NT.get() : A;
+}
+
 bool Sema::GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
                                   const FunctionProtoType *Proto,
                                   unsigned FirstParam, ArrayRef<Expr *> Args,
@@ -7266,7 +7336,19 @@ bool Sema::GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
 
     // Otherwise do argument promotion, (C99 6.5.2.2p7).
     } else {
-      for (Expr *A : Args.slice(ArgIx)) {
+      llvm::SmallDenseSet<unsigned, 4> SafeCStrArgs;
+      unsigned SafeCFirstDataArg = 0;
+      if (getLangOpts().SafeC && getLangOpts().BoundsSafety && FDecl)
+        SafeCFirstDataArg = safeCPrintfStringArgs(*this, FDecl, Args,
+                                                  SafeCStrArgs);
+      for (unsigned J = ArgIx, N = Args.size(); J != N; ++J) {
+        Expr *A = Args[J];
+        // Safe C: a buffer printed with %s is scanned for its terminator
+        // within its bounds, and the call traps if there is none; printf
+        // keeps no copy of the pointer, so the check holds for the call.
+        if (SafeCFirstDataArg && J >= SafeCFirstDataArg &&
+            SafeCStrArgs.contains(J - SafeCFirstDataArg))
+          A = safeCTerminatedStringArg(*this, A);
         ExprResult Arg = DefaultVariadicArgumentPromotion(A, CallType, FDecl);
         Invalid |= Arg.isInvalid();
         AllArgs.push_back(Arg.get());
