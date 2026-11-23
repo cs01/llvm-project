@@ -89,7 +89,9 @@ async function build(c: Case, variant: "bad" | "good", dir: string, support: str
 async function runExe(exe: string, cwd: string, cwe: string) {
   // Juliet bad paths read their bad value from stdin (fgets/fscanf): a zero
   // divisor for CWE 369, an out-of-range index or size for the buffer CWEs.
-  const input = (cwe === "369" ? "0\n" : "100\n").repeat(64);
+  // 124/127 (underwrite/underread) need a negative index: their bad paths check
+  // only the upper bound.
+  const input = (cwe === "369" ? "0\n" : cwe === "124" || cwe === "127" ? "-1\n" : "100\n").repeat(64);
   const r = await sh([ exe ], {cwd, timeoutMs : 5000, input});
   return { signal: r.timedOut ? "TIMEOUT" : r.signal, code: r.code };
 }
