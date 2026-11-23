@@ -469,7 +469,7 @@ CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
 }
 
 /* Note: when passing a NULL valuestring, cJSON_SetValuestring treats this as an error and return NULL */
-CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *object, const char *valuestring)
+CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *object, const char *valuestring __safec_noescape)
 {
     char *_Nullable __null_terminated copy = NULL;
     const char *source = NULL;
@@ -2620,7 +2620,7 @@ CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateNumber(double num)
     return item;
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateString(const char *string)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateString(const char *string __safec_noescape)
 {
     cJSON *item = cJSON_New_Item(&global_hooks);
     if(item)
@@ -3013,7 +3013,7 @@ static void minify_string(char *__bidi_indexable *input, char *__bidi_indexable 
     }
 }
 
-CJSON_PUBLIC(void) cJSON_Minify(char *_Nullable __null_terminated string)
+CJSON_PUBLIC(void) cJSON_Minify(char *_Nullable __null_terminated string __safec_noescape)
 {
     char *json = NULL;
     char *into = NULL;

@@ -205,7 +205,7 @@ CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateTrue(void);
 CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateFalse(void);
 CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateBool(cJSON_bool boolean);
 CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateNumber(double num);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateString(const char *_Nullable string);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateString(const char *_Nullable string __safec_noescape);
 /* raw json */
 CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateRaw(const char *_Nullable raw);
 CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateArray(void);
@@ -265,7 +265,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_Compare(const cJSON *_Nullable const a, const cJS
 /* Minify a strings, remove blank characters(such as ' ', '\t', '\r', '\n') from strings.
  * The input pointer json cannot point to a read-only address area, such as a string constant, 
  * but should point to a readable and writable address area. */
-CJSON_PUBLIC(void) cJSON_Minify(char *_Nullable __null_terminated json);
+CJSON_PUBLIC(void) cJSON_Minify(char *_Nullable __null_terminated json __safec_noescape);
 
 /* Helper functions for creating and adding items to an object at the same time.
  * They return the added item or NULL on failure. */
@@ -285,7 +285,7 @@ CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddArrayToObject(cJSON *_Nullable const obj
 CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *_Nullable object, double number);
 #define cJSON_SetNumberValue(object, number) ((object != NULL) ? cJSON_SetNumberHelper(object, (double)number) : (number))
 /* Change the valuestring of a cJSON_String object, only takes effect when type of object is cJSON_String */
-CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *_Nullable object, const char *_Nullable valuestring);
+CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *_Nullable object, const char *_Nullable valuestring __safec_noescape);
 
 /* If the object is not a boolean type this does nothing and returns cJSON_Invalid else it returns the new type*/
 #define cJSON_SetBoolValue(object, boolValue) ( \

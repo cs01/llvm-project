@@ -28,7 +28,7 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static cJSON *_Nullable parse_file(const char *filename)
+static cJSON *_Nullable parse_file(const char *filename __safec_noescape)
 {
     cJSON *parsed = NULL;
     char *_Nullable __null_terminated content = read_file(filename);
@@ -184,7 +184,8 @@ static void test12_should_not_be_parsed(void)
     const char *test12 = "{ \"name\": ";
     cJSON *tree = NULL;
 
-    tree = cJSON_Parse(test12);
+    /* unsafe: cJSON_Parse keeps a pointer into its input */
+    __unsafe { tree = cJSON_Parse(test12); }
     TEST_ASSERT_NULL_MESSAGE(tree, "Should fail to parse incomplete JSON.");
 
     TEST_ASSERT_EQUAL_PTR_MESSAGE(test12 + strlen(test12), cJSON_GetErrorPtr(), "Error pointer is incorrect.");

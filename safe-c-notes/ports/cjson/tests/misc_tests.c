@@ -217,7 +217,9 @@ static void cjson_should_not_parse_to_deeply_nested_jsons(void)
     }
     deep_json[sizeof(deep_json) - 1] = '\0';
 
-    TEST_ASSERT_NULL_MESSAGE(cJSON_Parse(deep_json), "To deep JSONs should not be parsed.");
+    /* unsafe: cJSON_Parse keeps a pointer into its input (cJSON_GetErrorPtr), so a
+       buffer passed as its string is only checked for the call */
+    __unsafe { TEST_ASSERT_NULL_MESSAGE(cJSON_Parse(deep_json), "To deep JSONs should not be parsed."); }
 }
 
 static void cjson_should_not_follow_too_deep_circular_references(void)
@@ -583,7 +585,9 @@ static void cjson_create_string_reference_should_create_a_string_reference(void)
 {
     const char *string = "I am a string!";
 
-    cJSON *string_reference = cJSON_CreateStringReference(string);
+    cJSON *string_reference;
+    /* unsafe: a string reference keeps the pointer without copying it */
+    __unsafe { string_reference = cJSON_CreateStringReference(string); }
     TEST_ASSERT_NOT_NULL(string_reference);
     TEST_ASSERT_TRUE(string_reference->valuestring == string);
     TEST_ASSERT_EQUAL_INT(cJSON_IsReference | cJSON_String, string_reference->type);
@@ -707,7 +711,9 @@ static void cjson_set_valuestring_to_object_should_not_leak_memory(void)
     const char *short_valuestring = "shorter valuestring";
     const char *long_valuestring = "new valuestring which much longer than previous should be changed safely";
     cJSON *item1 = cJSON_CreateString(stringvalue);
-    cJSON *item2 = cJSON_CreateStringReference(reference_valuestring);
+    cJSON *item2;
+    /* unsafe: a string reference keeps the pointer without copying it */
+    __unsafe { item2 = cJSON_CreateStringReference(reference_valuestring); }
     char *_Nullable __null_terminated ptr1 = NULL;
     char *_Nullable __null_terminated return_value = NULL;
 
@@ -804,8 +810,10 @@ static void cjson_parse_big_numbers_should_not_report_error(void)
 
     TEST_ASSERT_NOT_NULL(valid_big_number_json_object1);
     TEST_ASSERT_NOT_NULL(valid_big_number_json_object2);
-    TEST_ASSERT_NULL_MESSAGE(cJSON_Parse(invalid_big_number_json1), "Invalid big number JSONs should not be parsed.");
-    TEST_ASSERT_NULL_MESSAGE(cJSON_Parse(invalid_big_number_json2), "Invalid big number JSONs should not be parsed.");
+    /* unsafe: cJSON_Parse keeps a pointer into its input */
+    __unsafe { TEST_ASSERT_NULL_MESSAGE(cJSON_Parse(invalid_big_number_json1), "Invalid big number JSONs should not be parsed."); }
+    /* unsafe: cJSON_Parse keeps a pointer into its input */
+    __unsafe { TEST_ASSERT_NULL_MESSAGE(cJSON_Parse(invalid_big_number_json2), "Invalid big number JSONs should not be parsed."); }
 
     cJSON_Delete(valid_big_number_json_object1);
     cJSON_Delete(valid_big_number_json_object2);
