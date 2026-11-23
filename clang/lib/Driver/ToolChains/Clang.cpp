@@ -8550,8 +8550,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
     CmdArgs.push_back("-fsafe-c");
     // Every Safe C annotation comes from safec.h (which pulls in ptrcheck.h);
     // Safe C code should not need to include it.
+    // By full path: -include searches the current directory first, so a
+    // project's own (vendored or unrelated) safec.h would be used instead.
+    SmallString<128> SafeCHeader(D.ResourceDir);
+    llvm::sys::path::append(SafeCHeader, "include", "safec.h");
     CmdArgs.push_back("-include");
-    CmdArgs.push_back("safec.h");
+    CmdArgs.push_back(Args.MakeArgString(SafeCHeader));
     // Integer UB the way Rust release builds handle it: signed overflow wraps
     // (defined, nearly free); division by zero, INT_MIN / -1 (the only
     // signed-integer-overflow check left under -fwrapv) and oversized shift
