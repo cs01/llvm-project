@@ -15234,6 +15234,22 @@ void Sema::DiagnoseUniqueObjectDuplication(const VarDecl *VD) {
   }
 }
 
+/// Under -fnullability-default=nonnull an unannotated pointer variable with
+/// static storage (file scope or a static local) means _Nonnull. Such a
+/// variable starts out null unless it has an initializer, so it must be
+/// initialized with a non-null value, as Rust requires for a static.
+static bool unannotatedStaticPointerIsNonnull(Sema &S, const VarDecl *VD) {
+  if (!S.getLangOpts().NullabilitySafety ||
+      S.getLangOpts().getNullabilityDefault() != NullabilityKind::NonNull)
+    return false;
+  if (!VD->hasGlobalStorage() || !VD->getType()->isPointerType())
+    return false;
+  if (auto K = VD->getType()->getNullability();
+      K && *K != NullabilityKind::Unspecified)
+    return false;
+  return !S.getSourceManager().isInSystemHeader(VD->getLocation());
+}
+
 void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
   llvm::scope_exit ResetDeclForInitializer([this]() {
     if (!this->ExprEvalContexts.empty())
@@ -15505,7 +15521,10 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
         !ExprEvalContexts.empty() &&
         !ExprEvalContexts.back().isDiscardedStatementContext()) {
       QualType VDeclType = VDecl->getType();
-      if (auto Nullability = VDeclType->getNullability()) {
+      NullabilityKindOrNone Nullability = VDeclType->getNullability();
+      if (unannotatedStaticPointerIsNonnull(*this, VDecl))
+        Nullability = NullabilityKind::NonNull;
+      if (Nullability) {
         if (*Nullability == NullabilityKind::NonNull) {
           if (Init->isNullPointerConstant(Context,
                                           Expr::NPC_ValueDependentIsNotNull)) {
@@ -15848,6 +15867,12 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl) {
     if (getLangOpts().BoundsSafety)
       CheckValueTerminatedUninitialized(Var);
     /* TO_UPSTREAM(BoundsSafety) OFF*/
+
+    // A non-null static pointer with no initializer starts out null. An
+    // extern declaration has its initializer elsewhere.
+    if (!Var->hasExternalStorage() &&
+        unannotatedStaticPointerIsNonnull(*this, Var))
+      Diag(Var->getLocation(), diag::warn_nullability_safety_null_init) << Type;
 
     if (Type.getDesugaredType(Context) == Context.AMDGPUFeaturePredicateTy) {
       Diag(Var->getLocation(),

@@ -2828,7 +2828,9 @@ private:
     bool DeclaredNonnull =
         isNonnullType(Target.getType()) ||
         (!Target.VD && Target.Path &&
-         unannotatedMeansNonnull(Target.getType(), Target.Path->leafField()));
+         unannotatedMeansNonnull(Target.getType(), Target.Path->leafField())) ||
+        (Target.VD && !Target.Path && Target.VD->hasGlobalStorage() &&
+         unannotatedMeansNonnull(Target.getType(), Target.VD));
     switch (classifyStoredValue(RHS)) {
     case StoredValue::Nullable:
       // A provably nullable value overrides the declared _Nonnull.
