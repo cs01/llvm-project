@@ -6565,6 +6565,9 @@ protected:
   bool ScopeCheck;
   bool AllowRedecl;
   bool AutoPtrAttributed = false;
+  // Safe C: the pointer being bounded is _Nullable (a _Nullable sugar was
+  // passed on the way to it, at the same pointer level).
+  bool SafeCNullable = false;
   bool ShapeCheckedLevelZero = false;
   bool AtomicErrorEmitted = false;
 
@@ -6710,6 +6713,7 @@ public:
     }
     Level--;
     llvm::SaveAndRestore<bool> AutoPtrAttributedLocal(AutoPtrAttributed, false);
+    llvm::SaveAndRestore<bool> SafeCNullableLocal(SafeCNullable, false);
     QualType NewPointeeTy = Visit(T->getPointeeType());
     if (NewPointeeTy.isNull())
       return QualType();
@@ -6849,6 +6853,9 @@ public:
     llvm::SaveAndRestore<bool> AutoPtrAttributedLocal(AutoPtrAttributed);
     if (T->getAttrKind() == attr::PtrAutoAttr)
       AutoPtrAttributed = true;
+    llvm::SaveAndRestore<bool> SafeCNullableLocal(SafeCNullable);
+    if (T->getImmediateNullability() == NullabilityKind::Nullable)
+      SafeCNullable = true;
 
     QualType NewModTy = Visit(T->getModifiedType());
     if (NewModTy.isNull())
@@ -6904,8 +6911,11 @@ public:
               CanonTy->getPointeeType()
                   ->isStructureTypeWithFlexibleArrayMember())) &&
            "pre-check should have flipped CountInBytes for bad pointee");
+    // Safe C: on a _Nullable pointer a count means "null, or that many"
+    // (nullability is checked on its own), so it is the or-null form.
     QualType Ty = S.BuildCountAttributedType(
-        CanonTy, ArgExpr, Flags.CountInBytes, Flags.OrNull, ScopeCheck);
+        CanonTy, ArgExpr, Flags.CountInBytes,
+        Flags.OrNull || (S.getLangOpts().SafeC && SafeCNullable), ScopeCheck);
     assert(ConstructedType == nullptr);
     ConstructedType = Ty->getAs<CountAttributedType>();
     return Ty;

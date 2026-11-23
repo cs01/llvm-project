@@ -7731,6 +7731,17 @@ static bool CheckNullabilityTypeSpecifier(
   if (!Implicit)
     recordNullabilitySeen(S, NullabilityLoc);
 
+  // Safe C: nullability is checked on its own, so `_Nullable __counted_by(n)`
+  // means "null, or n elements" (__counted_by_or_null); one spelling per idea.
+  if (S.getLangOpts().SafeC && Nullability == NullabilityKind::Nullable)
+    if (const auto *CAT = dyn_cast<CountAttributedType>(QT.getTypePtr());
+        CAT && !CAT->isOrNull())
+      QT = S.Context.getQualifiedType(
+          S.Context.getCountAttributedType(
+              CAT->desugar(), CAT->getCountExpr(), CAT->isCountInBytes(),
+              /*OrNull=*/true, CAT->getCoupledDecls()),
+          QT.getLocalQualifiers());
+
   // Check for existing nullability attributes on the type.
   QualType Desugared = QT;
   while (auto *Attributed = dyn_cast<AttributedType>(Desugared.getTypePtr())) {
@@ -11525,6 +11536,10 @@ public:
 QualType Sema::BuildCountAttributedType(QualType PointerTy, Expr *CountExpr,
                                         bool CountInBytes, bool OrNull,
                                         bool ScopeCheck) {
+  // Safe C: on a _Nullable pointer, a count means "null, or that many".
+  if (getLangOpts().SafeC && !OrNull &&
+      PointerTy->getNullability() == NullabilityKind::Nullable)
+    OrNull = true;
 
   llvm::SmallVector<TypeCoupledDeclRefInfo, 1> Decls;
   ExprResult R = CountArgChecker(*this, Decls, CountInBytes, OrNull, ScopeCheck,
@@ -11692,6 +11707,9 @@ QualType Sema::BuildCountAttributedArrayOrPointerType(QualType WrappedTy,
                                                       bool CountInBytes,
                                                       bool OrNull) {
   assert(WrappedTy->isIncompleteArrayType() || WrappedTy->isPointerType());
+  if (getLangOpts().SafeC && !OrNull &&
+      WrappedTy->getNullability() == NullabilityKind::Nullable)
+    OrNull = true;
 
   llvm::SmallVector<TypeCoupledDeclRefInfo, 1> Decls;
   BuildTypeCoupledDecls(CountExpr, Decls);
