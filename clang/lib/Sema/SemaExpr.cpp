@@ -6133,6 +6133,10 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
   /*TO_UPSTREAM(BoundsSafety) ON*/
   auto diagnoseBoundsSafetyPointerSubscript = [&](QualType Ty) -> bool {
     const PointerType *PTy = Ty->getAs<PointerType>();
+    // An index holding an earlier error cannot be evaluated (and asserts);
+    // that error was already reported.
+    if (RHSExp->isValueDependent())
+      return true;
     // If the base of the array subscript expression is 'counted_by', it should
     // have been promoted to __bidi_indexable.
     assert(!Ty->isBoundsAttributedType());
@@ -21580,6 +21584,14 @@ void Sema::TryFixAssigningBidiIndexableExprToNullTerminated(Expr *SrcExpr,
   if (!SrcType->isPointerTypeWithBounds() && !SrcType->isConstantArrayType())
     return;
 
+  // Safe C rejects the __unsafe_ builtin outside __unsafe, so do not suggest
+  // it. And an expression that starts or ends in a macro expansion has no
+  // file location to insert at (getLocWithOffset on a macro location is
+  // invalid and crashed the fix-it merger).
+  if (getLangOpts().SafeC || SrcExpr->getBeginLoc().isMacroID() ||
+      SrcExpr->getEndLoc().isMacroID())
+    return;
+
   auto FixIt = FixItHint::CreateInsertion(SrcExpr->getBeginLoc(), "__unsafe_null_terminated_from_indexable(");
   if (FixIt.isNull())
     return;
@@ -21627,6 +21639,8 @@ void Sema::TryFixAssigningNullTerminatedToBidiIndexableExpr(Expr *SrcExpr,
                            int SelectFixitNote) {
     assert(Code.ends_with("("));
     auto FixitDiag = Diag(SrcExpr->getBeginLoc(), DiagID) << SelectFixitNote;
+    if (SrcExpr->getBeginLoc().isMacroID() || SrcExpr->getEndLoc().isMacroID())
+      return;
     auto FixIt = FixItHint::CreateInsertion(SrcExpr->getBeginLoc(), Code);
     if (FixIt.isNull())
       return;
