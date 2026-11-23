@@ -21,7 +21,9 @@ Safe C does not lock you in. Every annotation comes from one header, `safec.h`:
   defines every annotation as nothing. The same source compiles as ordinary C, exactly
   as it did before, just without the checks.
 
-`safec.h` has no dependencies, so a project can copy it into its own tree. `-fsafe-c`
+`safec.h` is a single file with no dependencies. The Safe C compiler ships it; for other
+compilers, copy [`clang/lib/Headers/safec.h`](clang/lib/Headers/safec.h) into your project
+(Apache 2.0 with LLVM exceptions, like the rest of LLVM). `-fsafe-c`
 includes it automatically.
 
 ## What makes C unsafe, and what exists today
