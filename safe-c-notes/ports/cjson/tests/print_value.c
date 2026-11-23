@@ -28,7 +28,7 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static void assert_print_value(const char *input)
+static void assert_print_value(const char * const input)
 {
     unsigned char printed[1024];
     cJSON item[1];
@@ -40,8 +40,13 @@ static void assert_print_value(const char *input)
     buffer.noalloc = true;
     buffer.hooks = global_hooks;
 
+    /* strlen runs first: a call between the two dependent assignments is rejected */
+
+    const size_t parsebuffer_length = strlen(input) + sizeof("");
+
     parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(input);
-    parsebuffer.length = strlen(input) + sizeof("");
+
+    parsebuffer.length = parsebuffer_length;
     parsebuffer.hooks = global_hooks;
 
     memset(item, 0, sizeof(item));

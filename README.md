@@ -296,12 +296,11 @@ it took. The same source builds with Safe C, Apple clang and gcc.
 | Library | Lines | What changed | `__unsafe` | Tests under Safe C |
 |---|---|---|---|---|
 | [jsmn](safe-c-notes/ports/jsmn/PORT.md) (JSON tokenizer) | 471 | 4 signatures annotated, no code changes | 0 (2 in its tests, for `va_arg`) | 16/16 |
-| [cJSON](safe-c-notes/ports/cjson/PORT.md) (JSON parser and printer) | 3,512 | 448 lines, mostly `_Nullable` and bounds annotations; `sprintf`/`strcpy` to bounded forms | 3 (allocator hooks) | 18/18 |
+| [cJSON](safe-c-notes/ports/cjson/PORT.md) (JSON parser and printer) | 3,512 | about 450 lines, mostly `_Nullable` and bounds annotations; `sprintf`/`strcpy` to bounded forms | 7 (2 allocator hooks, 5 string terminators) | 18/18 |
 
 Both ports found bugs in their test code (unchecked `malloc`, a buffer length that did
 not match its buffer) and drove compiler fixes; cJSON's list of 13 Safe C gaps (things
-it rejects or makes hard that are safe) is the usability to-do list. cJSON needs a small
-update since the libc rules above landed (5 errors at its old workarounds).
+it rejects or makes hard that are safe) is the usability to-do list.
 
 ## How it is built
 

@@ -47,7 +47,7 @@ static void cjson_minify_should_remove_single_line_comments(void)
 
     char* minified = (char*) malloc(sizeof(to_minify));
     TEST_ASSERT_NOT_NULL(minified);
-    strcpy(minified, to_minify);
+    memcpy(minified, to_minify, sizeof(to_minify));
 
     cJSON_Minify(minified);
     TEST_ASSERT_EQUAL_STRING("{}", minified);
@@ -61,7 +61,7 @@ static void cjson_minify_should_remove_spaces(void)
 
     char* minified = (char*) malloc(sizeof(to_minify));
     TEST_ASSERT_NOT_NULL(minified);
-    strcpy(minified, to_minify);
+    memcpy(minified, to_minify, sizeof(to_minify));
 
     cJSON_Minify(minified);
     TEST_ASSERT_EQUAL_STRING("{\"key\":true}", minified);
@@ -75,7 +75,7 @@ static void cjson_minify_should_remove_multiline_comments(void)
 
     char* minified = (char*) malloc(sizeof(to_minify));
     TEST_ASSERT_NOT_NULL(minified);
-    strcpy(minified, to_minify);
+    memcpy(minified, to_minify, sizeof(to_minify));
 
     cJSON_Minify(minified);
     TEST_ASSERT_EQUAL_STRING("{}", minified);
@@ -89,7 +89,7 @@ static void cjson_minify_should_not_modify_strings(void)
 
     char* minified = (char*) malloc(sizeof(to_minify));
     TEST_ASSERT_NOT_NULL(minified);
-    strcpy(minified, to_minify);
+    memcpy(minified, to_minify, sizeof(to_minify));
 
     cJSON_Minify(minified);
     TEST_ASSERT_EQUAL_STRING(to_minify, minified);
@@ -145,7 +145,7 @@ static void cjson_minify_should_minify_json(void) {
 
     char *buffer = (char*) malloc(sizeof(to_minify));
     TEST_ASSERT_NOT_NULL(buffer);
-    strcpy(buffer, to_minify);
+    memcpy(buffer, to_minify, sizeof(to_minify));
 
     cJSON_Minify(buffer);
     TEST_ASSERT_EQUAL_STRING(minified, buffer);

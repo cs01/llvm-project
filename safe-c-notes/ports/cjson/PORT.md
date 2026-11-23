@@ -13,9 +13,15 @@ unity.c, the test harness, is compiled as plain C.
   268 `_Nullable`, 28 `__null_terminated`, 17 `__counted_by_or_null`,
   16 `__unsafe_indexable`, 9 `__bidi_indexable`, 7 `__sized_by_or_null`,
   2 `__counted_by`.
-- 3 `__unsafe` blocks, all in the allocator hooks: giving a `void *` from
-  `global_hooks.allocate` a type (`allocate_bytes`, `reallocate_bytes`,
-  `allocate_item`). Every allocation goes through these three helpers.
+- 7 `__unsafe` sites (after the stricter libc and builtin rules landed):
+  - `hook_allocate`, an `__unsafe` function marked `alloc_size`: it vouches that
+    the user-supplied allocation hook returns fresh memory. Everything else
+    allocates through it with no `__unsafe`, because Safe C checks that an
+    `alloc_size` function returns only fresh memory.
+  - `reallocate_bytes`: the same trust for the realloc hook.
+  - 5 terminator conversions (`__unsafe_null_terminated_from_indexable` after
+    writing the NUL, and `cJSON_Minify`, which rewrites the terminator through a
+    view). Making these checkable is the open "keep the scan bound" item.
 - `sprintf`/`strcpy` into counted buffers became `snprintf`/`memcpy`.
 - `strncmp` on input slices became `memcmp` (same gap as jsmn).
 
@@ -34,15 +40,17 @@ already handled.
 ## Compiler gaps it found, by priority
 
 Soundness:
-1. `strcpy`/`sprintf` into a `__counted_by(n)` buffer compiles and overflows.
-2. `__unsafe_null_terminated_from_indexable`/`_to_indexable` are accepted
-   outside `__unsafe`.
+1. Fixed: `strcpy`/`sprintf` into a `__counted_by(n)` buffer compiled and
+   overflowed (Apple's libc annotations were off under `-fsafe-c`).
+2. Fixed: `__unsafe_null_terminated_from_indexable`/`_to_indexable` were
+   accepted outside `__unsafe`.
 
 Usability (Safe C rejects or traps on safe code):
 3. A cast of a `__null_terminated` pointer to another character type gives
    `__single`, and then `u[1]` traps.
-4. Allocator hooks: a function pointer with `malloc`/`alloc_size` should count
-   as a fresh allocation. This is the only reason for the 3 `__unsafe` blocks.
+4. Allocator hooks: fixed. An `alloc_size` function counts as a fresh
+   allocation and its body is checked; the hook pointer itself stays trusted in
+   one `__unsafe` function.
 5. Null checks on a `__counted_by_or_null` field do not narrow it.
 6. Predicates (`cJSON_IsString(n) && n->valuestring`) need a way to say "true
    means the argument is nonnull".

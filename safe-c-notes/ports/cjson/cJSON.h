@@ -299,7 +299,7 @@ CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *_Nul
 
 /* malloc/free objects using the malloc/free functions that have been set with cJSON_InitHooks */
 CJSON_PUBLIC(void *_Nullable __sized_by_or_null(size)) cJSON_malloc(size_t size);
-CJSON_PUBLIC(void) cJSON_free(void *_Nullable __unsafe_indexable object);
+CJSON_PUBLIC(void) cJSON_free(void *_Nullable object);
 
 #ifdef __cplusplus
 }

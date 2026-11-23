@@ -26,23 +26,57 @@
 #endif
 #endif
 
-#ifndef __SAFEC_HAVE_PTRCHECK
+/* Some ptrcheck.h versions (Apple clang 21) define only a few macros when bounds
+   safety is off, so fill in each missing one. */
+#ifndef __single
 #define __single
+#endif
+#ifndef __indexable
 #define __indexable
+#endif
+#ifndef __bidi_indexable
 #define __bidi_indexable
+#endif
+#ifndef __unsafe_indexable
 #define __unsafe_indexable
+#endif
+#ifndef __counted_by
 #define __counted_by(N)
+#endif
+#ifndef __counted_by_or_null
 #define __counted_by_or_null(N)
+#endif
+#ifndef __sized_by
 #define __sized_by(N)
+#endif
+#ifndef __sized_by_or_null
 #define __sized_by_or_null(N)
+#endif
+#ifndef __ended_by
 #define __ended_by(E)
+#endif
+#ifndef __terminated_by
 #define __terminated_by(T)
+#endif
+#ifndef __null_terminated
 #define __null_terminated
+#endif
+#ifndef __unsafe_forge_single
 #define __unsafe_forge_single(T, P) ((T)(P))
+#endif
+#ifndef __unsafe_forge_bidi_indexable
 #define __unsafe_forge_bidi_indexable(T, P, S) ((T)(P))
+#endif
+#ifndef __unsafe_forge_null_terminated
 #define __unsafe_forge_null_terminated(T, P) ((T)(P))
+#endif
+#ifndef __null_terminated_to_indexable
 #define __null_terminated_to_indexable(P) (P)
+#endif
+#ifndef __unsafe_null_terminated_to_indexable
 #define __unsafe_null_terminated_to_indexable(P) (P)
+#endif
+#ifndef __unsafe_null_terminated_from_indexable
 #define __unsafe_null_terminated_from_indexable(P, ...) (P)
 #endif
 

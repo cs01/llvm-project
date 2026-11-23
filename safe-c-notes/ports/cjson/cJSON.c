@@ -123,13 +123,13 @@ CJSON_PUBLIC(double) cJSON_GetNumberValue(const cJSON * const item)
     #error cJSON.h and cJSON.c have different versions. Make sure that both have the same.
 #endif
 
+#define CJSON_STRINGIFY_(x) #x
+#define CJSON_STRINGIFY(x) CJSON_STRINGIFY_(x)
+
 CJSON_PUBLIC(const char*) cJSON_Version(void)
 {
-    static char version[15];
-    snprintf(version, sizeof(version), "%i.%i.%i", CJSON_VERSION_MAJOR, CJSON_VERSION_MINOR, CJSON_VERSION_PATCH);
-
-    /* snprintf always terminates within the buffer; the conversion checks that */
-    return __unsafe_null_terminated_from_indexable(version);
+    /* a literal is already terminated, so no buffer or conversion is needed */
+    return CJSON_STRINGIFY(CJSON_VERSION_MAJOR) "." CJSON_STRINGIFY(CJSON_VERSION_MINOR) "." CJSON_STRINGIFY(CJSON_VERSION_PATCH);
 }
 
 /* Case insensitive string comparison, doesn't consider two NULL pointers equal though */
@@ -180,16 +180,22 @@ static void *_Nullable __sized_by_or_null(size) CJSON_CDECL internal_realloc(voi
 }
 
 /* The allocator hooks are plain function pointers, so Safe C cannot know that
-   their result is fresh, untyped memory. These helpers are the only places
-   that give a hook's result a type. */
-static unsigned char *_Nullable __counted_by_or_null(size) allocate_bytes(const internal_hooks * const hooks, size_t size)
+   their result is fresh, untyped memory. hook_allocate is the one place that
+   vouches for it; marked alloc_size, its result can then be given a type like
+   malloc's. */
+__unsafe __attribute__((alloc_size(2)))
+static void *_Nullable hook_allocate(const internal_hooks * const hooks, size_t size)
 {
-    void *_Nullable memory = hooks->allocate(size);
-    /* unsafe: fresh memory from a hook, which Safe C only trusts from malloc itself */
-    __unsafe { return (unsigned char *)memory; }
+    /* unsafe: a user-supplied hook is trusted to return fresh memory */
+    return hooks->allocate(size);
 }
 
-static unsigned char *_Nullable __counted_by_or_null(size) reallocate_bytes(const internal_hooks * const hooks, unsigned char *_Nullable __unsafe_indexable pointer, size_t size)
+static unsigned char *_Nullable __counted_by_or_null(size) allocate_bytes(const internal_hooks * const hooks, size_t size)
+{
+    return (unsigned char *)hook_allocate(hooks, size);
+}
+
+static unsigned char *_Nullable __counted_by_or_null(size) reallocate_bytes(const internal_hooks * const hooks, unsigned char *_Nullable pointer, size_t size)
 {
     void *_Nullable memory = NULL;
     if (hooks->reallocate == NULL)
@@ -197,15 +203,13 @@ static unsigned char *_Nullable __counted_by_or_null(size) reallocate_bytes(cons
         return NULL;
     }
     memory = hooks->reallocate(pointer, size);
-    /* unsafe: same as allocate_bytes; the old block held bytes, so the type is unchanged */
+    /* unsafe: a user-supplied hook is trusted to keep the bytes it moves; the old block held bytes, so the type is unchanged */
     __unsafe { return (unsigned char *)memory; }
 }
 
 static cJSON *_Nullable allocate_item(const internal_hooks * const hooks)
 {
-    void *_Nullable memory = hooks->allocate(sizeof(cJSON));
-    /* unsafe: same as allocate_bytes, typed as one cJSON node */
-    __unsafe { return (cJSON *)memory; }
+    return (cJSON *)hook_allocate(hooks, sizeof(cJSON));
 }
 
 /* strlen of character literals resolved at compile time */
@@ -234,7 +238,8 @@ static char *_Nullable __null_terminated cJSON_strdup(const char *_Nullable __nu
     memcpy(copy, __null_terminated_to_indexable(string), length - 1);
     copy[length - 1] = '\0';
 
-    return __unsafe_null_terminated_from_indexable(copy, copy + length - 1);
+    /* unsafe: the terminator was just written at copy[length - 1] */
+    __unsafe { return __unsafe_null_terminated_from_indexable(copy, copy + length - 1); }
 }
 
 CJSON_PUBLIC(void) cJSON_InitHooks(cJSON_Hooks* hooks)
@@ -338,8 +343,8 @@ typedef struct
 static cJSON_bool parse_number(cJSON * const item, parse_buffer * const input_buffer)
 {
     double number = 0;
-    /* strtod's end pointer has no bounds; it is only compared and subtracted */
-    char *__unsafe_indexable after_end = NULL;
+    /* strtod stores a pointer into its NUL-terminated input; it is only compared */
+    char *__null_terminated after_end = NULL;
     unsigned char *_Nullable number_c_string;
     unsigned char decimal_point = get_decimal_point();
     size_t i = 0;
@@ -510,7 +515,7 @@ CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *obje
     }
     if (object->valuestring != NULL)
     {
-        cJSON_free(object->valuestring);
+        cJSON_free(__null_terminated_to_indexable(object->valuestring));
     }
     object->valuestring = copy;
 
@@ -982,7 +987,8 @@ static cJSON_bool parse_string(cJSON * const item, parse_buffer * const input_bu
     *output_pointer = '\0';
 
     item->type = cJSON_String;
-    item->valuestring = __unsafe_null_terminated_from_indexable((char*)output, (char*)output_pointer);
+    /* unsafe: the terminator was just written at output_pointer */
+    __unsafe { item->valuestring = __unsafe_null_terminated_from_indexable((char*)output, (char*)output_pointer); }
 
     input_buffer->offset = (size_t) (input_end - input_buffer->content);
     input_buffer->offset++;
@@ -1355,7 +1361,8 @@ static char *_Nullable __null_terminated print(const cJSON *_Nullable const item
 
     /* without Safe C the conversion macro drops its second argument */
     (void)printed_length;
-    return __unsafe_null_terminated_from_indexable((char*)printed, (char*)printed + printed_length);
+    /* unsafe: printed[buffer->offset] was set to 0 above, and printed_length is that offset */
+    __unsafe { return __unsafe_null_terminated_from_indexable((char*)printed, (char*)printed + printed_length); }
 
 fail:
     if (buffer->buffer != NULL)
@@ -1415,7 +1422,7 @@ CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_PrintBuffered(const cJSON 
     }
 
     /* scans for the terminator print_value wrote, and traps if there is none */
-    return __unsafe_null_terminated_from_indexable((char*)p.buffer);
+    __unsafe { return __unsafe_null_terminated_from_indexable((char*)p.buffer); }
 }
 
 CJSON_PUBLIC(cJSON_bool) cJSON_PrintPreallocated(cJSON *item, char *_Nullable __counted_by_or_null(length) buffer, const int length, const cJSON_bool format)
@@ -2517,7 +2524,7 @@ static cJSON_bool replace_item_in_object(cJSON *_Nullable object, const char *_N
     /* replace the name in the replacement */
     if (!(replacement->type & cJSON_StringIsConst) && (replacement->string != NULL))
     {
-        cJSON_free(replacement->string);
+        cJSON_free(__null_terminated_to_indexable(replacement->string));
     }
     replacement->string = cJSON_strdup(string, &global_hooks);
     if (replacement->string == NULL)
@@ -3017,7 +3024,7 @@ CJSON_PUBLIC(void) cJSON_Minify(char *_Nullable __null_terminated string)
     /* minifying reads and rewrites the terminator, so it must be in bounds;
        the output never runs ahead of the input, so the final terminator lands
        at or before the original one */
-    json = __unsafe_null_terminated_to_indexable(string);
+    __unsafe { json = __unsafe_null_terminated_to_indexable(string); }
     into = json;
 
     while (json[0] != '\0')
@@ -3289,7 +3296,7 @@ CJSON_PUBLIC(void *_Nullable __sized_by_or_null(size)) cJSON_malloc(size_t size)
     return global_hooks.allocate(size);
 }
 
-CJSON_PUBLIC(void) cJSON_free(void *_Nullable __unsafe_indexable object)
+CJSON_PUBLIC(void) cJSON_free(void *_Nullable object)
 {
     global_hooks.deallocate(object);
     object = NULL;
