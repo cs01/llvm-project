@@ -1,4 +1,5 @@
-// Generates the parts of README.md that would otherwise drift: the annotation
+// Generates the parts of the Safe C docs (README.md, safe-c-docs/) that would
+// otherwise drift: the annotation
 // table (from the @annotation lines in safec.h) and the Juliet results table
 // (from the saved harness runs in safe-c-notes/). Each part sits between
 // <!-- generated:NAME --> and <!-- end generated:NAME --> markers.
@@ -9,6 +10,12 @@ import { join } from "path";
 
 const root = join(import.meta.dir, "../../..");
 const readmePath = join(root, "README.md");
+// Which file holds each generated part.
+const partFiles: Record<string, string> = {
+  summary: readmePath,
+  annotations: join(root, "safe-c-docs/annotations.md"),
+  juliet: join(root, "safe-c-docs/results.md"),
+};
 const check = process.argv.includes("--check");
 
 function annotations(): string {
@@ -54,6 +61,17 @@ function inputDriven(files: string[]): boolean {
   return fv === 12 || /rand|socket|fgets|fscanf/.test(n);
 }
 
+let lastTotals: any;
+function summary(): string {
+  if (!lastTotals) juliet();
+  const { ct, rt } = lastTotals;
+  return [
+    `On NIST's Juliet suite, bugs Rust rejects at compile time (null, double free, use after`,
+    `free): ${ct.c} of ${ct.n} rejected at compile time. Bugs Rust catches at run time (bounds,`,
+    `division by zero): ${rt.c + rt.r} of ${rt.n - rt.inputMiss - rt.fixedMiss} trapped, counting cases whose bug the test input reaches.`,
+  ].join("\n");
+}
+
 function juliet(): string {
   const cache: Record<string, any[]> = {};
   const lines = [
@@ -78,6 +96,7 @@ function juliet(): string {
     t.n += n; t.c += comp; t.r += run; if (row.rust === "run time") { t.fixedMiss += fixedMiss; t.inputMiss += inputMiss; }
   }
   const ct = tot["compile time"], rt = tot["run time"];
+  lastTotals = { ct, rt };
   const p = (x: number, n: number) => `${((100 * x) / n).toFixed(1)}%`;
   return [
     ...lines,
@@ -116,22 +135,27 @@ function examplesTest(): string {
   ].join("\n");
 }
 
-const parts: Record<string, () => string> = { annotations, juliet };
-let readme = readFileSync(readmePath, "utf8");
-const original = readme;
+const parts: Record<string, () => string> = { annotations, juliet, summary };
+const files: Record<string, { original: string; text: string }> = {};
 for (const [name, gen] of Object.entries(parts)) {
+  const path = partFiles[name];
+  files[path] ??= { original: readFileSync(path, "utf8"), text: "" };
+  const f = files[path];
+  if (!f.text) f.text = f.original;
   const re = new RegExp(`(<!-- generated:${name} -->)[\\s\\S]*?(<!-- end generated:${name} -->)`);
-  if (!re.test(readme)) throw new Error(`README.md has no generated:${name} markers`);
-  readme = readme.replace(re, (_m, a, b) => `${a}\n${gen()}\n${b}`);
+  if (!re.test(f.text)) throw new Error(`${path} has no generated:${name} markers`);
+  f.text = f.text.replace(re, (_m, a, b) => `${a}\n${gen()}\n${b}`);
 }
 const examples = examplesTest();
 let oldExamples = "";
 try { oldExamples = readFileSync(examplesTestPath, "utf8"); } catch {}
 if (check) {
-  if (readme !== original || examples !== oldExamples) { console.error("README.md or the examples test is stale: run bun clang/utils/safe-c/gen-readme.ts"); process.exit(1); }
-  console.log("README.md generated sections are current");
+  const stale = Object.entries(files).filter(([, f]) => f.text !== f.original).map(([p]) => p);
+  if (examples !== oldExamples) stale.push(examplesTestPath);
+  if (stale.length) { console.error("stale (run bun clang/utils/safe-c/gen-readme.ts): " + stale.join(", ")); process.exit(1); }
+  console.log("generated docs are current");
 } else {
-  writeFileSync(readmePath, readme);
+  for (const [p, f] of Object.entries(files)) writeFileSync(p, f.text);
   writeFileSync(examplesTestPath, examples);
-  console.log("README.md updated");
+  console.log("generated docs updated");
 }

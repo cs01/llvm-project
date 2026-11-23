@@ -1,0 +1,38 @@
+# How Safe C closes each problem
+
+[Back to the README](../README.md)
+
+## What makes C unsafe
+
+- **Out-of-bounds reads and writes**
+- **Null dereference**
+- **Use after free and double free**
+- **Uninitialized reads**
+- **Type confusion**: bad pointer casts, union punning, mismatched `printf` arguments
+- **Integer undefined behavior**: signed overflow, oversized shifts, division by zero
+- **Data races**
+- **Escape hatches**: flags, pragmas, attributes and builtins that switch checks off
+
+## How Safe C closes each one
+
+| Problem | How Safe C stops it | Built on | Status |
+|---|---|---|---|
+| Out of bounds | `__counted_by`, `__sized_by`, `__ended_by` on interfaces; locals carry their own bounds; every access proven at compile time or trapped | Apple's `-fbounds-safety` | works |
+| Null dereference | non-null by default; `_Nullable` must be checked before use, tracked through each function | this fork | works |
+| Use after free, double free | Clang's lifetime analysis always on, as errors; `ownership_takes`/`ownership_returns`/`lifetimebound` at interfaces, checked against bodies | Clang's lifetime safety (usx95), this fork | local variables and annotated calls only; pointers stored in fields, arrays, globals or struct copies are not tracked |
+| Uninitialized reads | a maybe-uninitialized local is an error; stack aggregates and `malloc` memory start zeroed | Clang's uninitialized analysis, `-ftrivial-auto-var-init` | works |
+| Type confusion | pointer casts only to `void *`, to the same type, or between types without pointers; no cast removes `const`; bytes never become pointers or `_Bool` (`memcpy`, `read`, `arc4random_buf` included); unions likewise; no integer-to-pointer; `printf`/`scanf` checked, `%s` buffers checked for a terminator; `va_arg` only in `__unsafe`; a symbol declared with another type in another file does not link | this fork, rule from the Lean model | works |
+| Unchecked libc | `strcpy`, `sprintf`, `gets` unavailable; a bounded pointer cannot go to an unchecked parameter; `FILE`/`DIR` handles are owned like memory; `setjmp`/`longjmp` only in `__unsafe` | Apple's libc annotations, this fork | works |
+| Integer UB | signed overflow wraps (as in Rust release builds); division by zero and oversized shifts trap | `-fwrapv`, Clang's trapping sanitizers | works |
+| Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned; a race on a pointer and its count breaks bounds checks today |
+| Weakening | weakening flags rejected; safety errors cannot be lowered by `-Wno-` or pragmas; a file cannot declare itself a system header; lying `pure`/`const`/`alloc_size` rejected | this fork | works, except that `-isystem` marks any directory as trusted |
+| Escape hatch | `__unsafe { }` blocks and functions; `#pragma clang safe_c legacy` for headers not yet ported; each is one searchable line, and `-Rsafe-c-unsafe` lists them all | this fork | works |
+
+**Why it can be sound.** [safe-c-lean/](../safe-c-lean/) is a Lean 4 model of Safe C's
+proposed rules with machine-checked proofs: a program that follows them, outside
+`__unsafe`, never reaches undefined behavior (it finishes, traps or runs forever), and the
+ownership rules rule out use after free and double free. Every rule has a counterexample
+showing the proof fails without it. The cast rule above comes straight from the model.
+Clang implements the core rules; the ownership model (owned pointers, exclusive borrows,
+no borrowed pointers in fields) is not built yet, and closing the gap between the model
+and the compiler is the main work ahead.
