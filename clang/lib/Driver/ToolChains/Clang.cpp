@@ -8512,8 +8512,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
   Args.addOptInFlag(CmdArgs, options::OPT_fapple_pragma_pack,
                     options::OPT_fno_apple_pragma_pack);
 
-  if (SafeC)
+  if (SafeC) {
     CmdArgs.push_back("-fsafe-c");
+    // The bounds annotations (__counted_by, __single, ...) are spelled as
+    // macros in ptrcheck.h; Safe C code should not need to include it.
+    CmdArgs.push_back("-include");
+    CmdArgs.push_back("ptrcheck.h");
+  }
   if (Args.hasFlag(options::OPT_fnullability_safety,
                    options::OPT_fno_nullability_safety, SafeC))
     CmdArgs.push_back("-fnullability-safety");
