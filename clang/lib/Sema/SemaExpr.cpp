@@ -26880,9 +26880,18 @@ ExprResult Sema::CreateRecoveryExpr(SourceLocation Begin, SourceLocation End,
 }
 
 /* TO_UPSTREAM(BoundsSafety) ON*/
+/// Safe C: Apple's __unsafe_ forms make up bounds or a terminator the
+/// compiler cannot check, so they belong in code marked __unsafe.
+static void diagnoseSafeCUnsafeBuiltin(Sema &S, SourceLocation Loc,
+                                       StringRef Name) {
+  if (S.getLangOpts().SafeC && !S.SourceMgr.isInSystemHeader(Loc))
+    S.Diag(Loc, diag::warn_safe_c_escape) << ("'" + Name + "'").str();
+}
+
 ExprResult Sema::ActOnForgeBidiIndexable(SourceLocation KWLoc,
                                          Expr *Addr, Expr *Size,
                                          SourceLocation RParenLoc) {
+  diagnoseSafeCUnsafeBuiltin(*this, KWLoc, "__unsafe_forge_bidi_indexable");
   BoundsSafetyPointerAttributes Att;
   Att.setBidiIndexable();
   QualType ResultType = Context.getPointerType(Context.VoidTy, Att);
@@ -26891,6 +26900,7 @@ ExprResult Sema::ActOnForgeBidiIndexable(SourceLocation KWLoc,
 
 ExprResult Sema::ActOnForgeSingle(SourceLocation KWLoc, Expr *Addr,
                                   SourceLocation RParenLoc) {
+  diagnoseSafeCUnsafeBuiltin(*this, KWLoc, "__unsafe_forge_single");
   QualType ResultType;
   if (getLangOpts().isBoundsSafetyAttributeOnlyMode()) {
     ResultType = Context.getAttributedType(attr::PtrSingle, Context.VoidPtrTy,
@@ -26903,6 +26913,7 @@ ExprResult Sema::ActOnForgeSingle(SourceLocation KWLoc, Expr *Addr,
 
 ExprResult Sema::ActOnForgeTerminatedBy(SourceLocation KWLoc, Expr *Addr,
                                         Expr *Term, SourceLocation RParenLoc) {
+  diagnoseSafeCUnsafeBuiltin(*this, KWLoc, "__unsafe_forge_terminated_by");
   BoundsSafetyPointerAttributes Att;
   if (!getLangOpts().isBoundsSafetyAttributeOnlyMode())
     Att.setSingle();
@@ -27769,6 +27780,13 @@ ExprResult Sema::ActOnUnsafeTerminatedByToIndexable(Expr *PointerExpr,
                                                     Expr *TerminatorExpr,
                                                     SourceLocation BuiltinLoc,
                                                     SourceLocation RParenLoc) {
+  // A view that includes the terminator lets a write erase it, and every
+  // other pointer to the string would then scan past the end. Read-only views
+  // cannot.
+  if (!PointerExpr->getType()->isPointerType() ||
+      !PointerExpr->getType()->getPointeeType().isConstQualified())
+    diagnoseSafeCUnsafeBuiltin(*this, BuiltinLoc,
+                               "__unsafe_terminated_by_to_indexable");
   return BuildTerminatedByToIndexableExpr(PointerExpr, TerminatorExpr,
                                           /*IncludeTerminator=*/true,
                                           BuiltinLoc, RParenLoc);
@@ -27863,6 +27881,10 @@ ExprResult Sema::BuildTerminatedByFromIndexableExpr(
 ExprResult Sema::ActOnUnsafeTerminatedByFromIndexable(
     Expr *TerminatorExpr, Expr *PointerExpr, Expr *PointerToTerminatorExpr,
     SourceLocation BuiltinLoc, SourceLocation RParenLoc) {
+  // The result keeps no bounds: if the buffer's terminator is later
+  // overwritten, a scan through it runs past the buffer.
+  diagnoseSafeCUnsafeBuiltin(*this, BuiltinLoc,
+                             "__unsafe_terminated_by_from_indexable");
   return BuildTerminatedByFromIndexableExpr(TerminatorExpr, PointerExpr,
                                             PointerToTerminatorExpr, BuiltinLoc,
                                             RParenLoc);

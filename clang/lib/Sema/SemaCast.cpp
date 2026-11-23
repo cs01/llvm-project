@@ -3963,6 +3963,9 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
     if (isSameTypeDeep(Context, S, D))
       return;
   } else if (S->isVoidType()) {
+    // A forged pointer is already reported as an escape.
+    if (isa<ForgePtrExpr>(unwrapBoundsSafety(Src)))
+      return;
     // Fresh memory from the allocator has no type yet; giving it one is how
     // allocation works.
     if (const auto *CE = dyn_cast<CallExpr>(unwrapBoundsSafety(Src)))
