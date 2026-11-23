@@ -6068,7 +6068,14 @@ static FixItHint safeCCountedByFixIt(const Expr *Base) {
   if (!FD || !PVD->getTypeSourceInfo())
     return FixItHint();
   const ParmVarDecl *Count = nullptr;
+  // main's argv is counted by argc whatever the names are.
+  if (FD->isMain() && FD->getNumParams() >= 2 && FD->getParamDecl(1) == PVD &&
+      FD->getParamDecl(0)->getType()->isIntegerType() &&
+      FD->getParamDecl(0)->getIdentifier())
+    Count = FD->getParamDecl(0);
   for (const ParmVarDecl *P : FD->parameters()) {
+    if (Count)
+      break;
     if (P == PVD || !P->getType()->isIntegerType() || !P->getIdentifier())
       continue;
     StringRef N = P->getName();
