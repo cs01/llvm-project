@@ -13415,6 +13415,11 @@ def warn_safe_c_escape : Warning<
   "%0 can switch off Safe C's checks; remove it, or keep it only in code "
   "marked '__unsafe'">,
   InGroup<SafeCEscape>, DefaultError;
+def warn_safe_c_union_pointer : Warning<
+  "accessing %0 of a union whose members have different types can read "
+  "memory as a pointer it does not hold; use a struct with a tag field that "
+  "says which member is live">,
+  InGroup<SafeCUnion>, DefaultError;
 def warn_safe_c_void_pointer_cast : Warning<
   "converting %0 to %1 can treat memory as the wrong type">,
   InGroup<SafeCVoidCast>, DefaultError;

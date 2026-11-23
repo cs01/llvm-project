@@ -545,6 +545,7 @@ def SafeCUnsafe : DiagGroup<"safe-c-unsafe">;
 def SafeCVoidCast : DiagGroup<"safe-c-void-cast">;
 def SafeCFormat : DiagGroup<"safe-c-format">;
 def SafeCEscape : DiagGroup<"safe-c-escape">;
+def SafeCUnion : DiagGroup<"safe-c-union">;
 def NullabilitySafety : DiagGroup<"nullability-safety", [
   NullabilitySafetyDereference, NullabilitySafetyArithmetic, NullabilitySafetyReturn,
   NullabilitySafetyAssignment, NullabilitySafetyArgument]>;

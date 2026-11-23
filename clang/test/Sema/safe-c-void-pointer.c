@@ -40,9 +40,10 @@ void escape(void *ctx) {
   }
 }
 
-// A byte view claims no type for the memory: void * to char * is allowed.
+// A byte view of void * is not allowed either: bytes written through it could
+// forge a pointer stored in that memory (the Lean core model's cast rule).
 void bytes(void *buf) {
-  char *b = buf;
-  unsigned char *u = (unsigned char *)buf;
+  char *b = buf; // expected-error {{can treat memory as the wrong type}} expected-note {{keep the typed pointer}}
+  unsigned char *u = (unsigned char *)buf; // expected-error {{can treat memory as the wrong type}} expected-note {{keep the typed pointer}}
   (void)b; (void)u;
 }

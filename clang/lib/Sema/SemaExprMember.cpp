@@ -1877,11 +1877,38 @@ ExprResult Sema::InstantiateDeclRefField(Expr *BaseExpr, bool IsArrow,
 }
 /* TO_UPSTREAM(BoundsSafety) OFF */
 
+/// Safe C: whether values of \p T contain no pointers at any depth.
+static bool safeCIsPointerFree(ASTContext &Ctx, QualType T) {
+  T = Ctx.getCanonicalType(T).getUnqualifiedType();
+  if (T->isPointerType() || T->isBlockPointerType() || T->isFunctionType())
+    return false;
+  if (const auto *AT = Ctx.getAsArrayType(T))
+    return safeCIsPointerFree(Ctx, AT->getElementType());
+  if (const auto *RD = T->getAsRecordDecl()) {
+    for (const FieldDecl *F : RD->fields())
+      if (!safeCIsPointerFree(Ctx, F->getType()))
+        return false;
+    return true;
+  }
+  return true;
+}
+
 ExprResult
 Sema::BuildFieldReferenceExpr(Expr *BaseExpr, bool IsArrow,
                               SourceLocation OpLoc, const CXXScopeSpec &SS,
                               FieldDecl *Field, DeclAccessPair FoundDecl,
                               const DeclarationNameInfo &MemberNameInfo) {
+  // Safe C: a union whose members differ in type lets one member's bytes be
+  // read as another's; if the member read holds pointers, that forges one.
+  if (getLangOpts().SafeC && !getLangOpts().CPlusPlus &&
+      Field->getParent()->isUnion() &&
+      !safeCIsPointerFree(Context, Field->getType())) {
+    for (const FieldDecl *Other : Field->getParent()->fields())
+      if (!Context.hasSameType(Other->getType(), Field->getType())) {
+        Diag(MemberNameInfo.getLoc(), diag::warn_safe_c_union_pointer) << Field;
+        break;
+      }
+  }
   // x.a is an l-value if 'a' has a reference type. Otherwise:
   // x.a is an l-value/x-value/pr-value if the base is (and note
   //   that *x is always an l-value), except that if the base isn't

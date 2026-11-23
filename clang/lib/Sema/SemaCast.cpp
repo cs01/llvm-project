@@ -3825,8 +3825,14 @@ ExprResult Sema::BuildCStyleCastExpr(SourceLocation LPLoc,
   if (Op.SrcExpr.isInvalid())
     return ExprError();
 
-  if (Op.Kind == CK_BitCast)
-    checkSafeCVoidPointerConversion(Op.SrcExpr.get(), Op.DestType, LPLoc);
+  // CK_NoOp: a cast that changes only nested nullability, which the rule
+  // also counts.
+  if (Op.Kind == CK_BitCast || Op.Kind == CK_NoOp)
+    // Bounds safety builds its own casts (e.g. `(char *)p + n` for a
+    // __sized_by pointer) with both parens at one location; a written cast
+    // never has that.
+    checkSafeCVoidPointerConversion(Op.SrcExpr.get(), Op.DestType, LPLoc,
+                                    /*Synthesized=*/LPLoc == RPLoc);
 
   // -Wcast-qual
   DiagnoseCastQual(Op.Self, Op.SrcExpr, Op.DestType);
@@ -3867,51 +3873,124 @@ ExprResult Sema::BuildCXXFunctionalCastExpr(TypeSourceInfo *CastTypeInfo,
       Op.SrcExpr.get(), &Op.BasePath, CurFPFeatureOverrides(), LPLoc, RPLoc));
 }
 
+/// The expression bounds safety wrapped while building a pointer's bounds:
+/// OpaqueValueExpr, MaterializeSequenceExpr, BoundsSafetyPointerPromotionExpr.
+static const Expr *unwrapBoundsSafety(const Expr *E) {
+  while (true) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
+      if (!OVE->getSourceExpr())
+        return E;
+      E = OVE->getSourceExpr();
+    } else if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E)) {
+      E = MSE->getWrappedExpr();
+    } else if (const auto *PPE =
+                   dyn_cast<BoundsSafetyPointerPromotionExpr>(E)) {
+      E = PPE->getPointer();
+    } else {
+      return E;
+    }
+  }
+}
+
+/// Whether values of \p T contain no pointers at any depth: reinterpreting
+/// such memory as another pointer-free type cannot forge a pointer.
+static bool isPointerFree(ASTContext &Ctx, QualType T) {
+  T = Ctx.getCanonicalType(T).getUnqualifiedType();
+  if (T->isPointerType() || T->isBlockPointerType() ||
+      T->isObjCObjectPointerType() || T->isFunctionType() || T->isVoidType())
+    return false;
+  if (const auto *AT = Ctx.getAsArrayType(T))
+    return isPointerFree(Ctx, AT->getElementType());
+  if (const auto *RD = T->getAsRecordDecl()) {
+    for (const FieldDecl *F : RD->fields())
+      if (!isPointerFree(Ctx, F->getType()))
+        return false;
+    return true;
+  }
+  return T->isScalarType();
+}
+
+/// Identical types, with nullability counted at every pointer level (the
+/// canonical type drops it): `int *_Nonnull *` is not `int *_Nullable *`.
+static bool isSameTypeDeep(ASTContext &Ctx, QualType A, QualType B) {
+  if (!Ctx.hasSameUnqualifiedType(A, B))
+    return false;
+  while (A->isPointerType() && B->isPointerType()) {
+    auto NA = A->getNullability(), NB = B->getNullability();
+    if (NA.has_value() != NB.has_value() || (NA && *NA != *NB))
+      return false;
+    A = A->getPointeeType();
+    B = B->getPointeeType();
+  }
+  return true;
+}
+
 void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
-                                           SourceLocation Loc) {
-  if (!getLangOpts().SafeC || getLangOpts().CPlusPlus)
+                                           SourceLocation Loc,
+                                           bool Synthesized) {
+  if (!getLangOpts().SafeC || getLangOpts().CPlusPlus || Synthesized)
     return;
   const auto *SrcPT = Src->getType()->getAs<PointerType>();
   const auto *DstPT = DestTy->getAs<PointerType>();
-  if (!SrcPT || !DstPT || !SrcPT->getPointeeType()->isVoidType() ||
-      DstPT->getPointeeType()->isVoidType() ||
-      DstPT->getPointeeType()->isFunctionType())
+  if (!SrcPT || !DstPT)
+    return;
+  QualType S = SrcPT->getPointeeType(), D = DstPT->getPointeeType();
+  // To void: nothing is read through the result.
+  if (D->isVoidType())
     return;
   // Null has no type to confuse.
   if (Src->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNotNull))
     return;
-  // A byte view (char *) claims no type for the memory. Bounds safety also
-  // builds `(char *)p + n` internally for every __sized_by pointer (memcpy's
-  // arguments, for instance). Known gap: bytes written over a stored pointer
-  // can still forge it, as with memcpy.
-  if (DstPT->getPointeeType()->isCharType())
-    return;
-  // Fresh memory from the allocator has no type yet; giving it one is how
-  // allocation works, as with Rust's typed allocation.
-  // Bounds safety wraps the call in OpaqueValueExprs when it builds the
-  // result's bounds (e.g. `(char *)result + size` for __sized_by).
-  const Expr *Inner = Src->IgnoreParenImpCasts();
-  while (const auto *OVE = dyn_cast<OpaqueValueExpr>(Inner)) {
-    if (!OVE->getSourceExpr())
-      break;
-    Inner = OVE->getSourceExpr()->IgnoreParenImpCasts();
-  }
-  if (const auto *CE = dyn_cast<CallExpr>(Inner))
-    if (const FunctionDecl *FD = CE->getDirectCallee())
-      switch (FD->getBuiltinID()) {
-      case Builtin::BImalloc:
-      case Builtin::BIcalloc:
-      case Builtin::BIrealloc:
-      case Builtin::BI__builtin_malloc:
-      case Builtin::BI__builtin_calloc:
-      case Builtin::BI__builtin_realloc:
-        return;
-      default:
-        if (FD->getIdentifier() && FD->getName() == "aligned_alloc")
-          return;
-      }
   if (SourceMgr.isInSystemHeader(Loc))
     return;
+  if (S->isFunctionType() || D->isFunctionType()) {
+    // A call through a pointer of the wrong type passes arguments the callee
+    // reads as something else.
+    if (isSameTypeDeep(Context, S, D))
+      return;
+  } else if (S->isVoidType()) {
+    // Fresh memory from the allocator has no type yet; giving it one is how
+    // allocation works.
+    if (const auto *CE = dyn_cast<CallExpr>(unwrapBoundsSafety(Src)))
+      if (const FunctionDecl *FD = CE->getDirectCallee()) {
+        switch (FD->getBuiltinID()) {
+        case Builtin::BImalloc:
+        case Builtin::BIcalloc:
+        case Builtin::BI__builtin_malloc:
+        case Builtin::BI__builtin_calloc:
+          return;
+        case Builtin::BIrealloc:
+        case Builtin::BI__builtin_realloc: {
+          // realloc keeps the old contents: fresh only if the old block
+          // already had the new type, or there was no old block.
+          const Expr *Old = unwrapBoundsSafety(CE->getArg(0));
+          if (Old->isNullPointerConstant(Context,
+                                         Expr::NPC_ValueDependentIsNotNull))
+            return;
+          if (const auto *OldPT = Old->getType()->getAs<PointerType>())
+            if (isSameTypeDeep(Context, OldPT->getPointeeType(), D))
+              return;
+          break;
+        }
+        default:
+          if (FD->getIdentifier() && FD->getName() == "aligned_alloc")
+            return;
+        }
+      }
+  } else if (isSameTypeDeep(Context, S, D) ||
+             (isPointerFree(Context, S) && isPointerFree(Context, D))) {
+    // The same type, or bytes reread as other bytes: no pointer can be forged.
+    // But a __single pointer promises one element of the old type only: a
+    // larger new type would reach past it, and nothing checks that access.
+    if (SrcPT->isSingle() && !S->isIncompleteType() && !D->isIncompleteType() &&
+        Context.getTypeSizeInChars(D) > Context.getTypeSizeInChars(S)) {
+      Diag(Loc, diag::warn_safe_c_void_pointer_cast)
+          << Src->getType() << DestTy << Src->getSourceRange();
+      Diag(Loc, diag::note_safe_c_void_pointer_cast_fix);
+    }
+    return;
+  }
   Diag(Loc, diag::warn_safe_c_void_pointer_cast)
       << Src->getType() << DestTy << Src->getSourceRange();
   Diag(Loc, diag::note_safe_c_void_pointer_cast_fix);

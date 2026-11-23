@@ -1466,10 +1466,15 @@ public:
   SmallVector<SourceRange, 4> SafeCUnsafeRanges;
   bool isInSafeCUnsafeRegion(SourceLocation Loc) const;
 
-  /// Safe C: reject converting `void *` to a typed object pointer, implicitly
-  /// or by cast, except for null constants and fresh allocations.
+  /// Safe C: reject pointer conversions, implicit or by cast, that can make
+  /// memory be read as the wrong type. Allowed: to void; null; fresh
+  /// allocations; identical types (nullability counted at every level);
+  /// between two pointer-free types. These are the conditions the Lean core
+  /// model (safe-c-lean/) needs for soundness. \p Synthesized marks casts the
+  /// compiler builds itself.
   void checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
-                                       SourceLocation Loc);
+                                       SourceLocation Loc,
+                                       bool Synthesized = false);
 
   /// Warn when implicitly casting 0 to nullptr.
   void diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E);
