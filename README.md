@@ -203,10 +203,9 @@ build/bin/clang -fsafe-c -isysroot $(xcrun --show-sdk-path) example.c
 
 ## Prior work
 
-Cyclone (fat pointers, regions, never-null pointers), Checked C (checked pointer types,
-bounds declarations), Apple's `-fbounds-safety`, Clang's lifetime safety analysis, and
-Rust. Fil-C reaches memory safety a different way: no source changes, run-time
-capabilities and a garbage collector.
+Cyclone and Checked C made C dialects; Fil-C makes C safe at run time with a garbage
+collector. Safe C stays plain C, checked inside Clang: at compile time where it can be
+proven, with a trap where it cannot.
 
 ## License
 
