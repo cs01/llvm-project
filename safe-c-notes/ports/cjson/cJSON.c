@@ -170,11 +170,11 @@ static void *_Nullable __sized_by_or_null(size) CJSON_CDECL internal_malloc(size
 {
     return malloc(size);
 }
-static void CJSON_CDECL internal_free(void *_Nullable __unsafe_indexable pointer)
+static __safec_takes(1) void CJSON_CDECL internal_free(void *_Nullable __unsafe_indexable pointer)
 {
     free(pointer);
 }
-static void *_Nullable __sized_by_or_null(size) CJSON_CDECL internal_realloc(void *_Nullable __unsafe_indexable pointer, size_t size)
+static __safec_takes(1) void *_Nullable __sized_by_or_null(size) CJSON_CDECL internal_realloc(void *_Nullable __unsafe_indexable pointer, size_t size)
 {
     return realloc(pointer, size);
 }
