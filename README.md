@@ -11,6 +11,19 @@ about which of a dozen flags you forgot.
 
 **Status: early.** Items marked planned below do not exist yet.
 
+## Same code, any compiler
+
+Safe C does not lock you in. Every annotation comes from one header, `safec.h`:
+
+- **With the Safe C compiler** and `-fsafe-c`, the annotations are checked and the
+  safety rules are enforced.
+- **With any other C compiler** (GCC, MSVC, Xcode's clang, a stock Clang), `safec.h`
+  defines every annotation as nothing. The same source compiles as ordinary C, exactly
+  as it did before, just without the checks.
+
+`safec.h` has no dependencies, so a project can copy it into its own tree. `-fsafe-c`
+includes it automatically.
+
 ## What makes C unsafe, and what exists today
 
 C has seven kinds of memory and undefined-behavior bugs. For each, here is what Clang
@@ -68,10 +81,8 @@ Even where Clang has a feature, a set of flags does not give a guarantee:
 
 The C standard committee is unlikely to adopt any of this soon, and it does not need to.
 Compiler extensions are how C has always moved: GNU C, `__attribute__`, Apple's blocks,
-Microsoft's SAL. Safe C code stays portable: the bounds annotations come from Apple's
-`ptrcheck.h`, which defines them as nothing on compilers that do not support them, so the
-same source still builds with GCC or a stock Clang, just without the checks.
-`-fsafe-c` includes `ptrcheck.h` automatically.
+Microsoft's SAL. Safe C code stays portable through `safec.h` (see [Same code, any
+compiler](#same-code-any-compiler)).
 
 The code is still C. It compiles with the normal C ABI and links with any C library.
 
@@ -141,7 +152,7 @@ free(p);
 | Null dereference | non-null by default, `_Nullable` must be checked before use | this fork | works |
 | Weakening by flags | `-fno-bounds-safety` and friends rejected with `-fsafe-c` | this fork | works |
 | Silencing by `-Wno-` or pragma | null and bounds violations are re-issued as errors that no flag or pragma can lower | this fork | works |
-| Use after free, double free | owned pointers, borrows, `lifetimebound` at interfaces | this fork, on Clang's lifetime analysis | planned |
+| Use after free, double free | owned pointers, borrows, `lifetimebound` at interfaces, named lifetimes where elision is not enough | this fork, on Clang's lifetime analysis | planned |
 | Uninitialized reads | definite initialization required | `-Wuninitialized`, made an error | planned |
 | Type confusion | no pointer casts, no union punning, checked varargs | this fork | planned |
 | Integer UB | signed overflow, shifts, division by zero trap | Clang's trapping sanitizers | planned |
@@ -161,7 +172,7 @@ safe choice. You annotate only where a pointer does more:
 | `__sized_by(n)` | points to `n` bytes |
 | `__ended_by(end)` | valid up to the pointer `end` |
 
-`-fsafe-c` includes Apple's `ptrcheck.h`, which defines the bounds annotations, so
+All of these come from `safec.h`, which `-fsafe-c` includes automatically, so
 Safe C code does not need to include it.
 
 ## How it is checked

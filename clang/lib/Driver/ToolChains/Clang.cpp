@@ -8514,10 +8514,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
 
   if (SafeC) {
     CmdArgs.push_back("-fsafe-c");
-    // The bounds annotations (__counted_by, __single, ...) are spelled as
-    // macros in ptrcheck.h; Safe C code should not need to include it.
+    // Every Safe C annotation comes from safec.h (which pulls in ptrcheck.h);
+    // Safe C code should not need to include it.
     CmdArgs.push_back("-include");
-    CmdArgs.push_back("ptrcheck.h");
+    CmdArgs.push_back("safec.h");
   }
   if (Args.hasFlag(options::OPT_fnullability_safety,
                    options::OPT_fno_nullability_safety, SafeC))

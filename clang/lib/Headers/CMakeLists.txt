@@ -372,6 +372,7 @@ set(files
 
 # TO_UPSTREAM(BoundsSafety)
 list(APPEND files ptrcheck.h)
+list(APPEND files safec.h)
 list(APPEND files bounds_safety_soft_traps.h)
 
 # TO_UPSTREAM(Lifetimebound)

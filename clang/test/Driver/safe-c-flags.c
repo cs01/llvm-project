@@ -4,7 +4,7 @@
 
 // RUN: %clang -### -fsafe-c -c %s 2>&1 | FileCheck %s --check-prefix=ON
 // ON: "-fbounds-safety"
-// ON: "-fsafe-c" "-include" "ptrcheck.h"
+// ON: "-fsafe-c" "-include" "safec.h"
 // ON: "-fnullability-safety"
 // ON: "-fnullability-default=nonnull"
 // ON: "-Werror=nullability-safety"
