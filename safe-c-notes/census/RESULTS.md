@@ -48,7 +48,7 @@
 - **cmark** (1)
   - 1x `'X' frees its parameter 'X', but callers are not told and may use it afterwards; declare it 'X' (safec.h: 'X')` e.g. src/cmark.c:23:27
 - **lz4** (7)
-  - 7x `'X' frees its parameter 'X', but callers are not told and may use it afterwards; declare it 'X' (safec.h: 'X')` e.g. lib/xxhash.c:109:42
+  - 7x `'X' frees its parameter 'X', but callers are not told and may use it afterwards; declare it 'X' (safec.h: 'X')` e.g. lib/lz4file.c:68:21
 - **redis** (7)
   - 4x `'X' frees its parameter 'X', but callers are not told and may use it afterwards; declare it 'X' (safec.h: 'X')` e.g. src/zmalloc.c:32:10
   - 3x `parameter in cross-TU function should be marked [[clang::lifetimebound]]` e.g. src/adlist.h:57:33
@@ -83,7 +83,7 @@
   - 8x `pointer arithmetic on 'X' pointer 'X' can only increase the value by one` e.g. parson.c:402:31
 - **lua** (210)
   - 57x `pointer arithmetic on 'X' pointer 'X' can only increase the value by one` e.g. lbaselib.c:64:3
-  - 42x `assigning to 'X' from incompatible type 'X' (aka 'X') requires a linear search for the terminator; use 'X' to perform this conversion explicitly` e.g. ldblib.c:265:8
+  - 42x `assigning to 'X' from incompatible type 'X' (aka 'X') requires a linear search for the terminator; use 'X' to perform this conversion explicitly` e.g. lbaselib.c:104:7
   - 24x `returning 'X' from a function with incompatible result type 'X' (aka 'X') is an unsafe operation; use 'X' or 'X' to perform this conversion` e.g. lauxlib.c:770:10
 - **libyaml** (42)
   - 39x `passing 'X' to parameter of incompatible type 'X' (aka 'X') is an unsafe operation; use 'X' or 'X' to perform this conversion` e.g. src/dumper.c:322:34
@@ -114,7 +114,7 @@
   - 23x `passing 'X' (aka 'X') to parameter of incompatible type 'X' (aka 'X') requires a linear search for the terminator; use 'X' to perform this conversion explicitly` e.g. lib/lz4.c:1271:60
   - 16x `passing 'X' (aka 'X') to parameter of incompatible type 'X' requires a linear search for the terminator; use 'X' to perform this conversion explicitly` e.g. lib/lz4.c:1763:40
 - **redis** (43)
-  - 17x `passing 'X' to parameter of incompatible type 'X' (aka 'X') is an unsafe operation; use 'X' or 'X' to perform this conversion` e.g. src/zmalloc.c:1175:21
+  - 17x `passing 'X' to parameter of incompatible type 'X' (aka 'X') is an unsafe operation; use 'X' or 'X' to perform this conversion` e.g. src/sds.c:122:47
   - 9x `pointer arithmetic on 'X' pointer 'X' can only increase the value by one` e.g. src/sds.c:931:31
   - 8x `passing 'X' (aka 'X') to parameter of incompatible type 'X' requires a linear search for the terminator; use 'X' to perform this conversion explicitly` e.g. src/sds.c:212:22
 - **inih** (5)
@@ -144,13 +144,13 @@
   - 187x `converting 'X' to 'X' (aka 'X') can treat memory as the wrong type` e.g. lauxlib.c:485:15
   - 185x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. ldblib.c:360:33
 - **libyaml** (832)
-  - 522x `pointer arithmetic on single pointer 'X' is out of bounds; consider adding 'X' to 'X'` e.g. src/reader.c:67:28
-  - 134x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. src/reader.c:266:59
+  - 522x `pointer arithmetic on single pointer 'X' is out of bounds; consider adding 'X' to 'X'` e.g. src/dumper.c:177:21
+  - 134x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. src/dumper.c:179:58
   - 61x `converting 'X' (aka 'X') to 'X' can treat memory as the wrong type` e.g. src/loader.c:286:10
 - **bearssl** (6743)
   - 4740x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. inc/bearssl_ssl.h:1349:61
-  - 701x `converting 'X' to 'X' can treat memory as the wrong type` e.g. src/aead/eax.c:147:19
-  - 639x `pointer arithmetic on single pointer 'X' is out of bounds` e.g. src/aead/eax.c:147:19
+  - 701x `converting 'X' to 'X' can treat memory as the wrong type` e.g. src/aead/gcm.c:129:10
+  - 639x `pointer arithmetic on single pointer 'X' is out of bounds` e.g. src/aead/gcm.c:129:10
 - **sds** (74)
   - 37x `pointer arithmetic on single pointer 'X' is out of bounds; consider adding 'X' to 'X'` e.g. sds.h:93:20
   - 31x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. sds.h:88:28
@@ -164,12 +164,12 @@
   - 68x `returning 'X' from a function with incompatible result type 'X' casts away 'X' qualifier; use 'X' or 'X' to perform this conversion` e.g. stb_image.h:1207:45
   - 46x `pointer arithmetic on single pointer 'X' is out of bounds; consider adding 'X' to 'X'` e.g. stb_image.h:1680:18
 - **cmark** (768)
-  - 587x `pointer arithmetic on single pointer 'X' is out of bounds; consider adding 'X' to 'X'` e.g. src/chunk.h:27:8
-  - 143x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. src/chunk.h:34:31
+  - 587x `pointer arithmetic on single pointer 'X' is out of bounds; consider adding 'X' to 'X'` e.g. src/houdini_href_e.c:70:28
+  - 143x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. src/houdini_href_e.c:66:37
   - 17x `converting 'X' to 'X' (aka 'X') can treat memory as the wrong type` e.g. src/blocks.c:76:7
 - **lz4** (398)
   - 135x `pointer arithmetic on single pointer 'X' is out of bounds; consider adding 'X' to 'X'` e.g. lib/lz4file.c:249:7
-  - 117x `converting 'X' to 'X' (aka 'X') can treat memory as the wrong type` e.g. lib/xxhash.c:239:44
+  - 117x `converting 'X' to 'X' (aka 'X') can treat memory as the wrong type` e.g. lib/lz4file.c:168:24
   - 54x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. lib/lz4file.c:237:76
 - **redis** (545)
   - 230x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. src/sds.h:69:28
@@ -184,8 +184,8 @@
   - 284x `converting 'X' to 'X' (aka 'X') can treat memory as the wrong type` e.g. sqlite3.c:25624:38
   - 164x `converting 'X' (aka 'X') to 'X' (aka 'X') can treat memory as the wrong type` e.g. sqlite3.c:41111:21
 - **zlib** (363)
-  - 181x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. adler32.c:101:13
-  - 82x `pointer arithmetic on single pointer 'X' is out of bounds; consider adding 'X' to 'X'` e.g. adler32.c:87:23
+  - 181x `array subscript on single pointer 'X' must use a constant index of 0 to be in bounds` e.g. gzwrite.c:350:22
+  - 82x `pointer arithmetic on single pointer 'X' is out of bounds; consider adding 'X' to 'X'` e.g. crc32.c:645:16
   - 35x `converting 'X' to 'X' (aka 'X') can treat memory as the wrong type` e.g. gzclose.c:17:13
 
 ### bounds-other
@@ -222,7 +222,7 @@
   - 2x `converting 'X' (aka 'X') to 'X' makes up an address that no bounds or lifetime check can follow; keep the pointer instead of the integer (or an index into the array it points into), or convert to 'X' if only the address value is needed` e.g. lib/lz4.c:3011:12
   - 1x `initializing 'X' with an expression of incompatible type 'X' casts away 'X' qualifier; use 'X' or 'X' to perform this conversion` e.g. lib/lz4hc.c:2196:32
 - **redis** (29)
-  - 16x `converting 'X' to 'X' can treat memory as the wrong type` e.g. src/quicklist.c:296:19
+  - 16x `converting 'X' to 'X' can treat memory as the wrong type` e.g. src/sds.c:122:28
   - 8x `initializing 'X' with an expression of incompatible type 'X' casts away 'X' qualifier; use 'X' or 'X' to perform this conversion` e.g. src/sds.h:119:13
   - 3x `passing 'X' to 'X' drops its bounds: the parameter is 'X', so 'X' reads or writes through it unchecked; call a function whose parameter declares its size (for strings: memcpy, memcmp, strlcpy, snprintf)` e.g. src/zmalloc.c:260:25
 - **sqlite** (238)
@@ -249,7 +249,7 @@
 - **expat** (2)
   - 2x `conversion between pointers to functions with incompatible bound attributes` e.g. lib/xmlparse.c:1373:26
 - **cmark** (77)
-  - 76x `accessing 'X' of a union whose members have different types can read memory as a pointer it does not hold; use a struct with a tag field that says which member is live` e.g. src/commonmark.c:131:18
+  - 76x `accessing 'X' of a union whose members have different types can read memory as a pointer it does not hold; use a struct with a tag field that says which member is live` e.g. src/blocks.c:272:59
   - 1x `conversion between pointers to functions with incompatible bound attributes` e.g. src/cmark.c:31:55
 - **lz4** (34)
   - 34x `accessing 'X' of a union whose members have different types can read memory as a pointer it does not hold; use a struct with a tag field that says which member is live` e.g. lib/lz4.c:1582:65
