@@ -11,6 +11,13 @@ about which of a dozen flags you forgot.
 
 **Status: early.** Items marked planned below do not exist yet.
 
+**Known holes.** An adversarial review on 2026-11-23 found programs that compile under
+`-fsafe-c` without `__unsafe` and still corrupt memory: null pointers in zeroed
+pointer slots, type confusion through unions and pointer casts, unchecked `printf`/
+`scanf` arguments, a spoofable system-header exemption, and several flags and
+attributes that switch checks off. Until those are closed, Safe C is safer C, not safe
+C. The list and its status: [safe-c-notes/review-2026-11-23.md](safe-c-notes/review-2026-11-23.md).
+
 ## Same code, any compiler
 
 Safe C does not lock you in. Every annotation comes from one header, `safec.h`:
