@@ -13,7 +13,7 @@ unity.c, the test harness, is compiled as plain C.
   268 `_Nullable`, 28 `__null_terminated`, 17 `__counted_by_or_null`,
   16 `__unsafe_indexable`, 9 `__bidi_indexable`, 7 `__sized_by_or_null`,
   2 `__counted_by`.
-- 7 `__unsafe` sites (after the stricter libc and builtin rules landed):
+- 9 `__unsafe` sites (after the stricter libc, builtin and const rules landed; 2 are the const-cast helpers cJSON's API needs):
   - `hook_allocate`, an `__unsafe` function marked `alloc_size`: it vouches that
     the user-supplied allocation hook returns fresh memory. Everything else
     allocates through it with no `__unsafe`, because Safe C checks that an

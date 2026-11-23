@@ -2155,12 +2155,14 @@ CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToArray(cJSON *array, cJSON *item)
    would drop the bounds and the type */
 static char *_Nullable __null_terminated cast_away_const_string(const char *_Nullable __null_terminated string __safec_lifetimebound)
 {
-    return (char*)string;
+    /* unsafe: cJSON's API hands back non-const pointers into const input */
+    __unsafe { return (char*)string; }
 }
 
 static cJSON *_Nullable cast_away_const_item(const cJSON *_Nullable item __safec_lifetimebound)
 {
-    return (cJSON*)item;
+    /* unsafe: as above, for items */
+    __unsafe { return (cJSON*)item; }
 }
 #if defined(__clang__) || (defined(__GNUC__)  && ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ > 5))))
     #pragma GCC diagnostic pop
