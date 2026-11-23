@@ -56,3 +56,20 @@ Good cases rejected are mostly annotation burden: the good variants deliberately
 store NULL into functions and fields that check it, which under the nonnull default needs
 `_Nullable` (144 argument, 50 field, 19 return errors). 18 are dereference errors to
 look at as possible real false positives. The annotated mode will separate the two.
+
+## Null pillar after one night of fixes (2026-11-23)
+
+Same suite, null safety only (`-Xclang -fsafe-c` at cc1, no bounds safety), as-is.
+
+| CWE | start of night | after globals | after fn-pointer args | after slot stores | after &p rule |
+|---|---|---|---|---|---|
+| 476 caught | 82.2% | 86.7% | 91.1% | 95.6% | **97.8%** |
+| 690 caught | 78.9% | 84.2% | 89.5% | 94.7% | **97.4%** |
+
+Only flow variant 64 is still missed (25 cases per CWE): the pointer is laundered through
+`void *` and cast back. The Safe C `void *` rule closes it.
+
+`good()` acceptance fell from about 77% to about 60% over the same fixes. That is
+annotation burden, not a wrong analysis: the good variants keep NULL in globals, pass
+`&p` to out-parameters and store NULL into pointer slots on purpose, and under Safe C
+each of those needs a `_Nullable`. The annotated mode will report it separately.
