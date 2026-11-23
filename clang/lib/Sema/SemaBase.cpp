@@ -103,7 +103,9 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
            "lifetime-safety-dangling-global",
            "lifetime-safety-dangling-global-moved",
            "lifetime-safety-lifetimebound-violation", "lifetime-safety-noescape",
-           "lifetime-safety-capture-by-violation"},
+           "lifetime-safety-capture-by-violation",
+           "lifetime-safety-intra-tu-suggestions",
+           "lifetime-safety-cross-tu-suggestions"},
           Group))
     return true;
   // Safe C's own rules (safe-c-unsafe is the -R report, not a rule).

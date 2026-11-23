@@ -20,7 +20,7 @@ int deref_under_pragma(int *_Nullable p) {
 }
 #pragma clang diagnostic pop
 
-int *_Nonnull ret(int *_Nullable p) {
+int *_Nonnull ret(int *_Nullable p __attribute__((lifetimebound))) {
   return p; // expected-error {{returning nullable pointer from function with nonnull return type}} expected-note {{add a null check before returning}}
 }
 

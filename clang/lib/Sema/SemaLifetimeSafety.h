@@ -70,6 +70,10 @@ inline bool IsSafeCLifetimeDiag(unsigned DiagID) {
   case diag::warn_lifetime_safety_lifetimebound_violation:
   case diag::warn_lifetime_safety_noescape_escapes:
   case diag::warn_lifetime_safety_capture_by_violation:
+  // A returned pointer into a parameter without lifetimebound: callers would
+  // not know the result dies with that argument.
+  case diag::warn_lifetime_safety_intra_tu_param_suggestion:
+  case diag::warn_lifetime_safety_cross_tu_param_suggestion:
     return true;
   default:
     return false;
@@ -165,6 +169,8 @@ inline bool ShouldCheckDestructorUses(Sema &S, const Decl *D) {
 }
 
 inline bool ShouldSuggestLifetimeAnnotations(Sema &S, const Decl *D) {
+  if (S.getLangOpts().SafeC)
+    return true;
   DiagnosticsEngine &Diags = S.getDiagnostics();
   constexpr unsigned DiagIDs[] = {
       diag::warn_lifetime_safety_intra_tu_param_suggestion,
