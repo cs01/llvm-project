@@ -6055,6 +6055,41 @@ void Sema::CheckSubscriptAccessOfNoDeref(const ArraySubscriptExpr *E) {
   }
 }
 
+/// Safe C: for `p[i]` where `p` is an unannotated pointer parameter and the
+/// same function has an integer parameter named like an element count, a
+/// fix-it that inserts `__counted_by(<count>)` after the `*`. Only count-like
+/// names: a `size` parameter often means bytes, and a wrong guess is worse
+/// than no fix-it.
+static FixItHint safeCCountedByFixIt(const Expr *Base) {
+  const auto *DRE = dyn_cast<DeclRefExpr>(Base->IgnoreParenImpCasts());
+  const auto *PVD = DRE ? dyn_cast<ParmVarDecl>(DRE->getDecl()) : nullptr;
+  const auto *FD =
+      PVD ? dyn_cast_or_null<FunctionDecl>(PVD->getDeclContext()) : nullptr;
+  if (!FD || !PVD->getTypeSourceInfo())
+    return FixItHint();
+  const ParmVarDecl *Count = nullptr;
+  for (const ParmVarDecl *P : FD->parameters()) {
+    if (P == PVD || !P->getType()->isIntegerType() || !P->getIdentifier())
+      continue;
+    StringRef N = P->getName();
+    if (N == "n" || N == "len" || N == "length" || N == "count" ||
+        N == "cnt" || N == "num" || N.starts_with("nelem") ||
+        N.ends_with("_len") || N.ends_with("_count")) {
+      Count = P;
+      break;
+    }
+  }
+  if (!Count)
+    return FixItHint();
+  TypeLoc TL = PVD->getTypeSourceInfo()->getTypeLoc();
+  auto PTL = TL.getAsAdjusted<PointerTypeLoc>();
+  if (!PTL || PTL.getStarLoc().isMacroID())
+    return FixItHint();
+  return FixItHint::CreateInsertion(
+      PTL.getStarLoc().getLocWithOffset(1),
+      ("__counted_by(" + Count->getName() + ") ").str());
+}
+
 ExprResult
 Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
                                       Expr *Idx, SourceLocation RLoc) {
@@ -6111,7 +6146,7 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
         // unannotated; say so, and say what to write.
         if (getLangOpts().SafeC && !Ty->isValueTerminatedType())
           Diag(BaseExpr->getExprLoc(), diag::note_safe_c_single_pointer)
-              << BaseExpr;
+              << BaseExpr << safeCCountedByFixIt(BaseExpr);
         return false;
       }
     } else if (PTy->isIndexable() &&
