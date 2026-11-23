@@ -79,10 +79,11 @@ async function build(c: Case, variant: "bad" | "good", dir: string, support: str
   return { stage: "ok" as const, exe, err: "" };
 }
 
-async function runExe(exe: string, cwd: string) {
-  // Juliet bad paths read their bad value from stdin (fgets/fscanf); "0" is the
-  // value that triggers division by zero and similar input-driven bugs.
-  const r = await sh([exe], { cwd, timeoutMs: 5000, input: "0\n".repeat(64) });
+async function runExe(exe: string, cwd: string, cwe: string) {
+  // Juliet bad paths read their bad value from stdin (fgets/fscanf): a zero
+  // divisor for CWE 369, an out-of-range index or size for the buffer CWEs.
+  const input = (cwe === "369" ? "0\n" : "100\n").repeat(64);
+  const r = await sh([exe], { cwd, timeoutMs: 5000, input });
   return { signal: r.timedOut ? "TIMEOUT" : r.signal, code: r.code };
 }
 
@@ -97,7 +98,7 @@ async function doCase(c: Case, ioObj: string, thrObj: string) {
   else if (b.stage === "link") { res.bad = "linkfail"; res.badErr = b.err; }
   else if (!doRun) res.bad = "compiled";
   else {
-    const r = await runExe(b.exe!, dir);
+    const r = await runExe(b.exe!, dir, c.cwe);
     // Only compiler-inserted traps count (brk -> SIGTRAP, ud2 -> SIGILL). A SIGSEGV or
     // SIGABRT is the UB happening to crash, not a safety check, so it scores as missed.
     if (r.signal === "SIGTRAP" || r.signal === "SIGILL") { res.bad = "trapped"; res.badSignal = r.signal; } else { res.bad = "missed"; res.badExit = r.signal ?? r.code; }
@@ -106,7 +107,7 @@ async function doCase(c: Case, ioObj: string, thrObj: string) {
   if (g.stage !== "ok") { res.good = "false-positive"; res.goodErr = `${g.stage}: ${g.err}`; }
   else if (!doRun) res.good = "accepted";
   else {
-    const r = await runExe(g.exe!, dir);
+    const r = await runExe(g.exe!, dir, c.cwe);
     if (r.signal || r.code !== 0) { res.good = "false-positive"; res.goodErr = `run: ${r.signal ?? "exit " + r.code}`; } else res.good = "accepted";
   }
   rmSync(dir, { recursive: true, force: true });

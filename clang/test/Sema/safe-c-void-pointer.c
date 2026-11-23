@@ -39,3 +39,10 @@ void escape(void *ctx) {
     (void)s;
   }
 }
+
+// A byte view claims no type for the memory: void * to char * is allowed.
+void bytes(void *buf) {
+  char *b = buf;
+  unsigned char *u = (unsigned char *)buf;
+  (void)b; (void)u;
+}

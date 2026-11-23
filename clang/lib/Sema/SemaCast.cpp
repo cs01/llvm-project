@@ -3880,6 +3880,12 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
   // Null has no type to confuse.
   if (Src->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNotNull))
     return;
+  // A byte view (char *) claims no type for the memory. Bounds safety also
+  // builds `(char *)p + n` internally for every __sized_by pointer (memcpy's
+  // arguments, for instance). Known gap: bytes written over a stored pointer
+  // can still forge it, as with memcpy.
+  if (DstPT->getPointeeType()->isCharType())
+    return;
   // Fresh memory from the allocator has no type yet; giving it one is how
   // allocation works, as with Rust's typed allocation.
   // Bounds safety wraps the call in OpaqueValueExprs when it builds the
