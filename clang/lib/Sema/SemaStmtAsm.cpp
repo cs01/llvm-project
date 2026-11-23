@@ -342,6 +342,9 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
                                  Expr *asmString, MultiExprArg clobbers,
                                  unsigned NumLabels,
                                  SourceLocation RParenLoc) {
+  // Safe C: inline asm can touch any memory; it belongs in __unsafe.
+  if (getLangOpts().SafeC)
+    Diag(AsmLoc, diag::warn_safe_c_escape) << "inline assembly";
   unsigned NumClobbers = clobbers.size();
 
   SmallVector<TargetInfo::ConstraintInfo, 4> OutputConstraintInfos;

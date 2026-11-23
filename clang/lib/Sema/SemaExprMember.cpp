@@ -1269,10 +1269,13 @@ static ExprResult LookupMemberExpr(Sema &S, LookupResult &R,
   // the C equivalence "a->b === (*a).b" is ObjC property accesses,
   // and those never use arrows, so this is unaffected.
   if (IsArrow) {
-    if (const PointerType *Ptr = BaseType->getAs<PointerType>())
+    if (const PointerType *Ptr = BaseType->getAs<PointerType>()) {
+      if (S.getLangOpts().SafeC && Ptr->isUnsafeIndexable())
+        S.Diag(OpLoc, diag::warn_safe_c_escape)
+            << "'->' on an '__unsafe_indexable' pointer";
       BaseType = Ptr->getPointeeType();
-    else if (const ObjCObjectPointerType *Ptr =
-                 BaseType->getAs<ObjCObjectPointerType>())
+    } else if (const ObjCObjectPointerType *Ptr =
+                   BaseType->getAs<ObjCObjectPointerType>())
       BaseType = Ptr->getPointeeType();
     else if (BaseType->isFunctionType())
       goto fail;

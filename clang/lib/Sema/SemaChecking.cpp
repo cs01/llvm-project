@@ -3227,6 +3227,21 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
                                CallExpr *TheCall) {
   ExprResult TheCallResult(TheCall);
 
+  // Safe C: these let the optimizer assume a condition and delete the checks
+  // that depend on it.
+  if (getLangOpts().SafeC)
+    switch (BuiltinID) {
+    case Builtin::BI__assume:
+    case Builtin::BI__builtin_assume:
+    case Builtin::BI__builtin_unreachable:
+    case Builtin::BI__builtin_assume_separate_storage:
+      Diag(TheCall->getBeginLoc(), diag::warn_safe_c_escape)
+          << ("'" + Context.BuiltinInfo.getName(BuiltinID) + "'");
+      break;
+    default:
+      break;
+    }
+
   // Find out if any arguments are required to be integer constant expressions.
   unsigned ICEArguments = 0;
   ASTContext::GetBuiltinTypeError Error;

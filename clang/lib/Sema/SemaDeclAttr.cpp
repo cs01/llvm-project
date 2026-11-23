@@ -8621,9 +8621,22 @@ static bool isSanitizerAttributeAllowedOnGlobals(StringRef Sanitizer) {
          Sanitizer == "memtag";
 }
 
+/// Safe C: whether \p D is itself marked __unsafe
+/// ([[clang::suppress("safe-c")]]), in which case attributes on it may switch
+/// Safe C's checks off.
+static bool isSafeCUnsafeDeclForAttr(const Decl *D) {
+  for (const auto *A : D->specific_attrs<SuppressAttr>())
+    for (StringRef Id : A->diagnosticIdentifiers())
+      if (Id == "safe-c")
+        return true;
+  return false;
+}
+
 static void handleNoSanitizeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   if (!AL.checkAtLeastNumArgs(S, 1))
     return;
+  if (S.getLangOpts().SafeC && !isSafeCUnsafeDeclForAttr(D))
+    S.Diag(AL.getLoc(), diag::warn_safe_c_escape) << "'no_sanitize'";
 
   std::vector<StringRef> Sanitizers;
 
@@ -8854,6 +8867,9 @@ static void handleDestroyAttr(Sema &S, Decl *D, const ParsedAttr &A) {
 static void handleUninitializedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   assert(cast<VarDecl>(D)->getStorageDuration() == SD_Automatic &&
          "uninitialized is only valid on automatic duration variables");
+  // A local inside an __unsafe block is covered by SemaBase's region check.
+  if (S.getLangOpts().SafeC)
+    S.Diag(AL.getLoc(), diag::warn_safe_c_escape) << "'uninitialized'";
   D->addAttr(::new (S.Context) UninitializedAttr(S.Context, AL));
 }
 

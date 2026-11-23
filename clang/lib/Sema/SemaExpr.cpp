@@ -6149,6 +6149,9 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
               << BaseExpr << safeCCountedByFixIt(BaseExpr);
         return false;
       }
+    } else if (getLangOpts().SafeC && PTy->isUnsafeIndexable()) {
+      Diag(LLoc, diag::warn_safe_c_escape)
+          << "indexing an '__unsafe_indexable' pointer";
     } else if (PTy->isIndexable() &&
                !IndexExpr->getType()->isUnsignedIntegerType()) {
       Expr::EvalResult RInt;
@@ -18831,6 +18834,11 @@ static QualType CheckIndirectionOperand(Sema &S, Expr *Op, ExprValueKind &VK,
   if (const PointerType *PT = OpTy->getAs<PointerType>())
   {
     Result = PT->getPointeeType();
+    // Safe C: like a Rust raw pointer, an __unsafe_indexable pointer may be
+    // held and passed in safe code, not dereferenced.
+    if (S.getLangOpts().SafeC && PT->isUnsafeIndexable())
+      S.Diag(OpLoc, diag::warn_safe_c_escape)
+          << "dereferencing an '__unsafe_indexable' pointer";
   }
   else if (const ObjCObjectPointerType *OPT =
              OpTy->getAs<ObjCObjectPointerType>())

@@ -350,6 +350,8 @@ static Attr *handleAlwaysInlineAttr(Sema &S, Stmt *St, const ParsedAttr &A,
 
 static Attr *handleCXXAssumeAttr(Sema &S, Stmt *St, const ParsedAttr &A,
                                  SourceRange Range) {
+  if (S.getLangOpts().SafeC)
+    S.Diag(A.getLoc(), diag::warn_safe_c_escape) << "'assume'";
   ExprResult Res = S.ActOnCXXAssumeAttr(St, A, Range);
   if (!Res.isUsable())
     return nullptr;

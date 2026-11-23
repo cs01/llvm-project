@@ -314,6 +314,10 @@ public:
         FAttr.setIndexable();
         break;
       case AttributeCommonInfo::AT_PtrUnsafeIndexable:
+        // Safe C: an unchecked default ABI for every pointer in the file.
+        if (S->getLangOpts().SafeC)
+          S->Diag(Loc, diag::warn_safe_c_escape)
+              << "'#pragma clang abi_ptr_attr set(unsafe_indexable)'";
         FAttr.setUnsafeIndexable();
         break;
       case AttributeCommonInfo::AT_PtrSingle:
