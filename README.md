@@ -73,6 +73,33 @@ what Safe C uses from it, and what Safe C adds.
    - Safe C **uses** those annotations and **adds** rules for which data may be shared
      or moved between threads. **Planned.**
 
+## Adopting Safe C, one file at a time
+
+Nobody annotates a whole codebase at once. Safe C is adopted per file, and the code
+builds and ships at every step.
+
+- **The unit is a file.** `-fsafe-c` is a per-file flag. Safe files and plain C files link
+  together unchanged: same ABI.
+- **Four levels per file:**
+
+  | Level | What it means | What you get |
+  |---|---|---|
+  | 0. Plain C | untouched | builds as before |
+  | 1. Annotated interface | the header has `_Nullable`, `__counted_by`, ... | every safe caller is checked against it |
+  | 2. Safe, with `__unsafe` | `-fsafe-c`, the hard spots wrapped in `__unsafe` | everything outside those blocks is checked |
+  | 3. Fully safe | `-fsafe-c`, no `__unsafe` | the full guarantee |
+
+- **Calling code that is not safe yet** (planned). Calling an unannotated function from
+  safe code is an error unless its header is declared legacy, once per header with
+  `#pragma clang safe_c legacy`. System headers count as legacy. The trust boundary is
+  one searchable line per header, not one `__unsafe` per call. Pointers returned from
+  legacy code carry no bounds, so they cannot be indexed without an explicit check.
+- **Order:** code that handles untrusted input first (parsers, decoders, protocol
+  handlers), where most memory-safety CVEs are; leaf utilities next; the core last.
+- **Tooling** (planned): an annotator that proposes annotations from inference and
+  compiler fix-its, each one checked by the compiler; a report of each file's level and
+  `__unsafe` count; and a CI ratchet, so a file that reaches level 2 never goes back.
+
 ## Why a fork and not a set of flags
 
 Even where Clang has a feature, a set of flags does not give a guarantee:
