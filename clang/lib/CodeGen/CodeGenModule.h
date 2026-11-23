@@ -1392,6 +1392,10 @@ public:
   /// Add a global to a list to be added to the llvm.compiler.used metadata.
   void addCompilerUsedGlobal(llvm::GlobalValue *GV);
 
+  /// Safe C: link-time type agreement for external symbols (see the
+  /// definition).
+  void emitSafeCTypeSignatures();
+
   /// Add a global to a list to be added to the llvm.compiler.used metadata.
   void addUsedOrCompilerUsedGlobal(llvm::GlobalValue *GV);
 

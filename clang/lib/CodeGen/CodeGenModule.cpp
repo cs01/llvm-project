@@ -76,6 +76,7 @@
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TimeProfiler.h"
+#include "llvm/Support/xxhash.h"
 #include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/TargetParser/AArch64TargetParser.h"
 #include "llvm/TargetParser/RISCVISAInfo.h"
@@ -1220,6 +1221,77 @@ CodeGenModule::StackProtectorAttribute(const Decl *D) const {
   return std::nullopt;
 }
 
+/// Safe C: C links by name, so two files can declare one symbol with
+/// different types (int t[1] in one, extern int t[1000] in another) and every
+/// check in both is fooled. A file that defines an external symbol emits a
+/// marker named for the symbol and a hash of its type; a file that uses one
+/// it does not define references the marker for the type it was told. A
+/// mismatch, or a definition not compiled as Safe C, is an undefined marker at
+/// link time. Declarations from system and legacy headers are trusted.
+void CodeGenModule::emitSafeCTypeSignatures() {
+  if (!getLangOpts().SafeC)
+    return;
+  SourceManager &SM = getContext().getSourceManager();
+  auto SigName = [](StringRef Name, StringRef TypeStr) {
+    // The linker prints only this name, so it says what went wrong.
+    return ("__safec_type_differs_or_defined_without_safe_c." + Name + "." +
+            llvm::utohexstr(llvm::xxh3_64bits(TypeStr)))
+        .str();
+  };
+  llvm::SmallVector<llvm::GlobalValue *, 8> Refs;
+  for (const auto &[GD, Name] : MangledDeclNames) {
+    const auto *VD = dyn_cast_or_null<ValueDecl>(GD.getDecl());
+    if (!VD || !(isa<FunctionDecl>(VD) || isa<VarDecl>(VD)) ||
+        !VD->hasExternalFormalLinkage())
+      continue;
+    if (const auto *Var = dyn_cast<VarDecl>(VD); Var && !Var->hasGlobalStorage())
+      continue;
+    llvm::GlobalValue *GV = GetGlobalValue(Name);
+    if (!GV || Name.starts_with("__safec_type_differs"))
+      continue;
+    const auto *Canon = cast<ValueDecl>(VD->getCanonicalDecl());
+    if (SM.isInSystemHeader(Canon->getLocation()) ||
+        SM.isInSystemHeader(VD->getLocation()))
+      continue;
+    QualType T = getContext().getCanonicalType(Canon->getType());
+    if (!GV->isDeclaration()) {
+      if (!GV->hasExternalLinkage())
+        continue;
+      // The definition's own type; a complete array also answers users that
+      // declared it without a size.
+      QualType DT = getContext().getCanonicalType(VD->getType());
+      llvm::SmallVector<std::string, 2> Sigs = {SigName(Name, DT.getAsString())};
+      if (const auto *CAT = getContext().getAsConstantArrayType(DT))
+        Sigs.push_back(SigName(
+            Name, getContext()
+                      .getIncompleteArrayType(CAT->getElementType(),
+                                              ArraySizeModifier::Normal, 0)
+                      .getAsString()));
+      for (const std::string &S : Sigs)
+        if (!getModule().getNamedGlobal(S))
+          new llvm::GlobalVariable(getModule(), Int8Ty, /*isConstant=*/true,
+                                   llvm::GlobalValue::WeakODRLinkage,
+                                   llvm::ConstantInt::get(Int8Ty, 0), S);
+      continue;
+    }
+    std::string S = SigName(Name, T.getAsString());
+    llvm::GlobalVariable *Ref = getModule().getNamedGlobal(S);
+    if (!Ref)
+      Ref = new llvm::GlobalVariable(getModule(), Int8Ty, /*isConstant=*/true,
+                                     llvm::GlobalValue::ExternalLinkage,
+                                     nullptr, S);
+    Refs.push_back(Ref);
+  }
+  // A declaration cannot be kept alive directly; an internal pointer to it
+  // can, and makes the linker resolve it.
+  for (llvm::GlobalValue *R : Refs) {
+    auto *Keep = new llvm::GlobalVariable(
+        getModule(), R->getType(), /*isConstant=*/true,
+        llvm::GlobalValue::PrivateLinkage, R, "__safec_sig_ref");
+    addCompilerUsedGlobal(Keep);
+  }
+}
+
 void CodeGenModule::Release() {
   Module *Primary = getContext().getCurrentNamedModule();
   if (CXX20ModuleInits && Primary && !Primary->isHeaderLikeModule())
@@ -1230,6 +1302,8 @@ void CodeGenModule::Release() {
   EmitVTablesOpportunistically();
   applyGlobalValReplacements();
   applyReplacements();
+  // After deferred definitions, so this file's own definitions count as such.
+  emitSafeCTypeSignatures();
   emitMultiVersionFunctions();
   emitPFPFieldsWithEvaluatedOffset();
   emitGlobalDeleteForwardingBodies();
