@@ -65,30 +65,46 @@ SemaBase::SemaDiagnosticBuilder::getDeviceDeferredDiags() const {
 /// nullability-safety groups, and the bounds-safety warnings that default to
 /// error (Apple's "this is an error, but you may downgrade it" class).
 /// System headers keep the original warning: they are not Safe C code.
-static unsigned safeCErrorFor(DiagnosticsEngine &Diags, SourceManager &SM,
-                              SourceLocation Loc, unsigned DiagID) {
-  DiagnosticIDs &IDs = *Diags.getDiagnosticIDs();
+static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
   if (!IDs.isWarningOrExtension(DiagID))
-    return DiagID;
+    return false;
   StringRef Group = IDs.getWarningOptionForDiag(DiagID);
-  bool IsSafety = Group.starts_with("nullability-safety") ||
-                  (Group.starts_with("bounds-safety") &&
-                   IDs.isDefaultMappingAsError(DiagID));
-  if (!IsSafety || (Loc.isValid() && SM.isInSystemHeader(Loc)))
-    return DiagID;
-  return IDs.getCustomDiagID(DiagnosticIDs::CustomDiagDesc(
-      diag::Severity::Error, std::string(IDs.getDescription(DiagID)),
-      DiagnosticIDs::CLASS_ERROR));
+  return Group.starts_with("nullability-safety") ||
+         (Group.starts_with("bounds-safety") &&
+          IDs.isDefaultMappingAsError(DiagID));
+}
+
+bool Sema::isInSafeCUnsafeRegion(SourceLocation Loc) const {
+  if (Loc.isInvalid() || SafeCUnsafeRanges.empty())
+    return false;
+  Loc = SourceMgr.getFileLoc(Loc);
+  for (SourceRange R : SafeCUnsafeRanges) {
+    SourceLocation B = SourceMgr.getFileLoc(R.getBegin());
+    SourceLocation E = SourceMgr.getFileLoc(R.getEnd());
+    if (!SourceMgr.isBeforeInTranslationUnit(Loc, B) &&
+        !SourceMgr.isBeforeInTranslationUnit(E, Loc))
+      return true;
+  }
+  return false;
 }
 
 Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
                                            unsigned DiagID) {
   if (getLangOpts().SafeC) {
-    unsigned NewID = safeCErrorFor(getDiagnostics(),
-                                   SemaRef.getSourceManager(), Loc, DiagID);
-    if (NewID != DiagID) {
-      ++SemaRef.NumSafeCSafetyErrors;
-      DiagID = NewID;
+    DiagnosticIDs &IDs = *getDiagnostics().getDiagnosticIDs();
+    if (isSafeCSafetyDiag(IDs, DiagID) &&
+        !(Loc.isValid() && SemaRef.getSourceManager().isInSystemHeader(Loc))) {
+      // Inside __unsafe the programmer takes responsibility: issue nothing.
+      // Elsewhere the error has no warning group, so nothing can lower it.
+      bool InUnsafe =
+          SemaRef.SafeCUnsafeDepth > 0 || SemaRef.isInSafeCUnsafeRegion(Loc);
+      DiagID = IDs.getCustomDiagID(DiagnosticIDs::CustomDiagDesc(
+          InUnsafe ? diag::Severity::Ignored : diag::Severity::Error,
+          std::string(IDs.getDescription(DiagID)),
+          InUnsafe ? DiagnosticIDs::CLASS_WARNING
+                   : DiagnosticIDs::CLASS_ERROR));
+      if (!InUnsafe)
+        ++SemaRef.NumSafeCSafetyErrors;
     }
   }
   bool IsError =

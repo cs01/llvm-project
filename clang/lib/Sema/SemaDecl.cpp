@@ -17764,6 +17764,17 @@ LambdaScopeInfo *Sema::RebuildLambdaScopeInfo(CXXMethodDecl *CallOperator) {
   return LSI;
 }
 
+/// Safe C: whether \p D is marked __unsafe, i.e. [[clang::suppress("safe-c")]].
+static bool isSafeCUnsafeDecl(const Decl *D) {
+  if (!D)
+    return false;
+  for (const auto *A : D->specific_attrs<SuppressAttr>())
+    for (StringRef Id : A->diagnosticIdentifiers())
+      if (Id == "safe-c")
+        return true;
+  return false;
+}
+
 Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
                                     SkipBodyInfo *SkipBody,
                                     FnBodyKind BodyKind) {
@@ -17788,6 +17799,10 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
   if (getLangOpts().NullabilitySafety &&
       PP.getPragmaAssumeNonNullLoc().isValid())
     NullabilitySafetyAssumeNonnullDefs.insert(FD);
+
+  // Paired with the decrement in ActOnFinishFunctionBody.
+  if (getLangOpts().SafeC && isSafeCUnsafeDecl(FD))
+    ++SafeCUnsafeDepth;
 
   // Do not push if it is a lambda because one is already pushed when building
   // the lambda in ActOnStartOfLambdaDefinition().
@@ -18185,6 +18200,13 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
                                     bool RetainFunctionScopeInfo) {
   FunctionScopeInfo *FSI = getCurFunction();
   FunctionDecl *FD = dcl ? dcl->getAsFunction() : nullptr;
+
+  if (getLangOpts().SafeC && isSafeCUnsafeDecl(FD) && SafeCUnsafeDepth > 0) {
+    --SafeCUnsafeDepth;
+    // The body is not attached to FD yet, so take its end from Body.
+    SafeCUnsafeRanges.push_back(SourceRange(
+        FD->getBeginLoc(), Body ? Body->getEndLoc() : FD->getEndLoc()));
+  }
 
   if (FSI->UsesFPIntrin && FD && !FD->hasAttr<StrictFPAttr>())
     FD->addAttr(StrictFPAttr::CreateImplicit(Context));

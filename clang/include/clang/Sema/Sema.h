@@ -1457,6 +1457,15 @@ public:
   /// first Safe C error would hide every later one.
   unsigned NumSafeCSafetyErrors = 0;
 
+  /// Safe C `__unsafe` regions: statements and functions carrying
+  /// [[clang::suppress("safe-c")]]. Safe C's own safety diagnostics are not
+  /// issued inside them. The depth covers diagnostics raised while the region
+  /// is being parsed; the ranges cover those raised later, by end-of-TU
+  /// analyses.
+  unsigned SafeCUnsafeDepth = 0;
+  SmallVector<SourceRange, 4> SafeCUnsafeRanges;
+  bool isInSafeCUnsafeRegion(SourceLocation Loc) const;
+
   /// Warn when implicitly casting 0 to nullptr.
   void diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E);
 

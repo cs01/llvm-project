@@ -75,9 +75,31 @@ StmtResult Parser::ParseStatementOrDeclaration(StmtVector &Stmts,
   if (getLangOpts().HLSL)
     MaybeParseMicrosoftAttributes(GNUOrMSAttrs);
 
+  // Safe C: a statement marked __unsafe ([[clang::suppress("safe-c")]]) is
+  // known before its body is parsed, so diagnostics raised while parsing it
+  // can already be dropped.
+  bool SafeCUnsafe =
+      getLangOpts().SafeC && llvm::any_of(CXX11Attrs, [](const ParsedAttr &A) {
+        if (A.getKind() != ParsedAttr::AT_Suppress)
+          return false;
+        for (unsigned I = 0, N = A.getNumArgs(); I != N; ++I)
+          if (A.isArgExpr(I))
+            if (const auto *S = dyn_cast_or_null<StringLiteral>(
+                    A.getArgAsExpr(I)->IgnoreParenImpCasts()))
+              if (S->getString() == "safe-c")
+                return true;
+        return false;
+      });
+  if (SafeCUnsafe)
+    ++Actions.SafeCUnsafeDepth;
   StmtResult Res = ParseStatementOrDeclarationAfterAttributes(
       Stmts, StmtCtx, TrailingElseLoc, CXX11Attrs, GNUOrMSAttrs,
       PrecedingLabel);
+  if (SafeCUnsafe) {
+    --Actions.SafeCUnsafeDepth;
+    if (Res.isUsable())
+      Actions.SafeCUnsafeRanges.push_back(Res.get()->getSourceRange());
+  }
   MaybeDestroyTemplateIds();
 
   takeAndConcatenateAttrs(CXX11Attrs, std::move(GNUOrMSAttrs));

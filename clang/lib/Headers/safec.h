@@ -40,6 +40,18 @@
 #define __null_terminated
 #endif
 
+/* __unsafe marks a block or a function in which Safe C's own rules are not
+   enforced: `__unsafe { ... }` or `__unsafe int f(void) { ... }`. Elsewhere
+   it expands to nothing, and `__unsafe { ... }` is an ordinary block. */
+#if defined(__has_c_attribute)
+#if __has_c_attribute(clang::suppress)
+#define __unsafe [[clang::suppress("safe-c")]]
+#endif
+#endif
+#ifndef __unsafe
+#define __unsafe
+#endif
+
 /* Nullability qualifiers are Clang keywords; other compilers do not have them. */
 #if !defined(__clang__)
 #define _Nonnull

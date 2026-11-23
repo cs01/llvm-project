@@ -22,3 +22,7 @@ int sum(const int *__counted_by(n) a, size_t n) {
 int first(int *_Nullable p) {
   return *p; // safe-error {{dereference of nullable pointer}} safe-note {{add a null check}}
 }
+
+int escape(int *_Nullable p) {
+  __unsafe { return *p; }
+}
