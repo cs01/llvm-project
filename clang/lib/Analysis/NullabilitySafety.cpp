@@ -153,6 +153,30 @@ template <> struct llvm::DenseMapInfo<MemberAccessPath> {
 static bool isSmartPointerObject(const Expr *Obj);
 static const VarDecl *resolveSmartPtrReference(const VarDecl *VD);
 
+/// Look through the nodes -fbounds-safety wraps around an access (opaque
+/// values, bounds checks, materialized count operands, pointer promotion):
+/// none of them changes the pointer value, so b->p inside them is still the
+/// path b->p.
+static const Expr *ignoreBoundsSafetyWrappers(const Expr *E) {
+  while (true) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
+      if (!OVE->getSourceExpr())
+        return E;
+      E = OVE->getSourceExpr();
+    } else if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E)) {
+      E = MSE->getWrappedExpr();
+    } else if (const auto *BCE = dyn_cast<BoundsCheckExpr>(E)) {
+      E = BCE->getGuardedExpr();
+    } else if (const auto *PPE =
+                   dyn_cast<BoundsSafetyPointerPromotionExpr>(E)) {
+      E = PPE->getPointer();
+    } else {
+      return E;
+    }
+  }
+}
+
 /// Walk a MemberExpr chain to its root, collecting FieldDecls along the way.
 /// A std smart pointer's operator-> or operator* continues the chain at the
 /// smart pointer, as -> does at a raw pointer, so sp->child and (*sp).child
@@ -160,7 +184,7 @@ static const VarDecl *resolveSmartPtrReference(const VarDecl *VD);
 /// DeclRefExpr) or CXXThisExpr. Root is nullptr for this-> access paths.
 static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
   llvm::SmallVector<const FieldDecl *, 2> Fields;
-  E = E->IgnoreParenImpCasts();
+  E = ignoreBoundsSafetyWrappers(E);
 
   while (true) {
     if (const auto *ME = dyn_cast<MemberExpr>(E)) {
@@ -168,7 +192,7 @@ static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
         Fields.push_back(FD);
       else
         return std::nullopt;
-      E = ME->getBase()->IgnoreParenImpCasts();
+      E = ignoreBoundsSafetyWrappers(ME->getBase());
       continue;
     }
     const auto *OCE = dyn_cast<CXXOperatorCallExpr>(E);
@@ -3591,6 +3615,8 @@ private:
     E = E->IgnoreParenImpCasts();
     if (!ExplicitOnly)
       E = stripOpaqueValue(E);
+    if (const Expr *U = ignoreBoundsSafetyWrappers(E); U != E)
+      return isExprNullable(U, ExplicitOnly, MustOnly);
     // Terminator conversions keep the pointer value: judge their operand.
     if (const auto *TI = dyn_cast<TerminatedByToIndexableExpr>(E))
       return isExprNullable(TI->getPointer(), ExplicitOnly, MustOnly);
