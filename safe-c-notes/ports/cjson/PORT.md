@@ -46,17 +46,17 @@ Soundness:
    accepted outside `__unsafe`.
 
 Usability (Safe C rejects or traps on safe code):
-3. A cast of a `__null_terminated` pointer to another character type gives
+3. Fixed: a cast of a `__null_terminated` pointer to another character type gave
    `__single`, and then `u[1]` traps.
 4. Allocator hooks: fixed. An `alloc_size` function counts as a fresh
    allocation and its body is checked; the hook pointer itself stays trusted in
    one `__unsafe` function.
-5. Null checks on a `__counted_by_or_null` field do not narrow it.
+5. Fixed: null checks on a `__counted_by_or_null` field did not narrow it.
 6. Predicates (`cJSON_IsString(n) && n->valuestring`) need a way to say "true
    means the argument is nonnull".
-7. Passing a `__null_terminated` pointer to `free(void *)` asks for a
+7. Fixed (libc annotations): passing a `__null_terminated` pointer to `free(void *)` asked for a
    terminator scan.
-8. Locals do not take `__null_terminated` from their initializer.
+8. Fixed: locals did not take `__null_terminated` from their initializer.
 9. A view that includes the terminator needs an `__unsafe_` spelling.
 10. endptr idioms (`strtod`, `return_parse_end`) have no thin type for "a
     pointer into the caller's buffer".
