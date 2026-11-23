@@ -40,10 +40,15 @@ void fnptr(void) {
   (void)g;
 }
 
-void grow(long *_Nullable l) {
+// Separate functions: realloc frees its argument, so a second realloc of the
+// same pointer would be a use after free.
+void grow_other(long *_Nullable l) {
   int *_Nullable *_Nullable pp = realloc(l, 2 * sizeof(int *)); // expected-error {{can treat memory as the wrong type}}
-  long *_Nullable l2 = realloc(l, 2 * sizeof(long));            // ok: same type
-  (void)pp; (void)l2;
+  (void)pp;
+}
+void grow_same(long *_Nullable l) {
+  long *_Nullable l2 = realloc(l, 2 * sizeof(long)); // ok: same type
+  (void)l2;
 }
 
 struct S { char c; long secret; };

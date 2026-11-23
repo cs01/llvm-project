@@ -53,7 +53,32 @@ inline bool IsDiagEnabledExcludingWeverything(const DiagnosticsEngine &Diags,
          IsDiagExplicitlyEnabled(Diags, DiagID, Loc);
 }
 
+/// Safe C: lifetime errors are part of the memory-safety guarantee, so the
+/// checks run whatever -W flags or pragmas say (SemaBase then issues each
+/// finding as an error that cannot be lowered).
+inline bool IsSafeCLifetimeDiag(unsigned DiagID) {
+  switch (DiagID) {
+  case diag::warn_lifetime_safety_use_after_scope:
+  case diag::warn_lifetime_safety_use_after_scope_moved:
+  case diag::warn_lifetime_safety_use_after_free:
+  case diag::warn_lifetime_safety_return_stack_addr:
+  case diag::warn_lifetime_safety_return_stack_addr_moved:
+  case diag::warn_lifetime_safety_dangling_field:
+  case diag::warn_lifetime_safety_dangling_field_moved:
+  case diag::warn_lifetime_safety_dangling_global:
+  case diag::warn_lifetime_safety_dangling_global_moved:
+  case diag::warn_lifetime_safety_lifetimebound_violation:
+  case diag::warn_lifetime_safety_noescape_escapes:
+  case diag::warn_lifetime_safety_capture_by_violation:
+    return true;
+  default:
+    return false;
+  }
+}
+
 inline bool ShouldCheckSafety(Sema &S, const Decl *D) {
+  if (S.getLangOpts().SafeC)
+    return true;
   DiagnosticsEngine &Diags = S.getDiagnostics();
   constexpr unsigned DiagIDs[] = {
       diag::warn_lifetime_safety_use_after_scope,
@@ -78,6 +103,8 @@ inline bool ShouldCheckSafety(Sema &S, const Decl *D) {
 }
 
 inline bool ShouldCheckNoescapeViolations(Sema &S, const Decl *D) {
+  if (S.getLangOpts().SafeC)
+    return true;
   // Don't enable this via -Weverything - see rdar://190623069.
   return IsDiagEnabledExcludingWeverything(
       S.getDiagnostics(), diag::warn_lifetime_safety_noescape_escapes,
@@ -85,6 +112,8 @@ inline bool ShouldCheckNoescapeViolations(Sema &S, const Decl *D) {
 }
 
 inline bool ShouldCheckLifetimeboundViolations(Sema &S, const Decl *D) {
+  if (S.getLangOpts().SafeC)
+    return true;
   // Don't enable this via -Weverything - see rdar://190623069.
   return IsDiagEnabledExcludingWeverything(
       S.getDiagnostics(), diag::warn_lifetime_safety_lifetimebound_violation,
@@ -92,6 +121,8 @@ inline bool ShouldCheckLifetimeboundViolations(Sema &S, const Decl *D) {
 }
 
 inline bool ShouldCheckCaptureByViolations(Sema &S, const Decl *D) {
+  if (S.getLangOpts().SafeC)
+    return true;
   return !S.getDiagnostics().isIgnored(
       diag::warn_lifetime_safety_capture_by_violation, D->getBeginLoc());
 }
@@ -156,7 +187,8 @@ inline bool IsLifetimeSafetyEnabled(Sema &S, const Decl *D) {
     return false;
 
   // TODO: Default this flag to on in the future.
-  if (!S.getLangOpts().CPlusPlus && !S.getLangOpts().EnableLifetimeSafetyInC)
+  if (!S.getLangOpts().CPlusPlus && !S.getLangOpts().EnableLifetimeSafetyInC &&
+      !S.getLangOpts().SafeC)
     return false;
 
   // Translation-unit mode: whole-program analysis runs once on TU.
@@ -185,7 +217,9 @@ inline bool IsLifetimeSafetyEnabled(Sema &S, const Decl *D) {
 
 inline LifetimeSafetyOpts GetLifetimeSafetyOpts(Sema &S, const Decl *D) {
   LifetimeSafetyOpts LSOpts;
-  LSOpts.MaxCFGBlocks = S.getLangOpts().LifetimeSafetyMaxCFGBlocks;
+  // Safe C: a skipped function would be a silent hole, so no size limit.
+  LSOpts.MaxCFGBlocks =
+      S.getLangOpts().SafeC ? 0 : S.getLangOpts().LifetimeSafetyMaxCFGBlocks;
   LSOpts.SuggestAnnotations = ShouldSuggestLifetimeAnnotations(S, D);
   LSOpts.CheckNoescapeViolations = ShouldCheckNoescapeViolations(S, D);
   LSOpts.CheckLifetimeboundViolations =
@@ -933,6 +967,8 @@ private:
   /// them leaks out because of -Weverything alone - see rdar://190623069.
   bool IsDiagEnabledExcludingWeverything(unsigned DiagID,
                                          SourceLocation Loc) const {
+    if (S.getLangOpts().SafeC && IsSafeCLifetimeDiag(DiagID))
+      return true;
     const DiagnosticsEngine &Diags = S.getDiagnostics();
     return lifetimes::IsDiagEnabledExcludingWeverything(Diags, DiagID, Loc);
   }

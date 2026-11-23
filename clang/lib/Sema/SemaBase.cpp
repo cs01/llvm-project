@@ -91,6 +91,21 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
       Group == "format-invalid-specifier" ||
       Group == "deprecated-non-prototype")
     return true;
+  // Lifetime safety's findings (use after free or scope, dangling pointers,
+  // broken lifetimebound/noescape/capture contracts); not its suggestions.
+  if (llvm::is_contained(
+          {"lifetime-safety-use-after-scope",
+           "lifetime-safety-use-after-scope-moved",
+           "lifetime-safety-use-after-free", "lifetime-safety-return-stack-addr",
+           "lifetime-safety-return-stack-addr-moved",
+           "lifetime-safety-dangling-field",
+           "lifetime-safety-dangling-field-moved",
+           "lifetime-safety-dangling-global",
+           "lifetime-safety-dangling-global-moved",
+           "lifetime-safety-lifetimebound-violation", "lifetime-safety-noescape",
+           "lifetime-safety-capture-by-violation"},
+          Group))
+    return true;
   // Safe C's own rules (safe-c-unsafe is the -R report, not a rule).
   if (Group.starts_with("safe-c-") && Group != "safe-c-unsafe")
     return true;
