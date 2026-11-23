@@ -4,24 +4,53 @@
 
 Why rewrite C in a safe language when you can write C as a safe language?
 
-Safe C is a **fork of Clang**. It adds one flag, `-fsafe-c`, that makes C memory safe:
-every operation that could be undefined behavior is proven safe at compile time,
-checked at run time with a trap, or rejected. You turn on one mode and stop thinking
-about which of a dozen flags you forgot.
+Safe C is a **fork of Clang** with one flag, `-fsafe-c`. It combines three things:
 
-**Status: early.** Items marked planned below do not exist yet.
+- **The newest safety features in Clang**, switched on together: pointers that carry
+  their bounds (Apple's `-fbounds-safety`), nullability, lifetime annotations, the
+  uninitialized-variable analysis, and trapping integer checks.
+- **New checks where Clang has gaps**: flow-sensitive null checking, a pointer-cast rule,
+  ownership and borrowing, checked `pure`/`const`/`alloc_size`, and `__unsafe` blocks.
+- **A fixed configuration** that no flag, pragma or attribute can weaken.
 
-**Known holes.** An adversarial review on 2026-11-23 found programs that compile under
-`-fsafe-c` without `__unsafe` and still corrupt memory. Most are now closed: null
-pointers in zeroed slots, type confusion through unions and pointer casts, unchecked
-`printf`/`scanf` arguments, the spoofable system-header exemption, and the flags and
-attributes that switched checks off. Porting real code found more, now also closed:
-integer-to-pointer casts, `memcpy` of raw bytes over pointers, uninitialized heap
-memory, and Apple's libc annotations being off (so `strcpy` into a sized buffer
-compiled). Still open: use after free and double free (ownership is designed and proved
-in Lean, not built), the bytes `realloc` adds, `va_arg` of structs holding pointers, and
-the size of the trusted base (system and legacy headers are trusted as declared). The
-list: [safe-c-notes/review-2026-11-23.md](safe-c-notes/review-2026-11-23.md).
+We listed every way C code can corrupt memory and closed each one, so **code outside
+`__unsafe` is memory safe**: every operation that could be undefined behavior is proven
+safe at compile time, checked at run time with a trap, or rejected. The core rules are
+proved sound in Lean, and the compiler is tested against NIST's Juliet suite and real
+libraries.
+
+## What makes C unsafe
+
+- **Out-of-bounds reads and writes**
+- **Null dereference**
+- **Use after free and double free**
+- **Uninitialized reads**
+- **Type confusion**: bad pointer casts, union punning, mismatched `printf` arguments
+- **Integer undefined behavior**: signed overflow, oversized shifts, division by zero
+- **Data races**
+- **Escape hatches**: flags, pragmas, attributes and builtins that switch checks off
+
+## How Safe C closes each one
+
+| Problem | How Safe C stops it | Built on | Status |
+|---|---|---|---|
+| Out of bounds | `__counted_by`, `__sized_by`, `__ended_by` on interfaces; locals carry their own bounds; every access proven at compile time or trapped | Apple's `-fbounds-safety` | works |
+| Null dereference | non-null by default; `_Nullable` must be checked before use, tracked through each function | this fork | works |
+| Use after free, double free | owned pointers, moves and borrows; `lifetimebound` at interfaces | Clang's lifetime analysis, this fork | proved in Lean, compiler planned |
+| Uninitialized reads | a maybe-uninitialized local is an error; stack aggregates and `malloc` memory start zeroed | Clang's uninitialized analysis, `-ftrivial-auto-var-init` | works |
+| Type confusion | pointer casts only to `void *`, to the same type, or between types without pointers; unions likewise; no integer-to-pointer; no raw bytes over pointers; `printf`/`scanf` arguments checked | this fork, rule from the Lean model | works |
+| Unchecked libc | `strcpy`, `sprintf`, `gets` unavailable; a bounded pointer cannot go to an unchecked parameter | Apple's libc annotations, this fork | works |
+| Integer UB | signed overflow wraps (as in Rust release builds); division by zero and oversized shifts trap | `-fwrapv`, Clang's trapping sanitizers | works |
+| Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned |
+| Weakening | weakening flags rejected; safety errors cannot be lowered by `-Wno-` or pragmas; a file cannot declare itself a system header; lying `pure`/`const`/`alloc_size` rejected | this fork | works |
+| Escape hatch | `__unsafe { }` blocks and functions; `#pragma clang safe_c legacy` for headers not yet ported; each is one searchable line, and `-Rsafe-c-unsafe` lists them all | this fork | works |
+
+**Why it is sound.** [safe-c-lean/](safe-c-lean/) is a Lean 4 model of Safe C's rules
+with machine-checked proofs: a program that follows the rules, outside `__unsafe`, never
+reaches undefined behavior (it finishes, traps or runs forever), and the ownership rules
+rule out use after free and double free. Every rule has a counterexample showing the
+proof fails without it. The model is how several rules were found: the cast rule above
+comes straight from it.
 
 ## Same code, any compiler
 
@@ -37,66 +66,6 @@ Safe C does not lock you in. Every annotation comes from one header, `safec.h`:
 compilers, copy [`clang/lib/Headers/safec.h`](clang/lib/Headers/safec.h) into your project
 (Apache 2.0 with LLVM exceptions, like the rest of LLVM). `-fsafe-c`
 includes it automatically.
-
-## What makes C unsafe, and what exists today
-
-C has seven kinds of memory and undefined-behavior bugs. For each: what Clang has today,
-what Safe C uses from it, and what Safe C adds.
-
-1. **Out-of-bounds access**
-   - Clang today: `-fsanitize=bounds` (run time, arrays of known size only),
-     `-Warray-bounds` (a warning). The full `-fbounds-safety`, with pointers that carry
-     their bounds, exists only in Apple's fork of Clang, not in Xcode's clang.
-   - Safe C **uses** Apple's `-fbounds-safety` as is: interfaces declare bounds with
-     `__counted_by(n)` and friends, every access is proven or trapped. **Works.**
-2. **Null dereference**
-   - Clang today: `_Nonnull` / `_Nullable` annotations and a few call-site warnings; no
-     tracking of null checks through a function.
-   - Safe C **uses** the same annotations and **adds** flow-sensitive null checking,
-     with non-null as the default. **Works.**
-3. **Use after free, double free, dangling pointers**
-   - Clang today: the `lifetimebound` and `lifetime_capture_by` attributes, and the
-     `-Wlifetime-safety` analysis that uses them to find dangling pointers (warnings,
-     mostly for C++).
-   - Safe C **uses** those attributes and builds on that analysis, and **adds** owned
-     pointers (`_Owned`), moves, and borrow checking, so use after free and double free
-     become compile errors. The rules are proved sound in Lean
-     ([OWNERSHIP.md](safe-c-lean/OWNERSHIP.md)); the compiler side is **planned**.
-   - Not used: the static analyzer (a separate, unsound tool) and AddressSanitizer
-     (run-time only, about 2x slower).
-4. **Uninitialized reads**
-   - Clang today: `-Wuninitialized` (a warning, misses cases).
-   - Safe C **uses** clang's uninitialized-variables analysis, always on and as errors:
-     reading a local that might not be set is a compile error. Arrays, structs and other
-     locals the analysis does not track start zeroed (`-ftrivial-auto-var-init=zero`),
-     so a read before the first write is a defined zero rather than undefined behavior.
-     Heap memory from `malloc` starts zeroed too. **Works** (except the bytes `realloc`
-     adds).
-5. **Type confusion** (bad pointer casts, union punning, mismatched varargs)
-   - Clang today: `-Wincompatible-pointer-types` and `-Wformat` (warnings).
-   - Safe C **adds** the cast rule the Lean model needs: a pointer cast is allowed to
-     `void *`, between identical types, or between two pointer-free types; `void *` to
-     `T *` only from null or a fresh allocation. Union members with pointers follow the
-     same rule. Integers cannot become pointers (except null and `void *`), and
-     `memcpy`/`memset`/`read` into memory that holds pointers must copy the same type or
-     write zero. **Works.**
-6. **Integer undefined behavior** (signed overflow, oversized shifts, division by zero)
-   - Clang today: `-fwrapv` (signed overflow wraps), and
-     `-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero` with
-     `-fsanitize-trap` (run-time traps). All off by default.
-   - Safe C **uses** them the way Rust's release builds behave: signed overflow wraps
-     (defined, not UB, nearly free); division by zero, `INT_MIN / -1` and oversized
-     shifts trap (one compare, usually optimized away). A wrapped size or index that goes
-     out of bounds is still caught by the bounds checks. For Rust's debug behavior, also
-     trap on overflow with `-fsanitize=signed-integer-overflow -fsanitize-trap`
-     (not yet combinable with `-fsafe-c`, which forces wrapping). Left-shifting a
-     negative value is not trapped: Rust allows
-     it, and `-fwrapv` code does not rely on it being undefined.
-     **Works.**
-7. **Data races**
-   - Clang today: `-Wthread-safety` with lock annotations (warnings).
-   - Safe C **uses** those annotations and **adds** rules for which data may be shared
-     or moved between threads. **Planned.**
 
 ## Adopting Safe C, one file at a time
 
@@ -212,24 +181,6 @@ free(p);
 *p = 1;                         // will be: error: use of 'p' after it was freed
 ```
 
-## Safety features
-
-| Bug | How Safe C stops it | From | Status |
-|---|---|---|---|
-| Out of bounds | `__counted_by`, `__sized_by`, `__ended_by` on interfaces; locals carry their own bounds; proven at compile time or trapped | Apple's `-fbounds-safety` | works |
-| Null dereference | non-null by default, `_Nullable` must be checked before use | this fork | works |
-| Weakening by flags | `-fno-bounds-safety` and friends rejected with `-fsafe-c` | this fork | works |
-| Silencing by `-Wno-` or pragma | null and bounds violations are re-issued as errors that no flag or pragma can lower | this fork | works |
-| Use after free, double free | owned pointers, borrows, `lifetimebound` at interfaces, named lifetimes where elision is not enough | this fork, on Clang's lifetime analysis | planned |
-| Uninitialized reads | maybe-uninitialized locals are errors; aggregates and `malloc` memory start zeroed | clang's uninitialized analysis and `-ftrivial-auto-var-init` | works (not bytes `realloc` adds) |
-| Type confusion | pointer casts only to `void *`, identical types or pointer-free to pointer-free; unions likewise; no integer-to-pointer; no raw bytes over pointers | this fork, rule from the Lean model | works |
-| Unchecked libc | `strcpy`, `sprintf`, `gets` unavailable; a pointer with bounds cannot go to an unchecked (`__unsafe_indexable`) parameter | Apple's libc annotations, this fork | works |
-| Lying `pure`/`const` | bodies are checked against the attribute | this fork | works |
-| Integer UB | signed overflow wraps (as in Rust release builds); division by zero, `INT_MIN / -1` and oversized shifts trap | `-fwrapv` and Clang's trapping sanitizers | works |
-| Calls into code not ported yet | `#pragma clang safe_c legacy` marks a header as trusted, one searchable line each | this fork | works (declarations trusted as written) |
-| Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned |
-| Escape hatch | `__unsafe { }` blocks and `__unsafe` functions lift Safe C's rules; bounds violations still need Apple's explicit `__unsafe_forge_*` forms | this fork | works |
-
 ## What you annotate
 
 Most pointers need nothing: unannotated means non-null and one element, which is the
@@ -277,17 +228,10 @@ Almost every remaining bounds miss uses a random index or a randomly taken branc
 no fixed input can trigger. Details and the harness's own fixes are in
 [safe-c-notes/juliet.md](safe-c-notes/juliet.md).
 
-**A machine-checked core.** [safe-c-lean/](safe-c-lean/) models Safe C's rules as a
-small calculus in Lean 4 and proves that a well-typed program without `__unsafe` never
-reaches undefined behavior: it finishes, traps or runs forever. The proof needs every
-rule it relies on, and it found two rules that are not yet sound (type confusion through
-casts, and the checked string conversion under aliasing); both are listed as open in the
-[review notes](safe-c-notes/review-2026-11-23.md). The model covers the rules, not
-clang's implementation of them; Juliet and the review probes cover that.
-
-The ownership rules have their own proof (`own_sound`): a program the ownership checker
-accepts never reaches use after free, double free or any other undefined behavior, and
-each rule has a counterexample showing it is needed.
+**The Lean core.** [safe-c-lean/](safe-c-lean/) models the rules as a small calculus.
+`safe_c_sound` covers bounds, null, casts and integers; `own_sound` covers ownership.
+Both are checked by Lean with no unproved steps. The model covers the rules, not clang's
+implementation of them; Juliet, the ports and adversarial probes test that.
 
 **Real code.** The second number is porting cost. Each port is in
 [safe-c-notes/ports/](safe-c-notes/ports/), pristine first, so `git log -p` shows what
@@ -301,6 +245,10 @@ it took. The same source builds with Safe C, Apple clang and gcc.
 Both ports found bugs in their test code (unchecked `malloc`, a buffer length that did
 not match its buffer) and drove compiler fixes; cJSON's list of 13 Safe C gaps (things
 it rejects or makes hard that are safe) is the usability to-do list.
+
+**Status.** Early, and moving fast. The compiler side of ownership and data races is
+next. Open items, and everything found and fixed so far, are tracked in
+[safe-c-notes/review-2026-11-23.md](safe-c-notes/review-2026-11-23.md).
 
 ## How it is built
 
