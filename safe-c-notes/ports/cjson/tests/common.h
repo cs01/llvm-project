@@ -43,9 +43,10 @@ void reset(cJSON *item) {
     memset(item, 0, sizeof(cJSON));
 }
 
-char* read_file(const char *filename);
-char* read_file(const char *filename) {
-    FILE *file = NULL;
+char *_Nullable __null_terminated read_file(const char *filename);
+char *_Nullable __null_terminated read_file(const char *filename) {
+    /* stdio declares FILE * without bounds; it is only handed back to stdio */
+    FILE *_Nullable __unsafe_indexable file = NULL;
     long length = 0;
     char *content = NULL;
     size_t read_chars = 0;
@@ -96,7 +97,11 @@ cleanup:
         fclose(file);
     }
 
-    return content;
+    if (content == NULL)
+    {
+        return NULL;
+    }
+    return __unsafe_null_terminated_from_indexable(content, content + read_chars);
 }
 
 /* assertion helper macros */

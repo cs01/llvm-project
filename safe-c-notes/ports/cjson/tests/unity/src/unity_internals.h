@@ -157,7 +157,7 @@
 #endif
 
 #ifndef UNITY_INTERNAL_PTR
-#define UNITY_INTERNAL_PTR UNITY_PTR_ATTRIBUTE const void*
+#define UNITY_INTERNAL_PTR UNITY_PTR_ATTRIBUTE const void *_Nullable
 #endif
 
 /*-------------------------------------------------------
@@ -458,7 +458,7 @@ void UnityPrintFloat(const UNITY_DOUBLE input_number);
 
 void UnityAssertEqualNumber(const UNITY_INT expected,
                             const UNITY_INT actual,
-                            const char* msg,
+                            const char *_Nullable msg,
                             const UNITY_LINE_TYPE lineNumber,
                             const UNITY_DISPLAY_STYLE_T style);
 
@@ -472,7 +472,7 @@ void UnityAssertGreaterOrLessOrEqualNumber(const UNITY_INT threshold,
 void UnityAssertEqualIntArray(UNITY_INTERNAL_PTR expected,
                               UNITY_INTERNAL_PTR actual,
                               const UNITY_UINT32 num_elements,
-                              const char* msg,
+                              const char *_Nullable msg,
                               const UNITY_LINE_TYPE lineNumber,
                               const UNITY_DISPLAY_STYLE_T style,
                               const UNITY_FLAGS_T flags);
@@ -480,24 +480,24 @@ void UnityAssertEqualIntArray(UNITY_INTERNAL_PTR expected,
 void UnityAssertBits(const UNITY_INT mask,
                      const UNITY_INT expected,
                      const UNITY_INT actual,
-                     const char* msg,
+                     const char *_Nullable msg,
                      const UNITY_LINE_TYPE lineNumber);
 
-void UnityAssertEqualString(const char* expected,
-                            const char* actual,
-                            const char* msg,
+void UnityAssertEqualString(const char *_Nullable expected,
+                            const char *_Nullable actual,
+                            const char *_Nullable msg,
                             const UNITY_LINE_TYPE lineNumber);
 
-void UnityAssertEqualStringLen(const char* expected,
-                            const char* actual,
+void UnityAssertEqualStringLen(const char *_Nullable expected,
+                            const char *_Nullable actual,
                             const UNITY_UINT32 length,
-                            const char* msg,
+                            const char *_Nullable msg,
                             const UNITY_LINE_TYPE lineNumber);
 
 void UnityAssertEqualStringArray( UNITY_INTERNAL_PTR expected,
                                   const char** actual,
                                   const UNITY_UINT32 num_elements,
-                                  const char* msg,
+                                  const char *_Nullable msg,
                                   const UNITY_LINE_TYPE lineNumber,
                                   const UNITY_FLAGS_T flags);
 
@@ -505,37 +505,42 @@ void UnityAssertEqualMemory( UNITY_INTERNAL_PTR expected,
                              UNITY_INTERNAL_PTR actual,
                              const UNITY_UINT32 length,
                              const UNITY_UINT32 num_elements,
-                             const char* msg,
+                             const char *_Nullable msg,
                              const UNITY_LINE_TYPE lineNumber,
                              const UNITY_FLAGS_T flags);
 
 void UnityAssertNumbersWithin(const UNITY_UINT delta,
                               const UNITY_INT expected,
                               const UNITY_INT actual,
-                              const char* msg,
+                              const char *_Nullable msg,
                               const UNITY_LINE_TYPE lineNumber,
                               const UNITY_DISPLAY_STYLE_T style);
 
-void UnityFail(const char* message, const UNITY_LINE_TYPE line);
+/* With setjmp, a failed assertion longjmps out of the test, so code after
+   TEST_ASSERT_NOT_NULL(p) may rely on p. Saying so lets null checks narrow. */
+#ifndef UNITY_EXCLUDE_SETJMP_H
+__attribute__((noreturn))
+#endif
+void UnityFail(const char *_Nullable message, const UNITY_LINE_TYPE line);
 
-void UnityIgnore(const char* message, const UNITY_LINE_TYPE line);
+void UnityIgnore(const char *_Nullable message, const UNITY_LINE_TYPE line);
 
 #ifndef UNITY_EXCLUDE_FLOAT
 void UnityAssertFloatsWithin(const UNITY_FLOAT delta,
                              const UNITY_FLOAT expected,
                              const UNITY_FLOAT actual,
-                             const char* msg,
+                             const char *_Nullable msg,
                              const UNITY_LINE_TYPE lineNumber);
 
 void UnityAssertEqualFloatArray(UNITY_PTR_ATTRIBUTE const UNITY_FLOAT* expected,
                                 UNITY_PTR_ATTRIBUTE const UNITY_FLOAT* actual,
                                 const UNITY_UINT32 num_elements,
-                                const char* msg,
+                                const char *_Nullable msg,
                                 const UNITY_LINE_TYPE lineNumber,
                                 const UNITY_FLAGS_T flags);
 
 void UnityAssertFloatSpecial(const UNITY_FLOAT actual,
-                             const char* msg,
+                             const char *_Nullable msg,
                              const UNITY_LINE_TYPE lineNumber,
                              const UNITY_FLOAT_TRAIT_T style);
 #endif
@@ -544,18 +549,18 @@ void UnityAssertFloatSpecial(const UNITY_FLOAT actual,
 void UnityAssertDoublesWithin(const UNITY_DOUBLE delta,
                               const UNITY_DOUBLE expected,
                               const UNITY_DOUBLE actual,
-                              const char* msg,
+                              const char *_Nullable msg,
                               const UNITY_LINE_TYPE lineNumber);
 
 void UnityAssertEqualDoubleArray(UNITY_PTR_ATTRIBUTE const UNITY_DOUBLE* expected,
                                  UNITY_PTR_ATTRIBUTE const UNITY_DOUBLE* actual,
                                  const UNITY_UINT32 num_elements,
-                                 const char* msg,
+                                 const char *_Nullable msg,
                                  const UNITY_LINE_TYPE lineNumber,
                                  const UNITY_FLAGS_T flags);
 
 void UnityAssertDoubleSpecial(const UNITY_DOUBLE actual,
-                              const char* msg,
+                              const char *_Nullable msg,
                               const UNITY_LINE_TYPE lineNumber,
                               const UNITY_FLOAT_TRAIT_T style);
 #endif

@@ -28,14 +28,14 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static void * CJSON_CDECL failing_malloc(size_t size)
+static void *_Nullable __sized_by_or_null(size) CJSON_CDECL failing_malloc(size_t size)
 {
     (void)size;
     return NULL;
 }
 
 /* work around MSVC error C2322: '...' address of dllimport '...' is not static */
-static void CJSON_CDECL normal_free(void *pointer)
+static void CJSON_CDECL normal_free(void *_Nullable __unsafe_indexable pointer)
 {
     free(pointer);
 }

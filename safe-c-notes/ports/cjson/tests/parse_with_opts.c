@@ -26,7 +26,7 @@
 
 static void parse_with_opts_should_handle_null(void)
 {
-    const char *error_pointer = NULL;
+    const char *__unsafe_indexable error_pointer = NULL;
     cJSON *item = NULL;
     TEST_ASSERT_NULL_MESSAGE(cJSON_ParseWithOpts(NULL, &error_pointer, false), "Failed to handle NULL input.");
     item = cJSON_ParseWithOpts("{}", NULL, false);
@@ -39,7 +39,7 @@ static void parse_with_opts_should_handle_null(void)
 static void parse_with_opts_should_handle_empty_strings(void)
 {
     const char empty_string[] = "";
-    const char *error_pointer = NULL;
+    const char *__unsafe_indexable error_pointer = NULL;
 
     TEST_ASSERT_NULL(cJSON_ParseWithOpts(empty_string, NULL, false));
     TEST_ASSERT_EQUAL_PTR(empty_string, cJSON_GetErrorPtr());
@@ -52,7 +52,7 @@ static void parse_with_opts_should_handle_empty_strings(void)
 static void parse_with_opts_should_handle_incomplete_json(void)
 {
     const char json[] = "{ \"name\": ";
-    const char *parse_end = NULL;
+    const char *__unsafe_indexable parse_end = NULL;
 
     TEST_ASSERT_NULL(cJSON_ParseWithOpts(json, &parse_end, false));
     TEST_ASSERT_EQUAL_PTR(json + strlen(json), parse_end);
@@ -73,7 +73,7 @@ static void parse_with_opts_should_require_null_if_requested(void)
 static void parse_with_opts_should_return_parse_end(void)
 {
     const char json[] = "[] empty array XD";
-    const char *parse_end = NULL;
+    const char *__unsafe_indexable parse_end = NULL;
 
     cJSON *item = cJSON_ParseWithOpts(json, &parse_end, false);
     TEST_ASSERT_NOT_NULL(item);

@@ -26,17 +26,16 @@
 
 static void assert_print_number(const char *expected, double input)
 {
-    unsigned char printed[1024];
     unsigned char new_buffer[26];
     unsigned int i = 0;
     cJSON item[1];
     printbuffer buffer = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
-    buffer.buffer = printed;
-    buffer.length = sizeof(printed);
+    /* the original pointed buffer at new_buffer but left length at 1024 */
+    buffer.buffer = new_buffer;
+    buffer.length = sizeof(new_buffer);
     buffer.offset = 0;
     buffer.noalloc = true;
     buffer.hooks = global_hooks;
-    buffer.buffer = new_buffer;
 
     memset(item, 0, sizeof(item));
     memset(new_buffer, 0, sizeof(new_buffer));

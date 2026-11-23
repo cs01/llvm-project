@@ -42,14 +42,14 @@ static const char *json = "{\n\
 \t\t}]\n\
 }";
 
-static char* create_monitor(void)
+static char *_Nullable __null_terminated create_monitor(void)
 {
     const unsigned int resolution_numbers[3][2] = {
         {1280, 720},
         {1920, 1080},
         {3840, 2160}
     };
-    char *string = NULL;
+    char *_Nullable __null_terminated string = NULL;
     cJSON *name = NULL;
     cJSON *resolutions = NULL;
     cJSON *resolution = NULL;
@@ -114,14 +114,14 @@ end:
     return string;
 }
 
-static char *create_monitor_with_helpers(void)
+static char *_Nullable __null_terminated create_monitor_with_helpers(void)
 {
     const unsigned int resolution_numbers[3][2] = {
         {1280, 720},
         {1920, 1080},
         {3840, 2160}
     };
-    char *string = NULL;
+    char *_Nullable __null_terminated string = NULL;
     cJSON *resolutions = NULL;
     size_t index = 0;
 
@@ -175,7 +175,7 @@ static int supports_full_hd(const char * const monitor)
     cJSON *monitor_json = cJSON_Parse(monitor);
     if (monitor_json == NULL)
     {
-        const char *error_ptr = cJSON_GetErrorPtr();
+        const char *_Nullable __unsafe_indexable error_ptr = cJSON_GetErrorPtr();
         if (error_ptr != NULL)
         {
             fprintf(stderr, "Error before: %s\n", error_ptr);
@@ -185,7 +185,7 @@ static int supports_full_hd(const char * const monitor)
     }
 
     name = cJSON_GetObjectItemCaseSensitive(monitor_json, "name");
-    if (cJSON_IsString(name) && (name->valuestring != NULL))
+    if ((name != NULL) && cJSON_IsString(name) && (name->valuestring != NULL))
     {
         printf("Checking monitor \"%s\"\n", name->valuestring);
     }
@@ -196,7 +196,7 @@ static int supports_full_hd(const char * const monitor)
         cJSON *width = cJSON_GetObjectItemCaseSensitive(resolution, "width");
         cJSON *height = cJSON_GetObjectItemCaseSensitive(resolution, "height");
 
-        if (!cJSON_IsNumber(width) || !cJSON_IsNumber(height))
+        if ((width == NULL) || (height == NULL) || !cJSON_IsNumber(width) || !cJSON_IsNumber(height))
         {
             status = 0;
             goto end;
@@ -216,7 +216,7 @@ end:
 
 static void create_monitor_should_create_a_monitor(void)
 {
-    char *monitor = create_monitor();
+    char *_Nullable __null_terminated monitor = create_monitor();
 
     TEST_ASSERT_EQUAL_STRING(monitor, json);
 
@@ -225,7 +225,7 @@ static void create_monitor_should_create_a_monitor(void)
 
 static void create_monitor_with_helpers_should_create_a_monitor(void)
 {
-    char *monitor = create_monitor_with_helpers();
+    char *_Nullable __null_terminated monitor = create_monitor_with_helpers();
 
     TEST_ASSERT_EQUAL_STRING(json, monitor);
 

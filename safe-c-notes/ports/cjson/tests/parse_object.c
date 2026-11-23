@@ -53,7 +53,7 @@ static void assert_is_child(cJSON *child_item, const char *name, int type)
 static void assert_not_object(const char *json)
 {
     parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
-    parsebuffer.content = (const unsigned char*)json;
+    parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(json);
     parsebuffer.length = strlen(json) + sizeof("");
     parsebuffer.hooks = global_hooks;
 
@@ -65,7 +65,7 @@ static void assert_not_object(const char *json)
 static void assert_parse_object(const char *json)
 {
     parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
-    parsebuffer.content = (const unsigned char*)json;
+    parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(json);
     parsebuffer.length = strlen(json) + sizeof("");
     parsebuffer.hooks = global_hooks;
 
@@ -108,7 +108,9 @@ static void parse_object_should_parse_objects_with_multiple_elements(void)
 {
     assert_parse_object("{\"one\":1\t,\t\"two\"\n:2, \"three\":3}");
     assert_is_child(item->child, "one", cJSON_Number);
+    TEST_ASSERT_NOT_NULL(item->child);
     assert_is_child(item->child->next, "two", cJSON_Number);
+    TEST_ASSERT_NOT_NULL(item->child->next);
     assert_is_child(item->child->next->next, "three", cJSON_Number);
     reset(item);
 

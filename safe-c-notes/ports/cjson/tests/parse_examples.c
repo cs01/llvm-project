@@ -28,10 +28,10 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static cJSON *parse_file(const char *filename)
+static cJSON *_Nullable parse_file(const char *filename)
 {
     cJSON *parsed = NULL;
-    char *content = read_file(filename);
+    char *_Nullable __null_terminated content = read_file(filename);
 
     parsed = cJSON_Parse(content);
 
@@ -45,8 +45,8 @@ static cJSON *parse_file(const char *filename)
 
 static void do_test(const char *test_name)
 {
-    char *expected = NULL;
-    char *actual = NULL;
+    char *_Nullable __null_terminated expected = NULL;
+    char *_Nullable __null_terminated actual = NULL;
     cJSON *tree = NULL;
 
     size_t test_name_length = 0;
@@ -65,8 +65,8 @@ static void do_test(const char *test_name)
     TEST_ASSERT_NOT_NULL_MESSAGE(expected_path, "Failed to allocate expected_path buffer.");
 
     /* create file paths */
-    sprintf(test_path, TEST_DIR_PATH"%s", test_name);
-    sprintf(expected_path, TEST_DIR_PATH"%s.expected", test_name);
+    snprintf(test_path, sizeof(TEST_DIR_PATH) + test_name_length, TEST_DIR_PATH"%s", test_name);
+    snprintf(expected_path, sizeof(TEST_DIR_PATH) + test_name_length + sizeof(".expected"), TEST_DIR_PATH"%s.expected", test_name);
 
     /* read expected output */
     expected = read_file(expected_path);
@@ -133,7 +133,7 @@ static void file_test5_should_be_parsed_and_printed(void)
 
 static void file_test6_should_not_be_parsed(void)
 {
-    char *test6 = NULL;
+    char *_Nullable __null_terminated test6 = NULL;
     cJSON *tree = NULL;
 
     test6 = read_file("inputs/test6");
@@ -262,14 +262,14 @@ static void test15_should_not_heap_buffer_overflow(void)
 
     for (i = 0; i < sizeof(strings) / sizeof(strings[0]); i+=1)
     {
-        const char *json_string = strings[i];
+        const char *__null_terminated json_string = strings[i];
         size_t len = strlen(json_string);
         cJSON *json = NULL;
 
         char *exact_size_heap = (char*)malloc(len);
         TEST_ASSERT_NOT_NULL(exact_size_heap);
 
-        memcpy(exact_size_heap, json_string, len);
+        memcpy(exact_size_heap, __null_terminated_to_indexable(json_string), len);
         json = cJSON_ParseWithLength(exact_size_heap, len);
 
         cJSON_Delete(json);

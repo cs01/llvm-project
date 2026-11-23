@@ -1279,7 +1279,8 @@ UNITY_INTERNAL_PTR UnityDoubleToPtr(const double num)
 
 void UnityFail(const char* msg, const UNITY_LINE_TYPE line)
 {
-    RETURN_IF_FAIL_OR_IGNORE;
+    /* bail rather than return, so UnityFail never returns with setjmp */
+    if (Unity.CurrentTestFailed || Unity.CurrentTestIgnored) TEST_ABORT();
 
     UnityTestResultsBegin(Unity.TestFile, line);
     UnityPrint(UnityStrFail);

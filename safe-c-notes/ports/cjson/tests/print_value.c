@@ -40,7 +40,7 @@ static void assert_print_value(const char *input)
     buffer.noalloc = true;
     buffer.hooks = global_hooks;
 
-    parsebuffer.content = (const unsigned char*)input;
+    parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(input);
     parsebuffer.length = strlen(input) + sizeof("");
     parsebuffer.hooks = global_hooks;
 

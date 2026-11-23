@@ -45,7 +45,7 @@ static void assert_is_array(cJSON *array_item)
 static void assert_not_array(const char *json)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
-    buffer.content = (const unsigned char*)json;
+    buffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(json);
     buffer.length = strlen(json) + sizeof("");
     buffer.hooks = global_hooks;
 
@@ -56,7 +56,7 @@ static void assert_not_array(const char *json)
 static void assert_parse_array(const char *json)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
-    buffer.content = (const unsigned char*)json;
+    buffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(json);
     buffer.length = strlen(json) + sizeof("");
     buffer.hooks = global_hooks;
 

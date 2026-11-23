@@ -46,7 +46,7 @@ static void assert_is_string(cJSON *string_item)
 static void assert_parse_string(const char *string, const char *expected)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
-    buffer.content = (const unsigned char*)string;
+    buffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(string);
     buffer.length = strlen(string) + sizeof("");
     buffer.hooks = global_hooks;
 
@@ -60,7 +60,7 @@ static void assert_parse_string(const char *string, const char *expected)
 static void assert_not_parse_string(const char * const string)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
-    buffer.content = (const unsigned char*)string;
+    buffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(string);
     buffer.length = strlen(string) + sizeof("");
     buffer.hooks = global_hooks;
 

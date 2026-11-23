@@ -36,7 +36,7 @@ static void assert_print_object(const char * const expected, const char * const 
     parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
 
     /* buffer for parsing */
-    parsebuffer.content = (const unsigned char*)input;
+    parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(input);
     parsebuffer.length = strlen(input) + sizeof("");
     parsebuffer.hooks = global_hooks;
 

@@ -394,6 +394,8 @@ static void cjson_functions_should_not_crash_with_null_pointers(void)
     add_item_to_array(array, item1);
     add_item_to_array(array, item2);
 
+    TEST_ASSERT_NOT_NULL(item2);
+    TEST_ASSERT_NOT_NULL(corruptedString);
     originalPrev = item2->prev;
     item2->prev = NULL;
     free(corruptedString->valuestring);
@@ -492,12 +494,13 @@ static void cjson_functions_should_not_crash_with_null_pointers(void)
 static void cjson_set_valuestring_should_return_null_if_strings_overlap(void)
 {       
     cJSON *obj;
-    char* str;
-    char* str2;
+    char *_Nullable __null_terminated str;
+    char *_Nullable __null_terminated str2;
 
     obj =  cJSON_Parse("\"foo0z\"");
     
     str =  cJSON_SetValuestring(obj, "abcde");
+    TEST_ASSERT_NOT_NULL(str);
     str += 1;
     /* The string passed to strcpy overlap which is not allowed.*/
     str2 = cJSON_SetValuestring(obj, str);
@@ -507,7 +510,7 @@ static void cjson_set_valuestring_should_return_null_if_strings_overlap(void)
     cJSON_Delete(obj);
 }
 
-static void *CJSON_CDECL failing_realloc(void *pointer, size_t size)
+static void *_Nullable __sized_by_or_null(size) CJSON_CDECL failing_realloc(void *_Nullable __unsafe_indexable pointer, size_t size)
 {
     (void)size;
     (void)pointer;
@@ -516,8 +519,9 @@ static void *CJSON_CDECL failing_realloc(void *pointer, size_t size)
 
 static void ensure_should_fail_on_failed_realloc(void)
 {
-    printbuffer buffer = {NULL, 10, 0, 0, false, false, {&malloc, &free, &failing_realloc}};
+    printbuffer buffer = {NULL, 10, 0, 0, false, false, {&internal_malloc, &internal_free, &failing_realloc}};
     buffer.buffer = (unsigned char *)malloc(100);
+    buffer.length = 10;
     TEST_ASSERT_NOT_NULL(buffer.buffer);
 
     TEST_ASSERT_NULL_MESSAGE(ensure(&buffer, 200), "Ensure didn't fail with failing realloc.");
@@ -552,6 +556,7 @@ static void cjson_get_string_value_should_get_a_string(void)
     cJSON *string = cJSON_CreateString("test");
     cJSON *number = cJSON_CreateNumber(1);
 
+    TEST_ASSERT_NOT_NULL(string);
     TEST_ASSERT_TRUE(cJSON_GetStringValue(string) == string->valuestring);
     TEST_ASSERT_NULL(cJSON_GetStringValue(number));
     TEST_ASSERT_NULL(cJSON_GetStringValue(NULL));
@@ -565,6 +570,7 @@ static void cjson_get_number_value_should_get_a_number(void)
     cJSON *string = cJSON_CreateString("test");
     cJSON *number = cJSON_CreateNumber(1);
 
+    TEST_ASSERT_NOT_NULL(number);
     TEST_ASSERT_EQUAL_DOUBLE(cJSON_GetNumberValue(number), number->valuedouble);
     TEST_ASSERT_DOUBLE_IS_NAN(cJSON_GetNumberValue(string));
     TEST_ASSERT_DOUBLE_IS_NAN(cJSON_GetNumberValue(NULL));
@@ -578,6 +584,7 @@ static void cjson_create_string_reference_should_create_a_string_reference(void)
     const char *string = "I am a string!";
 
     cJSON *string_reference = cJSON_CreateStringReference(string);
+    TEST_ASSERT_NOT_NULL(string_reference);
     TEST_ASSERT_TRUE(string_reference->valuestring == string);
     TEST_ASSERT_EQUAL_INT(cJSON_IsReference | cJSON_String, string_reference->type);
 
@@ -596,6 +603,7 @@ static void cjson_create_object_reference_should_create_an_object_reference(void
     cJSON_AddItemToObjectCS(number_object, key, number);
 
     number_reference = cJSON_CreateObjectReference(number);
+    TEST_ASSERT_NOT_NULL(number_reference);
     TEST_ASSERT_TRUE(number_reference->child == number);
     TEST_ASSERT_EQUAL_INT(cJSON_Object | cJSON_IsReference, number_reference->type);
 
@@ -614,6 +622,7 @@ static void cjson_create_array_reference_should_create_an_array_reference(void)
     cJSON_AddItemToArray(number_array, number);
 
     number_reference = cJSON_CreateArrayReference(number);
+    TEST_ASSERT_NOT_NULL(number_reference);
     TEST_ASSERT_TRUE(number_reference->child == number);
     TEST_ASSERT_EQUAL_INT(cJSON_Array | cJSON_IsReference, number_reference->type);
 
@@ -641,7 +650,7 @@ static void cjson_add_item_to_object_should_not_use_after_free_when_string_is_al
 {
     cJSON *object = cJSON_CreateObject();
     cJSON *number = cJSON_CreateNumber(42);
-    char *name = (char *)cJSON_strdup((const unsigned char *)"number", &global_hooks);
+    char *_Nullable __null_terminated name = cJSON_strdup("number", &global_hooks);
 
     TEST_ASSERT_NOT_NULL(object);
     TEST_ASSERT_NOT_NULL(number);
@@ -661,9 +670,9 @@ static void cjson_delete_item_from_array_should_not_broken_list_structure(void)
     const char expected_json1[] = "{\"rd\":[{\"a\":\"123\"}]}";
     const char expected_json2[] = "{\"rd\":[{\"a\":\"123\"},{\"b\":\"456\"}]}";
     const char expected_json3[] = "{\"rd\":[{\"b\":\"456\"}]}";
-    char *str1 = NULL;
-    char *str2 = NULL;
-    char *str3 = NULL;
+    char *_Nullable __null_terminated str1 = NULL;
+    char *_Nullable __null_terminated str2 = NULL;
+    char *_Nullable __null_terminated str3 = NULL;
 
     cJSON *root = cJSON_Parse("{}");
 
@@ -699,28 +708,29 @@ static void cjson_set_valuestring_to_object_should_not_leak_memory(void)
     const char *long_valuestring = "new valuestring which much longer than previous should be changed safely";
     cJSON *item1 = cJSON_CreateString(stringvalue);
     cJSON *item2 = cJSON_CreateStringReference(reference_valuestring);
-    char *ptr1 = NULL;
-    char *return_value = NULL;
+    char *_Nullable __null_terminated ptr1 = NULL;
+    char *_Nullable __null_terminated return_value = NULL;
 
     cJSON_AddItemToObject(root, "one", item1);
     cJSON_AddItemToObject(root, "two", item2);
 
+    TEST_ASSERT_NOT_NULL(item1);
     ptr1 = item1->valuestring;
     return_value = cJSON_SetValuestring(cJSON_GetObjectItem(root, "one"), short_valuestring);
     TEST_ASSERT_NOT_NULL(return_value);
     TEST_ASSERT_EQUAL_PTR_MESSAGE(ptr1, return_value, "new valuestring shorter than old should not reallocate memory");
-    TEST_ASSERT_EQUAL_STRING(short_valuestring, cJSON_GetObjectItem(root, "one")->valuestring);
+    TEST_ASSERT_EQUAL_STRING(short_valuestring, cJSON_GetStringValue(cJSON_GetObjectItem(root, "one")));
 
     /* we needn't to free the original valuestring manually */
     ptr1 = item1->valuestring;
     return_value = cJSON_SetValuestring(cJSON_GetObjectItem(root, "one"), long_valuestring);
     TEST_ASSERT_NOT_NULL(return_value);
     TEST_ASSERT_NOT_EQUAL_MESSAGE(ptr1, return_value, "new valuestring longer than old should reallocate memory")
-    TEST_ASSERT_EQUAL_STRING(long_valuestring, cJSON_GetObjectItem(root, "one")->valuestring);
+    TEST_ASSERT_EQUAL_STRING(long_valuestring, cJSON_GetStringValue(cJSON_GetObjectItem(root, "one")));
 
     return_value = cJSON_SetValuestring(cJSON_GetObjectItem(root, "two"), long_valuestring);
     TEST_ASSERT_NULL_MESSAGE(return_value, "valuestring of reference object should not be changed");
-    TEST_ASSERT_EQUAL_STRING(reference_valuestring, cJSON_GetObjectItem(root, "two")->valuestring);
+    TEST_ASSERT_EQUAL_STRING(reference_valuestring, cJSON_GetStringValue(cJSON_GetObjectItem(root, "two")));
 
     cJSON_Delete(root);
 }
@@ -757,6 +767,7 @@ static void cjson_set_bool_value_must_not_break_objects(void)
     TEST_ASSERT_TRUE(cJSON_IsObject(oobj));
 
     refobj = cJSON_CreateStringReference("conststring");
+    TEST_ASSERT_NOT_NULL(refobj);
     TEST_ASSERT_TRUE(cJSON_IsString(refobj));
     TEST_ASSERT_TRUE(refobj->type & cJSON_IsReference);
     cJSON_SetBoolValue(refobj, 1);
@@ -768,6 +779,7 @@ static void cjson_set_bool_value_must_not_break_objects(void)
     cJSON_Delete(refobj);
 
     refobj = cJSON_CreateObjectReference(oobj);
+    TEST_ASSERT_NOT_NULL(refobj);
     TEST_ASSERT_TRUE(cJSON_IsObject(refobj));
     TEST_ASSERT_TRUE(refobj->type & cJSON_IsReference);
     cJSON_SetBoolValue(refobj, 1);

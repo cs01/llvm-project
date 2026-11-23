@@ -35,7 +35,7 @@ static void assert_print_array(const char * const expected, const char * const i
     printbuffer unformatted_buffer = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
 
     parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
-    parsebuffer.content = (const unsigned char*)input;
+    parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(input);
     parsebuffer.length = strlen(input) + sizeof("");
     parsebuffer.hooks = global_hooks;
 

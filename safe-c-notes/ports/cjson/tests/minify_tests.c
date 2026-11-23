@@ -144,6 +144,7 @@ static void cjson_minify_should_minify_json(void) {
             "}";
 
     char *buffer = (char*) malloc(sizeof(to_minify));
+    TEST_ASSERT_NOT_NULL(buffer);
     strcpy(buffer, to_minify);
 
     cJSON_Minify(buffer);
