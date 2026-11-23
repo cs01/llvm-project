@@ -69,8 +69,12 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
   if (!IDs.isWarningOrExtension(DiagID))
     return false;
   StringRef Group = IDs.getWarningOptionForDiag(DiagID);
+  // Indexing a local that came from a single-element pointer traps unless the
+  // index is 0: say so at compile time rather than at the trap.
   return Group.starts_with("nullability-safety") ||
          Group == "safe-c-void-cast" ||
+         Group.starts_with(
+             "bounds-safety-conversion-single-to-implicit-indexable") ||
          (Group.starts_with("bounds-safety") &&
           IDs.isDefaultMappingAsError(DiagID));
 }
