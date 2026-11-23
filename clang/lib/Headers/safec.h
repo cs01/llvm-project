@@ -40,6 +40,33 @@
 #define __null_terminated
 #endif
 
+/* libc string functions. The system headers leave their `const char *`
+   parameters unannotated, so bounds safety would hand any buffer to them
+   unchecked, and strlen() of an unterminated buffer reads past its end. These
+   redeclarations add __null_terminated to the read-only string parameters
+   (types are otherwise identical, so they merge with the system declarations
+   in either order). A buffer with known bounds passed to one of them is then
+   scanned for its terminator, and the program traps if there is none.
+   Known gap: printf-style variadic arguments cannot be annotated this way. */
+#if defined(__SAFEC_HAVE_PTRCHECK) && __has_ptrcheck
+typedef __SIZE_TYPE__ __safec_size_t;
+__safec_size_t strlen(const char *__null_terminated);
+int strcmp(const char *__null_terminated, const char *__null_terminated);
+int strncmp(const char *__null_terminated, const char *__null_terminated,
+            __safec_size_t);
+char *strchr(const char *__null_terminated, int);
+char *strrchr(const char *__null_terminated, int);
+char *strstr(const char *__null_terminated, const char *__null_terminated);
+char *strcpy(char *, const char *__null_terminated);
+char *strcat(char *, const char *__null_terminated);
+char *strdup(const char *__null_terminated);
+int puts(const char *__null_terminated);
+int atoi(const char *__null_terminated);
+long atol(const char *__null_terminated);
+double atof(const char *__null_terminated);
+char *getenv(const char *__null_terminated);
+#endif
+
 /* __unsafe marks a block or a function in which Safe C's own rules are not
    enforced: `__unsafe { ... }` or `__unsafe int f(void) { ... }`. Elsewhere
    it expands to nothing, and `__unsafe { ... }` is an ordinary block. */

@@ -10,7 +10,9 @@
 // off-no-diagnostics
 #include <ptrcheck.h>
 typedef __SIZE_TYPE__ size_t;
-void take(const char *__null_terminated s); // expected-note {{passing argument to parameter}}
-void pass(const char *__counted_by(n) buf, size_t n) {
-  take(buf); // expected-error {{is an unsafe operation}}
+struct S { const char *__null_terminated name; };
+// A stored terminated pointer still needs the explicit conversion (only call
+// arguments get the implicit checked one).
+void store(struct S *s, const char *__counted_by(n) buf, size_t n) {
+  s->name = buf; // expected-error {{is an unsafe operation}}
 }

@@ -8931,6 +8931,47 @@ ExprResult InitializationSequence::Perform(Sema &S,
           Entity.getKind() == InitializedEntity::EK_Parameter_CF_Audited);
       if (Result.isInvalid())
         return ExprError();
+
+      // Safe C: passing a pointer that carries bounds (`char buf[N]`, a
+      // __counted_by pointer) where a __null_terminated parameter is expected
+      // is the most common thing C does (strlen(buf), printf("%s", buf)).
+      // Instead of demanding an explicit conversion, insert the checked one:
+      // it scans for the terminator within the bounds and traps if there is
+      // none. Only for call arguments: the string is valid at the call, and a
+      // longer-lived terminated pointer (a field, a global) keeps the explicit
+      // rule, because writes through the original pointer could later erase
+      // the terminator.
+      if (S.getLangOpts().SafeC && Entity.isParameterKind() &&
+          ConvTy ==
+              AssignConvertType::
+                  IncompatibleNonValueTerminatedToValueTerminatedPointer) {
+        const auto *VTT = Step->Type->getAs<ValueTerminatedType>();
+        // An array argument (char buf[N]) has not decayed yet; decaying it
+        // gives the bounds-carrying pointer the conversion needs.
+        // Result already carries an implicit cast to the parameter type; start
+        // from the argument as written.
+        ExprResult Src =
+            S.DefaultFunctionArrayLvalueConversion(InitialCurInit.get());
+        const auto *SrcPT = Src.isUsable()
+                                ? Src.get()->getType()->getAs<PointerType>()
+                                : nullptr;
+        if (VTT && SrcPT &&
+            (SrcPT->isIndexable() || SrcPT->isBidiIndexable())) {
+          SourceLocation Loc = Src.get()->getExprLoc();
+          ExprResult Conv = S.BuildTerminatedByFromIndexableExpr(
+              VTT->getTerminatorExpr(), Src.get(),
+              /*PointerToTerminatorExpr=*/nullptr, Loc, Loc);
+          if (Conv.isUsable()) {
+            ExprResult Retry = Conv;
+            AssignConvertType RetryTy = S.CheckSingleAssignmentConstraints(
+                Step->Type, Retry, true, false);
+            if (Retry.isUsable() && RetryTy == AssignConvertType::Compatible) {
+              Result = Retry;
+              ConvTy = RetryTy;
+            }
+          }
+        }
+      }
       CurInit = Result;
 
       /* TO_UPSTREAM(BoundsSafety) ON*/
