@@ -27,6 +27,10 @@ unity.c, the test harness, is compiled as plain C.
   `cJSON_ReplaceItemViaPointer` and `reallocate_bytes`, each found by the compiler
   ("frees its parameter, but callers are not told"). Using a tree after
   `cJSON_Delete` is now a compile error, including frees through the user's hooks.
+- `lifetimebound`: 5 parameters (functions that return their argument or a
+  pointer into it: the whitespace and BOM skippers, two const-cast helpers,
+  `cJSON_DetachItemViaPointer`). Getters that return a child loaded from a
+  field (`cJSON_GetObjectItem`) are not flagged yet: fields are the open gap.
 - `sprintf`/`strcpy` into counted buffers became `snprintf`/`memcpy`.
 - `strncmp` on input slices became `memcmp` (same gap as jsmn).
 

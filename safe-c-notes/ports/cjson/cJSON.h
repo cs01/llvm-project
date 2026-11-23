@@ -238,7 +238,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToArray(cJSON *_Nullable array, c
 CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToObject(cJSON *_Nullable object, const char *_Nullable string, cJSON *_Nullable item);
 
 /* Remove/Detach items from Arrays/Objects. */
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemViaPointer(cJSON *_Nullable parent, cJSON *_Nullable const item);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemViaPointer(cJSON *_Nullable parent, cJSON *_Nullable const item __safec_lifetimebound);
 CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromArray(cJSON *_Nullable array, int which);
 CJSON_PUBLIC(void) cJSON_DeleteItemFromArray(cJSON *_Nullable array, int which);
 CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromObject(cJSON *_Nullable object, const char *_Nullable string);

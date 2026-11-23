@@ -14,7 +14,8 @@ pass under Safe C, Apple clang and gcc. Same source, no `#ifdef SAFE_C`.
 | `const char *__counted_by(len) js` (the input text) | 4 |
 | `jsmntok_t *_Nullable __counted_by_or_null(num_tokens) tokens` | 3 |
 | `jsmntok_t *__counted_by(num_tokens)` + `_Nullable` return on `jsmn_alloc_token` | 1 |
-| macro fallbacks so the header builds without Safe C | 8 lines |
+| `__safec_lifetimebound` on `jsmn_alloc_token`'s `tokens` (it returns `&tokens[i]`) | 1 |
+| macro fallbacks so the header builds without Safe C | 11 lines |
 
 No code changes. Every index into `js` and `tokens` is now bounds-checked.
 

@@ -1154,7 +1154,7 @@ static cJSON_bool parse_object(cJSON * const item, parse_buffer * const input_bu
 static cJSON_bool print_object(const cJSON * const item, printbuffer * const output_buffer);
 
 /* Utility to jump whitespace and cr/lf */
-static parse_buffer *_Nullable buffer_skip_whitespace(parse_buffer * const buffer)
+static parse_buffer *_Nullable buffer_skip_whitespace(parse_buffer * const buffer __safec_lifetimebound)
 {
     if ((buffer == NULL) || (buffer->content == NULL))
     {
@@ -1180,7 +1180,7 @@ static parse_buffer *_Nullable buffer_skip_whitespace(parse_buffer * const buffe
 }
 
 /* skip the UTF-8 BOM (byte order mark) if it is at the beginning of a buffer */
-static parse_buffer *_Nullable skip_utf8_bom(parse_buffer * const buffer)
+static parse_buffer *_Nullable skip_utf8_bom(parse_buffer * const buffer __safec_lifetimebound)
 {
     if ((buffer == NULL) || (buffer->content == NULL) || (buffer->offset != 0))
     {
@@ -2153,12 +2153,12 @@ CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToArray(cJSON *array, cJSON *item)
 #endif
 /* helpers to cast away const; typed, because a round trip through void *
    would drop the bounds and the type */
-static char *_Nullable __null_terminated cast_away_const_string(const char *_Nullable __null_terminated string)
+static char *_Nullable __null_terminated cast_away_const_string(const char *_Nullable __null_terminated string __safec_lifetimebound)
 {
     return (char*)string;
 }
 
-static cJSON *_Nullable cast_away_const_item(const cJSON *_Nullable item)
+static cJSON *_Nullable cast_away_const_item(const cJSON *_Nullable item __safec_lifetimebound)
 {
     return (cJSON*)item;
 }
