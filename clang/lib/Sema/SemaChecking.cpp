@@ -3227,13 +3227,12 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
                                CallExpr *TheCall) {
   ExprResult TheCallResult(TheCall);
 
-  // Safe C: these let the optimizer assume a condition and delete the checks
-  // that depend on it.
+  // Safe C: this lets the optimizer assume two pointers never alias, which
+  // nothing checks. (__builtin_assume and __builtin_unreachable are checked
+  // instead: CodeGen traps when the assumption is false or the point is
+  // reached, as Rust's assert! and unreachable! panic.)
   if (getLangOpts().SafeC)
     switch (BuiltinID) {
-    case Builtin::BI__assume:
-    case Builtin::BI__builtin_assume:
-    case Builtin::BI__builtin_unreachable:
     case Builtin::BI__builtin_assume_separate_storage:
       Diag(TheCall->getBeginLoc(), diag::warn_safe_c_escape)
           << ("'" + Context.BuiltinInfo.getName(BuiltinID) + "'");
@@ -5003,6 +5002,9 @@ static QualType safeCOriginalPointee(const Expr *E) {
   }
   if (const auto *PT = E->getType()->getAs<PointerType>())
     return PT->getPointeeType();
+  // An array argument (before or without decay) holds its elements.
+  if (const auto *AT = E->getType()->getAsArrayTypeUnsafe())
+    return AT->getElementType();
   return QualType();
 }
 
@@ -5025,64 +5027,97 @@ static bool safeCHoldsNoPointers(ASTContext &Ctx, QualType T) {
   return true;
 }
 
-/// Safe C: memcpy, memset, read and friends write raw bytes through 'void *'.
-/// Into memory that holds pointers, those bytes are forged pointers unless
-/// they come from the same type (memcpy/memmove) or are zero (memset).
+/// The C library name behind a call, without the fortify and bounds-safety
+/// wrappers: __builtin___memcpy_chk, __bzero_ptrcheck and memcpy name
+/// "memcpy", "bzero" and "memcpy".
+static StringRef safeCLibcName(const FunctionDecl *FD) {
+  if (!FD->getIdentifier())
+    return StringRef();
+  StringRef N = FD->getName();
+  N.consume_front("__builtin_");
+  N = N.ltrim('_');
+  if (!N.consume_back("_ptrcheck") && !N.consume_back("_ptrchk"))
+    N.consume_back("_chk");
+  return N;
+}
+
+/// Safe C: raw bytes written into memory that holds pointers forge pointers.
+/// Any call that passes such memory to a writable 'void *' parameter is
+/// checked by what the callee does with it: a copy must come from the same
+/// type, a fill must be zero, and anything else (read, recv, fread,
+/// arc4random_buf, ...) is an error. The match is on the parameter, not on a
+/// list of names, so wrappers and unknown functions are covered too.
 static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
-                                const FunctionDecl *FD, unsigned CMId) {
+                                const FunctionDecl *FD, unsigned) {
   if (S.SourceMgr.isInSystemHeader(TheCall->getExprLoc()))
     return;
+  StringRef Name = safeCLibcName(FD);
+  // These never write bytes of their own into the block: the allocator, and
+  // sorts that move whole elements.
+  if (llvm::is_contained({"free", "realloc", "reallocf", "qsort", "qsort_r",
+                          "qsort_b", "mergesort", "heapsort"},
+                         Name))
+    return;
   enum { Copy, Fill, Read };
-  int Kind;
-  unsigned DestArg = 0;
-  switch (CMId) {
-  case Builtin::BImemcpy:
-  case Builtin::BImemmove:
-  case Builtin::BImempcpy:
-    Kind = Copy;
-    break;
-  case Builtin::BImemset:
-    Kind = Fill;
-    break;
-  default: {
-    StringRef Name = FD->getIdentifier() && FD->isExternC() ? FD->getName()
-                                                            : StringRef();
-    if (Name == "fread" || Name == "fgets")
-      Kind = Read;
-    else if (Name == "read" || Name == "pread" || Name == "recv" ||
-             Name == "recvfrom") {
-      Kind = Read;
-      DestArg = 1;
-    } else {
-      return;
+  unsigned N = std::min(TheCall->getNumArgs(), FD->getNumParams());
+  for (unsigned I = 0; I != N; ++I) {
+    QualType PT = FD->getParamDecl(I)->getType();
+    const auto *PP = PT->getAs<PointerType>();
+    if (!PP || !PP->getPointeeType()->isVoidType() ||
+        PP->getPointeeType().isConstQualified())
+      continue;
+    QualType Dest = safeCOriginalPointee(TheCall->getArg(I));
+    if (Dest.isNull() || safeCHoldsNoPointers(S.Context, Dest))
+      continue;
+    // A parameter the function takes ownership of is freed, not written.
+    if (llvm::any_of(FD->specific_attrs<OwnershipAttr>(),
+                     [&](const OwnershipAttr *A) {
+                       return A->isTakes() &&
+                              llvm::any_of(A->args(), [&](const ParamIdx &P) {
+                                return P.getASTIndex() == I;
+                              });
+                     }))
+      continue;
+    int Kind = Read;
+    int SrcArg = -1;
+    if (Name == "memcpy" || Name == "memmove" || Name == "mempcpy") {
+      Kind = Copy;
+      SrcArg = I == 0 ? 1 : -1;
+    } else if (Name == "bcopy") {
+      Kind = Copy;
+      SrcArg = I == 1 ? 0 : -1;
+    } else if (Name == "memset" || Name == "bzero" ||
+               Name == "explicit_bzero" || Name == "memset_s") {
+      Kind = Fill;
     }
+    if (Kind == Copy && SrcArg >= 0 && unsigned(SrcArg) < N) {
+      QualType Src = safeCOriginalPointee(TheCall->getArg(SrcArg));
+      if (!Src.isNull() &&
+          S.Context.hasSameUnqualifiedType(S.Context.getCanonicalType(Src),
+                                           S.Context.getCanonicalType(Dest)))
+        continue;
+      S.Diag(TheCall->getArg(SrcArg)->getExprLoc(),
+             diag::warn_safe_c_byte_write)
+          << Kind << Dest << (Src.isNull() ? S.Context.VoidTy : Src)
+          << TheCall->getArg(I)->getSourceRange();
+      continue;
+    }
+    if (Kind == Fill) {
+      // bzero and explicit_bzero always write zero; memset's value is arg 1.
+      Expr::EvalResult R;
+      if (Name == "bzero" || Name == "explicit_bzero" ||
+          (TheCall->getNumArgs() > 1 &&
+           TheCall->getArg(Name == "memset_s" ? 2 : 1)
+               ->EvaluateAsInt(R, S.Context) &&
+           R.Val.getInt().isZero()))
+        continue;
+    }
+    if (Kind == Copy)
+      Kind = Read; // the destination is not the first argument
+    S.Diag(TheCall->getArg(I)->getExprLoc(), diag::warn_safe_c_byte_write)
+        << Kind << Dest << S.Context.VoidTy
+        << TheCall->getArg(I)->getSourceRange();
   }
-  }
-  if (TheCall->getNumArgs() <= DestArg + (Kind == Read ? 0 : 1))
-    return;
-  QualType Dest = safeCOriginalPointee(TheCall->getArg(DestArg));
-  if (Dest.isNull() || safeCHoldsNoPointers(S.Context, Dest))
-    return;
-  if (Kind == Copy) {
-    QualType Src = safeCOriginalPointee(TheCall->getArg(1));
-    if (!Src.isNull() &&
-        S.Context.hasSameUnqualifiedType(S.Context.getCanonicalType(Src),
-                                         S.Context.getCanonicalType(Dest)))
-      return;
-    S.Diag(TheCall->getArg(1)->getExprLoc(), diag::warn_safe_c_byte_write)
-        << Kind << Dest << (Src.isNull() ? S.Context.VoidTy : Src)
-        << TheCall->getArg(DestArg)->getSourceRange();
-    return;
-  }
-  if (Kind == Fill) {
-    Expr::EvalResult R;
-    if (TheCall->getArg(1)->EvaluateAsInt(R, S.Context) &&
-        R.Val.getInt().isZero())
-      return;
-  }
-  S.Diag(TheCall->getArg(DestArg)->getExprLoc(), diag::warn_safe_c_byte_write)
-      << Kind << Dest << S.Context.VoidTy
-      << TheCall->getArg(DestArg)->getSourceRange();
 }
 
 /// Safe C: a pointer with bounds passed to an '__unsafe_indexable' parameter
