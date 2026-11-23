@@ -4,7 +4,7 @@
 
 // RUN: %clang -### -fsafe-c -c %s 2>&1 | FileCheck %s --check-prefix=ON
 // ON: "-fbounds-safety"
-// ON: "-fsafe-c" "-include" "safec.h" "-ftrivial-auto-var-init=zero" "-fwrapv" "-fsanitize=integer-divide-by-zero,signed-integer-overflow,shift-exponent" "-fsanitize-trap=integer-divide-by-zero,signed-integer-overflow,shift-exponent"
+// ON: "-fsafe-c" "-include" "safec.h" "-ftrivial-auto-var-init=zero" "-fwrapv"
 // ON: "-fnullability-safety"
 // ON: "-fnullability-default=nonnull"
 // ON: "-Werror=nullability-safety"
@@ -24,4 +24,22 @@
 // RUN: %clang -### -fsafe-c -fbounds-safety -fnullability-default=nonnull -c %s 2>&1 \
 // RUN:   | FileCheck %s --check-prefix=ON
 
-// RUN: %clang -### -fsafe-c -fno-safe-c -c %s 2>&1 | FileCheck %s --check-prefix=OFF
+
+
+// Flags found by the 2026-11-23 review that turn checks off are rejected too,
+// including through -Xclang, and -fno-safe-c cannot follow -fsafe-c.
+// RUN: not %clang -### -fsafe-c -ftrap-function=f -fbounds-safety-soft-traps=call-minimal \
+// RUN:   -fno-nullability-libc-nullable-returns -ftrivial-auto-var-init=pattern \
+// RUN:   -Xclang -ftrivial-auto-var-init=uninitialized -c %s 2>&1 | FileCheck %s --check-prefix=MORE
+// MORE-DAG: error: invalid argument '-ftrap-function=f' not allowed with '-fsafe-c'
+// MORE-DAG: error: invalid argument '-fbounds-safety-soft-traps=call-minimal' not allowed with '-fsafe-c'
+// MORE-DAG: error: invalid argument '-fno-nullability-libc-nullable-returns' not allowed with '-fsafe-c'
+// MORE-DAG: error: invalid argument '-ftrivial-auto-var-init=pattern' not allowed with '-fsafe-c'
+// MORE-DAG: error: invalid argument '-Xclang -ftrivial-auto-var-init=uninitialized' not allowed with '-fsafe-c'
+// RUN: not %clang -### -fsafe-c -fno-safe-c -c %s 2>&1 | FileCheck %s --check-prefix=NOSAFE
+// NOSAFE: error: invalid argument '-fno-safe-c' not allowed with '-fsafe-c'
+
+// null and vla-bound traps, and const string literals.
+// RUN: %clang -### -fsafe-c -c %s 2>&1 | FileCheck %s --check-prefix=TRAPS
+// TRAPS: "-fsanitize=integer-divide-by-zero,signed-integer-overflow,shift-exponent,null,vla-bound"
+// TRAPS: "-fconst-strings"

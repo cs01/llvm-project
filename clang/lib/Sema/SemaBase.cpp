@@ -77,6 +77,12 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
       Group == "conditional-uninitialized" ||
       Group == "uninitialized-const-pointer")
     return true;
+  // Falling off the end of a non-void function returns garbage the caller may
+  // use as a pointer. Dropping const (a string literal is const under
+  // -fsafe-c) would let code write memory that must not be written.
+  if (Group == "return-type" ||
+      Group == "incompatible-pointer-types-discards-qualifiers")
+    return true;
   return Group.starts_with("nullability-safety") ||
          Group == "safe-c-void-cast" ||
          Group.starts_with(

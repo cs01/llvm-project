@@ -8319,13 +8319,47 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
   // -fno-bounds-safety is given.
   const bool SafeC =
       Args.hasFlag(options::OPT_fsafe_c, options::OPT_fno_safe_c, false);
+  // -fno-safe-c after -fsafe-c would silently drop every check; a build that
+  // asked for Safe C anywhere gets it or an error.
+  if (Args.hasArg(options::OPT_fsafe_c))
+    if (const Arg *A = Args.getLastArg(options::OPT_fno_safe_c))
+      D.Diag(diag::err_drv_argument_not_allowed_with)
+          << A->getAsString(Args) << "-fsafe-c";
   // Safe C cannot be weakened from the command line; the only escape is an
   // __unsafe region in the source, which a reviewer can see.
   if (SafeC) {
-    for (const Arg *A : Args.filtered(options::OPT_fno_bounds_safety,
-                                      options::OPT_fno_nullability_safety))
+    for (const Arg *A : Args.filtered(
+             options::OPT_fno_bounds_safety,
+             options::OPT_fno_nullability_safety,
+             // Each of these turns a trap into a call or removes a check.
+             options::OPT_ftrap_function_EQ,
+             options::OPT_fbounds_safety_soft_traps_EQ,
+             options::OPT_fno_bounds_safety_bringup_missing_checks,
+             options::OPT_fno_bounds_safety_bringup_missing_checks_EQ,
+             options::OPT_fno_nullability_libc_nullable_returns,
+             options::OPT_fno_nullability_libc_nonnull_params))
       D.Diag(diag::err_drv_argument_not_allowed_with)
           << A->getAsString(Args) << "-fsafe-c";
+    if (const Arg *A = Args.getLastArg(options::OPT_ftrivial_auto_var_init))
+      if (StringRef(A->getValue()) != "zero")
+        D.Diag(diag::err_drv_argument_not_allowed_with)
+            << A->getAsString(Args) << "-fsafe-c";
+    // -Xclang values reach cc1 after the flags -fsafe-c adds, so the last one
+    // would win; reject the ones that undo Safe C.
+    for (const Arg *A : Args.filtered(options::OPT_Xclang)) {
+      StringRef V = A->getValue();
+      if (V.starts_with("-fno-bounds-safety") ||
+          V.starts_with("-fno-nullability") ||
+          V.starts_with("-fnullability-default=") ||
+          V.starts_with("-ftrivial-auto-var-init=") ||
+          V.starts_with("-fno-sanitize") ||
+          V.starts_with("-fsanitize-recover") ||
+          V.starts_with("-ftrap-function") ||
+          V.starts_with("-fbounds-safety-soft-traps") || V == "-fno-safe-c" ||
+          V == "-fno-wrapv" || V == "-fno-const-strings")
+        D.Diag(diag::err_drv_argument_not_allowed_with)
+            << ("-Xclang " + V).str() << "-fsafe-c";
+    }
     if (const Arg *A = Args.getLastArg(options::OPT_fnullability_default_EQ))
       if (StringRef(A->getValue()) != "nonnull")
         D.Diag(diag::err_drv_argument_not_allowed_with)
@@ -8528,10 +8562,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
     // the first write is a defined zero, not undefined behavior.
     CmdArgs.push_back("-ftrivial-auto-var-init=zero");
     CmdArgs.push_back("-fwrapv");
+    // null: a pointer slot that is still zero (an array of pointers, a field,
+    // calloc memory) is typed nonnull but may hold null; trap on the access,
+    // including through a large offset from null. vla-bound: a VLA size that
+    // is not positive.
     CmdArgs.push_back("-fsanitize=integer-divide-by-zero,signed-integer-"
-                      "overflow,shift-exponent");
+                      "overflow,shift-exponent,null,vla-bound");
     CmdArgs.push_back("-fsanitize-trap=integer-divide-by-zero,signed-integer-"
-                      "overflow,shift-exponent");
+                      "overflow,shift-exponent,null,vla-bound");
+    // String literals are const: writing one is undefined behavior.
+    CmdArgs.push_back("-fconst-strings");
   }
   if (Args.hasFlag(options::OPT_fnullability_safety,
                    options::OPT_fno_nullability_safety, SafeC))
