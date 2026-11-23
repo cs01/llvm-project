@@ -74,7 +74,7 @@ Even where Clang has a feature, a set of flags does not give a guarantee:
 - **The defaults are wrong.** Upstream, an unannotated pointer means "unknown".
   Under `-fsafe-c` it means non-null and exactly one element, so forgetting an
   annotation is a compile error, not a hole.
-- **The escape hatch must be visible.** The only way out will be `__unsafe { }` in the
+- **The escape hatch must be visible.** The only way out is `__unsafe { }` in the
   source, where a reviewer can see and search for it.
 
 ## Standards and portability
@@ -158,7 +158,7 @@ free(p);
 | Integer UB | signed overflow, shifts, division by zero trap | Clang's trapping sanitizers | planned |
 | Calls into unannotated C | only from `__unsafe` | this fork | planned |
 | Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned |
-| Escape hatch | `__unsafe { }` regions | this fork | planned |
+| Escape hatch | `__unsafe { }` blocks and `__unsafe` functions lift Safe C's rules; bounds violations still need Apple's explicit `__unsafe_forge_*` forms | this fork | works |
 
 ## What you annotate
 
