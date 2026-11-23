@@ -150,3 +150,13 @@ Safe C rules on purpose in its good variants too: type-confusion casts from `voi
 (the CWE 135 family), `alloca` (whose result bounds safety marks unchecked), sink
 parameters left unannotated and passed to annotated libc functions. That is the
 annotation-burden question the annotated mode has to answer.
+
+## CWE 457 uninitialized reads, after the definite-initialization rule (2026-11-23)
+
+strict 20.9% (was 14.0%): uninitialized scalar locals are now compile errors. The misses:
+
+- stack arrays and partly initialized structs (~127 cases): `-fsafe-c` zero-initializes
+  locals the analysis does not track, so the read returns 0. No undefined behavior, but
+  neither a trap nor an error, so Juliet counts them as missed. Safe as designed.
+- arrays from `malloc` (~108 cases): heap memory is neither zeroed nor tracked. A real
+  gap. Planned fix: under `-fsafe-c`, `malloc` allocates zeroed memory (as `calloc`).
