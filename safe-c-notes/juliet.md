@@ -116,3 +116,16 @@ malloc results (CWE 690 itself). 12 good cases trap at run time: variants 21/34/
 route the buffer through a global, union, return value or struct field, which is
 unannotated and so one element; the good code then indexes past it. Safe, but a
 compile-time error naming the missing `__counted_by` would be better than a trap.
+
+## Two more gate fixes (2026-11-23)
+
+1. **Platform traps.** macOS malloc stops a double free with a trap instruction, the
+   same SIGTRAP a compiler check raises. A first full run credited Safe C with 181
+   "caught" CWE 415 cases it has no check for. Now every trapped bad case is rebuilt
+   without the flags under test (`--baseline-cc`, default /usr/bin/clang) and run
+   again; if the plain build traps the same way, the trap is the platform's and the
+   case scores as missed.
+2. **Strict score.** A file-level error (a shared helper, `main`, a type-confusion cast
+   the good variant also makes) rejects bad() and good() alike, which says nothing about
+   the bug. `strict%` counts only cases whose good() is accepted: of those, the share
+   whose bad() is caught. `bad%` stays for comparison; `strict%` is the number to quote.

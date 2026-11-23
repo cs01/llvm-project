@@ -10,6 +10,8 @@ const extra = (opt("flags", "") as string).split(/\s+/).filter(Boolean);
 // sysflags (e.g. -isysroot) apply to every compile and link; flags only to test-case sources,
 // so the support files build like an unannotated system library would.
 const sys = (opt("sysflags", "") as string).split(/\s+/).filter(Boolean);
+// Compiler for the plain reference builds (see build()).
+const baselineCc = (opt("baseline-cc", "/usr/bin/clang") as string);
 const cwes = (opt("cwe", "476,121,122,416,415,457,190,124,126,127,690") as string).split(",").map(s => s.trim());
 const doRun = args.includes("--run");
 const limit = opt("limit") ? parseInt(opt("limit")!) : Infinity;
@@ -64,17 +66,22 @@ const base = ["-I", SUP, "-DINCLUDEMAIN", ...sys, ...extra];
 const supBase = ["-w", "-I", SUP, ...sys];
 const firstError = (s: string) => (s.split("\n").find(l => /error|undefined|ld:/.test(l)) ?? s.split("\n")[0] ?? "").trim().slice(0, 300);
 
-async function build(c: Case, variant: "bad" | "good", dir: string, support: string[]) {
+// plain = true builds without the flags under test (and with the baseline
+// compiler), to tell a compiler-inserted trap from one the platform raises on
+// its own (macOS malloc traps on double free, for example).
+async function build(c: Case, variant: "bad" | "good", dir: string, support: string[], plain = false) {
   const def = variant === "bad" ? "-DOMITGOOD" : "-DOMITBAD";
   const objs: string[] = [];
+  const compiler = plain ? baselineCc : cc!;
+  const flags = plain ? ["-I", SUP, "-DINCLUDEMAIN", ...sys] : base;
   for (const [i, f] of c.files.entries()) {
-    const o = join(dir, `${variant}${i}.o`);
-    const r = await sh([cc!, ...base, def, "-I", dirname(f), "-c", f, "-o", o]);
+    const o = join(dir, `${plain ? "plain-" : ""}${variant}${i}.o`);
+    const r = await sh([compiler, ...flags, def, "-I", dirname(f), "-c", f, "-o", o]);
     if (r.code !== 0) return { stage: "compile" as const, err: firstError(r.err) };
     objs.push(o);
   }
-  const exe = join(dir, variant);
-  const r = await sh([cc!, ...sys, ...objs, ...support, "-lm", "-lpthread", "-o", exe]);
+  const exe = join(dir, (plain ? "plain-" : "") + variant);
+  const r = await sh([compiler, ...sys, ...objs, ...support, "-lm", "-lpthread", "-o", exe]);
   if (r.code !== 0) return { stage: "link" as const, err: firstError(r.err) };
   return { stage: "ok" as const, exe, err: "" };
 }
@@ -83,7 +90,7 @@ async function runExe(exe: string, cwd: string, cwe: string) {
   // Juliet bad paths read their bad value from stdin (fgets/fscanf): a zero
   // divisor for CWE 369, an out-of-range index or size for the buffer CWEs.
   const input = (cwe === "369" ? "0\n" : "100\n").repeat(64);
-  const r = await sh([exe], { cwd, timeoutMs: 5000, input });
+  const r = await sh([ exe ], {cwd, timeoutMs : 5000, input});
   return { signal: r.timedOut ? "TIMEOUT" : r.signal, code: r.code };
 }
 
@@ -102,6 +109,14 @@ async function doCase(c: Case, ioObj: string, thrObj: string) {
     // Only compiler-inserted traps count (brk -> SIGTRAP, ud2 -> SIGILL). A SIGSEGV or
     // SIGABRT is the UB happening to crash, not a safety check, so it scores as missed.
     if (r.signal === "SIGTRAP" || r.signal === "SIGILL") { res.bad = "trapped"; res.badSignal = r.signal; } else { res.bad = "missed"; res.badExit = r.signal ?? r.code; }
+    // A trap the plain build also hits is the platform's, not ours.
+    if (res.bad === "trapped") {
+      const p = await build(c, "bad", dir, support, true);
+      if (p.stage === "ok") {
+        const pr = await runExe(p.exe!, dir, c.cwe);
+        if (pr.signal === r.signal) { res.bad = "missed"; res.badExit = "platform " + r.signal; }
+      }
+    }
   }
   const g = await build(c, "good", dir, support);
   if (g.stage !== "ok") { res.good = "false-positive"; res.goodErr = `${g.stage}: ${g.err}`; }
@@ -134,13 +149,17 @@ await Promise.all(Array.from({ length: jobs }, async () => {
 rmSync(BUILD, { recursive: true, force: true });
 
 const pct = (a: number, b: number) => (b ? (100 * a / b).toFixed(1) + "%" : "-");
-const rows: string[][] = [["CWE", "cases", "rej", "trap", "miss", "other", "g.acc", "g.fp", "bad%", "good%"]];
+// strict%: of the cases whose good() is accepted, the share whose bad() is
+// caught. A rejection that also rejects good() says nothing about the bug.
+const rows: string[][] = [["CWE", "cases", "rej", "trap", "miss", "other", "g.acc", "g.fp", "bad%", "good%", "strict%"]];
 for (const w of cwes) {
   const rs = results.filter(r => r.cwe === w); if (!rs.length) continue;
   const n = (k: string, v: string) => rs.filter(r => r[k] === v).length;
   const rej = n("bad", "rejected"), tr = n("bad", "trapped"), ms = n("bad", "missed");
   const acc = n("good", "accepted");
-  rows.push([w, String(rs.length), String(rej), String(tr), String(ms), String(rs.length - rej - tr - ms), String(acc), String(n("good", "false-positive")), pct(rej + tr, rs.length), pct(acc, rs.length)]);
+  const pairs = rs.filter(r => r.good === "accepted");
+  const strict = pairs.filter(r => r.bad === "rejected" || r.bad === "trapped").length;
+  rows.push([w, String(rs.length), String(rej), String(tr), String(ms), String(rs.length - rej - tr - ms), String(acc), String(n("good", "false-positive")), pct(rej + tr, rs.length), pct(acc, rs.length), pct(strict, pairs.length)]);
 }
 const wd = rows[0].map((_, i) => Math.max(...rows.map(r => r[i].length)));
 for (const r of rows) console.log(r.map((c, i) => c.padStart(wd[i])).join("  "));
