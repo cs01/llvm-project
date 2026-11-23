@@ -41,8 +41,8 @@ and an adversarial audit whose failing probes are in
 | Null dereference | non-null by default; `_Nullable` must be checked before use, tracked through each function | this fork | works |
 | Use after free, double free | Clang's lifetime analysis always on, as errors; `ownership_takes`/`ownership_returns`/`lifetimebound` at interfaces, checked against bodies | Clang's lifetime safety (usx95), this fork | local variables and annotated calls only; pointers stored in fields, arrays, globals or struct copies are not tracked |
 | Uninitialized reads | a maybe-uninitialized local is an error; stack aggregates and `malloc` memory start zeroed | Clang's uninitialized analysis, `-ftrivial-auto-var-init` | works |
-| Type confusion | pointer casts only to `void *`, to the same type, or between types without pointers; unions likewise; no integer-to-pointer; `printf`/`scanf` arguments checked | this fork, rule from the Lean model | casts and unions work; raw byte writes over pointers (`memcpy` with SDK headers, `arc4random_buf`), `va_arg`, `%s` over-reads and mismatched declarations across files are open |
-| Unchecked libc | `strcpy`, `sprintf`, `gets` unavailable; a bounded pointer cannot go to an unchecked parameter | Apple's libc annotations, this fork | works for annotated parameters; `printf("%s")` arguments and `FILE` lifetimes are open |
+| Type confusion | pointer casts only to `void *`, to the same type, or between types without pointers; no cast removes `const`; bytes never become pointers or `_Bool` (`memcpy`, `read`, `arc4random_buf` included); unions likewise; no integer-to-pointer; `printf`/`scanf` checked, `%s` buffers checked for a terminator; `va_arg` only in `__unsafe`; a symbol declared with another type in another file does not link | this fork, rule from the Lean model | works |
+| Unchecked libc | `strcpy`, `sprintf`, `gets` unavailable; a bounded pointer cannot go to an unchecked parameter; `FILE`/`DIR` handles are owned like memory; `setjmp`/`longjmp` only in `__unsafe` | Apple's libc annotations, this fork | works |
 | Integer UB | signed overflow wraps (as in Rust release builds); division by zero and oversized shifts trap | `-fwrapv`, Clang's trapping sanitizers | works |
 | Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned; a race on a pointer and its count breaks bounds checks today |
 | Weakening | weakening flags rejected; safety errors cannot be lowered by `-Wno-` or pragmas; a file cannot declare itself a system header; lying `pure`/`const`/`alloc_size` rejected | this fork | works, except that `-isystem` marks any directory as trusted |
@@ -178,13 +178,16 @@ int sum(const int *__counted_by(n) a, size_t n) {
 }
 ```
 
-### Use after free (planned)
+### Use after free
 
 ```c
-int *p = malloc(sizeof(int));
-free(p);
-*p = 1;                         // will be: error: use of 'p' after it was freed
+int *p = malloc(sizeof(int));   // error: object allocated by 'malloc' does not live long enough
+free(p);                        // note: freed here
+*p = 1;                         // note: later used here
 ```
+
+This works for local variables and through calls annotated `ownership_takes`. Through
+struct fields, arrays and globals it is not caught yet (see the status table).
 
 ## What you annotate
 
@@ -230,9 +233,22 @@ annotation burden, and the annotated mode will measure it.
 | 415 double free | 90.0% (all at compile time) |
 | 416 use after free | 100% (all at compile time) |
 
-Almost every remaining bounds miss uses a random index or a randomly taken branch, which
-no fixed input can trigger. Details and the harness's own fixes are in
-[safe-c-notes/juliet.md](safe-c-notes/juliet.md).
+**Why not 100%.** Bounds misses are almost all Juliet cases whose bug sits behind a
+random index or a randomly taken branch: Safe C traps when the bad access happens, but
+the harness's fixed input never makes it happen (and in CWE 122, 63 misses only overflow
+on 32-bit targets). The 12 double-free misses are real: the pointer travels through a
+function pointer, a global or a struct before the second free, which is the open
+struct-field gap. Use after free scores 100% because Juliet's cases flow through local
+variables; the audit probes through fields and globals still get past. Details and the
+harness's own fixes are in [safe-c-notes/juliet.md](safe-c-notes/juliet.md).
+
+**How Rust would compare** (by reasoning, not measured; we know of no Juliet run in safe
+Rust): null, use after free, uninitialized reads and data races are compile errors in
+Rust, soundly. Bounds are checked at run time in Rust too, so the random-index cases
+above would go unseen there as well, and signed overflow wraps in Rust release builds as
+it does here. Safe C matches Rust today on bounds, null, initialization and integers;
+Rust is ahead on use after free (sound for every pointer, where Safe C covers locals and
+annotated interfaces) and on data races, which Safe C does not address yet.
 
 **The Lean core.** [safe-c-lean/](safe-c-lean/) models the rules as a small calculus.
 `safe_c_sound` covers bounds, null, casts and integers; `own_sound` covers ownership.
