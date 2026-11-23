@@ -46,6 +46,10 @@ const P: Proj[] = [
   { name: "redis", dir: "redis", files: ["sds", "dict", "adlist", "quicklist", "listpack", "ziplist", "zmalloc"].map(f => `src/${f}.c`),
     headers: ["src/sds.h", "src/dict.h", "src/adlist.h", "src/quicklist.h", "src/listpack.h", "src/ziplist.h", "src/zmalloc.h"],
     inc: ["src", "deps/hdr_histogram", "deps/jemalloc/include"], defs: ["REDIS_STATIC="], notes: "7 files only" },
+  { name: "zstd", dir: "zstd", files: ["lib/common/*.c", "lib/compress/*.c", "lib/decompress/*.c", "lib/dictBuilder/*.c"],
+    headers: ["lib/*.h", "lib/**/*.h"], inc: ["lib", "lib/common"], notes: "library only (no legacy/deprecated)" },
+  { name: "openzl", dir: "openzl", files: ["src/openzl/**/*.c"], headers: ["include/**/*.h", "src/**/*.h"],
+    inc: [".", "include", "src"], notes: "core library (src/openzl), flags from compile_flags.txt" },
   { name: "bearssl", dir: "BearSSL", files: ["src/**/*.c"], headers: ["inc/*.h", "src/**/*.h"], inc: ["inc", "src"] },
 ];
 
