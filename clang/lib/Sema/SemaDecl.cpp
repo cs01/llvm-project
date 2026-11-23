@@ -16772,7 +16772,18 @@ void Sema::CheckThreadLocalForLargeAlignment(VarDecl *VD) {
   }
 }
 
+static void checkSafeCTakesInit(Sema &S, const Expr *Init, const Decl *Dst,
+                                QualType T);
+
 void Sema::FinalizeDeclaration(Decl *ThisDecl) {
+  // Safe C: file-scope initializers (struct hooks h = { my_free, ... }) are
+  // not in any function body; locals are checked with their function.
+  if (getLangOpts().SafeC)
+    if (auto *VD = dyn_cast_or_null<VarDecl>(ThisDecl);
+        VD && VD->hasGlobalStorage() && !VD->isLocalVarDecl() &&
+        VD->getInit() && !SourceMgr.isInSystemHeader(VD->getLocation()))
+      checkSafeCTakesInit(*this, VD->getInit(), VD, VD->getType());
+
   // Note that we are no longer parsing the initializer for this declaration.
   ParsingInitForAutoVars.erase(ThisDecl);
 
@@ -17927,16 +17938,55 @@ static void checkSafeCAllocatorBody(Sema &S, const FunctionDecl *FD,
 
 /// Safe C: whether \p FD takes ownership of (frees) parameter \p Idx
 /// (0-based), as the C library's free and realloc do.
-static bool safeCTakesParam(const FunctionDecl *FD, unsigned Idx) {
-  if (FD->isExternC() && FD->getIdentifier() && Idx == 0 &&
-      llvm::is_contained({"free", "realloc", "reallocf"}, FD->getName()))
-    return true;
-  for (const auto *OA : FD->specific_attrs<OwnershipAttr>())
+static bool safeCTakesParam(const Decl *D, unsigned Idx) {
+  if (const auto *FD = dyn_cast<FunctionDecl>(D))
+    if (FD->isExternC() && FD->getIdentifier() && Idx == 0 &&
+        llvm::is_contained({"free", "realloc", "reallocf"}, FD->getName()))
+      return true;
+  for (const auto *OA : D->specific_attrs<OwnershipAttr>())
     if (OA->isTakes())
       for (const ParamIdx &P : OA->args())
         if (P.getASTIndex() == Idx)
           return true;
   return false;
+}
+
+/// Safe C: a function that frees a parameter may be stored only into a
+/// function pointer whose declaration says so; calls through any other pointer
+/// would keep using the freed memory unseen. (The other way round is safe: a
+/// pointer declared to free makes its callers stop using the argument.)
+static void checkSafeCTakesStore(Sema &S, const Expr *Src, const Decl *Dst) {
+  if (!Src || !Dst)
+    return;
+  const auto *DRE = dyn_cast<DeclRefExpr>(Src->IgnoreParenImpCasts());
+  const auto *F = DRE ? dyn_cast<FunctionDecl>(DRE->getDecl()) : nullptr;
+  if (!F || isa<FunctionDecl>(Dst))
+    return;
+  for (unsigned I = 0, N = F->getNumParams(); I != N; ++I)
+    if (safeCTakesParam(F, I) && !safeCTakesParam(Dst, I)) {
+      S.Diag(DRE->getLocation(), diag::warn_safe_c_takes_lost)
+          << F << (I + 1) << cast<NamedDecl>(Dst);
+      return;
+    }
+}
+
+/// Initializers, including struct initializer lists, store into their fields.
+static void checkSafeCTakesInit(Sema &S, const Expr *Init, const Decl *Dst,
+                                QualType T) {
+  if (!Init)
+    return;
+  const auto *ILE = dyn_cast<InitListExpr>(Init->IgnoreParenImpCasts());
+  const RecordDecl *RD = T->getAsRecordDecl();
+  if (!ILE || !RD) {
+    checkSafeCTakesStore(S, Init, Dst);
+    return;
+  }
+  unsigned I = 0;
+  for (const FieldDecl *FD : RD->fields()) {
+    if (I >= ILE->getNumInits())
+      break;
+    checkSafeCTakesInit(S, ILE->getInit(I++), FD, FD->getType());
+  }
 }
 
 /// Safe C: the lifetime analysis trusts ownership_takes at call sites, so a
@@ -17950,7 +18000,8 @@ static void checkSafeCFreedParams(Sema &S, const FunctionDecl *FD,
     if (!St)
       return;
     if (const auto *CE = dyn_cast<CallExpr>(St))
-      if (const FunctionDecl *Callee = CE->getDirectCallee())
+      // A pointer callee (hooks->deallocate) counts through its declaration.
+      if (const Decl *Callee = CE->getCalleeDecl())
         for (unsigned I = 0, N = CE->getNumArgs(); I != N; ++I) {
           if (!safeCTakesParam(Callee, I))
             continue;
@@ -17970,6 +18021,25 @@ static void checkSafeCFreedParams(Sema &S, const FunctionDecl *FD,
           S.Diag(DRE->getLocation(), diag::warn_safe_c_frees_param)
               << FD << PVD << (PVD->getFunctionScopeIndex() + 1);
         }
+    // Storing a freeing function into a function pointer.
+    if (const auto *BO = dyn_cast<BinaryOperator>(St);
+        BO && BO->getOpcode() == BO_Assign) {
+      const Expr *L = BO->getLHS()->IgnoreParenImpCasts();
+      if (const auto *ME = dyn_cast<MemberExpr>(L))
+        checkSafeCTakesStore(S, BO->getRHS(), ME->getMemberDecl());
+      else if (const auto *LD = dyn_cast<DeclRefExpr>(L))
+        checkSafeCTakesStore(S, BO->getRHS(), LD->getDecl());
+    }
+    if (const auto *CE = dyn_cast<CallExpr>(St))
+      if (const FunctionDecl *Callee = CE->getDirectCallee())
+        for (unsigned I = 0,
+                      N = std::min(CE->getNumArgs(), Callee->getNumParams());
+             I != N; ++I)
+          checkSafeCTakesStore(S, CE->getArg(I), Callee->getParamDecl(I));
+    if (const auto *DS = dyn_cast<DeclStmt>(St))
+      for (const Decl *D : DS->decls())
+        if (const auto *VD = dyn_cast<VarDecl>(D))
+          checkSafeCTakesInit(S, VD->getInit(), VD, VD->getType());
     // Bounds safety hides calls inside opaque values, which have no children.
     if (const auto *OVE = dyn_cast<OpaqueValueExpr>(St))
       Walk(OVE->getSourceExpr());
