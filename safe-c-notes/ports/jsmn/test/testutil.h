@@ -1,26 +1,29 @@
 #ifndef __TEST_UTIL_H__
 #define __TEST_UTIL_H__
 
+#include "../safec.h" /* vendored; -fsafe-c also force-includes it */
 #include "../jsmn.h"
 
-static int vtokeq(const char *s, jsmntok_t *t, unsigned long numtok,
+static int vtokeq(const char *_Nullable s, jsmntok_t *__counted_by(numtok) t,
+                  unsigned long numtok,
                   va_list ap) {
   if (numtok > 0) {
     unsigned long i;
     int start, end, size;
     jsmntype_t type;
-    char *value;
+    char *_Nullable __null_terminated value;
 
     size = -1;
     value = NULL;
     for (i = 0; i < numtok; i++) {
       type = va_arg(ap, jsmntype_t);
       if (type == JSMN_STRING) {
-        value = va_arg(ap, char *);
+        /* va_arg cannot know what the caller passed. */
+        __unsafe { value = __unsafe_forge_null_terminated(char *, va_arg(ap, char *)); }
         size = va_arg(ap, int);
         start = end = -1;
       } else if (type == JSMN_PRIMITIVE) {
-        value = va_arg(ap, char *);
+        __unsafe { value = __unsafe_forge_null_terminated(char *, va_arg(ap, char *)); }
         start = end = size = -1;
       } else {
         start = va_arg(ap, int);
@@ -48,11 +51,15 @@ static int vtokeq(const char *s, jsmntok_t *t, unsigned long numtok,
       }
 
       if (s != NULL && value != NULL) {
-        const char *p = s + t[i].start;
+        const char *sb = __null_terminated_to_indexable(s);
+        const char *p = sb + t[i].start;
         if (strlen(value) != (unsigned long)(t[i].end - t[i].start) ||
-            strncmp(p, value, t[i].end - t[i].start) != 0) {
+            /* strncmp would want a terminator inside p's bounds; the slice
+               has none, and the length is known, so compare bytes. */
+            memcmp(p, __null_terminated_to_indexable(value),
+                   t[i].end - t[i].start) != 0) {
           printf("token %lu value is %.*s, not %s\n", i, t[i].end - t[i].start,
-                 s + t[i].start, value);
+                 sb + t[i].start, value);
           return 0;
         }
       }
@@ -61,7 +68,8 @@ static int vtokeq(const char *s, jsmntok_t *t, unsigned long numtok,
   return 1;
 }
 
-static int tokeq(const char *s, jsmntok_t *tokens, unsigned long numtok, ...) {
+static int tokeq(const char *_Nullable s, jsmntok_t *__counted_by(numtok) tokens,
+                 unsigned long numtok, ...) {
   int ok;
   va_list args;
   va_start(args, numtok);
@@ -76,9 +84,11 @@ static int parse(const char *s, int status, unsigned long numtok, ...) {
   va_list args;
   jsmn_parser p;
   jsmntok_t *t = malloc(numtok * sizeof(jsmntok_t));
+  if (t == NULL)
+    return 0;
 
   jsmn_init(&p);
-  r = jsmn_parse(&p, s, strlen(s), t, numtok);
+  r = jsmn_parse(&p, __null_terminated_to_indexable(s), strlen(s), t, numtok);
   if (r != status) {
     printf("status is %d, not %d\n", r, status);
     return 0;

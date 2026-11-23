@@ -26,6 +26,15 @@
 
 #include <stddef.h>
 
+/* Safe C annotations; they compile away on other compilers. */
+#if !defined(__counted_by)
+#define __counted_by(N)
+#define __counted_by_or_null(N)
+#endif
+#if !defined(__clang__)
+#define _Nullable
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -96,15 +105,19 @@ JSMN_API void jsmn_init(jsmn_parser *parser);
  * describing
  * a single JSON object.
  */
-JSMN_API int jsmn_parse(jsmn_parser *parser, const char *js, const size_t len,
-                        jsmntok_t *tokens, const unsigned int num_tokens);
+JSMN_API int jsmn_parse(jsmn_parser *parser,
+                        const char *__counted_by(len) js, const size_t len,
+                        jsmntok_t *_Nullable __counted_by_or_null(num_tokens)
+                            tokens,
+                        const unsigned int num_tokens);
 
 #ifndef JSMN_HEADER
 /**
  * Allocates a fresh unused token from the token pool.
  */
-static jsmntok_t *jsmn_alloc_token(jsmn_parser *parser, jsmntok_t *tokens,
-                                   const size_t num_tokens) {
+static jsmntok_t *_Nullable jsmn_alloc_token(
+    jsmn_parser *parser, jsmntok_t *__counted_by(num_tokens) tokens,
+    const size_t num_tokens) {
   jsmntok_t *tok;
   if (parser->toknext >= num_tokens) {
     return NULL;
@@ -132,9 +145,10 @@ static void jsmn_fill_token(jsmntok_t *token, const jsmntype_t type,
 /**
  * Fills next available token with JSON primitive.
  */
-static int jsmn_parse_primitive(jsmn_parser *parser, const char *js,
-                                const size_t len, jsmntok_t *tokens,
-                                const size_t num_tokens) {
+static int jsmn_parse_primitive(
+    jsmn_parser *parser, const char *__counted_by(len) js, const size_t len,
+    jsmntok_t *_Nullable __counted_by_or_null(num_tokens) tokens,
+    const size_t num_tokens) {
   jsmntok_t *token;
   int start;
 
@@ -190,9 +204,10 @@ found:
 /**
  * Fills next token with JSON string.
  */
-static int jsmn_parse_string(jsmn_parser *parser, const char *js,
-                             const size_t len, jsmntok_t *tokens,
-                             const size_t num_tokens) {
+static int jsmn_parse_string(
+    jsmn_parser *parser, const char *__counted_by(len) js, const size_t len,
+    jsmntok_t *_Nullable __counted_by_or_null(num_tokens) tokens,
+    const size_t num_tokens) {
   jsmntok_t *token;
 
   int start = parser->pos;
@@ -265,8 +280,11 @@ static int jsmn_parse_string(jsmn_parser *parser, const char *js,
 /**
  * Parse JSON string and fill tokens.
  */
-JSMN_API int jsmn_parse(jsmn_parser *parser, const char *js, const size_t len,
-                        jsmntok_t *tokens, const unsigned int num_tokens) {
+JSMN_API int jsmn_parse(jsmn_parser *parser,
+                        const char *__counted_by(len) js, const size_t len,
+                        jsmntok_t *_Nullable __counted_by_or_null(num_tokens)
+                            tokens,
+                        const unsigned int num_tokens) {
   int r;
   int i;
   jsmntok_t *token;
