@@ -1466,6 +1466,11 @@ public:
   SmallVector<SourceRange, 4> SafeCUnsafeRanges;
   bool isInSafeCUnsafeRegion(SourceLocation Loc) const;
 
+  /// Safe C: reject converting `void *` to a typed object pointer, implicitly
+  /// or by cast, except for null constants and fresh allocations.
+  void checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
+                                       SourceLocation Loc);
+
   /// Warn when implicitly casting 0 to nullptr.
   void diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E);
 

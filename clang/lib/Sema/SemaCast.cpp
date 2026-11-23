@@ -3825,6 +3825,9 @@ ExprResult Sema::BuildCStyleCastExpr(SourceLocation LPLoc,
   if (Op.SrcExpr.isInvalid())
     return ExprError();
 
+  if (Op.Kind == CK_BitCast)
+    checkSafeCVoidPointerConversion(Op.SrcExpr.get(), Op.DestType, LPLoc);
+
   // -Wcast-qual
   DiagnoseCastQual(Op.Self, Op.SrcExpr, Op.DestType);
 
@@ -3862,4 +3865,40 @@ ExprResult Sema::BuildCXXFunctionalCastExpr(TypeSourceInfo *CastTypeInfo,
   return Op.complete(CXXFunctionalCastExpr::Create(
       Context, Op.ResultType, Op.ValueKind, CastTypeInfo, Op.Kind,
       Op.SrcExpr.get(), &Op.BasePath, CurFPFeatureOverrides(), LPLoc, RPLoc));
+}
+
+void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
+                                           SourceLocation Loc) {
+  if (!getLangOpts().SafeC || getLangOpts().CPlusPlus)
+    return;
+  const auto *SrcPT = Src->getType()->getAs<PointerType>();
+  const auto *DstPT = DestTy->getAs<PointerType>();
+  if (!SrcPT || !DstPT || !SrcPT->getPointeeType()->isVoidType() ||
+      DstPT->getPointeeType()->isVoidType() ||
+      DstPT->getPointeeType()->isFunctionType())
+    return;
+  // Null has no type to confuse.
+  if (Src->isNullPointerConstant(Context, Expr::NPC_ValueDependentIsNotNull))
+    return;
+  // Fresh memory from the allocator has no type yet; giving it one is how
+  // allocation works, as with Rust's typed allocation.
+  if (const auto *CE = dyn_cast<CallExpr>(Src->IgnoreParenImpCasts()))
+    if (const FunctionDecl *FD = CE->getDirectCallee())
+      switch (FD->getBuiltinID()) {
+      case Builtin::BImalloc:
+      case Builtin::BIcalloc:
+      case Builtin::BIrealloc:
+      case Builtin::BI__builtin_malloc:
+      case Builtin::BI__builtin_calloc:
+      case Builtin::BI__builtin_realloc:
+        return;
+      default:
+        if (FD->getIdentifier() && FD->getName() == "aligned_alloc")
+          return;
+      }
+  if (SourceMgr.isInSystemHeader(Loc))
+    return;
+  Diag(Loc, diag::warn_safe_c_void_pointer_cast)
+      << Src->getType() << DestTy << Src->getSourceRange();
+  Diag(Loc, diag::note_safe_c_void_pointer_cast_fix);
 }

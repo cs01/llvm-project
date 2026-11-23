@@ -13406,6 +13406,12 @@ def warn_nullability_lost : Warning<
   "implicit conversion from nullable pointer %0 to non-nullable pointer "
   "type %1">,
   InGroup<NullableToNonNullConversion>, DefaultIgnore;
+def warn_safe_c_void_pointer_cast : Warning<
+  "converting %0 to %1 can treat memory as the wrong type">,
+  InGroup<SafeCVoidCast>, DefaultError;
+def note_safe_c_void_pointer_cast_fix : Note<
+  "keep the typed pointer instead of 'void *' (annotate the callback or API "
+  "with '__attribute__((callback(...)))'), or convert inside '__unsafe'">;
 def remark_safe_c_unsafe_region : Remark<
   "%select{unsafe block|unsafe function}0: Safe C rules are not enforced here">,
   InGroup<SafeCUnsafe>;

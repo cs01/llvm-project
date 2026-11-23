@@ -947,6 +947,10 @@ Sema::ImpCastExprToType(Expr *E, QualType Ty, CastKind Kind, ExprValueKind VK,
          "can't cast prvalue to glvalue");
 #endif
 
+  // Safe C: implicit void * to T * (C allows it silently) is a type change.
+  if (Kind == CK_BitCast)
+    checkSafeCVoidPointerConversion(E, Ty, E->getExprLoc());
+
   diagnoseNullableToNonnullConversion(Ty, E->getType(), E->getBeginLoc());
   diagnoseZeroToNullptrConversion(Kind, E);
   if (Context.hasAnyFunctionEffects() && !isCast(CCK) &&

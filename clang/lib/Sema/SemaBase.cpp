@@ -70,6 +70,7 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
     return false;
   StringRef Group = IDs.getWarningOptionForDiag(DiagID);
   return Group.starts_with("nullability-safety") ||
+         Group == "safe-c-void-cast" ||
          (Group.starts_with("bounds-safety") &&
           IDs.isDefaultMappingAsError(DiagID));
 }
