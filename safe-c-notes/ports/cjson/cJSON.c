@@ -166,7 +166,7 @@ typedef struct internal_hooks
 /* Wrappers rather than the libc functions themselves: MSVC cannot take the
    address of a dllimport function in a static initializer (C2322), and Safe C
    needs the hook types to match the user-facing cJSON_Hooks exactly. */
-static void *_Nullable __sized_by_or_null(size) CJSON_CDECL internal_malloc(size_t size)
+static __safec_returns_owned void *_Nullable __sized_by_or_null(size) CJSON_CDECL internal_malloc(size_t size)
 {
     return malloc(size);
 }
@@ -174,7 +174,7 @@ static __safec_takes(1) void CJSON_CDECL internal_free(void *_Nullable __unsafe_
 {
     free(pointer);
 }
-static __safec_takes(1) void *_Nullable __sized_by_or_null(size) CJSON_CDECL internal_realloc(void *_Nullable __unsafe_indexable pointer, size_t size)
+static __safec_takes(1) __safec_returns_owned void *_Nullable __sized_by_or_null(size) CJSON_CDECL internal_realloc(void *_Nullable __unsafe_indexable pointer, size_t size)
 {
     return realloc(pointer, size);
 }
@@ -190,7 +190,7 @@ static void *_Nullable hook_allocate(const internal_hooks * const hooks, size_t 
     return hooks->allocate(size);
 }
 
-static unsigned char *_Nullable __counted_by_or_null(size) allocate_bytes(const internal_hooks * const hooks, size_t size)
+static __safec_returns_owned unsigned char *_Nullable __counted_by_or_null(size) allocate_bytes(const internal_hooks * const hooks, size_t size)
 {
     return (unsigned char *)hook_allocate(hooks, size);
 }
@@ -207,7 +207,7 @@ static __safec_takes(2) unsigned char *_Nullable __counted_by_or_null(size) real
     __unsafe { return (unsigned char *)memory; }
 }
 
-static cJSON *_Nullable allocate_item(const internal_hooks * const hooks)
+__safec_returns_owned static cJSON *_Nullable allocate_item(const internal_hooks * const hooks)
 {
     return (cJSON *)hook_allocate(hooks, sizeof(cJSON));
 }
@@ -274,7 +274,7 @@ CJSON_PUBLIC(void) cJSON_InitHooks(cJSON_Hooks* hooks)
 }
 
 /* Internal constructor. */
-static cJSON *_Nullable cJSON_New_Item(const internal_hooks * const hooks)
+__safec_returns_owned static cJSON *_Nullable cJSON_New_Item(const internal_hooks * const hooks)
 {
     cJSON *_Nullable node = allocate_item(hooks);
     if (node)

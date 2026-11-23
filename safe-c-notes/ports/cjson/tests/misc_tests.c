@@ -465,9 +465,14 @@ static void cjson_functions_should_not_crash_with_null_pointers(void)
     TEST_ASSERT_FALSE(cJSON_InsertItemInArray(array, 1, item));
     TEST_ASSERT_FALSE(cJSON_InsertItemInArray(NULL, 0, item));
     TEST_ASSERT_FALSE(cJSON_InsertItemInArray(item, 0, NULL));
+    /* unsafe: ReplaceItemViaPointer frees the replaced item only when it
+       succeeds; these calls fail and the test keeps using item, which the
+       always-takes annotation cannot express */
+    __unsafe {
     TEST_ASSERT_FALSE(cJSON_ReplaceItemViaPointer(NULL, item, item));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemViaPointer(item, NULL, item));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemViaPointer(item, item, NULL));
+    }
     TEST_ASSERT_FALSE(cJSON_ReplaceItemInArray(item, 0, NULL));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemInArray(NULL, 0, item));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemInObject(NULL, "item", item));
