@@ -57,9 +57,15 @@ what Safe C uses from it, and what Safe C adds.
    - Clang today: `-Wincompatible-pointer-types` and `-Wformat` (warnings).
    - Safe C **adds** a rule that these are allowed only inside `__unsafe`. **Planned.**
 6. **Integer undefined behavior** (signed overflow, oversized shifts, division by zero)
-   - Clang today: `-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero` with
-     `-fsanitize-trap` (cheap run-time traps, off by default).
-   - Safe C **uses** those traps and turns them on with `-fsafe-c`. **Planned.**
+   - Clang today: `-fwrapv` (signed overflow wraps), and
+     `-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero` with
+     `-fsanitize-trap` (run-time traps). All off by default.
+   - Safe C **uses** them the way Rust's release builds behave: signed overflow wraps
+     (defined, not UB, nearly free); division by zero, `INT_MIN / -1` and oversized
+     shifts trap (one compare, usually optimized away). A wrapped size or index that goes
+     out of bounds is still caught by the bounds checks. For Rust's debug behavior, also
+     trap on overflow with `-fsanitize=signed-integer-overflow -fsanitize-trap`.
+     **Planned.**
 7. **Data races**
    - Clang today: `-Wthread-safety` with lock annotations (warnings).
    - Safe C **uses** those annotations and **adds** rules for which data may be shared
@@ -159,7 +165,7 @@ free(p);
 | Use after free, double free | owned pointers, borrows, `lifetimebound` at interfaces, named lifetimes where elision is not enough | this fork, on Clang's lifetime analysis | planned |
 | Uninitialized reads | definite initialization required | `-Wuninitialized`, made an error | planned |
 | Type confusion | no pointer casts, no union punning, checked varargs | this fork | planned |
-| Integer UB | signed overflow, shifts, division by zero trap | Clang's trapping sanitizers | planned |
+| Integer UB | signed overflow wraps (as in Rust release builds); division by zero and oversized shifts trap | `-fwrapv` and Clang's trapping sanitizers | planned |
 | Calls into unannotated C | only from `__unsafe` | this fork | planned |
 | Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned |
 | Escape hatch | `__unsafe { }` blocks and `__unsafe` functions lift Safe C's rules; bounds violations still need Apple's explicit `__unsafe_forge_*` forms | this fork | works |
