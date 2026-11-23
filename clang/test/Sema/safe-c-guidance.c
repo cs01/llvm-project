@@ -28,10 +28,3 @@ void bytes(int *buf, size_t size) {
               // expected-note {{in Safe C an unannotated pointer points to exactly one element}}
 }
 // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-5]]
-
-// main's argv: the fix-it counts it by argc.
-int main(int argc, char **argv) {
-  return argv[1] != 0; // expected-error {{array subscript on single pointer 'argv'}} \
-                       // expected-note {{in Safe C an unannotated pointer points to exactly one element}}
-}
-// CHECK: fix-it:"{{.*}}":{[[@LINE-4]]:27-[[@LINE-4]]:27}:"__counted_by(argc) "

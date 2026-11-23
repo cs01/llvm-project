@@ -11915,6 +11915,29 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     }
   }
 
+  // Safe C: `int main(int argc, char *argv[])` (or `char **argv`) means argv
+  // has argc elements; say so in the type, so the most common main signature
+  // compiles and argv[i] is bounds-checked against argc.
+  if (getLangOpts().SafeC && getLangOpts().BoundsSafety && NewFD->isMain() &&
+      Params.size() >= 2 && Params[0]->getType()->isIntegerType() &&
+      Params[1]->getType()->isPointerType() &&
+      !Params[1]->getType()->isCountAttributedType()) {
+    ParmVarDecl *Argc = Params[0], *Argv = Params[1];
+    Expr *Count =
+        BuildDeclRefExpr(Argc, Argc->getType(), VK_LValue, Argv->getLocation());
+    QualType Counted = BuildCountAttributedType(Argv->getType(), Count);
+    if (const auto *CAT = Counted->getAs<CountAttributedType>()) {
+      Argv->setType(Counted);
+      AttachDependerDeclsAttr(Argv, CAT, /*Level=*/0);
+      if (const auto *FPT = NewFD->getType()->getAs<FunctionProtoType>()) {
+        SmallVector<QualType, 4> ParamTys(FPT->param_types());
+        ParamTys[1] = Counted;
+        NewFD->setType(Context.getFunctionType(FPT->getReturnType(), ParamTys,
+                                               FPT->getExtProtoInfo()));
+      }
+    }
+  }
+
   if (getLangOpts().BoundsSafety) {
     // This is a good place to make sure that no array parameter has decayed
     // to a __single pointer. Annoyingly, we can't do this when parameters are
