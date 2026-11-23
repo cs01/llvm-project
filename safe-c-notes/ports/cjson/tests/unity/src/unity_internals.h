@@ -6,6 +6,8 @@
 
 #ifndef UNITY_INTERNALS_H
 #define UNITY_INTERNALS_H
+/* Safe C: Unity is test infrastructure built as plain C; trust its declarations. */
+#pragma clang safe_c legacy
 
 #include "../examples/unity_config.h"
 

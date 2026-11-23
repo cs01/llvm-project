@@ -6,6 +6,8 @@
 
 #ifndef UNITY_FRAMEWORK_H
 #define UNITY_FRAMEWORK_H
+/* Safe C: Unity is test infrastructure built as plain C; trust its declarations. */
+#pragma clang safe_c legacy
 #define UNITY
 
 #ifdef __cplusplus
