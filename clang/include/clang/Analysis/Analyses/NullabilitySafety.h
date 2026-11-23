@@ -64,6 +64,11 @@ public:
   virtual void handleNullableArgument(const Expr *ArgExpr,
                                       const ParmVarDecl *Param) {}
 
+  /// Like handleNullableArgument, for a call through a function pointer:
+  /// there is no parameter declaration, only its position (0-based).
+  virtual void handleNullableArgumentByIndex(const Expr *ArgExpr,
+                                             unsigned ParamIndex) {}
+
   /// A _Nonnull smart pointer member of this object is null on every path
   /// to the end of a method (reset, released, or moved from).
   virtual void handleNullableMemberAtExit(SourceLocation Loc,

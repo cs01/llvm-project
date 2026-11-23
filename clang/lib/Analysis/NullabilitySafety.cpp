@@ -1898,6 +1898,36 @@ public:
     if (!Callee || !Callee->IgnoreParenImpCasts()->getType()->isFunctionPointerType())
       return;
     checkPointerOperandDeref(CE, Callee);
+    checkPointerCallArguments(CE, Callee->IgnoreParenImpCasts()->getType());
+  }
+
+  /// Arguments of a call through a function pointer are held to the
+  /// pointer's prototype: a _Nonnull parameter, or under
+  /// -fnullability-default=nonnull an unannotated one, must not receive a
+  /// possibly-null pointer. Without this, `void (*f)(int *) = sink; f(NULL);`
+  /// escapes the check a direct `sink(NULL)` gets.
+  void checkPointerCallArguments(const CallExpr *CE, QualType FnPtrTy) {
+    const auto *FPT = FnPtrTy->getPointeeType()->getAs<FunctionProtoType>();
+    if (!FPT || !Reporting)
+      return;
+    bool DefaultNonnull =
+        Options.DefaultNullability == NullabilityKind::NonNull &&
+        !Ctx.getSourceManager().isInSystemHeader(CE->getExprLoc());
+    for (unsigned I = 0, N = std::min(CE->getNumArgs(), FPT->getNumParams());
+         I < N; ++I) {
+      QualType PT = FPT->getParamType(I);
+      if (!PT->isPointerType())
+        continue;
+      auto K = PT->getNullability();
+      bool Nonnull =
+          (K && *K == NullabilityKind::NonNull) ||
+          (DefaultNonnull && (!K || *K == NullabilityKind::Unspecified));
+      const Expr *Arg = CE->getArg(I);
+      if (Nonnull && isExprNullable(Arg->IgnoreParenImpCasts())) {
+        ++NumArgumentWarnings;
+        Handler.handleNullableArgumentByIndex(Arg, I);
+      }
+    }
   }
 
   /// p->field dereference checks, including smart pointer operator->.
@@ -4075,6 +4105,10 @@ public:
   void handleNullableArgument(const Expr *ArgExpr,
                               const ParmVarDecl *Param) override {
     Inner.handleNullableArgument(ArgExpr, Param);
+  }
+  void handleNullableArgumentByIndex(const Expr *ArgExpr,
+                                     unsigned ParamIndex) override {
+    Inner.handleNullableArgumentByIndex(ArgExpr, ParamIndex);
   }
   void handleNullableMemberAtExit(SourceLocation Loc,
                                   const FieldDecl *Member) override {

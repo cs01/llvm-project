@@ -3999,6 +3999,19 @@ public:
     PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_argument_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
+
+  void handleNullableArgumentByIndex(const Expr *ArgExpr,
+                                     unsigned ParamIndex) override {
+    SourceLocation Loc = ArgExpr->getExprLoc();
+    if (!isFirst(diag::warn_nullability_safety_argument, Loc))
+      return;
+    // %select picks the index form: there is no parameter name.
+    PartialDiagnosticAt Warning(Loc,
+                                S.PDiag(diag::warn_nullability_safety_argument)
+                                    << true << "" << ParamIndex + 1);
+    PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_argument_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
+  }
 };
 
 /// Run flow-sensitive nullability analysis over the entire TU, callees before

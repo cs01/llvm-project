@@ -49,10 +49,11 @@ void system_param(int *_Nullable q) {
   sys_take(0);
 }
 
-// Function pointers and variadic arguments are not checked.
+// Calls through function pointers are checked against the pointer's prototype;
+// variadic arguments are not checked.
 void variadic(int n, ...);
 void indirect(void (*_Nonnull fp)(struct L *)) {
-  fp(split());
+  fp(split()); // nn-warning {{passing nullable pointer to nonnull parameter 1}} nn-note {{add a null check before the call}}
   variadic(1, split());
 }
 
