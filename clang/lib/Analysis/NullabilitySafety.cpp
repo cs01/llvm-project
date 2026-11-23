@@ -2066,7 +2066,9 @@ public:
           classifyEvidence(RetVal, RetIsProvablyNonnull));
     }
 
-    if (isNonnullType(RetType) && !RetIsNonnull) {
+    if ((isNonnullType(RetType) ||
+         unannotatedMeansNonnull(RetType, EnclosingFunc)) &&
+        !RetIsNonnull) {
       ++NumReturnWarnings;
       Handler.handleNullableReturn(RetVal);
     }
@@ -2385,6 +2387,21 @@ private:
   /// dereference the parameter unchecked), so the call site is held to it.
   /// System headers are left unspecified, as Sema leaves them when it applies
   /// the default.
+  /// Under -fnullability-default=nonnull, an unannotated pointer return type
+  /// or struct field outside system headers means _Nonnull, like parameters
+  /// above. Locals are not covered: they carry no declared nullability and are
+  /// tracked by the flow state instead.
+  bool unannotatedMeansNonnull(QualType Ty, const Decl *D) const {
+    if (Options.DefaultNullability != NullabilityKind::NonNull || !D)
+      return false;
+    if (auto K = Ty->getNullability(); K && *K != NullabilityKind::Unspecified)
+      return false;
+    if (const auto *MD = dyn_cast<CXXMethodDecl>(D))
+      if (MD->getParent()->isLambda())
+        return false;
+    return !Ctx.getSourceManager().isInSystemHeader(D->getLocation());
+  }
+
   bool unannotatedParamsAreNonnull(const FunctionDecl *Callee) const {
     if (Options.DefaultNullability != NullabilityKind::NonNull)
       return false;
@@ -2808,7 +2825,10 @@ private:
   /// a _Nonnull declaration.
   bool storePointer(const PtrRef &Target, const Expr *RHS,
                     const Expr *DiagExpr) {
-    bool DeclaredNonnull = isNonnullType(Target.getType());
+    bool DeclaredNonnull =
+        isNonnullType(Target.getType()) ||
+        (!Target.VD && Target.Path &&
+         unannotatedMeansNonnull(Target.getType(), Target.Path->leafField()));
     switch (classifyStoredValue(RHS)) {
     case StoredValue::Nullable:
       // A provably nullable value overrides the declared _Nonnull.

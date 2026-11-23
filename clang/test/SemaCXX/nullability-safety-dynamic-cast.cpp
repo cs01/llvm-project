@@ -20,7 +20,7 @@ struct Derived : Base {
 void takesNonnull(Derived *_Nonnull);
 
 Derived *returnDynamic(Base *_Nonnull p) {
-  return dynamic_cast<Derived *>(p);
+  return dynamic_cast<Derived *>(p); // nonnull-warning {{returning nullable pointer from function with nonnull return type}} nonnull-note {{add a null check before returning}}
 }
 
 Derived *returnStatic(Derived *_Nonnull p) {
@@ -97,7 +97,7 @@ struct Holder {
 };
 
 void memberAssignFromDynamicCastWarns(Holder &h, Base *_Nonnull p) {
-  h.d = dynamic_cast<Derived *>(p);
+  h.d = dynamic_cast<Derived *>(p); // nonnull-warning {{assigning nullable pointer to nonnull member}} nonnull-note {{add a null check before assigning}}
   h.d->value = 1; // expected-warning{{dereference of nullable pointer}} expected-note{{add a null check}}
 }
 

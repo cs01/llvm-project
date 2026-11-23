@@ -21,7 +21,7 @@ Widget *null_on_failure_then_use(Loader &loader, const Name &name) {
     logError("load failed");
   }
   w->setName(name); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
-  return w;
+  return w; // expected-warning {{returning nullable pointer from function with nonnull return type}} expected-note {{add a null check before returning}}
 }
 
 // An escape as an output parameter before the null store does not excuse the
@@ -34,7 +34,7 @@ Widget *escape_by_ref_before_null(Loader &loader, const Name &name) {
     w = nullptr;
   }
   w->setName(name); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
-  return w;
+  return w; // expected-warning {{returning nullable pointer from function with nonnull return type}} expected-note {{add a null check before returning}}
 }
 
 Widget *escape_by_addr_before_null(Loader &loader, const Name &name) {
@@ -45,7 +45,7 @@ Widget *escape_by_addr_before_null(Loader &loader, const Name &name) {
     w = nullptr;
   }
   w->setName(name); // expected-warning {{dereference of nullable pointer}} expected-note {{add a null check}}
-  return w;
+  return w; // expected-warning {{returning nullable pointer from function with nonnull return type}} expected-note {{add a null check before returning}}
 }
 
 // The only assignment is compiled out, so the pointer stays null.
