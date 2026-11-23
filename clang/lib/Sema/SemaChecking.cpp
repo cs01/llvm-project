@@ -10464,6 +10464,15 @@ bool CheckScanfHandler::HandleScanfSpecifier(
         getLocationOfByte(CS.getStart()), /*IsStringLocation*/ true,
         getSpecifierRange(startSpecifier, specifierLen));
 
+  // Safe C: %p reads an address from text, which forges a pointer.
+  if (S.getLangOpts().SafeC && FS.consumesDataArgument() &&
+      CS.getKind() == ConversionSpecifier::pArg)
+    EmitFormatDiagnostic(S.PDiag(diag::warn_safe_c_escape)
+                             << "scanf's '%p', which makes up a pointer,",
+                         getLocationOfByte(CS.getStart()),
+                         /*IsStringLocation*/ true,
+                         getSpecifierRange(startSpecifier, specifierLen));
+
   if (!FS.consumesDataArgument()) {
     // FIXME: Technically specifying a precision or field width here
     // makes no sense.  Worth issuing a warning at some point.

@@ -11933,7 +11933,28 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     ParmVarDecl *Argc = Params[0], *Argv = Params[1];
     Expr *Count =
         BuildDeclRefExpr(Argc, Argc->getType(), VK_LValue, Argv->getLocation());
-    QualType Counted = BuildCountAttributedType(Argv->getType(), Count);
+    // The strings in argv are terminated: char *__null_terminated *.
+    QualType ArgvTy = Argv->getType();
+    if (const auto *PT = ArgvTy->getAs<PointerType>();
+        PT && PT->getPointeeType()->isPointerType() &&
+        PT->getPointeeType()->getPointeeType()->isCharType() &&
+        !PT->getPointeeType()->isValueTerminatedType()) {
+      QualType CharTy = PT->getPointeeType()->getPointeeType();
+      ExprResult Term = IntegerLiteral::Create(
+          Context, llvm::APInt(Context.getIntWidth(Context.IntTy), 0),
+          Context.IntTy, Argv->getLocation());
+      CastKind TermKind = PrepareScalarCast(Term, CharTy.getUnqualifiedType());
+      Term = ImpCastExprToType(Term.get(), CharTy.getUnqualifiedType(),
+                               TermKind);
+      QualType Elem = Context.getValueTerminatedType(
+          Context.getPointerType(CharTy,
+                                 BoundsSafetyPointerAttributes::single()),
+          Term.get());
+      ArgvTy = Context.getQualifiedType(
+          Context.getPointerType(Elem, PT->getPointerAttributes()),
+          ArgvTy.getQualifiers());
+    }
+    QualType Counted = BuildCountAttributedType(ArgvTy, Count);
     if (const auto *CAT = Counted->getAs<CountAttributedType>()) {
       Argv->setType(Counted);
       AttachDependerDeclsAttr(Argv, CAT, /*Level=*/0);

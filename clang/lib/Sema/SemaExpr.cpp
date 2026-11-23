@@ -21038,6 +21038,11 @@ ExprResult Sema::BuildVAArgExpr(SourceLocation BuiltinLoc,
   Expr *OrigExpr = E;
   VAArgExpr::VarArgKind VAKind = VAArgExpr::VA_Std;
 
+  // Safe C: nothing checks that the caller passed this many arguments, or
+  // arguments of this type.
+  if (getLangOpts().SafeC && !SourceMgr.isInSystemHeader(BuiltinLoc))
+    Diag(BuiltinLoc, diag::warn_safe_c_escape) << "'va_arg'";
+
   // CUDA device global function does not support varargs.
   if (getLangOpts().CUDA && getLangOpts().CUDAIsDevice) {
     if (const FunctionDecl *F = dyn_cast<FunctionDecl>(CurContext)) {
