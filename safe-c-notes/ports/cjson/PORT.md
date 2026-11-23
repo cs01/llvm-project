@@ -22,6 +22,11 @@ unity.c, the test harness, is compiled as plain C.
   - 5 terminator conversions (`__unsafe_null_terminated_from_indexable` after
     writing the NUL, and `cJSON_Minify`, which rewrites the terminator through a
     view). Making these checkable is the open "keep the scan bound" item.
+- Ownership: 7 annotated lines (`__safec_takes`): the `free_fn`, `deallocate` and
+  `reallocate` hook fields, and `cJSON_Delete`, `cJSON_free`,
+  `cJSON_ReplaceItemViaPointer` and `reallocate_bytes`, each found by the compiler
+  ("frees its parameter, but callers are not told"). Using a tree after
+  `cJSON_Delete` is now a compile error, including frees through the user's hooks.
 - `sprintf`/`strcpy` into counted buffers became `snprintf`/`memcpy`.
 - `strncmp` on input slices became `memcmp` (same gap as jsmn).
 

@@ -128,7 +128,7 @@ typedef struct cJSON_Hooks
       /* malloc/free are CDECL on Windows regardless of the default calling convention of the compiler, so ensure the hooks allow passing those functions directly. */
       void *_Nullable __sized_by_or_null(sz) (CJSON_CDECL *_Nullable malloc_fn)(size_t sz);
       /* __unsafe_indexable: a deallocator only hands the pointer back, it never reads through it. */
-      void (CJSON_CDECL *_Nullable free_fn)(void *_Nullable __unsafe_indexable ptr);
+      void (CJSON_CDECL *_Nullable free_fn)(void *_Nullable __unsafe_indexable ptr) __safec_takes(1);
 } cJSON_Hooks;
 
 typedef int cJSON_bool;
@@ -170,7 +170,7 @@ CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_PrintBuffered(const cJSON 
 /* NOTE: cJSON is not always 100% accurate in estimating how much memory it will use, so to be safe allocate 5 bytes more than you actually need */
 CJSON_PUBLIC(cJSON_bool) cJSON_PrintPreallocated(cJSON *_Nullable item, char *_Nullable __counted_by_or_null(length) buffer, const int length, const cJSON_bool format);
 /* Delete a cJSON entity and all subentities. */
-CJSON_PUBLIC(void) cJSON_Delete(cJSON *_Nullable item);
+CJSON_PUBLIC(void) cJSON_Delete(cJSON *_Nullable item) __safec_takes(1);
 
 /* Returns the number of items in an array (or object). */
 CJSON_PUBLIC(int) cJSON_GetArraySize(const cJSON *_Nullable array);
@@ -248,7 +248,7 @@ CJSON_PUBLIC(void) cJSON_DeleteItemFromObjectCaseSensitive(cJSON *_Nullable obje
 
 /* Update array items. */
 CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON *_Nullable array, int which, cJSON *_Nullable newitem); /* Shifts pre-existing items to the right. */
-CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON *_Nullable const parent, cJSON *_Nullable const item, cJSON *_Nullable replacement);
+CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON *_Nullable const parent, cJSON *_Nullable const item, cJSON *_Nullable replacement) __safec_takes(2);
 CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInArray(cJSON *_Nullable array, int which, cJSON *_Nullable newitem);
 CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObject(cJSON *_Nullable object,const char *_Nullable string,cJSON *_Nullable newitem);
 CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObjectCaseSensitive(cJSON *_Nullable object,const char *_Nullable string,cJSON *_Nullable newitem);
@@ -299,7 +299,7 @@ CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *_Nul
 
 /* malloc/free objects using the malloc/free functions that have been set with cJSON_InitHooks */
 CJSON_PUBLIC(void *_Nullable __sized_by_or_null(size)) cJSON_malloc(size_t size);
-CJSON_PUBLIC(void) cJSON_free(void *_Nullable object);
+CJSON_PUBLIC(void) cJSON_free(void *_Nullable object) __safec_takes(1);
 
 #ifdef __cplusplus
 }

@@ -159,8 +159,8 @@ static int case_insensitive_strcmp(const char *_Nullable __null_terminated strin
 typedef struct internal_hooks
 {
     void *_Nullable __sized_by_or_null(size) (CJSON_CDECL *allocate)(size_t size);
-    void (CJSON_CDECL *deallocate)(void *_Nullable __unsafe_indexable pointer);
-    void *_Nullable __sized_by_or_null(size) (CJSON_CDECL *_Nullable reallocate)(void *_Nullable __unsafe_indexable pointer, size_t size);
+    void (CJSON_CDECL *deallocate)(void *_Nullable __unsafe_indexable pointer) __safec_takes(1);
+    void *_Nullable __sized_by_or_null(size) (CJSON_CDECL *_Nullable reallocate)(void *_Nullable __unsafe_indexable pointer, size_t size) __safec_takes(1);
 } internal_hooks;
 
 /* Wrappers rather than the libc functions themselves: MSVC cannot take the
@@ -195,7 +195,7 @@ static unsigned char *_Nullable __counted_by_or_null(size) allocate_bytes(const 
     return (unsigned char *)hook_allocate(hooks, size);
 }
 
-static unsigned char *_Nullable __counted_by_or_null(size) reallocate_bytes(const internal_hooks * const hooks, unsigned char *_Nullable pointer, size_t size)
+static __safec_takes(2) unsigned char *_Nullable __counted_by_or_null(size) reallocate_bytes(const internal_hooks * const hooks, unsigned char *_Nullable pointer, size_t size)
 {
     void *_Nullable memory = NULL;
     if (hooks->reallocate == NULL)
