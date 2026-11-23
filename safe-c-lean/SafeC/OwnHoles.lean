@@ -109,6 +109,144 @@ theorem need_retBound :
     (⟨S, [idFn none]⟩ : Prog).ok Rules.full = false ∧
     ok Rules.full ⟨S, [idFn (some 0)]⟩ cIdD cId = false := by decide
 
+/-! ## The M2 rules: exclusive borrows, stack locals, unchecked pointers, views, globals
+
+struct 3: `{ int v; T *p; }` with a borrow field (rejected under `noRefFields`).
+struct 4: `{ _Owned T *d; int n; }`, the growable vector of p04 and the `struct B`
+of q02. struct 5: `{ T *__safec_unchecked g; }`.
+
+Globals are one struct `G` held by `main` as a stack local and passed to every
+function that touches a global as an exclusive parameter (see OWNERSHIP.md). -/
+
+def S2 : List (List FTy) := S ++ [[.int, .ref 1], [.own 1, .int], [.unc 1]]
+def P2 : Prog := ⟨S2, []⟩
+
+def dstack (o : Out) : Bool := o.ubKind == some .danglingStack
+
+/-- p01 and x12 (heap slot): a borrow stored in a heap struct outlives its
+owner. `a->p = &*b; free(b); n = a->p; n->v;` -/
+def cRefHeapD : Decls := [(0, .own 3), (1, .own 1), (2, .ref 1), (3, .ref 1), (4, .int)]
+def cRefHeap : Stmt := seqs [malloc 0 3 (lit 1), malloc 1 1 (lit 1), borrow 2 1 (lit 0),
+  pstore 0 (lit 0) 1 2, free 1, load 3 0 (lit 0) 1, load 4 3 (lit 0) 0]
+theorem need_noRefFields_heap :
+    ok { Rules.full with noRefFields := false } P2 cRefHeapD cRefHeap = true ∧
+    uaf (run P2 cRefHeap) = true ∧ ok Rules.full P2 cRefHeapD cRefHeap = false := by decide
+
+/-- q01: `stash(int *p) { g = p; }` stores a borrowed parameter in a global;
+the caller frees the block and reads it back through the global. -/
+def stash : Fn := ⟨[0, 1], [(0, .excl 3), (1, .ref 1), (2, .int)],
+  seqs [pstore 0 (lit 0) 1 1, set 2 (lit 0)], 2, none⟩
+def PStash : Prog := ⟨S2, [stash]⟩
+def cStashD : Decls := [(0, .excl 3), (1, .own 1), (2, .ref 1), (3, .ref 1), (4, .int), (5, .int)]
+def cStash : Stmt := scope 0 3 (lit 1) (seqs [malloc 1 1 (lit 1), borrow 2 1 (lit 0),
+  call 5 0 [0, 2], free 1, load 3 0 (lit 0) 1, load 4 3 (lit 0) 0])
+theorem need_noRefFields_global :
+    ok { Rules.full with noRefFields := false } PStash cStashD cStash = true ∧
+    uaf (run PStash cStash) = true ∧ PStash.ok Rules.full = false := by decide
+
+/-- s03 (`fill`): a callee stores the address of its own stack local into a
+struct field it was given; the caller reads it after the callee's scope died. -/
+def fill : Fn := ⟨[0], [(0, .ref 3), (1, .excl 1), (2, .ref 1), (3, .int)],
+  seqs [scope 1 1 (lit 64) (seqs [borrow 2 1 (lit 32), pstore 0 (lit 0) 1 2]), set 3 (lit 0)], 3, none⟩
+def PFill : Prog := ⟨S2, [fill]⟩
+def cFillD : Decls := [(0, .own 3), (1, .ref 3), (2, .ref 1), (3, .int), (4, .int)]
+def cFill : Stmt := seqs [malloc 0 3 (lit 1), borrow 1 0 (lit 0), call 3 0 [1],
+  load 2 0 (lit 0) 1, load 4 2 (lit 0) 0]
+theorem need_noRefFields_stack :
+    ok { Rules.full with noRefFields := false } PFill cFillD cFill = true ∧
+    dstack (run PFill cFill) = true ∧ PFill.ok Rules.full = false := by decide
+
+/-- q01 with the global made `__safec_unchecked`: storing is fine, the
+dereference is what needs `__unsafe`. -/
+def stashU : Fn := ⟨[0, 1], [(0, .excl 5), (1, .ref 1), (2, .int)],
+  seqs [pstore 0 (lit 0) 0 1, set 2 (lit 0)], 2, none⟩
+def PStashU : Prog := ⟨S2, [stashU]⟩
+def cStashUD : Decls := [(0, .excl 5), (1, .own 1), (2, .ref 1), (3, .unc 1), (4, .int), (5, .int)]
+def cStashUSafe : List Stmt := [malloc 1 1 (lit 1), borrow 2 1 (lit 0), call 5 0 [0, 2], free 1,
+  load 3 0 (lit 0) 0]
+def cStashU : Stmt := scope 0 5 (lit 1) (seqs (cStashUSafe ++ [load 4 3 (lit 0) 0]))
+theorem need_uncNeedsUnsafe :
+    ok { Rules.full with uncNeedsUnsafe := false } PStashU cStashUD cStashU = true ∧
+    uaf (run PStashU cStashU) = true ∧ ok Rules.full PStashU cStashUD cStashU = false ∧
+    ok Rules.full PStashU cStashUD (scope 0 5 (lit 1) (seqs cStashUSafe)) = true := by decide
+
+/-- p04: `first = &v.d[0]; grow(&v); *first`, where `grow` reallocates `v->d`
+through an exclusive borrow (`take`, `realloc`, `put`). -/
+def growFn : Fn := ⟨[0], [(0, .excl 4), (1, .own 1), (2, .int)],
+  seqs [take 1 0 (lit 0) 0, realloc 1 1 (lit 4), put 0 (lit 0) 0 1, set 2 (lit 0)], 2, none⟩
+def PGrow : Prog := ⟨S2, [growFn]⟩
+def cGrowD : Decls := [(0, .excl 4), (1, .own 1), (2, .ref 1), (3, .int), (4, .int)]
+def cGrowPre : List Stmt := [malloc 1 1 (lit 2), put 0 (lit 0) 0 1, load 2 0 (lit 0) 0,
+  store 2 (lit 0) 0 (lit 9), call 3 0 [0]]
+def cGrow : Stmt := scope 0 4 (lit 1) (seqs (cGrowPre ++ [load 4 2 (lit 0) 0]))
+theorem need_lendKills :
+    ok { Rules.full with lendKills := false } PGrow cGrowD cGrow = true ∧
+    uaf (run PGrow cGrow) = true ∧ PGrow.ok Rules.full = true ∧
+    ok Rules.full PGrow cGrowD cGrow = false := by decide
+
+/-- p04 written the M2 way: borrow `v.d` again after `grow`. -/
+def cGrowOK : Stmt := scope 0 4 (lit 1) (seqs (cGrowPre ++ [load 2 0 (lit 0) 0, load 4 2 (lit 1) 0]))
+theorem grow_reborrow_ok : ok Rules.full PGrow cGrowD cGrowOK = true ∧ (run PGrow cGrowOK).isUB = false := by
+  decide
+
+/-- Two exclusive arguments on one path: `two(&v, &v)`. The callee is fine on
+its own; it borrows `q->d`, frees `p->d`, reads the borrow. -/
+def twoFn : Fn := ⟨[0, 1], [(0, .excl 4), (1, .excl 4), (2, .ref 1), (3, .own 1), (4, .int)],
+  seqs [load 2 1 (lit 0) 0, take 3 0 (lit 0) 0, free 3, load 4 2 (lit 0) 0], 4, none⟩
+def PTwo : Prog := ⟨S2, [twoFn]⟩
+def cTwoD : Decls := [(0, .excl 4), (1, .own 1), (2, .int)]
+def cTwo : Stmt := scope 0 4 (lit 1) (seqs [malloc 1 1 (lit 1), put 0 (lit 0) 0 1, call 2 0 [0, 0]])
+theorem need_lendOnce :
+    ok { Rules.full with lendOnce := false } PTwo cTwoD cTwo = true ∧
+    uaf (run PTwo cTwo) = true ∧ PTwo.ok Rules.full = true ∧
+    ok Rules.full PTwo cTwoD cTwo = false := by decide
+
+/-- x12 (scope): `{ int x[64]; q = &x[5]; } *q;` -/
+def cScopeD : Decls := [(0, .excl 1), (1, .ref 1), (2, .int)]
+def cScope : Stmt := seqs [scope 0 1 (lit 64) (borrow 1 0 (lit 5)), load 2 1 (lit 0) 0]
+theorem need_stackKills :
+    ok { Rules.full with stackKills := false } P2 cScopeD cScope = true ∧
+    dstack (run P2 cScope) = true ∧ ok Rules.full P2 cScopeD cScope = false := by decide
+
+/-- q02: `struct B c = a;` copies an owned field; `drop(&a); drop(&c);` frees
+it twice. -/
+def dropFn : Fn := ⟨[0], [(0, .excl 4), (1, .own 1), (2, .int)],
+  seqs [take 1 0 (lit 0) 0, free 1, set 2 (lit 0)], 2, none⟩
+def PDrop : Prog := ⟨S2, [dropFn]⟩
+def cDropD : Decls := [(0, .excl 4), (1, .excl 4), (2, .own 1), (3, .int)]
+def cDrop : Stmt := scope 0 4 (lit 1) (scope 1 4 (lit 1)
+  (seqs [malloc 2 1 (lit 1), put 0 (lit 0) 0 2, copy 1 0, call 3 0 [0], call 3 0 [1]]))
+theorem need_copyPlain :
+    ok { Rules.full with copyPlain := false } PDrop cDropD cDrop = true ∧
+    dfree (run PDrop cDrop) = true ∧ PDrop.ok Rules.full = true ∧
+    ok Rules.full PDrop cDropD cDrop = false := by decide
+
+/-- Globals: a borrow of a global survives a call that does not take `G`
+(a pure callee) and dies at a call that does. -/
+def pureFn : Fn := ⟨[], [(0, .int)], set 0 (lit 1), 0, none⟩
+def PGlob : Prog := ⟨S2, [growFn, pureFn]⟩
+def cGlobPre : List Stmt := [malloc 1 1 (lit 2), put 0 (lit 0) 0 1, load 2 0 (lit 0) 0, call 3 1 [],
+  load 4 2 (lit 0) 0]
+def cGlob : Stmt := scope 0 4 (lit 1) (seqs cGlobPre)
+def cGlobStale : Stmt := scope 0 4 (lit 1) (seqs (cGlobPre ++ [call 3 0 [0], load 4 2 (lit 0) 0]))
+theorem globals_pure_impure : ok Rules.full PGlob cGrowD cGlob = true ∧ (run PGlob cGlob).isUB = false ∧
+    ok Rules.full PGlob cGrowD cGlobStale = false := by decide
+
+/-- A borrow derived from a global passed to a callee that also takes `G`:
+`use(r = &G.d[0])` where `use` frees `G.d` and reads `r`. Ending global loans
+at the call is not enough; such a borrow may not be an argument of an impure
+call at all (`argsAfterMoves` applied to the implicit lend of `G`). -/
+def useG : Fn := ⟨[0, 1], [(0, .excl 4), (1, .ref 1), (2, .own 1), (3, .int)],
+  seqs [take 2 0 (lit 0) 0, free 2, load 3 1 (lit 0) 0], 3, none⟩
+def PUseG : Prog := ⟨S2, [useG]⟩
+def cUseGD : Decls := [(0, .excl 4), (1, .own 1), (2, .ref 1), (3, .int)]
+def cUseG : Stmt := scope 0 4 (lit 1) (seqs [malloc 1 1 (lit 1), put 0 (lit 0) 0 1, load 2 0 (lit 0) 0,
+  call 3 0 [0, 2]])
+theorem need_argsAfterMoves_global :
+    ok { Rules.full with argsAfterMoves := false } PUseG cUseGD cUseG = true ∧
+    uaf (run PUseG cUseG) = true ∧ PUseG.ok Rules.full = true ∧
+    ok Rules.full PUseG cUseGD cUseG = false := by decide
+
 /-! ## Idioms under the full rules -/
 
 /-! ### 1. Singly linked list: push, traverse, pop, free all -/

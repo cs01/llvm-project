@@ -20,9 +20,10 @@ lists only `propext`, `Classical.choice` and `Quot.sound`.
   kernel (`by decide`) to `ub` under the rule that has the hole and to `trap`
   under the fix. Also shows that no conjunct of `Rules.Sound` can be dropped.
 - `SafeC/Own.lean`, `SafeC/OwnSound.lean`, `SafeC/OwnHoles.lean`: a separate
-  model of owned and borrowed pointers, `free` and `realloc`, with its own
-  soundness theorem (`own_sound`: no UB, so no use after free or double free)
-  and one counterexample per ownership rule. See `OWNERSHIP.md`.
+  model of the M2 pointer kinds (owned, borrow, exclusive, unchecked), `free`,
+  `realloc`, stack scopes, globals and views, with its own soundness theorem
+  (`own_sound`: no UB, so no use after free, double free or dangling stack
+  access) and one counterexample per ownership rule. See `OWNERSHIP.md`.
 
 ## What is modeled
 

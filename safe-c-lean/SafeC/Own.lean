@@ -8,21 +8,33 @@ open SafeC (Op wrap INT_MIN INT_MAX)
 
 /-! ## Types
 
-Heap fields hold integers or owned pointers, never borrows: a borrow stored in
-the heap could outlive its owner, and this model has no lifetime parameters on
-struct types to prevent that (see OWNERSHIP.md, idiom 5). -/
+Heap fields hold integers, owned pointers or unchecked pointers, never
+borrows: a borrow stored in the heap could outlive its owner, and struct types
+have no lifetime parameters to prevent that. `ref` fields exist only so that
+OwnHoles.lean can show what goes wrong when the checker allows them
+(`Rules.noRefFields`); the full checker never reads or writes one. -/
 
 inductive FTy where
   | int
   | own (s : Nat)
+  /-- `struct s *__safec_unchecked`: any pointer, never dereferenced in safe code. -/
+  | unc (s : Nat)
+  /-- A plain (borrow) pointer field. Rejected by `Rules.noRefFields`. -/
+  | ref (s : Nat)
   deriving DecidableEq, Repr
 
 /-- Variable types. `own s` is `_Owned struct s *` (nullable), `ref s` is a
-plain `struct s *`: a borrow. -/
+plain `struct s *`: a borrow. `excl s` is `struct s *__safec_excl`: an
+exclusive borrow, which heads its region like an owner (fields may be taken
+and put through it) but is never freed, moved or reassigned. Exclusive
+parameters and stack locals (`scope`) have this type. `unc s` is
+`struct s *__safec_unchecked`. -/
 inductive VTy where
   | int
   | own (s : Nat)
   | ref (s : Nat)
+  | excl (s : Nat)
+  | unc (s : Nat)
   deriving DecidableEq, Repr
 
 /-! ## Values and memory -/
@@ -42,6 +54,9 @@ structure Blk where
   /-- Struct id at allocation. Ghost: the semantics never reads it. -/
   sid : Nat
   cells : List (List V)
+  /-- A stack block (a `scope` local): an access after the scope ended is a
+  dangling stack access rather than a use after free. -/
+  stk : Bool
 
 abbrev Mem := List Blk
 abbrev Env := Nat → V
@@ -51,6 +66,7 @@ def Env.set (ρ : Env) (x : Nat) (v : V) : Env := fun y => if y = x then v else 
 inductive UB where
   | useAfterFree
   | doubleFree
+  | danglingStack
   | other
   deriving DecidableEq, Repr
 
@@ -130,6 +146,16 @@ inductive Stmt where
   | loop (c : Expr) (body : Stmt)
   /-- `x = f(args)`. -/
   | call (x : Nat) (f : Nat) (args : List Nat)
+  /-- `x = (T *__safec_unchecked)y`: copies any pointer into an unchecked one. -/
+  | ucast (x y : Nat)
+  /-- `y[i].f = z` into a non-owning pointer field (unchecked; a borrow field
+  only when `noRefFields` is off). `z` is copied, not moved. -/
+  | pstore (y : Nat) (i : Expr) (f : Nat) (z : Nat)
+  /-- `*x = *y`: struct assignment of element 0. -/
+  | copy (x y : Nat)
+  /-- `{ struct s x[n]; body }`: `x` is the address of a stack array that dies
+  when the scope ends. -/
+  | scope (x : Nat) (s : Nat) (n : Expr) (body : Stmt)
   deriving Repr
 
 abbrev Decls := List (Nat × VTy)
@@ -154,6 +180,8 @@ def fieldTy (P : Prog) (s f : Nat) : Option FTy := (P.structs[s]?).bind (·[f]?)
 def zeroOf : FTy → V
   | .int => .int 0
   | .own _ => .null
+  | .unc _ => .null
+  | .ref _ => .null
 
 def zeroElem (P : Prog) (s : Nat) : List V := ((P.structs[s]?).getD []).map zeroOf
 
@@ -180,7 +208,7 @@ def elemAt (μ : Mem) (v : V) (i : Int) : Res (Nat × Nat) :=
     | some blk =>
       if blk.live = true then
         (if 0 ≤ off + i ∧ off + i < blk.cells.length then .ok (b, (off + i).toNat) else .trap)
-      else .ub .useAfterFree
+      else if blk.stk = true then .ub .danglingStack else .ub .useAfterFree
     | none => .ub .other
   | .null => .trap
   | _ => .ub .other
@@ -229,7 +257,15 @@ def fieldAt (ρ : Env) (μ : Mem) (y : Nat) (i : Expr) : Res (Nat × Nat) :=
     | .int n => elemAt μ (ρ y) n
     | _ => .ub .other
 
-def freshBlk (P : Prog) (s : Nat) (m : Nat) : Blk := ⟨true, s, List.replicate m (zeroElem P s)⟩
+def freshBlk (P : Prog) (s : Nat) (m : Nat) (stk : Bool := false) : Blk :=
+  ⟨true, s, List.replicate m (zeroElem P s), stk⟩
+
+def getEl (μ : Mem) (b k : Nat) : Option (List V) := (μ[b]?).bind (·.cells[k]?)
+
+def setEl (μ : Mem) (b k : Nat) (el : List V) : Mem :=
+  match μ[b]? with
+  | some blk => μ.set b { blk with cells := blk.cells.set k el }
+  | none => μ
 
 def kill (μ : Mem) (b : Nat) (blk : Blk) : Mem := μ.set b { blk with live := false }
 
@@ -287,7 +323,7 @@ def exec (P : Prog) : Nat → Env → Mem → Stmt → Out
             if blk.live = false then .ub .useAfterFree
             else if off = 0 then
               let cells := blk.cells.take m.toNat ++ List.replicate (m.toNat - blk.cells.length) (zeroElem P s)
-              .ok (ρ.set x (.ptr μ.length 0)) (kill μ b blk ++ [⟨true, s, cells⟩])
+              .ok (ρ.set x (.ptr μ.length 0)) (kill μ b blk ++ [⟨true, s, cells, false⟩])
             else .ub .other
           | none => .ub .other
         | _ => .ub .other
@@ -317,6 +353,35 @@ def exec (P : Prog) : Nat → Env → Mem → Stmt → Out
         | .trap => .trap
         | .ub k => .ub k
         | .outOfFuel => .outOfFuel
+    | .ucast x y => if ρ y = .uninit then .ub .other else .ok (ρ.set x (ρ y)) μ
+    | .pstore y i f z => (fieldAt ρ μ y i).thenO fun a =>
+      if ρ z = .uninit then .ub .other else (wrF μ a.1 a.2 f (ρ z)).thenO fun μ' => .ok ρ μ'
+    | .copy x y => (elemAt μ (ρ y) 0).thenO fun a =>
+      match getEl μ a.1 a.2 with
+      | some el => (elemAt μ (ρ x) 0).thenO fun a' => .ok ρ (setEl μ a'.1 a'.2 el)
+      | none => .ub .other
+    | .scope x s e body => (evalE ρ μ e).thenO fun vn =>
+      match vn with
+      | .int m =>
+        if m < 0 then .trap else
+        (exec P n (ρ.set x (.ptr μ.length 0)) (μ ++ [freshBlk P s m.toNat true]) body).then
+          fun ρ' μ' =>
+            match μ'[μ.length]? with
+            | some blk => .ok ρ' (kill μ' μ.length blk)
+            | none => .ub .other
+      | _ => .ub .other
+
+/-- Whether `s` may assign variable `y`. Exclusive borrows are never
+assigned, which is what lets a caller get its lent owner back. -/
+def assigns (y : Nat) : Stmt → Bool
+  | .skip => false
+  | .seq a b => assigns y a || assigns y b
+  | .set x _ | .nul x | .borrow x _ _ | .move x _ | .load x _ _ _ | .take x _ _ _
+  | .malloc x _ _ | .realloc x _ _ | .call x _ _ | .ucast x _ => x == y
+  | .store .. | .put .. | .free _ | .pstore .. | .copy .. => false
+  | .scope x _ _ b => x == y || assigns y b
+  | .ifz _ a b | .ifNull _ a b => assigns y a || assigns y b
+  | .loop _ b => assigns y b
 
 /-! ## Rule switches
 
@@ -341,11 +406,26 @@ structure Rules where
   /-- A returned borrow must come from the `lifetimebound` parameter, and the
   caller ties the result to that argument's loan. -/
   retBound : Bool
+  /-- Lending an owner to an exclusive parameter ends the caller's loans of it. -/
+  lendKills : Bool
+  /-- A lent owner is unusable for the rest of the call's argument list, so
+  one call cannot lend it twice or lend it and pass a borrow of it. -/
+  lendOnce : Bool
+  /-- Struct fields (and so globals) hold no borrows. -/
+  noRefFields : Bool
+  /-- An unchecked pointer is never dereferenced outside `__unsafe`. -/
+  uncNeedsUnsafe : Bool
+  /-- The end of a scope ends every loan of its stack locals. -/
+  stackKills : Bool
+  /-- Struct assignment is only for structs without owned fields. -/
+  copyPlain : Bool
   deriving Repr
 
 def Rules.full : Rules :=
   { moveKills := true, freeKills := true, takeKills := true, reallocKills := true,
-    ownOpsNeedOwner := true, argsConsume := true, argsAfterMoves := true, retBound := true }
+    ownOpsNeedOwner := true, argsConsume := true, argsAfterMoves := true, retBound := true,
+    lendKills := true, lendOnce := true, noRefFields := true, uncNeedsUnsafe := true,
+    stackKills := true, copyPlain := true }
 
 /-! ## The checker
 
@@ -381,26 +461,90 @@ def isRef (D : Decls) (x : Nat) : Bool :=
   | some (.ref _) => true
   | _ => false
 
+/-- Heads a region: an owner or an exclusive borrow. -/
 def isOwn (D : Decls) (x : Nat) : Bool :=
   match D.lookup x with
   | some (.own _) => true
+  | some (.excl _) => true
   | _ => false
 
+def isExcl (D : Decls) (x : Nat) : Bool :=
+  match D.lookup x with
+  | some (.excl _) => true
+  | _ => false
+
+/-- Pointers safe code may dereference. -/
 def ptrS (D : Decls) (y : Nat) : Option Nat :=
   match D.lookup y with
   | some (.own s) => some s
   | some (.ref s) => some s
+  | some (.excl s) => some s
   | _ => none
+
+/-- Any pointer, including unchecked ones. -/
+def isPtr (D : Decls) (y : Nat) : Bool :=
+  match D.lookup y with
+  | some (.own _) | some (.ref _) | some (.excl _) | some (.unc _) => true
+  | _ => false
+
+/-- What `load` may dereference: with `uncNeedsUnsafe` off, unchecked
+pointers too. -/
+def derefS (R : Rules) (D : Decls) (y : Nat) : Option Nat :=
+  match ptrS D y with
+  | some s => some s
+  | none =>
+    if R.uncNeedsUnsafe then none else
+    match D.lookup y with
+    | some (.unc s) => some s
+    | _ => none
 
 /-- The loan a borrow taken from `y` depends on. -/
 def rootOf (D : Decls) (Γ : Ctx) (y : Nat) : Option Root :=
   match D.lookup y with
   | some (.own _) => some (.loc y)
+  | some (.excl _) => some (.loc y)
   | some (.ref _) => Γ.roots.lookup y
   | _ => none
 
+/-- `take` and `put` need an owner or an exclusive borrow. -/
 def ownerOK (R : Rules) (D : Decls) (y s : Nat) : Bool :=
+  decide (D.lookup y = some (.own s)) || decide (D.lookup y = some (.excl s)) ||
+    (!R.ownOpsNeedOwner && decide (D.lookup y = some (.ref s)))
+
+/-- `free` needs an owner. -/
+def freeOK (R : Rules) (D : Decls) (y s : Nat) : Bool :=
   decide (D.lookup y = some (.own s)) || (!R.ownOpsNeedOwner && decide (D.lookup y = some (.ref s)))
+
+def isPlainF : FTy → Bool
+  | .int | .unc _ => true
+  | _ => false
+
+/-- No owned (or borrow) fields: a struct that may be copied. -/
+def plain (P : Prog) (s : Nat) : Bool := ((P.structs[s]?).getD []).all isPlainF
+
+/-- An argument of type `ta` for a parameter of type `tp`: equal, or an owner
+lent to an exclusive parameter. -/
+def argTy (ta tp : Option VTy) : Bool :=
+  decide (ta = tp) ||
+    (match ta, tp with
+     | some (.own s), some (.excl s') => s == s'
+     | _, _ => false)
+
+/-- Argument `a` goes to an exclusive parameter (it is lent, not moved). -/
+def lentArg (fn : Fn) (args : List Nat) (a : Nat) : Bool :=
+  match (args.zip fn.params).lookup a with
+  | some p => isExcl fn.decls p
+  | none => false
+
+def Ctx.relend (Γ : Ctx) (l : List Nat) : Ctx := { Γ with live := l ++ Γ.live }
+
+/-- `y[i].f = z` into a non-owning pointer field: any pointer into an
+unchecked field; a borrow into a borrow field only with `noRefFields` off. -/
+def pfieldOK (R : Rules) (D : Decls) (ft : Option FTy) (z : Nat) : Bool :=
+  match ft, D.lookup z with
+  | some (.unc _), _ => isPtr D z
+  | some (.ref s'), some (.ref s'') => !R.noRefFields && s' == s''
+  | _, _ => false
 
 def killRoot (b : Bool) (D : Decls) (Γ : Ctx) (y : Nat) : Ctx :=
   if b then (match rootOf D Γ y with | some r => Γ.kill r | none => Γ) else Γ
@@ -429,13 +573,18 @@ def chkE (P : Prog) (D : Decls) (Γ : Ctx) : Expr → Bool
 
 /-- Owned arguments, left to right: each must be live, and (with
 `argsConsume`) is moved into the callee. -/
-def consumeArgs (R : Rules) (D : Decls) : Ctx → List Nat → Option Ctx
+def consumeArgs (R : Rules) (D : Decls) (lent : Nat → Bool) : Ctx → List Nat → Option Ctx
   | Γ, [] => some Γ
   | Γ, a :: as =>
     if isOwn D a then
-      (if a ∈ Γ.live then consumeArgs R D (if R.argsConsume then (Γ.kill (.loc a)).drop a else Γ) as
+      (if a ∈ Γ.live then
+        consumeArgs R D lent
+          (if lent a then
+             (if R.lendOnce then (if R.lendKills then Γ.kill (.loc a) else Γ).drop a
+              else if R.lendKills then Γ.kill (.loc a) else Γ)
+           else if R.argsConsume then (Γ.kill (.loc a)).drop a else Γ) as
        else none)
-    else consumeArgs R D Γ as
+    else consumeArgs R D lent Γ as
 
 def chkS (R : Rules) (P : Prog) (D : Decls) : Ctx → Stmt → Option Ctx
   | Γ, .skip => some Γ
@@ -457,13 +606,19 @@ def chkS (R : Rules) (P : Prog) (D : Decls) : Ctx → Stmt → Option Ctx
       if s = s' ∧ x ≠ y ∧ y ∈ Γ.live then some ((consume R Γ y).assignOwn x) else none
     | _, _ => none
   | Γ, .load x y i f =>
-    match ptrS D y with
+    match derefS R D y with
     | none => none
     | some s =>
       if y ∈ Γ.live ∧ chkE P D Γ i = true then
         match fieldTy P s f, D.lookup x with
         | some .int, some .int => some (Γ.add x)
         | some (.own s'), some (.ref s'') =>
+          match rootOf D Γ y with
+          | some r => if s' = s'' then some (Γ.addRef x r) else none
+          | none => none
+        | some (.unc _), some (.unc _) => some (Γ.add x)
+        | some (.ref s'), some (.ref s'') =>
+          if R.noRefFields then none else
           match rootOf D Γ y with
           | some r => if s' = s'' then some (Γ.addRef x r) else none
           | none => none
@@ -494,7 +649,7 @@ def chkS (R : Rules) (P : Prog) (D : Decls) : Ctx → Stmt → Option Ctx
     then some (Γ.assignOwn x) else none
   | Γ, .free x =>
     match ptrS D x with
-    | some s => if ownerOK R D x s = true ∧ x ∈ Γ.live then some ((killRoot R.freeKills D Γ x).drop x) else none
+    | some s => if freeOK R D x s = true ∧ x ∈ Γ.live then some ((killRoot R.freeKills D Γ x).drop x) else none
     | none => none
   | Γ, .realloc x s n =>
     if D.lookup x = some (.own s) ∧ x ∈ Γ.live ∧ chkE P D Γ n = true
@@ -525,15 +680,19 @@ def chkS (R : Rules) (P : Prog) (D : Decls) : Ctx → Stmt → Option Ctx
     | some fn =>
       if args.length = fn.params.length ∧
           ((fn.params.zip args).all fun pa =>
-            decide (D.lookup pa.2 = fn.decls.lookup pa.1 ∧ (D.lookup pa.2).isSome = true)) = true then
-        match consumeArgs R D Γ args with
+            argTy (D.lookup pa.2) (fn.decls.lookup pa.1) && (D.lookup pa.2).isSome) = true then
+        match consumeArgs R D (lentArg fn args) Γ args with
         | none => none
         | some Γm =>
           let Γc := if R.argsAfterMoves then Γm else Γ
+          /- Lent owners come back after the call; their old loans stay dead. -/
+          let back := args.filter fun a => isOwn D a && lentArg fn args a
           if (args.all fun a => isOwn D a || decide (a ∈ Γc.live)) = true then
+            let Γr := Γm.relend back
             match fn.decls.lookup fn.ret, D.lookup x with
-            | some .int, some .int => some (Γm.add x)
-            | some (.own s), some (.own s') => if s = s' then some (Γm.assignOwn x) else none
+            | some .int, some .int => some (Γr.add x)
+            | some (.own s), some (.own s') => if s = s' then some (Γr.assignOwn x) else none
+            | some (.unc _), some (.unc _) => some (Γr.add x)
             | some (.ref s), some (.ref s') =>
               if s = s' then
                 (if R.retBound then
@@ -542,15 +701,39 @@ def chkS (R : Rules) (P : Prog) (D : Decls) : Ctx → Stmt → Option Ctx
                     match (fn.params.zip args).lookup p with
                     | some a =>
                       match Γ.roots.lookup a with
-                      | some r => some (Γm.addRef x r)
+                      | some r => some (Γr.addRef x r)
                       | none => none
                     | none => none
                   | none => none
-                else some (Γm.addRef x (.ext x)))
+                else some (Γr.addRef x (.ext x)))
               else none
             | _, _ => none
           else none
       else none
+  | Γ, .ucast x y =>
+    match D.lookup x with
+    | some (.unc _) => if y ∈ Γ.live ∧ isPtr D y = true then some (Γ.add x) else none
+    | _ => none
+  | Γ, .pstore y i f z =>
+    match ptrS D y with
+    | some s =>
+      if y ∈ Γ.live ∧ z ∈ Γ.live ∧ chkE P D Γ i = true ∧ pfieldOK R D (fieldTy P s f) z = true
+      then some Γ else none
+    | none => none
+  | Γ, .copy x y =>
+    match ptrS D x, ptrS D y with
+    | some s, some s' =>
+      if s = s' ∧ x ∈ Γ.live ∧ y ∈ Γ.live ∧ (!R.copyPlain || plain P s) = true then some Γ else none
+    | _, _ => none
+  | Γ, .scope x s n body =>
+    if D.lookup x = some (.excl s) ∧ s < P.structs.length ∧ x ∉ Γ.live ∧ chkE P D Γ n = true ∧
+        assigns x body = false then
+      match chkS R P D (Γ.assignOwn x) body with
+      | some Γb =>
+        if x ∈ Γb.live then some (if R.stackKills then (Γb.kill (.loc x)).drop x else Γb.drop x)
+        else none
+      | none => none
+    else none
 
 /-- The callee's entry context: its parameters, borrows rooted at the caller. -/
 def Fn.init (fn : Fn) : Ctx :=
@@ -561,6 +744,8 @@ def fnOK (R : Rules) (P : Prog) (fn : Fn) : Bool :=
   | none => false
   | some Γf =>
     decide fn.params.Nodup && decide (fn.ret ∈ Γf.live) &&
+    /- An exclusive parameter is handed back: still live, never reassigned. -/
+    fn.params.all (fun p => !isExcl fn.decls p || (decide (p ∈ Γf.live) && !assigns p fn.body)) &&
     (match fn.decls.lookup fn.ret with
      | some (.ref _) =>
        if R.retBound then

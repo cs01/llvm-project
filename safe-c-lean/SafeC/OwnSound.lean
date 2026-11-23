@@ -104,6 +104,8 @@ theorem fieldTy_eq (P : Prog) (s f : Nat) : fieldTy P s f = (fields P s)[f]? := 
 def FOK (μ : Mem) (par : PMap) (b k f : Nat) : FTy → V → Prop
   | .int, v => ∃ n, v = .int n
   | .own s, v => v = .null ∨ ∃ c, v = .ptr c 0 ∧ par c = .fld b k f ∧ sidOf μ c = some s
+  | .unc _, v => v = .null ∨ ∃ c o, v = .ptr c o
+  | .ref _, v => v = .null ∨ ∃ c o, v = .ptr c o
 
 /-- A block in some region: live, every element shaped like its struct, every
 owned field pointing at a block that names this field as its owner. -/
@@ -123,6 +125,8 @@ def VOK (D : Decls) (d : Nat) (θ : Nat → Lbl) (roots : List (Nat × Root)) (�
   | some (.own s) => ρ x = .null ∨ ∃ b, ρ x = .ptr b 0 ∧ par b = .var (d, x) ∧ sidOf μ b = some s
   | some (.ref s) => ρ x = .null ∨ ∃ b off r, ρ x = .ptr b off ∧ sidOf μ b = some s ∧
       roots.lookup x = some r ∧ Anc par b (lab d θ r)
+  | some (.excl s) => ρ x = .null ∨ ∃ b, ρ x = .ptr b 0 ∧ par b = .var (d, x) ∧ sidOf μ b = some s
+  | some (.unc _) => ρ x = .null ∨ ∃ b off, ρ x = .ptr b off
   | none => True
 
 /-- `d` is the call depth, `θ` maps each `ext p` root to the caller's region. -/
@@ -184,7 +188,7 @@ theorem getc_eq {μ : Mem} {b k f : Nat} {blk : Blk} {el : List V} (hb : μ[b]? 
 theorem FOK.mono {μ μ' : Mem} {par par' : PMap} {b k f t v} (h : FOK μ par b k f t v) (hs : SidPres μ μ')
     (hp : ∀ c, c < μ.length → par c = .fld b k f → par' c = .fld b k f) : FOK μ' par' b k f t v := by
   cases t with
-  | int => exact h
+  | int | unc _ | ref _ => exact h
   | own s =>
     rcases h with h | ⟨c, h1, h2, h3⟩
     · exact .inl h
@@ -297,6 +301,9 @@ theorem live_ptr (hI : Inv P D d θ Γ ρ μ par) {y s} (hy : y ∈ Γ.live) (hs
   · rcases hv with h | ⟨b, off, r, h1, h2, h3, h4⟩
     · exact .inl h
     · exact .inr ⟨b, off, r, h1, h2, h3, h4, fun h => by simp at h⟩
+  · rcases hv with h | ⟨b, h1, h2, h3⟩
+    · exact .inl h
+    · exact .inr ⟨b, 0, .loc y, h1, h3, rfl, .var h2, fun _ => ⟨rfl, h2⟩⟩
 
 theorem elem_ok (hI : Inv P D d θ Γ ρ μ par) {b l} (ha : Anc par b l) (off i : Int) :
     elemAt μ (.ptr b off) i = .trap ∨ ∃ blk k el, elemAt μ (.ptr b off) i = .ok (b, k) ∧
@@ -427,6 +434,10 @@ theorem VOK.keep {r r' : List (Nat × Root)} {ρ ρ' : Env} {μ μ' : Mem} {par 
     · exact .inl h
     · exact .inr ⟨b, off, rt, h1, hs _ _ h2, by rw [hr trivial]; exact h3,
         anc_keep hch h4 (hkr trivial rt h3)⟩
+  · rcases h with h | ⟨b, h1, h2, h3⟩
+    · exact .inl h
+    · exact .inr ⟨b, h1, by rw [hko trivial b h1 h2]; exact h2, hs _ _ h3⟩
+  all_goals exact h
 
 /-- The heap part of the invariant after a change of memory and owners. `N`
 are new blocks, `M` the blocks whose contents changed. -/
@@ -521,9 +532,12 @@ theorem case_borrow {x y i n} (hc : chkS Rules.full P D Γ (.borrow x y i) = som
       unfold VOK; rw [hD]
       exact .inr ⟨b, off + k, r, by simp [Env.set], h2, by rw [addRef_lookup]; simp, h4⟩))
 
+theorem derefS_full {y} : derefS Rules.full D y = ptrS D y := by
+  unfold derefS; cases ptrS D y <;> simp [Rules.full]
+
 theorem case_load {x y i f n} (hc : chkS Rules.full P D Γ (.load x y i f) = some Γ')
     (hI : Inv P D d θ Γ ρ μ par) : Good P D d θ μ par Γ' (exec P (n + 1) ρ μ (.load x y i f)) := by
-  simp only [chkS] at hc
+  simp only [chkS, derefS_full] at hc
   cases hs : ptrS D y with
   | none => simp [hs] at hc
   | some s =>
@@ -555,6 +569,10 @@ theorem case_load {x y i f n} (hc : chkS Rules.full P D Γ (.load x y i f) = som
     · exact Good.inv (hI.setRef (by
         unfold VOK; rw [hD]
         exact .inr ⟨c, 0, r, by simp [Env.set], hsc, by rw [addRef_lookup]; simp, .fld hpc ha⟩))
+  · rename_i s' s'' hf hD
+    obtain ⟨v, -, hrd, hv⟩ := rd_ok hok hb hk hf
+    rw [hrd]; simp only
+    exact Good.inv (hI.setVar (by unfold VOK; rw [hD]; simpa [Env.set, FOK] using hv))
 
 end
 
@@ -573,11 +591,11 @@ theorem getElem?_set_eq' {μ : Mem} {b : Nat} {blk blk' : Blk} (h : μ[b]? = som
     (μ.set b blk)[b]? = some blk := by
   simp [(List.getElem?_eq_some_iff.mp h).1]
 
-theorem fresh_ok {P : Prog} {μ : Mem} {par : PMap} {b s m} : BlkOK P μ par b (freshBlk P s m) := by
+theorem fresh_ok {P : Prog} {μ : Mem} {par : PMap} {b s m stk} : BlkOK P μ par b (freshBlk P s m stk) := by
   refine ⟨rfl, fun k el hk => ?_⟩
   simp only [freshBlk, List.getElem?_replicate] at hk
   split at hk <;> cases hk
-  have hsid : (freshBlk P s m).sid = s := rfl
+  have hsid : (freshBlk P s m stk).sid = s := rfl
   rw [hsid]
   refine ⟨by simp [zeroElem, fields], fun f t v ht hv => ?_⟩
   simp only [zeroElem, List.getElem?_map] at hv
@@ -595,14 +613,18 @@ theorem Inv.no_anc_len (hI : Inv P D d θ Γ ρ μ par) {l} : ¬ Anc par μ.leng
   fun h => by have := hI.anc_lt h; omega
 
 /-- A fresh block `μ.length` owned by `x`; the rest unchanged. -/
-theorem inv_fresh (hI : Inv P D d θ Γ ρ μ par) {x s m} {Γ1 : Ctx}
-    (hD : D.lookup x = some (.own s)) (hlive : ∀ y ∈ Γ1.live, y = x ∨ (y ∈ Γ.live ∧ Γ.roots.lookup y ≠ some (.loc x)))
+theorem inv_fresh (hI : Inv P D d θ Γ ρ μ par) {x s m stk} {Γ1 : Ctx}
+    (hD : D.lookup x = some (.own s) ∨ D.lookup x = some (.excl s)) (hlive : ∀ y ∈ Γ1.live, y = x ∨ (y ∈ Γ.live ∧ Γ.roots.lookup y ≠ some (.loc x)))
     (hroots : Γ1.roots = Γ.roots) :
-    Inv P D d θ Γ1 (ρ.set x (.ptr μ.length 0)) (μ ++ [freshBlk P s m]) (upd par μ.length (.var (d, x))) ∧
+    Inv P D d θ Γ1 (ρ.set x (.ptr μ.length 0)) (μ ++ [freshBlk P s m stk]) (upd par μ.length (.var (d, x))) ∧
     Frame d par (upd par μ.length (.var (d, x))) := by
   have hch : ∀ b, upd par μ.length (.var (d, x)) b ≠ par b → b = μ.length := by
     intro b e; apply Classical.byContradiction; intro h; exact e (upd_ne h)
-  have hlen : (μ ++ [freshBlk P s m]).length = μ.length + 1 := by simp
+  have hx : VOK D d θ Γ1.roots (ρ.set x (.ptr μ.length 0)) (μ ++ [freshBlk P s m stk])
+      (upd par μ.length (.var (d, x))) x := by
+    rcases hD with hD | hD <;> unfold VOK <;> rw [hD] <;>
+      exact .inr ⟨μ.length, by simp [Env.set], upd_eq, by simp [sidOf, freshBlk]⟩
+  have hlen : (μ ++ [freshBlk P s m stk]).length = μ.length + 1 := by simp
   refine ⟨⟨hI.theta, ?_, ?_, ?_⟩, frame_of fun b l e ha => absurd (hch b e ▸ ha) hI.no_anc_len⟩
   · intro c b k f hc
     have hne : c ≠ μ.length := by intro h; subst h; simp [upd] at hc
@@ -616,11 +638,9 @@ theorem inv_fresh (hI : Inv P D d θ Γ ρ μ par) {x s m} {Γ1 : Ctx}
     · intro b l c k f _ _ hl hc; rw [upd_ne (by omega)]; exact hc
   · intro y hy
     rcases hlive y hy with rfl | ⟨hy, -⟩
-    · unfold VOK; rw [hD]
-      exact .inr ⟨μ.length, by simp [Env.set], upd_eq, by simp [sidOf, freshBlk]⟩
+    · exact hx
     · by_cases e : y = x
-      · subst e; unfold VOK; rw [hD]
-        exact .inr ⟨μ.length, by simp [Env.set], upd_eq, by simp [sidOf, freshBlk]⟩
+      · subst e; exact hx
       exact (hI.vars y hy).keep (K := fun _ => False)
         (fun b l e ha => absurd (hch b e ▸ ha) hI.no_anc_len) (by simp [Env.set, e]) sidPres_app
         (fun _ => by rw [hroots])
@@ -637,7 +657,7 @@ theorem case_malloc {x s e n} (hc : chkS Rules.full P D Γ (.malloc x s e) = som
   rw [h]; simp only [Res.thenO]
   split
   · exact Good.trap
-  obtain ⟨h1, h2⟩ := inv_fresh (m := m.toNat) hI hD (fun y hy => mem_assignOwn.mp hy) rfl
+  obtain ⟨h1, h2⟩ := inv_fresh (m := m.toNat) (stk := false) hI (.inl hD) (fun y hy => mem_assignOwn.mp hy) rfl
   exact ⟨_, h1, h2, sidPres_app⟩
 
 end
@@ -679,12 +699,18 @@ variable {P : Prog} {D : Decls} {d : Nat} {θ : Nat → Lbl} {Γ Γ' : Ctx} {ρ 
 theorem rootOf_own {Γ : Ctx} {y s} (h : D.lookup y = some (.own s)) : rootOf D Γ y = some (.loc y) := by
   simp [rootOf, h]
 
-theorem ownerOK_full {y s} (h : ownerOK Rules.full D y s = true) : D.lookup y = some (.own s) := by
-  simpa [ownerOK, Rules.full] using h
+theorem ownerOK_full {y s} (h : ownerOK Rules.full D y s = true) : isOwn D y = true := by
+  simp [ownerOK, Rules.full] at h; rcases h with h | h <;> simp [isOwn, h]
 
-theorem killRoot_own {Γ : Ctx} {y s} (h : D.lookup y = some (.own s)) :
+theorem freeOK_full {y s} (h : freeOK Rules.full D y s = true) : D.lookup y = some (.own s) := by
+  simpa [freeOK, Rules.full] using h
+
+theorem rootOf_isOwn {Γ : Ctx} {y} (h : isOwn D y = true) : rootOf D Γ y = some (.loc y) := by
+  unfold isOwn at h; unfold rootOf; split at h <;> rename_i hD <;> simp_all
+
+theorem killRoot_own {Γ : Ctx} {y} (h : isOwn D y = true) :
     killRoot true D Γ y = Γ.kill (.loc y) := by
-  simp [killRoot, rootOf_own h]
+  simp [killRoot, rootOf_isOwn h]
 
 theorem own_head (hI : Inv P D d θ Γ ρ μ par) {x s} (hx : x ∈ Γ.live) (hD : D.lookup x = some (.own s)) :
     ρ x = .null ∨ ∃ b, ρ x = .ptr b 0 ∧ par b = .var (d, x) ∧ sidOf μ b = some s := by
@@ -693,26 +719,13 @@ theorem own_head (hI : Inv P D d θ Γ ρ μ par) {x s} (hx : x ∈ Γ.live) (hD
 theorem anc_KS1 {b l x} (hb : par b = .var (d, x)) (ha : Anc par b l) : KS d [x] l := by
   rw [Anc.det ha (.var hb)]; simp [KS]
 
-theorem case_free {x n} (hc : chkS Rules.full P D Γ (.free x) = some Γ')
-    (hI : Inv P D d θ Γ ρ μ par) : Good P D d θ μ par Γ' (exec P (n + 1) ρ μ (.free x)) := by
-  simp only [chkS] at hc
-  cases hps : ptrS D x with
-  | none => simp [hps] at hc
-  | some s =>
-  simp only [hps] at hc
-  split at hc <;> rename_i h <;> cases hc
-  obtain ⟨ho, hx⟩ := h
-  have hD := ownerOK_full ho
-  simp only [Rules.full]
-  rw [killRoot_own hD]
+/-- Killing the block an owner holds: its loans and the owner end. Shared by
+`free` and the end of a `scope`. -/
+theorem kill_tail (hI : Inv P D d θ Γ ρ μ par) {x b blk} (h2 : par b = .var (d, x))
+    (hb : μ[b]? = some blk) :
+    Good P D d θ μ par ((Γ.kill (.loc x)).drop x) (.ok ρ (kill μ b blk)) := by
   have hw : ∀ y ∈ ((Γ.kill (.loc x)).drop x).live, y ∈ Γ.live ∧ Γ.roots.lookup y ≠ some (.loc x) ∧ y ≠ x :=
     fun y hy => by have := mem_drop.mp hy; have := mem_kill.mp this.1; exact ⟨this.1, this.2, ‹_ ∧ _›.2⟩
-  simp only [exec]
-  rcases own_head hI hx hD with h0 | ⟨b, h1, h2, h3⟩
-  · rw [h0]; exact Good.inv (hI.weaken fun y hy => ⟨(hw y hy).1, fun _ => rfl⟩)
-  obtain ⟨blk, hb, hok⟩ := hI.heap b _ (.var h2)
-  rw [h1]; simp only [hb, hok.1]
-  simp only [Bool.true_eq_false, ite_false, ite_true]
   have hch : ∀ c, upd par b .nil c ≠ par c → c = b := fun c e =>
     Classical.byContradiction fun h => e (upd_ne h)
   have hs : SidPres μ (kill μ b blk) := sidPres_set hb rfl
@@ -736,6 +749,29 @@ theorem case_free {x n} (hc : chkS Rules.full P D Γ (.free x) = some Γ')
     intro _ rt hrt
     exact lab_notKS hI.theta (by intro k hk; simp at hk; subst hk; intro h; subst h; exact hr hrt)
   · rw [hch c e] at ha; exact anc_KS1 h2 ha
+
+
+theorem case_free {x n} (hc : chkS Rules.full P D Γ (.free x) = some Γ')
+    (hI : Inv P D d θ Γ ρ μ par) : Good P D d θ μ par Γ' (exec P (n + 1) ρ μ (.free x)) := by
+  simp only [chkS] at hc
+  cases hps : ptrS D x with
+  | none => simp [hps] at hc
+  | some s =>
+  simp only [hps] at hc
+  split at hc <;> rename_i h <;> cases hc
+  obtain ⟨ho, hx⟩ := h
+  have hD := freeOK_full ho
+  simp only [Rules.full]
+  rw [killRoot_own (by simp [isOwn, hD])]
+  have hw : ∀ y ∈ ((Γ.kill (.loc x)).drop x).live, y ∈ Γ.live ∧ Γ.roots.lookup y ≠ some (.loc x) ∧ y ≠ x :=
+    fun y hy => by have := mem_drop.mp hy; have := mem_kill.mp this.1; exact ⟨this.1, this.2, ‹_ ∧ _›.2⟩
+  simp only [exec]
+  rcases own_head hI hx hD with h0 | ⟨b, h1, h2, h3⟩
+  · rw [h0]; exact Good.inv (hI.weaken fun y hy => ⟨(hw y hy).1, fun _ => rfl⟩)
+  obtain ⟨blk, hb, hok⟩ := hI.heap b _ (.var h2)
+  rw [h1]; simp only [hb, hok.1]
+  simp only [Bool.true_eq_false, ite_false, ite_true]
+  exact kill_tail hI h2 hb
 
 end
 
@@ -830,7 +866,7 @@ theorem case_take {x y i f n} (hc : chkS Rules.full P D Γ (.take x y i f) = som
   simp only [exec]
   rcases fieldAt_ok hI hy hps hi with e | ⟨b, off, r, blk, k, el, e, -, -, -, hb, hsid, hok, hk, hown⟩
   · rw [e]; exact Good.trap
-  obtain ⟨-, hpb⟩ := hown (by simp [isOwn, hDy])
+  obtain ⟨-, hpb⟩ := hown hDy
   subst hsid
   obtain ⟨v, -, hrd, hv⟩ := rd_ok hok hb hk hf
   have hfl := field_lt hok hk hf
@@ -885,7 +921,7 @@ theorem case_put {y i f z n} (hc : chkS Rules.full P D Γ (.put y i f z) = some 
   simp only [exec]
   rcases fieldAt_ok hI hy hps hi with e | ⟨b, off, r, blk, k, el, e, -, -, -, hb, hsid, hok, hk, hown⟩
   · rw [e]; exact Good.trap
-  obtain ⟨-, hpb⟩ := hown (by simp [isOwn, hDy])
+  obtain ⟨-, hpb⟩ := hown hDy
   subst hsid
   have hfl := field_lt hok hk hf
   rw [e]; simp only [Res.thenO]
@@ -958,7 +994,7 @@ theorem zero_el {μ : Mem} {par : PMap} {b k s} :
 theorem realloc_blk {μ μ' : Mem} {par par' : PMap} {b blk s m nb} (hok : BlkOK P μ par b blk)
     (hsid : blk.sid = s) (hs : SidPres μ μ')
     (hkid : ∀ c k f, c < μ.length → par c = .fld b k f → par' c = .fld nb k f) :
-    BlkOK P μ' par' nb ⟨true, s, blk.cells.take m ++ List.replicate (m - blk.cells.length) (zeroElem P s)⟩ := by
+    BlkOK P μ' par' nb ⟨true, s, blk.cells.take m ++ List.replicate (m - blk.cells.length) (zeroElem P s), false⟩ := by
   refine ⟨rfl, fun k el hk => ?_⟩
   simp only
   by_cases hlt : k < (blk.cells.take m).length
@@ -971,7 +1007,7 @@ theorem realloc_blk {μ μ' : Mem} {par par' : PMap} {b blk s m nb} (hok : BlkOK
     refine ⟨hl, fun f t v ht hv => ?_⟩
     have h := hf f t v ht hv
     cases t with
-    | int => exact h
+    | int | unc _ | ref _ => exact h
     | own s' =>
       rcases h with h | ⟨c, h1, h2, h3⟩
       · exact .inl h
@@ -1037,7 +1073,7 @@ theorem case_realloc {x s e n} (hc : chkS Rules.full P D Γ (.realloc x s e) = s
   · exact Good.trap
   rcases own_head hI hx hD with h0 | ⟨b, h1, h2, h3⟩
   · rw [h0]; simp only
-    obtain ⟨h1, h2⟩ := inv_fresh (m := m.toNat) (Γ1 := Γ.kill (.loc x)) hI hD
+    obtain ⟨h1, h2⟩ := inv_fresh (m := m.toNat) (stk := false) (Γ1 := Γ.kill (.loc x)) hI (.inl hD)
       (fun y hy => by have := mem_kill.mp hy; by_cases e : y = x; exact .inl e; exact .inr this) rfl
     exact ⟨_, h1, h2, sidPres_app⟩
   obtain ⟨blk, hb, hok⟩ := hI.heap b _ (.var h2)
@@ -1046,7 +1082,7 @@ theorem case_realloc {x s e n} (hc : chkS Rules.full P D Γ (.realloc x s e) = s
   rw [h1]; simp only [hb, hok.1, Bool.true_eq_false, ite_false, ite_true]
   have hlen : (kill μ b blk).length = μ.length := List.length_set
   have hs : SidPres μ (kill μ b blk ++ [⟨true, s, blk.cells.take m.toNat ++
-      List.replicate (m.toNat - blk.cells.length) (zeroElem P s)⟩]) :=
+      List.replicate (m.toNat - blk.cells.length) (zeroElem P s), false⟩]) :=
     by unfold kill; exact (sidPres_set (blk' := { blk with live := false }) hb rfl).trans sidPres_app
   have hbl : b < μ.length := (List.getElem?_eq_some_iff.mp hb).1
   have hK : ∀ c l, moveKids par b μ.length (.var (d, x)) c ≠ par c → Anc par c l → KS d [x] l := by
@@ -1191,9 +1227,10 @@ theorem lookup_init' {decls : Decls} {q} :
       · simp only [hr', ite_true, lookup_cons, e, ite_false]; exact ih hq'
       · simpa [hr'] using ih hq'
 
-/-- What `consumeArgs` guarantees. -/
-theorem consumeArgs_spec {D : Decls} :
-    ∀ (args : List Nat) (Γ Γm : Ctx), consumeArgs Rules.full D Γ args = some Γm →
+/-- What `consumeArgs` guarantees. Under the full rules owned and lent
+arguments are treated alike: their loans end and they leave the context. -/
+theorem consumeArgs_spec {D : Decls} {lent : Nat → Bool} :
+    ∀ (args : List Nat) (Γ Γm : Ctx), consumeArgs Rules.full D lent Γ args = some Γm →
       Γm.roots = Γ.roots ∧ (∀ z ∈ Γm.live, z ∈ Γ.live) ∧
       ∀ a ∈ args, isOwn D a = true → a ∈ Γ.live ∧ a ∉ Γm.live ∧ args.count a = 1 ∧
         ∀ z ∈ Γm.live, Γ.roots.lookup z ≠ some (.loc a) := by
@@ -1207,7 +1244,7 @@ theorem consumeArgs_spec {D : Decls} :
     · rename_i ho
       split at h
       · rename_i hl
-        simp only [Rules.full, ite_true] at h
+        simp only [Rules.full, ite_true, ite_self] at h
         obtain ⟨h1, h2, h3⟩ := ih _ _ h
         have hsub : ∀ z ∈ Γm.live, z ∈ Γ.live ∧ z ≠ a ∧ Γ.roots.lookup z ≠ some (.loc a) := by
           intro z hz
@@ -1233,6 +1270,33 @@ theorem consumeArgs_spec {D : Decls} :
       obtain ⟨g1, g2, g3, g4⟩ := h3 b hb' hob
       exact ⟨g1, g2, by rw [List.count_cons_of_ne (Ne.symm e)]; exact g3, g4⟩
 
+theorem argTy_cases {ta tp : Option VTy} (h : argTy ta tp = true) :
+    ta = tp ∨ ∃ s, ta = some (.own s) ∧ tp = some (.excl s) := by
+  unfold argTy at h
+  simp only [Bool.or_eq_true, decide_eq_true_eq] at h
+  rcases h with h | h
+  · exact .inl h
+  · right; split at h
+    · rename_i s s'; simp at h; subst h; exact ⟨s, rfl, rfl⟩
+    · cases h
+
+theorem lookup_zip_back {as ps : List Nat} {a p} (hn : ps.Nodup) (h : (as.zip ps).lookup a = some p) :
+    (ps.zip as).lookup p = some a := by
+  induction as generalizing ps with
+  | nil => simp at h
+  | cons b as ih =>
+    cases ps with
+    | nil => simp at h
+    | cons q ps =>
+      simp only [List.zip_cons_cons, lookup_cons] at h ⊢
+      have hq : q ∉ ps := (List.nodup_cons.mp hn).1
+      split at h
+      · cases h; subst ‹a = b›; simp
+      · have hm := List.of_mem_zip (lookup_zip_mem h)
+        have hpq : p ≠ q := fun e => hq (e ▸ hm.2)
+        simp only [hpq, ite_false]
+        exact ih (List.nodup_cons.mp hn).2 h
+
 /-! ## Calls: the callee's view and the caller's view after the return -/
 
 /-- A borrow parameter `p` lives in the caller's region of its argument. -/
@@ -1243,7 +1307,7 @@ def calleeTheta (d : Nat) (θ : Nat → Lbl) (Γ : Ctx) (ps args : List Nat) : N
     | none => (0, 0))
   | none => (0, 0)
 
-/-- Owned arguments become owned by the callee's parameters. -/
+/-- Owned and lent arguments become owned by the callee's parameters. -/
 def calleePar (D : Decls) (d : Nat) (par : PMap) (ps args : List Nat) : PMap := fun b =>
   match par b with
   | .var l =>
@@ -1254,10 +1318,18 @@ def calleePar (D : Decls) (d : Nat) (par : PMap) (ps args : List Nat) : PMap := 
     else .var l
   | q => q
 
-/-- The callee's owned result becomes owned by `x`. -/
-def retPar (d x ret : Nat) (par : PMap) : PMap := fun b =>
+/-- After the return: the callee's owned result becomes owned by `x` (when
+`own`), and each exclusive parameter's region goes back to the argument that
+was lent. -/
+def backPar (d x ret : Nat) (own : Bool) (fn : Fn) (args : List Nat) (par : PMap) : PMap := fun b =>
   match par b with
-  | .var l => if l = (d + 1, ret) then .var (d, x) else .var l
+  | .var l =>
+    if own = true ∧ l = (d + 1, ret) then .var (d, x)
+    else if l.1 = d + 1 ∧ isExcl fn.decls l.2 = true then
+      (match (fn.params.zip args).lookup l.2 with
+       | some a => .var (d, a)
+       | none => .var l)
+    else .var l
   | q => q
 
 theorem calleePar_fld {D d par ps args b b' k f} :
@@ -1286,21 +1358,41 @@ theorem calleePar_ch {D d par ps args b} (h : calleePar D d par ps args b ≠ pa
     · exact absurd hl.symm h
   · exact absurd rfl h
 
-theorem retPar_fld {d x ret par b b' k f} : retPar d x ret par b = .fld b' k f ↔ par b = .fld b' k f := by
-  unfold retPar
+theorem backPar_fld {d x ret own fn args par b b' k f} :
+    backPar d x ret own fn args par b = .fld b' k f ↔ par b = .fld b' k f := by
+  unfold backPar
   constructor
   · intro h; split at h
-    · split at h <;> cases h
+    · split at h
+      · cases h
+      · split at h
+        · split at h <;> cases h
+        · cases h
     · simp_all
   · intro h; rw [h]
 
-theorem retPar_ch {d x ret par b} (h : retPar d x ret par b ≠ par b) : par b = .var (d + 1, ret) := by
-  unfold retPar at h
+theorem backPar_ch {d x ret own fn args par b} (h : backPar d x ret own fn args par b ≠ par b) :
+    ∃ l, par b = .var l ∧ backPar d x ret own fn args par b ≠ .nil ∧ d < l.1 := by
+  unfold backPar at h ⊢
   split at h
-  · rename_i l hl; split at h
-    · rename_i e; rw [hl, e]
-    · exact absurd hl.symm h
+  · rename_i l hl
+    refine ⟨l, hl, ?_, ?_⟩
+    · split
+      · simp
+      · split
+        · split <;> simp
+        · simp
+    · split at h
+      · rename_i e; rw [e.2]; simp
+      · split at h
+        · rename_i e; omega
+        · exact absurd hl.symm h
   · exact absurd rfl h
+
+theorem backPar_keep {d x ret own fn args par b l} (ha : Anc par b l) (hl : l.1 ≤ d) :
+    Anc (backPar d x ret own fn args par) b l :=
+  anc_keep (K := fun l => d < l.1) (fun c l e ha => by
+    obtain ⟨l', h1, -, h3⟩ := backPar_ch e; rw [Anc.det ha (.var h1)]; exact h3) ha (by omega)
 
 theorem mono_fld {μ : Mem} {par par' : PMap} (h : ∀ c b k f, par' c = .fld b k f ↔ par c = .fld b k f)
     (hch : ∀ c, par' c ≠ par c → ∃ l, par c = .var l ∧ par' c ≠ .nil)
@@ -1313,10 +1405,21 @@ theorem mono_fld {μ : Mem} {par par' : PMap} (h : ∀ c b k f, par' c = .fld b 
     exact ⟨blk, hb, hok.mono SidPres.refl fun c k f _ hc => (h c b k f).mpr hc⟩
   · exact h.elim
 
-theorem callee_inv {fn : Fn} {args : List Nat} {Γm : Ctx} (hI : Inv P D d θ Γ ρ μ par)
+/-- The value an owner-like variable holds, whatever its declared kind. -/
+theorem vok_own {D d θ r ρ μ par a} (ho : isOwn D a = true) (h : VOK D d θ r ρ μ par a) :
+    ∃ s, ptrS D a = some s ∧
+      (ρ a = .null ∨ ∃ b, ρ a = .ptr b 0 ∧ par b = .var (d, a) ∧ sidOf μ b = some s) := by
+  unfold isOwn at ho
+  cases hD : D.lookup a with
+  | none => simp [hD] at ho
+  | some t =>
+    unfold VOK at h; rw [hD] at h
+    cases t <;> simp [hD] at ho <;> exact ⟨_, by simp [ptrS, hD], h⟩
+
+theorem callee_inv {fn : Fn} {args : List Nat} {lent} {Γm : Ctx} (hI : Inv P D d θ Γ ρ μ par)
     (hlen : args.length = fn.params.length)
-    (hzip : ∀ p a, (p, a) ∈ fn.params.zip args → D.lookup a = fn.decls.lookup p)
-    (hcm : consumeArgs Rules.full D Γ args = some Γm)
+    (hzip : ∀ p a, (p, a) ∈ fn.params.zip args → argTy (D.lookup a) (fn.decls.lookup p) = true)
+    (hcm : consumeArgs Rules.full D lent Γ args = some Γm)
     (hall : ∀ a ∈ args, isOwn D a = true ∨ a ∈ Γm.live) (hnd : fn.params.Nodup) :
     Inv P fn.decls (d + 1) (calleeTheta d θ Γ fn.params args) fn.init (bindArgs ρ fn.params args) μ
       (calleePar D d par fn.params args) := by
@@ -1350,25 +1453,46 @@ theorem callee_inv {fn : Fn} {args : List Nat} {Γm : Ctx} (hI : Inv P D d θ Γ
     have hD := hzip p a (lookup_zip_mem ha)
     have hmem : a ∈ args := (List.of_mem_zip (lookup_zip_mem ha)).2
     have hρ : bindArgs ρ fn.params args p = ρ a := by simp [bindArgs, ha]
+    /- An owner-like argument: the callee's parameter now heads its region. -/
+    have owned : isOwn D a = true → ∀ s, (ρ a = .null ∨ ∃ b, ρ a = .ptr b 0 ∧ par b = .var (d, a) ∧
+        sidOf μ b = some s) →
+        (ρ a = .null ∨ ∃ b, ρ a = .ptr b 0 ∧ calleePar D d par fn.params args b = .var (d + 1, p) ∧
+          sidOf μ b = some s) := by
+      intro ho s hv
+      obtain ⟨g1, -, g3, -⟩ := cown a hmem ho
+      rcases hv with h | ⟨b, h1, h2, h3⟩
+      · exact .inl h
+      · refine .inr ⟨b, h1, ?_, h3⟩
+        unfold calleePar; rw [h2]; simp [ho, lookup_zip_inv hnd ha g3]
     unfold VOK; rw [hρ]
     cases hDp : fn.decls.lookup p with
     | none => trivial
     | some τ =>
       rw [hDp] at hD
+      have hD' := argTy_cases hD
       cases τ with
       | int =>
+        have hD : D.lookup a = some .int := by rcases hD' with h | ⟨_, -, h⟩; exact h; cases h
         have hno : isOwn D a = false := by simp [isOwn, hD]
         have ha' : a ∈ Γ.live := csub a ((hall a hmem).resolve_left (by simp [hno]))
         have hv := hI.vars a ha'; unfold VOK at hv; rw [hD] at hv; exact hv
       | own s =>
+        have hD : D.lookup a = some (.own s) := by rcases hD' with h | ⟨_, -, h⟩; exact h; cases h
         have ho : isOwn D a = true := by simp [isOwn, hD]
-        obtain ⟨g1, -, g3, -⟩ := cown a hmem ho
-        have hv := hI.vars a g1; unfold VOK at hv; rw [hD] at hv
-        rcases hv with h | ⟨b, h1, h2, h3⟩
-        · exact .inl h
-        · refine .inr ⟨b, h1, ?_, h3⟩
-          unfold calleePar; rw [h2]; simp [ho, lookup_zip_inv hnd ha g3]
+        have hv := hI.vars a (cown a hmem ho).1; unfold VOK at hv; rw [hD] at hv
+        exact owned ho s hv
+      | excl s =>
+        have ho : isOwn D a = true := by
+          rcases hD' with h | ⟨_, h, -⟩ <;> simp [isOwn, h]
+        obtain ⟨s', hs', hv⟩ := vok_own ho (hI.vars a (cown a hmem ho).1)
+        have : s' = s := by
+          rcases hD' with h | ⟨t, h1, h2⟩
+          · simp [ptrS, h] at hs'; exact hs'.symm
+          · cases h2; simp [ptrS, h1] at hs'; exact hs'.symm
+        subst this
+        exact owned ho s' hv
       | ref s =>
+        have hD : D.lookup a = some (.ref s) := by rcases hD' with h | ⟨_, -, h⟩; exact h; cases h
         have hno : isOwn D a = false := by simp [isOwn, hD]
         have hm : a ∈ Γm.live := (hall a hmem).resolve_left (by simp [hno])
         have hv := hI.vars a (csub a hm); unfold VOK at hv; rw [hD] at hv
@@ -1384,20 +1508,25 @@ theorem callee_inv {fn : Fn} {args : List Nat} {Γm : Ctx} (hI : Inv P D d θ Γ
             rintro ⟨-, hy, hya⟩
             exact (cown y hya hy).2.2.2 a hm h3
           | ext q => intro h; have := hI.theta q; simp [lab] at h; omega
+      | unc s =>
+        have hD : D.lookup a = some (.unc s) := by rcases hD' with h | ⟨_, -, h⟩; exact h; cases h
+        have hno : isOwn D a = false := by simp [isOwn, hD]
+        have hm : a ∈ Γm.live := (hall a hmem).resolve_left (by simp [hno])
+        have hv := hI.vars a (csub a hm); unfold VOK at hv; rw [hD] at hv; exact hv
 
 theorem lab_le {d θ} (hθ : ∀ p, (θ p).1 < d) (r : Root) : (lab d θ r).1 ≤ d := by
   cases r with
   | loc y => simp [lab]
   | ext p => have := hθ p; simp [lab]; omega
 
-theorem caller_post {fn : Fn} {args : List Nat} {Γm Γf Γ1 : Ctx} {θe : Nat → Lbl} {ρ' : Env} {μ' : Mem}
-    {pare' parc' : PMap} {x v}
-    (hI : Inv P D d θ Γ ρ μ par) (hcm : consumeArgs Rules.full D Γ args = some Γm)
+theorem caller_post {fn : Fn} {args : List Nat} {lent} {Γm Γf Γ1 : Ctx} {θe : Nat → Lbl} {ρ' : Env}
+    {μ' : Mem} {pare' parc' : PMap} {x v}
+    (hI : Inv P D d θ Γ ρ μ par) (hcm : consumeArgs Rules.full D lent Γ args = some Γm)
     (hFe : Frame (d + 1) (calleePar D d par fn.params args) pare') (hse : SidPres μ μ')
     (hIe' : Inv P fn.decls (d + 1) θe Γf ρ' μ' pare')
     (hfld : ∀ c b k f, parc' c = .fld b k f ↔ pare' c = .fld b k f)
     (hch : ∀ c, parc' c ≠ pare' c → ∃ l, pare' c = .var l ∧ parc' c ≠ .nil ∧ d < l.1)
-    (hlive : ∀ z ∈ Γ1.live, z ≠ x → z ∈ Γm.live)
+    (hlent : ∀ z ∈ Γ1.live, z ≠ x → z ∉ Γm.live → VOK D d θ Γ1.roots (ρ.set x v) μ' parc' z)
     (hroots : ∀ z, z ≠ x → Γ1.roots.lookup z = Γ.roots.lookup z)
     (hx : x ∈ Γ1.live → VOK D d θ Γ1.roots (ρ.set x v) μ' parc' x) :
     Good P D d θ μ par Γ1 (.ok (ρ.set x v) μ') := by
@@ -1423,24 +1552,28 @@ theorem caller_post {fn : Fn} {args : List Nat} {Γm Γf Γ1 : Ctx} {θe : Nat �
   · intro z hz
     by_cases e : z = x
     · subst e; exact hx hz
-    have hzm := hlive z hz e
+    by_cases hzm : z ∈ Γm.live
+    rotate_left
+    · exact hlent z hz e hzm
     have hzΓ := csub z hzm
     have hv := hI.vars z hzΓ
+    have hown : ∀ b, par b = .var (d, z) → parc' b = .var (d, z) := by
+      intro b h2
+      have hnot : ¬ ((d, z).1 = d ∧ isOwn D (d, z).2 = true ∧ (d, z).2 ∈ args) := by
+        rintro ⟨-, ho, hm⟩; exact (cown z hm ho).2.1 hzm
+      have hpe : calleePar D d par fn.params args b = par b :=
+        Classical.byContradiction fun ne => hnot (hKe b _ ne (.var h2))
+      have hpe' : pare' b = .var (d, z) := by
+        rw [hFe b (d, z) (.var (by rw [hpe]; exact h2)) (by simp), hpe, h2]
+      exact Classical.byContradiction fun ne => by
+        have := hKc b (d, z) (by rw [hpe']; exact ne) (.var hpe'); simp at this
     unfold VOK at hv ⊢
     simp only [Env.set, e, ite_false]
     split at hv <;> rename_i hD
     · exact hv
     · rcases hv with h | ⟨b, h1, h2, h3⟩
       · exact .inl h
-      · refine .inr ⟨b, h1, ?_, hse _ _ h3⟩
-        have hnot : ¬ ((d, z).1 = d ∧ isOwn D (d, z).2 = true ∧ (d, z).2 ∈ args) := by
-          rintro ⟨-, ho, hm⟩; exact (cown z hm ho).2.1 hzm
-        have hpe : calleePar D d par fn.params args b = par b :=
-          Classical.byContradiction fun ne => hnot (hKe b _ ne (.var h2))
-        have hpe' : pare' b = .var (d, z) := by
-          rw [hFe b (d, z) (.var (by rw [hpe]; exact h2)) (by simp), hpe, h2]
-        exact Classical.byContradiction fun ne => by
-          have := hKc b (d, z) (by rw [hpe']; exact ne) (.var hpe'); simp at this
+      · exact .inr ⟨b, h1, hown b h2, hse _ _ h3⟩
     · rcases hv with h | ⟨b, off, r, h1, h2, h3, h4⟩
       · exact .inl h
       · refine .inr ⟨b, off, r, h1, hse _ _ h2, by rw [hroots z e]; exact h3, ?_⟩
@@ -1448,7 +1581,10 @@ theorem caller_post {fn : Fn} {args : List Nat} {Γm Γf Γ1 : Ctx} {θe : Nat �
         cases r with
         | loc y => rintro ⟨-, hy, hya⟩; exact (cown y hya hy).2.2.2 z hzm h3
         | ext q => intro h; have := hI.theta q; simp [lab] at h; omega
-    · trivial
+    · rcases hv with h | ⟨b, h1, h2, h3⟩
+      · exact .inl h
+      · exact .inr ⟨b, h1, hown b h2, hse _ _ h3⟩
+    all_goals exact hv
   · intro b l ha hl
     have hnk : ¬ (l.1 = d ∧ isOwn D l.2 = true ∧ l.2 ∈ args) := fun h => by omega
     have hpe : calleePar D d par fn.params args b = par b :=
@@ -1467,10 +1603,13 @@ theorem live_init (hI : Inv P D d θ Γ ρ μ par) {z} (hz : z ∈ Γ.live) (hD 
   · obtain ⟨n, hn⟩ := hv; rw [hn]; simp
   · rcases hv with h | ⟨b, h1, -⟩ <;> simp [*]
   · rcases hv with h | ⟨b, off, -, h1, -⟩ <;> simp [*]
+  · rcases hv with h | ⟨b, h1, -⟩ <;> simp [*]
+  · rcases hv with h | ⟨b, off, h1⟩ <;> simp [*]
   · rw [h] at hD; cases hD
 
 theorem fnOK_full {fn : Fn} (h : fnOK Rules.full P fn = true) :
     ∃ Γf, chkS Rules.full P fn.decls fn.init fn.body = some Γf ∧ fn.params.Nodup ∧ fn.ret ∈ Γf.live ∧
+      (∀ p ∈ fn.params, isExcl fn.decls p = true → p ∈ Γf.live ∧ assigns p fn.body = false) ∧
       (fn.decls.lookup fn.ret).isSome ∧
       ∀ s, fn.decls.lookup fn.ret = some (.ref s) → ∃ p, fn.bound = some p ∧ Γf.roots.lookup fn.ret = some (.ext p) := by
   unfold fnOK at h
@@ -1478,8 +1617,10 @@ theorem fnOK_full {fn : Fn} (h : fnOK Rules.full P fn = true) :
   · cases h
   rename_i Γf hb
   simp only [Bool.and_eq_true, decide_eq_true_eq] at h
-  obtain ⟨⟨hn, hr⟩, hm⟩ := h
-  refine ⟨Γf, hb, hn, hr, ?_, fun s hs => ?_⟩
+  obtain ⟨⟨⟨hn, hr⟩, hx⟩, hm⟩ := h
+  refine ⟨Γf, hb, hn, hr, fun p hp he => ?_, ?_, fun s hs => ?_⟩
+  · have := List.all_eq_true.mp hx p hp
+    simp [he] at this; exact this
   · split at hm <;> simp_all
   · rw [hs] at hm; simp only [Rules.full, ite_true] at hm
     split at hm
@@ -1487,6 +1628,145 @@ theorem fnOK_full {fn : Fn} (h : fnOK Rules.full P fn = true) :
       simp only [Bool.and_eq_true, decide_eq_true_eq] at hm
       exact ⟨p, hp, hm.1.1⟩
     · cases hm
+
+/-! ## Frame-free fact: exclusive borrows are never reassigned -/
+
+theorem then_ok {o : Out} {g : Env → Mem → Out} {ρ' μ'} (h : o.then g = .ok ρ' μ') :
+    ∃ ρ1 μ1, o = .ok ρ1 μ1 ∧ g ρ1 μ1 = .ok ρ' μ' := by
+  cases o with
+  | ok ρ1 μ1 => exact ⟨ρ1, μ1, rfl, h⟩
+  | _ => simp [Out.then] at h
+
+theorem thenO_ok {α} {r : Res α} {f : α → Out} {ρ' μ'} (h : r.thenO f = .ok ρ' μ') :
+    ∃ a, r = .ok a ∧ f a = .ok ρ' μ' := by
+  cases r with
+  | ok a => exact ⟨a, rfl, h⟩
+  | _ => simp [Res.thenO] at h
+
+set_option hygiene false in
+/-- Finishes a statement case of `exec_preserves`. -/
+local macro "fin_pres" : tactic => `(tactic| first
+  | (cases h; done)
+  | (simp only [Out.ok.injEq] at h; rw [← h.1]; exact setv hy)
+  | (simp only [Out.ok.injEq] at h; rw [← h.1]))
+
+theorem exec_preserves (P : Prog) : ∀ n ρ μ s ρ' μ', exec P n ρ μ s = .ok ρ' μ' →
+    ∀ y, assigns y s = false → ρ' y = ρ y := by
+  intro n
+  induction n with
+  | zero => intro ρ μ s ρ' μ' h; simp [exec] at h
+  | succ n ih =>
+    intro ρ μ s ρ' μ' h y hy
+    have setv : ∀ {x v}, (x == y) = false → (ρ.set x v) y = ρ y := by
+      intro x v e; simp at e; simp [Env.set, Ne.symm e]
+    cases s with
+    | skip => simp [exec] at h; rw [h.1]
+    | seq a b =>
+      simp only [assigns, Bool.or_eq_false_iff] at hy
+      obtain ⟨ρ1, μ1, h1, h2⟩ := then_ok h
+      rw [ih _ _ _ _ _ h2 y hy.2, ih _ _ _ _ _ h1 y hy.1]
+    | ifz c a b =>
+      simp only [assigns, Bool.or_eq_false_iff] at hy
+      simp only [exec] at h
+      obtain ⟨v, -, h⟩ := thenO_ok h
+      split at h
+      · split at h
+        · exact ih _ _ _ _ _ h y hy.1
+        · exact ih _ _ _ _ _ h y hy.2
+      · cases h
+    | ifNull x a b =>
+      simp only [assigns, Bool.or_eq_false_iff] at hy
+      simp only [exec] at h
+      split at h
+      · exact ih _ _ _ _ _ h y hy.1
+      · exact ih _ _ _ _ _ h y hy.2
+      · cases h
+    | loop c body =>
+      simp only [assigns] at hy
+      simp only [exec] at h
+      obtain ⟨v, -, h⟩ := thenO_ok h
+      split at h
+      · split at h
+        · simp at h; rw [h.1]
+        · obtain ⟨ρ1, μ1, h1, h2⟩ := then_ok h
+          rw [ih _ _ _ _ _ h2 y (by simpa [assigns] using hy), ih _ _ _ _ _ h1 y hy]
+      · cases h
+    | scope x s e body =>
+      simp only [assigns, Bool.or_eq_false_iff] at hy
+      simp only [exec] at h
+      obtain ⟨v, -, h⟩ := thenO_ok h
+      split at h
+      · split at h
+        · cases h
+        · obtain ⟨ρ1, μ1, h1, h2⟩ := then_ok h
+          split at h2
+          · simp at h2; rw [← h2.1, ih _ _ _ _ _ h1 y hy.2, setv hy.1]
+          · cases h2
+      · cases h
+    | call x f args =>
+      simp only [assigns] at hy
+      simp only [exec] at h
+      split at h; · cases h
+      split at h; · cases h
+      split at h <;> try cases h
+      split at h; · cases h
+      simp at h; rw [← h.1, setv hy]
+    | set x e =>
+      simp only [assigns] at hy; simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h; fin_pres
+    | nul x => simp only [assigns] at hy; simp only [exec] at h; fin_pres
+    | borrow x z i =>
+      simp only [assigns] at hy; simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h; split at h <;> fin_pres
+    | move x z => simp only [assigns] at hy; simp only [exec] at h; split at h <;> fin_pres
+    | load x z i f =>
+      simp only [assigns] at hy; simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h; obtain ⟨_, -, h⟩ := thenO_ok h; fin_pres
+    | store z i f e =>
+      simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h; obtain ⟨_, -, h⟩ := thenO_ok h; obtain ⟨_, -, h⟩ := thenO_ok h
+      fin_pres
+    | put z i f w =>
+      simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h; split at h; · fin_pres
+      obtain ⟨_, -, h⟩ := thenO_ok h; fin_pres
+    | pstore z i f w =>
+      simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h; split at h; · fin_pres
+      obtain ⟨_, -, h⟩ := thenO_ok h; fin_pres
+    | take x z i f =>
+      simp only [assigns] at hy; simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h; obtain ⟨_, -, h⟩ := thenO_ok h; obtain ⟨_, -, h⟩ := thenO_ok h
+      fin_pres
+    | malloc x s e =>
+      simp only [assigns] at hy; simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h; split at h <;> (try split at h) <;> fin_pres
+    | free x =>
+      simp only [exec] at h
+      split at h
+      · fin_pres
+      · split at h
+        · split at h <;> (try split at h) <;> fin_pres
+        · fin_pres
+      · fin_pres
+    | realloc x s e =>
+      simp only [assigns] at hy; simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h
+      split at h
+      · split at h; · fin_pres
+        split at h
+        · fin_pres
+        · split at h
+          · split at h <;> (try split at h) <;> fin_pres
+          · fin_pres
+        · fin_pres
+      · fin_pres
+    | ucast x z => simp only [assigns] at hy; simp only [exec] at h; split at h <;> fin_pres
+    | copy x z =>
+      simp only [exec] at h
+      obtain ⟨_, -, h⟩ := thenO_ok h; split at h
+      · obtain ⟨_, -, h⟩ := thenO_ok h; fin_pres
+      · fin_pres
 
 theorem case_call (hP : P.ok Rules.full = true) {x f args n}
     (IH : ∀ (D : Decls) d θ Γ Γ' ρ μ par s, chkS Rules.full P D Γ s = some Γ' → Inv P D d θ Γ ρ μ par →
@@ -1501,11 +1781,12 @@ theorem case_call (hP : P.ok Rules.full = true) {x f args n}
   split at hc; rotate_left; · cases hc
   rename_i hz
   obtain ⟨hlen, hzip⟩ := hz
-  have hzip' : ∀ p a, (p, a) ∈ fn.params.zip args → D.lookup a = fn.decls.lookup p ∧ (D.lookup a).isSome := by
+  have hzip' : ∀ p a, (p, a) ∈ fn.params.zip args →
+      argTy (D.lookup a) (fn.decls.lookup p) = true ∧ (D.lookup a).isSome := by
     intro p a hm
     have := List.all_eq_true.mp hzip (p, a) hm
     simpa using this
-  cases hcm : consumeArgs Rules.full D Γ args with
+  cases hcm : consumeArgs Rules.full D (lentArg fn args) Γ args with
   | none => simp [hcm] at hc
   | some Γm =>
   rw [hcm] at hc; simp only [Rules.full, ite_true] at hc
@@ -1517,7 +1798,7 @@ theorem case_call (hP : P.ok Rules.full = true) {x f args n}
     intro a ha; have := List.all_eq_true.mp hall a ha; simpa using this
   obtain ⟨cr, csub, cown⟩ := consumeArgs_spec args Γ Γm hcm
   have hfnm : fn ∈ P.fns := List.mem_iff_getElem?.mpr ⟨f, hfn⟩
-  obtain ⟨Γf, hb, hnd, hret, hretT, hretB⟩ := fnOK_full (List.all_eq_true.mp hP fn hfnm)
+  obtain ⟨Γf, hb, hnd, hret, hexcl, hretT, hretB⟩ := fnOK_full (List.all_eq_true.mp hP fn hfnm)
   have hinit : ∀ a ∈ args, ρ a ≠ .uninit := by
     intro a ha
     by_cases ho : isOwn D a = true
@@ -1539,27 +1820,93 @@ theorem case_call (hP : P.ok Rules.full = true) {x f args n}
   have hv := hIe'.vars fn.ret hret
   have hri : ρ' fn.ret ≠ .uninit := live_init hIe' hret hretT
   simp only [hri, ite_false]
+  /- A lent argument is owned by the caller again: the callee's exclusive
+  parameter still holds the same pointer and still heads its region. -/
+  have lent : ∀ (own : Bool), (own = true → isExcl fn.decls fn.ret = false) → ∀ z, z ≠ x →
+      z ∉ Γm.live → z ∈ args.filter (fun a => isOwn D a && lentArg fn args a) →
+      ∀ v (Γ1 : Ctx), VOK D d θ Γ1.roots (ρ.set x v) μ' (backPar d x fn.ret own fn args pare') z := by
+    intro own hown z hzx _ hz v Γ1
+    simp only [List.mem_filter, Bool.and_eq_true] at hz
+    obtain ⟨hza, hzo, hzl⟩ := hz
+    unfold lentArg at hzl
+    split at hzl
+    rotate_left
+    · cases hzl
+    rename_i p hp
+    have hpz := lookup_zip_back hnd hp
+    have hpm : p ∈ fn.params := (List.of_mem_zip (lookup_zip_mem hp)).2
+    obtain ⟨hpl, hpa⟩ := hexcl p hpm hzl
+    have hρp : ρ' p = ρ z := by
+      rw [exec_preserves P _ _ _ _ _ _ he p hpa]; simp [bindArgs, hpz]
+    obtain ⟨s, hs, hv0⟩ := vok_own hzo (hI.vars z (cown z hza hzo).1)
+    have hτ := (hzip' p z (lookup_zip_mem hpz)).1
+    have hpD : fn.decls.lookup p = some (.excl s) := by
+      unfold isExcl at hzl; split at hzl
+      · rename_i s0 hpt
+        rw [hpt] at hτ ⊢
+        rcases argTy_cases hτ with h | ⟨s', h1, h2⟩
+        · simp [ptrS, h] at hs; rw [hs]
+        · cases h2; simp [ptrS, h1] at hs; rw [hs]
+      · cases hzl
+    have hpv := hIe'.vars p hpl
+    unfold VOK at hpv; rw [hpD] at hpv
+    have hDz : D.lookup z = some (.own s) ∨ D.lookup z = some (.excl s) := by
+      unfold isOwn at hzo; unfold ptrS at hs
+      split at hzo <;> rename_i hD <;> first | (cases hzo; done) | (rw [hD] at hs; simp at hs; subst hs; simp [hD])
+    suffices fin : ρ z = .null ∨ ∃ b, ρ z = .ptr b 0 ∧
+        backPar d x fn.ret own fn args pare' b = .var (d, z) ∧ sidOf μ' b = some s by
+      rcases hDz with hDz | hDz <;> (unfold VOK; rw [hDz]; simpa [Env.set, hzx] using fin)
+    rw [hρp] at hpv
+    rcases hpv with h | ⟨b, h1, h2, h3⟩
+    · exact .inl h
+    · refine .inr ⟨b, h1, ?_, h3⟩
+      have hne : ¬ (own = true ∧ (d + 1, p) = (d + 1, fn.ret)) := by
+        rintro ⟨ho, he⟩
+        have : p = fn.ret := by simpa using he
+        subst this; have := hown ho; rw [hzl] at this; cases this
+      unfold backPar; rw [h2]; simp only
+      split
+      · rename_i h; exact absurd h hne
+      simp [isExcl, hpD, hpz]
+  have hlive : ∀ (own : Bool) (Γ1 : Ctx), (own = true → isExcl fn.decls fn.ret = false) →
+      (∀ z ∈ Γ1.live, z ≠ x → z ∈ (Γm.relend (args.filter fun a => isOwn D a && lentArg fn args a)).live) →
+      ∀ v, ∀ z ∈ Γ1.live, z ≠ x → z ∉ Γm.live →
+        VOK D d θ Γ1.roots (ρ.set x v) μ' (backPar d x fn.ret own fn args pare') z := by
+    intro own Γ1 hown hsub v z hz e hzm
+    have := hsub z hz e
+    simp only [Ctx.relend, List.mem_append] at this
+    exact lent own hown z e hzm (this.resolve_right hzm) v Γ1
   split at hc <;> try cases hc
   · -- int result
     rename_i hT hDx
-    refine caller_post (parc' := pare') hI hcm hFe hse hIe' (fun _ _ _ _ => Iff.rfl)
-      (fun _ e => absurd rfl e) (fun z hz e => (mem_add.mp hz).resolve_left e) (fun _ _ => by simp [cr]) ?_
+    refine caller_post (parc' := backPar d x fn.ret false fn args pare') hI hcm hFe hse hIe'
+      (fun _ _ _ _ => backPar_fld) (fun c e => backPar_ch e)
+      (hlive false _ (fun h => by cases h) (fun z hz e => (mem_add.mp hz).resolve_left e) _)
+      (fun _ _ => by simp [cr, Ctx.relend]) ?_
     intro _; unfold VOK at hv ⊢; rw [hT] at hv; rw [hDx]; simpa [Env.set] using hv
   · -- owned result
     rename_i s s' hT hDx
     split at hc <;> rename_i hss <;> cases hc
     subst hss
-    refine caller_post (parc' := retPar d x fn.ret pare') hI hcm hFe hse hIe' (fun _ _ _ _ => retPar_fld)
-      (fun c e => ⟨_, retPar_ch e, by unfold retPar; rw [retPar_ch e]; simp, by simp⟩)
-      (fun z hz e => by
+    have hne : isExcl fn.decls fn.ret = false := by simp [isExcl, hT]
+    refine caller_post (parc' := backPar d x fn.ret true fn args pare') hI hcm hFe hse hIe'
+      (fun _ _ _ _ => backPar_fld) (fun c e => backPar_ch e)
+      (hlive true _ (fun _ => hne) (fun z hz e => by
         rcases mem_assignOwn.mp hz with h | ⟨h, -⟩
         · exact absurd h e
-        · exact h)
-      (fun _ _ => by simp [cr]) ?_
+        · exact h) _)
+      (fun _ _ => by simp [cr, Ctx.relend]) ?_
     intro _; unfold VOK at hv ⊢; rw [hT] at hv; rw [hDx]
     rcases hv with h | ⟨b, h1, h2, h3⟩
     · exact .inl (by simp [Env.set, h])
-    · exact .inr ⟨b, by simp [Env.set, h1], by simp [retPar, h2], h3⟩
+    · exact .inr ⟨b, by simp [Env.set, h1], by simp [backPar, h2], h3⟩
+  · -- unchecked result
+    rename_i s s' hT hDx
+    refine caller_post (parc' := backPar d x fn.ret false fn args pare') hI hcm hFe hse hIe'
+      (fun _ _ _ _ => backPar_fld) (fun c e => backPar_ch e)
+      (hlive false _ (fun h => by cases h) (fun z hz e => (mem_add.mp hz).resolve_left e) _)
+      (fun _ _ => by simp [cr, Ctx.relend]) ?_
+    intro _; unfold VOK at hv ⊢; rw [hT] at hv; rw [hDx]; simpa [Env.set] using hv
   · -- borrowed result
     rename_i s s' hT hDx
     split at hc <;> rename_i hss <;> try cases hc
@@ -1573,9 +1920,10 @@ theorem case_call (hP : P.ok Rules.full = true) {x f args n}
     | none => simp [ha, hr] at hc
     | some r =>
     simp only [ha, hr, Option.some.injEq] at hc; subst hc
-    refine caller_post (parc' := pare') hI hcm hFe hse hIe' (fun _ _ _ _ => Iff.rfl)
-      (fun _ e => absurd rfl e) (fun z hz e => (mem_addRef.mp hz).resolve_left e)
-      (fun z e => by rw [addRef_lookup]; simp [e, cr]) ?_
+    refine caller_post (parc' := backPar d x fn.ret false fn args pare') hI hcm hFe hse hIe'
+      (fun _ _ _ _ => backPar_fld) (fun c e => backPar_ch e)
+      (hlive false _ (fun h => by cases h) (fun z hz e => (mem_addRef.mp hz).resolve_left e) _)
+      (fun z e => by rw [addRef_lookup]; simp [e, cr, Ctx.relend]) ?_
     intro _; unfold VOK at hv ⊢; rw [hT] at hv; rw [hDx]
     rcases hv with h | ⟨b, off, rt, h1, h2, h3, h4⟩
     · exact .inl (by simp [Env.set, h])
@@ -1583,7 +1931,7 @@ theorem case_call (hP : P.ok Rules.full = true) {x f args n}
       refine .inr ⟨b, off, r, by simp [Env.set, h1], h2, by rw [addRef_lookup]; simp, ?_⟩
       have : lab (d + 1) (calleeTheta d θ Γ fn.params args) (.ext p) = lab d θ r := by
         simp [lab, calleeTheta, ha, hr]
-      rw [← this]; exact h4
+      rw [this] at h4; exact backPar_keep h4 (lab_le hI.theta r)
 
 /-! ## Control flow and the main theorem -/
 
@@ -1609,6 +1957,181 @@ theorem Good.rebase {μ1 : Mem} {par1 : PMap} {o : Out} (h : Good P D d θ μ1 p
   cases o with
   | ok ρ' μ' => obtain ⟨par', h1, h2, h3⟩ := h; exact ⟨par', h1, hF.trans h2, hs.trans h3⟩
   | _ => exact h
+
+end
+
+/-! ## Unchecked pointers, struct copies and stack scopes -/
+
+section
+variable {P : Prog} {D : Decls} {d : Nat} {θ : Nat → Lbl} {Γ Γ' : Ctx} {ρ : Env} {μ : Mem} {par : PMap}
+
+theorem ptr_val {r} {y} (hp : isPtr D y = true) (h : VOK D d θ r ρ μ par y) :
+    ρ y = .null ∨ ∃ b o, ρ y = .ptr b o := by
+  unfold VOK at h
+  cases hD : D.lookup y with
+  | none => simp [isPtr, hD] at hp
+  | some t =>
+    rw [hD] at h
+    cases t <;> simp [isPtr, hD] at hp
+    · rcases h with h | ⟨b, h1, -⟩; exact .inl h; exact .inr ⟨b, 0, h1⟩
+    · rcases h with h | ⟨b, off, -, h1, -⟩; exact .inl h; exact .inr ⟨b, off, h1⟩
+    · rcases h with h | ⟨b, h1, -⟩; exact .inl h; exact .inr ⟨b, 0, h1⟩
+    · exact h
+
+theorem case_ucast {x y n} (hc : chkS Rules.full P D Γ (.ucast x y) = some Γ')
+    (hI : Inv P D d θ Γ ρ μ par) : Good P D d θ μ par Γ' (exec P (n + 1) ρ μ (.ucast x y)) := by
+  simp only [chkS] at hc
+  split at hc <;> try cases hc
+  rename_i s hD
+  split at hc <;> rename_i h <;> cases hc
+  obtain ⟨hy, hp⟩ := h
+  have hv := ptr_val hp (hI.vars y hy)
+  have hne : ρ y ≠ .uninit := by rcases hv with h | ⟨b, o, h⟩ <;> rw [h] <;> simp
+  simp only [exec, hne, ite_false]
+  exact Good.inv (hI.setVar (by unfold VOK; rw [hD]; simpa [Env.set] using hv))
+
+theorem case_pstore {y i f z n} (hc : chkS Rules.full P D Γ (.pstore y i f z) = some Γ')
+    (hI : Inv P D d θ Γ ρ μ par) : Good P D d θ μ par Γ' (exec P (n + 1) ρ μ (.pstore y i f z)) := by
+  simp only [chkS] at hc
+  cases hps : ptrS D y with
+  | none => simp [hps] at hc
+  | some s =>
+  simp only [hps] at hc
+  split at hc <;> rename_i h <;> cases hc
+  obtain ⟨hy, hz, hi, hm⟩ := h
+  obtain ⟨t, hf, hp⟩ : ∃ t, fieldTy P s f = some (.unc t) ∧ isPtr D z = true := by
+    unfold pfieldOK at hm
+    cases hft : fieldTy P s f with
+    | none => simp [hft] at hm
+    | some ft =>
+      rw [hft] at hm
+      cases ft with
+      | unc t => exact ⟨t, rfl, by simpa using hm⟩
+      | _ => split at hm <;> simp_all [Rules.full]
+  have hv := ptr_val hp (hI.vars z hz)
+  have hne : ρ z ≠ .uninit := by rcases hv with h | ⟨b, o, h⟩ <;> rw [h] <;> simp
+  simp only [exec]
+  rcases fieldAt_ok hI hy hps hi with e | ⟨b, off, r, blk, k, el, e, -, -, ha, hb, hsid, hok, hk, -⟩
+  · rw [e]; exact Good.trap
+  subst hsid
+  have hfl := field_lt hok hk hf
+  rw [e]; simp only [Res.thenO, hne, ite_false]; rw [wrF_eq hb hk hfl]; simp only
+  have hs := sidPres_set (blk' := { blk with cells := blk.cells.set k (el.set f (ρ z)) }) hb rfl
+  obtain ⟨hdom, hheap⟩ := heap_setc (par' := par) hI hb hok hk ha (fun _ e => absurd rfl e)
+    (fun _ _ _ _ _ _ _ => rfl) hI.dom
+    (fun t' ht => by rw [← fieldTy_eq] at ht; rw [hf] at ht; cases ht; exact hv)
+  exact ⟨par, ⟨hI.theta, hdom, hheap, fun z hz => (hI.vars z hz).keep (K := fun _ => False)
+    (fun _ _ e _ => absurd rfl e) rfl hs (fun _ => rfl) (fun _ _ _ _ => rfl) (fun _ _ _ h => h)⟩,
+    Frame.refl, hs⟩
+
+theorem FOK.plain {μ μ' : Mem} {par par' : PMap} {b k f b' k' f' t v} (ht : isPlainF t = true)
+    (h : FOK μ par b k f t v) : FOK μ' par' b' k' f' t v := by
+  cases t <;> simp [isPlainF] at ht <;> exact h
+
+theorem plain_fields {s f : Nat} {t : FTy} (h : plain P s = true) (ht : (fields P s)[f]? = some t) :
+    isPlainF t = true :=
+  List.all_eq_true.mp h t (List.mem_of_getElem? ht)
+
+theorem BlkOK.setEl {μ' : Mem} {b blk k el}
+    (h : BlkOK P μ par b blk) (hs : SidPres μ μ')
+    (hl : el.length = (fields P blk.sid).length)
+    (hv : ∀ f t v, (fields P blk.sid)[f]? = some t → el[f]? = some v → FOK μ' par b k f t v) :
+    BlkOK P μ' par b { blk with cells := blk.cells.set k el } := by
+  refine ⟨h.1, fun k2 el2 hk2 => ?_⟩
+  simp only [List.getElem?_set] at hk2
+  by_cases e : k = k2
+  · subst e
+    have : el2 = el := by
+      by_cases hlt : k < blk.cells.length
+      · simp [hlt] at hk2; exact hk2.symm
+      · simp [hlt] at hk2
+    subst this; exact ⟨hl, hv⟩
+  · simp [e] at hk2
+    obtain ⟨hl2, hf⟩ := h.2 k2 el2 hk2
+    exact ⟨hl2, fun f t v ht hv2 => (hf f t v ht hv2).mono hs (fun c _ hc => hc)⟩
+
+theorem case_copy {x y n} (hc : chkS Rules.full P D Γ (.copy x y) = some Γ')
+    (hI : Inv P D d θ Γ ρ μ par) : Good P D d θ μ par Γ' (exec P (n + 1) ρ μ (.copy x y)) := by
+  simp only [chkS] at hc
+  split at hc <;> try cases hc
+  rename_i s s' hx hy
+  split at hc <;> rename_i h <;> cases hc
+  obtain ⟨rfl, hxl, hyl, hpl⟩ := h
+  have hpl : plain P s = true := by simpa [Rules.full] using hpl
+  simp only [exec]
+  rcases ptr_elem hI hyl hy 0 with e | ⟨b, off, r, blk, k, el, e, -, -, -, hb, hsid, hok, hk, -⟩
+  · rw [e]; exact Good.trap
+  rw [e]; simp only [Res.thenO]
+  have hg : getEl μ b k = some el := by simp [getEl, hb, hk]
+  rw [hg]; simp only
+  rcases ptr_elem hI hxl hx 0 with e' | ⟨b', off', r', blk', k', el', e', -, -, -, hb', hsid', hok', hk', -⟩
+  · rw [e']; exact Good.trap
+  rw [e']; simp only
+  have hset : setEl μ b' k' el = μ.set b' { blk' with cells := blk'.cells.set k' el } := by
+    simp [setEl, hb']
+  rw [hset]
+  have hs := sidPres_set (blk' := { blk' with cells := blk'.cells.set k' el }) hb' rfl
+  have hnew : BlkOK P (μ.set b' { blk' with cells := blk'.cells.set k' el }) par b'
+      { blk' with cells := blk'.cells.set k' el } := by
+    refine hok'.setEl hs (by rw [hsid', ← hsid]; exact (hok.2 k el hk).1) fun f t v ht hv => ?_
+    rw [hsid', ← hsid] at ht
+    exact FOK.plain (plain_fields (hsid ▸ hpl) ht) ((hok.2 k el hk).2 f t v ht hv)
+  refine ⟨par, ⟨hI.theta, fun c b2 k2 f2 h => by rw [List.length_set]; exact hI.dom c b2 k2 f2 h,
+    ?_, ?_⟩, Frame.refl, hs⟩
+  · refine heap_of (N := fun _ => False) (M := (· = b')) hI.heap
+      (fun b l ha => .inl ⟨l, ha⟩) (fun _ _ h => h.elim) ?_ ?_ ?_ hs
+    · intro b2 blk2 l l' hm hb2 _ _ _; subst hm; rw [hb'] at hb2; cases hb2
+      exact ⟨_, getElem?_set_eq' hb', hnew⟩
+    · intro b2 l hm _; exact getElem?_set_ne' hm
+    · intro _ _ _ _ _ _ _ _ hc; exact hc
+  · intro z hz
+    exact (hI.vars z hz).keep (K := fun _ => False) (fun _ _ e _ => absurd rfl e) rfl hs (fun _ => rfl)
+      (fun _ _ _ _ => rfl) (fun _ _ _ h => h)
+
+theorem case_scope {x s e body n}
+    (IH : ∀ (D : Decls) d θ Γ Γ' ρ μ par s, chkS Rules.full P D Γ s = some Γ' → Inv P D d θ Γ ρ μ par →
+      Good P D d θ μ par Γ' (exec P n ρ μ s))
+    (hc : chkS Rules.full P D Γ (.scope x s e body) = some Γ') (hI : Inv P D d θ Γ ρ μ par) :
+    Good P D d θ μ par Γ' (exec P (n + 1) ρ μ (.scope x s e body)) := by
+  simp only [chkS] at hc
+  split at hc; rotate_left; · cases hc
+  rename_i h
+  obtain ⟨hD, -, -, he, ha⟩ := h
+  cases hb : chkS Rules.full P D (Γ.assignOwn x) body with
+  | none => simp [hb] at hc
+  | some Γb =>
+  simp only [hb] at hc
+  split at hc; rotate_left; · cases hc
+  rename_i hxb
+  simp only [Rules.full, ite_true, Option.some.injEq] at hc; subst hc
+  simp only [exec]
+  rcases evalE_ok hI e he with h | ⟨m, h⟩
+  · rw [h]; exact Good.trap
+  rw [h]; simp only [Res.thenO]
+  split
+  · exact Good.trap
+  obtain ⟨h1, h2⟩ := inv_fresh (m := m.toNat) (stk := true) hI (.inr hD)
+    (fun y hy => mem_assignOwn.mp hy) rfl
+  have hg := IH _ _ _ _ _ _ _ _ _ hb h1
+  cases hex : exec P n (ρ.set x (.ptr μ.length 0)) (μ ++ [freshBlk P s m.toNat true]) body with
+  | trap => exact trivial
+  | outOfFuel => exact trivial
+  | ub k => rw [hex] at hg; exact hg.elim
+  | ok ρ1 μ1 =>
+  rw [hex] at hg
+  obtain ⟨par1, hI1, hF1, hs1⟩ := hg
+  simp only [Out.then]
+  /- The stack local is never reassigned, so the scope ends the block it began with. -/
+  have hρx : ρ1 x = .ptr μ.length 0 := by
+    rw [exec_preserves P _ _ _ _ _ _ hex x ha]; simp [Env.set]
+  have hv := hI1.vars x hxb
+  unfold VOK at hv; rw [hD] at hv
+  rcases hv with h0 | ⟨b, hb1, hb2, -⟩
+  · rw [hρx] at h0; cases h0
+  rw [hρx] at hb1; cases hb1
+  obtain ⟨blk, hblk, -⟩ := hI1.heap _ _ (.var hb2)
+  rw [hblk]
+  exact (kill_tail hI1 hb2 hblk).rebase (h2.trans hF1) (sidPres_app.trans hs1)
 
 end
 
@@ -1710,6 +2233,10 @@ theorem exec_good {P : Prog} (hP : P.ok Rules.full = true) : ∀ n,
       split at hc <;> rename_i hs <;> cases hc
       exact L D d θ _ Γ2 ρ μ par c body hcE h2 hs hI.meet_l
     | call x f args => exact case_call hP IH hc hI
+    | ucast x y => exact case_ucast hc hI
+    | pstore y i f z => exact case_pstore hc hI
+    | copy x y => exact case_copy hc hI
+    | scope x s e body => exact case_scope IH hc hI
 
 /-- The main theorem: a program whose functions pass the checker, and whose
 main statement passes it from the empty context, never reaches UB, for any
@@ -1727,7 +2254,8 @@ theorem own_sound (P : Prog) (hP : P.ok Rules.full = true) (D : Decls) (s : Stmt
 theorem own_no_uaf (P : Prog) (hP : P.ok Rules.full = true) (D : Decls) (s : Stmt) (G : Ctx)
     (hc : chkS Rules.full P D Ctx.empty s = some G) (fuel : Nat) :
     (exec P fuel (fun _ => .uninit) [] s).ubKind ≠ some .useAfterFree ∧
-    (exec P fuel (fun _ => .uninit) [] s).ubKind ≠ some .doubleFree := by
+    (exec P fuel (fun _ => .uninit) [] s).ubKind ≠ some .doubleFree ∧
+    (exec P fuel (fun _ => .uninit) [] s).ubKind ≠ some .danglingStack := by
   have := own_sound P hP D s G hc fuel
   revert this
   cases exec P fuel (fun _ => .uninit) [] s <;> simp [Out.isUB, Out.ubKind]
@@ -1738,5 +2266,21 @@ theorem idiom1_sound (fuel : Nat) : (exec P0 fuel (fun _ => .uninit) [] listProg
   obtain ⟨G, hG⟩ := Option.isSome_iff_exists.mp
     (show (chkS Rules.full P0 lD .empty listProg).isSome = true by decide)
   exact own_sound P0 (by decide) lD listProg G hG fuel
+
+end SafeC.Own
+
+namespace SafeC.Own
+
+/-- The M2 idioms are safe for every amount of fuel: p04 written with an
+exclusive borrow and a re-borrow, and a global borrowed across a pure call. -/
+theorem grow_sound (fuel : Nat) : (exec PGrow fuel (fun _ => .uninit) [] cGrowOK).isUB = false := by
+  obtain ⟨G, hG⟩ := Option.isSome_iff_exists.mp
+    (show (chkS Rules.full PGrow cGrowD .empty cGrowOK).isSome = true by decide)
+  exact own_sound PGrow (by decide) cGrowD cGrowOK G hG fuel
+
+theorem globals_sound (fuel : Nat) : (exec PGlob fuel (fun _ => .uninit) [] cGlob).isUB = false := by
+  obtain ⟨G, hG⟩ := Option.isSome_iff_exists.mp
+    (show (chkS Rules.full PGlob cGrowD .empty cGlob).isSome = true by decide)
+  exact own_sound PGlob (by decide) cGrowD cGlob G hG fuel
 
 end SafeC.Own
