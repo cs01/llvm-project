@@ -21585,27 +21585,31 @@ void Sema::TryFixAssigningBidiIndexableExprToNullTerminated(Expr *SrcExpr,
     return;
 
   // Safe C rejects the __unsafe_ builtin outside __unsafe, so do not suggest
-  // it. And an expression that starts or ends in a macro expansion has no
-  // file location to insert at (getLocWithOffset on a macro location is
-  // invalid and crashed the fix-it merger).
-  if (getLangOpts().SafeC || SrcExpr->getBeginLoc().isMacroID() ||
-      SrcExpr->getEndLoc().isMacroID())
+  // it.
+  if (getLangOpts().SafeC)
     return;
 
-  auto FixIt = FixItHint::CreateInsertion(SrcExpr->getBeginLoc(), "__unsafe_null_terminated_from_indexable(");
+  // Insert around the expression as written in the file: when it starts or
+  // ends inside a macro expansion (`buf + 1 KB`), offsets from the macro
+  // location are invalid and crashed the fix-it merger.
+  CharSourceRange Range =
+      getSourceManager().getExpansionRange(SrcExpr->getSourceRange());
+  SourceLocation Begin = Range.getBegin();
+  SourceLocation End = Lexer::getLocForEndOfToken(
+      Range.getEnd(), 0, getSourceManager(), LangOpts);
+  if (Begin.isInvalid() || End.isInvalid())
+    return;
+
+  auto FixIt = FixItHint::CreateInsertion(Begin, "__unsafe_null_terminated_from_indexable(");
   if (FixIt.isNull())
     return;
 
-  unsigned TkLen = Lexer::MeasureTokenLength(SrcExpr->getEndLoc(),
-                                             getSourceManager(), LangOpts);
   {
     auto FixitDiag =
         Diag(SrcExpr->getBeginLoc(),
              diag::note_fixit_unsafe_null_terminated_from_indexable);
     FixitDiag << FixIt;
-
-    FixitDiag << FixItHint::CreateInsertion(SrcExpr->getEndLoc()
-                                            .getLocWithOffset(TkLen), ")");
+    FixitDiag << FixItHint::CreateInsertion(End, ")");
   }
 
   {
@@ -21613,8 +21617,8 @@ void Sema::TryFixAssigningBidiIndexableExprToNullTerminated(Expr *SrcExpr,
         Diag(SrcExpr->getBeginLoc(),
              diag::note_fixit_unsafe_null_terminated_from_indexable_ptr);
     FixitDiag << FixIt;
-    FixitDiag << FixItHint::CreateInsertion(SrcExpr->getEndLoc().getLocWithOffset(TkLen),
-                                            ", <# pointer to null terminator #>)");
+    FixitDiag << FixItHint::CreateInsertion(
+        End, ", <# pointer to null terminator #>)");
   }
 
   // FIXME: rdar://122434039
@@ -21639,16 +21643,16 @@ void Sema::TryFixAssigningNullTerminatedToBidiIndexableExpr(Expr *SrcExpr,
                            int SelectFixitNote) {
     assert(Code.ends_with("("));
     auto FixitDiag = Diag(SrcExpr->getBeginLoc(), DiagID) << SelectFixitNote;
-    if (SrcExpr->getBeginLoc().isMacroID() || SrcExpr->getEndLoc().isMacroID())
-      return;
-    auto FixIt = FixItHint::CreateInsertion(SrcExpr->getBeginLoc(), Code);
-    if (FixIt.isNull())
+    // Around the expression as written in the file (see above).
+    CharSourceRange Range =
+        getSourceManager().getExpansionRange(SrcExpr->getSourceRange());
+    SourceLocation End = Lexer::getLocForEndOfToken(
+        Range.getEnd(), 0, getSourceManager(), LangOpts);
+    auto FixIt = FixItHint::CreateInsertion(Range.getBegin(), Code);
+    if (FixIt.isNull() || End.isInvalid())
       return;
     FixitDiag << FixIt;
-    unsigned TkLen = Lexer::MeasureTokenLength(SrcExpr->getEndLoc(),
-                                               getSourceManager(), LangOpts);
-    FixitDiag << FixItHint::CreateInsertion(
-        SrcExpr->getEndLoc().getLocWithOffset(TkLen), ")");
+    FixitDiag << FixItHint::CreateInsertion(End, ")");
   };
   EmitFixitDiag("__null_terminated_to_indexable(",
                 diag::note_fixit_null_terminated_to_indexable, 0);
