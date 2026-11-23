@@ -17925,6 +17925,60 @@ static void checkSafeCAllocatorBody(Sema &S, const FunctionDecl *FD,
             << FD << V->getSourceRange();
 }
 
+/// Safe C: whether \p FD takes ownership of (frees) parameter \p Idx
+/// (0-based), as the C library's free and realloc do.
+static bool safeCTakesParam(const FunctionDecl *FD, unsigned Idx) {
+  if (FD->isExternC() && FD->getIdentifier() && Idx == 0 &&
+      llvm::is_contained({"free", "realloc", "reallocf"}, FD->getName()))
+    return true;
+  for (const auto *OA : FD->specific_attrs<OwnershipAttr>())
+    if (OA->isTakes())
+      for (const ParamIdx &P : OA->args())
+        if (P.getASTIndex() == Idx)
+          return true;
+  return false;
+}
+
+/// Safe C: the lifetime analysis trusts ownership_takes at call sites, so a
+/// body that frees a parameter, directly or through another function that
+/// takes it, must say so; otherwise every caller would keep using freed
+/// memory unseen.
+static void checkSafeCFreedParams(Sema &S, const FunctionDecl *FD,
+                                  const Stmt *Body) {
+  llvm::SmallPtrSet<const ParmVarDecl *, 4> Reported;
+  std::function<void(const Stmt *)> Walk = [&](const Stmt *St) {
+    if (!St)
+      return;
+    if (const auto *CE = dyn_cast<CallExpr>(St))
+      if (const FunctionDecl *Callee = CE->getDirectCallee())
+        for (unsigned I = 0, N = CE->getNumArgs(); I != N; ++I) {
+          if (!safeCTakesParam(Callee, I))
+            continue;
+          const Expr *A = CE->getArg(I)->IgnoreParenCasts();
+          while (const auto *OVE = dyn_cast<OpaqueValueExpr>(A)) {
+            if (!OVE->getSourceExpr())
+              break;
+            A = OVE->getSourceExpr()->IgnoreParenCasts();
+          }
+          const auto *DRE = dyn_cast<DeclRefExpr>(A);
+          const auto *PVD =
+              DRE ? dyn_cast<ParmVarDecl>(DRE->getDecl()) : nullptr;
+          if (!PVD || PVD->getDeclContext() != FD ||
+              safeCTakesParam(FD, PVD->getFunctionScopeIndex()) ||
+              !Reported.insert(PVD).second)
+            continue;
+          S.Diag(DRE->getLocation(), diag::warn_safe_c_frees_param)
+              << FD << PVD << (PVD->getFunctionScopeIndex() + 1);
+        }
+    // Bounds safety hides calls inside opaque values, which have no children.
+    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(St))
+      Walk(OVE->getSourceExpr());
+    for (const Stmt *Child : St->children())
+      Walk(Child);
+  };
+  Walk(Body);
+}
+
 namespace {
 /// Safe C: checks a body against its pure or const attribute. CodeGen trusts
 /// these attributes (memory(read) or memory(none) on every call), so a body
@@ -18525,6 +18579,9 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   if (getLangOpts().SafeC && FD && Body && FD->hasAttr<AllocSizeAttr>() &&
       !SourceMgr.isInSystemHeader(FD->getLocation()))
     checkSafeCAllocatorBody(*this, FD, Body);
+  if (getLangOpts().SafeC && FD && Body &&
+      !SourceMgr.isInSystemHeader(FD->getLocation()))
+    checkSafeCFreedParams(*this, FD, Body);
 
   if (FSI->UsesFPIntrin && FD && !FD->hasAttr<StrictFPAttr>())
     FD->addAttr(StrictFPAttr::CreateImplicit(Context));

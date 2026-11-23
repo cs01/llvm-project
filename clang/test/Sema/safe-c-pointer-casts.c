@@ -4,7 +4,7 @@
 // cast to a larger pointee; void * only from null or a fresh allocation.
 // RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify -verify-ignore-unexpected=note %s
-// RUN: %clang_cc1 -fsyntax-only -verify=plain -Wno-incompatible-pointer-types \
+// RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=plain -Wno-incompatible-pointer-types \
 // RUN:   -Wno-incompatible-function-pointer-types %s
 // plain-no-diagnostics
 
@@ -42,11 +42,11 @@ void fnptr(void) {
 
 // Separate functions: realloc frees its argument, so a second realloc of the
 // same pointer would be a use after free.
-void grow_other(long *_Nullable l) {
+__safec_takes(1) void grow_other(long *_Nullable l) {
   int *_Nullable *_Nullable pp = realloc(l, 2 * sizeof(int *)); // expected-error {{can treat memory as the wrong type}}
   (void)pp;
 }
-void grow_same(long *_Nullable l) {
+__safec_takes(1) void grow_same(long *_Nullable l) {
   long *_Nullable l2 = realloc(l, 2 * sizeof(long)); // ok: same type
   (void)l2;
 }

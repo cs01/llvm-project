@@ -13448,6 +13448,11 @@ def warn_safe_c_alloc_size_body : Warning<
   "memory, but this returns something else; return the result of malloc, "
   "calloc or another 'alloc_size' function (or a local holding it), or null">,
   InGroup<SafeCVoidCast>, DefaultError;
+def warn_safe_c_frees_param : Warning<
+  "%0 frees its parameter %1, but callers are not told and may use it "
+  "afterwards; declare it '__attribute__((ownership_takes(malloc, %2)))' "
+  "(safec.h: '__safec_takes(%2)')">,
+  InGroup<SafeCOwnership>, DefaultError;
 def warn_safe_c_pure_body : Warning<
   "%select{'pure'|'const'}0 function %1 %select{writes memory other than its "
   "own local variables|calls %3, which is not marked 'pure' or 'const'|calls "
