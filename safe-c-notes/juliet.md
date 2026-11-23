@@ -66,6 +66,9 @@ Same suite, null safety only (`-Xclang -fsafe-c` at cc1, no bounds safety), as-i
 | 476 caught | 82.2% | 86.7% | 91.1% | 95.6% | **97.8%** |
 | 690 caught | 78.9% | 84.2% | 89.5% | 94.7% | **97.4%** |
 
+After the `void *` rule: **100%** caught on both (270 of 270, 722 of 722), all at
+compile time; good accepted 60.0% (476) and 55.3% (690).
+
 Only flow variant 64 is still missed (25 cases per CWE): the pointer is laundered through
 `void *` and cast back. The Safe C `void *` rule closes it.
 

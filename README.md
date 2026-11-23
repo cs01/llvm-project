@@ -224,6 +224,13 @@ Safe C must reject or trap every `bad()` and accept every `good()`. A segfault d
 count as caught: only a compiler error or a compiler-inserted trap does. Harness:
 `clang/utils/safe-c/juliet.ts`; notes in [safe-c-notes/juliet.md](safe-c-notes/juliet.md).
 
+**First result, null safety only** (2026-11-23, Juliet unannotated): every `bad()` in
+CWE 476 (NULL dereference, 270 cases) and CWE 690 (unchecked return value, 722 cases) is
+rejected at compile time. 55-60% of the `good()` versions are also rejected as written,
+because they keep NULL in places Safe C requires to be marked `_Nullable`; that is
+annotation burden, and the annotated mode will measure it. Bounds and the other CWEs are
+not scored yet.
+
 A second number tracks annotation burden: annotations per 1,000 lines on a real library,
 and the share of its lines that need `__unsafe`.
 
