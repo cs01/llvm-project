@@ -50,13 +50,18 @@
    Known gap: printf-style variadic arguments cannot be annotated this way. */
 #if defined(__SAFEC_HAVE_PTRCHECK) && __has_ptrcheck
 typedef __SIZE_TYPE__ __safec_size_t;
-__safec_size_t strlen(const char *__null_terminated);
-int strcmp(const char *__null_terminated, const char *__null_terminated);
-int strncmp(const char *__null_terminated, const char *__null_terminated,
-            __safec_size_t);
-char *strchr(const char *__null_terminated, int);
-char *strrchr(const char *__null_terminated, int);
-char *strstr(const char *__null_terminated, const char *__null_terminated);
+/* The read-only scans are also marked pure, so Safe C code marked
+   __attribute__((pure)) may call them. */
+__attribute__((__pure__)) __safec_size_t strlen(const char *__null_terminated);
+__attribute__((__pure__)) int strcmp(const char *__null_terminated,
+                                     const char *__null_terminated);
+__attribute__((__pure__)) int strncmp(const char *__null_terminated,
+                                      const char *__null_terminated,
+                                      __safec_size_t);
+__attribute__((__pure__)) char *strchr(const char *__null_terminated, int);
+__attribute__((__pure__)) char *strrchr(const char *__null_terminated, int);
+__attribute__((__pure__)) char *strstr(const char *__null_terminated,
+                                       const char *__null_terminated);
 char *strcpy(char *, const char *__null_terminated);
 char *strcat(char *, const char *__null_terminated);
 char *strdup(const char *__null_terminated);

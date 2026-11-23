@@ -30,6 +30,7 @@
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/Basic/CodeGenOptions.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Basic/DiagnosticFrontend.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
@@ -2839,19 +2840,28 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
         FuncAttrs.addAttribute(llvm::Attribute::NoMerge);
     }
 
+    // Safe C checks a pure/const body for memory effects but not for
+    // termination, so outside system headers it does not promise willreturn
+    // (a call that loops forever must not be deleted).
+    bool SafeCUncheckedTermination =
+        getLangOpts().SafeC &&
+        !getContext().getSourceManager().isInSystemHeader(
+            TargetDecl->getLocation());
     // 'const', 'pure' and 'noalias' attributed functions are also nounwind.
     if (TargetDecl->hasAttr<ConstAttr>()) {
       FuncAttrs.addMemoryAttr(llvm::MemoryEffects::none());
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
       // gcc specifies that 'const' functions have greater restrictions than
       // 'pure' functions, so they also cannot have infinite loops.
-      FuncAttrs.addAttribute(llvm::Attribute::WillReturn);
+      if (!SafeCUncheckedTermination)
+        FuncAttrs.addAttribute(llvm::Attribute::WillReturn);
       MemAttrForPtrArgs = llvm::Attribute::ReadNone;
     } else if (TargetDecl->hasAttr<PureAttr>()) {
       FuncAttrs.addMemoryAttr(llvm::MemoryEffects::readOnly());
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
       // gcc specifies that 'pure' functions cannot have infinite loops.
-      FuncAttrs.addAttribute(llvm::Attribute::WillReturn);
+      if (!SafeCUncheckedTermination)
+        FuncAttrs.addAttribute(llvm::Attribute::WillReturn);
       MemAttrForPtrArgs = llvm::Attribute::ReadOnly;
     } else if (TargetDecl->hasAttr<NoAliasAttr>()) {
       FuncAttrs.addMemoryAttr(llvm::MemoryEffects::inaccessibleOrArgMemOnly());

@@ -12076,6 +12076,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
             Previous.getResultKind() != LookupResultKind::FoundOverloaded) &&
            "previous declaration set still overloaded");
 
+
     // Diagnose no-prototype function declarations with calling conventions that
     // don't support variadic calls. Only do this in C and do it after merging
     // possibly prototyped redeclarations.
@@ -17823,6 +17824,160 @@ static bool isSafeCUnsafeDecl(const Decl *D) {
   return false;
 }
 
+namespace {
+/// Safe C: checks a body against its pure or const attribute. CodeGen trusts
+/// these attributes (memory(read) or memory(none) on every call), so a body
+/// that writes memory, or for const reads it, lets the optimizer merge or drop
+/// calls and use stale values. The rules are conservative: a write must name a
+/// local variable (or a field or array element of one), and a call must reach
+/// a function that is itself pure or const, or that never returns.
+class SafeCPureBodyChecker
+    : public ConstEvaluatedExprVisitor<SafeCPureBodyChecker> {
+  using Inherited = ConstEvaluatedExprVisitor<SafeCPureBodyChecker>;
+  Sema &S;
+  const FunctionDecl *FD;
+  bool IsConst;
+  // Bounds safety wraps operands in opaque values; visit each source once.
+  llvm::SmallPtrSet<const OpaqueValueExpr *, 8> SeenOVEs;
+
+  enum Reason {
+    WritesNonLocal,
+    CallsImpure,
+    CallsNonConst,
+    CallsIndirect,
+    ReadsPointer,
+    ReadsGlobal,
+    Volatile
+  };
+
+  void report(SourceLocation Loc, Reason R, const NamedDecl *D = nullptr) {
+    auto DB = S.Diag(Loc, diag::warn_safe_c_pure_body) << IsConst << FD << R;
+    if (D)
+      DB << D;
+    else
+      DB << "";
+  }
+
+  static const Expr *unwrap(const Expr *E) {
+    while (true) {
+      E = E->IgnoreParenImpCasts();
+      if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
+        if (!OVE->getSourceExpr())
+          return E;
+        E = OVE->getSourceExpr();
+      } else if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E)) {
+        E = MSE->getWrappedExpr();
+      } else if (const auto *PPE =
+                     dyn_cast<BoundsSafetyPointerPromotionExpr>(E)) {
+        E = PPE->getPointer();
+      } else {
+        return E;
+      }
+    }
+  }
+
+  /// Whether \p E names storage that dies with this call: an automatic local
+  /// or parameter, or a field or array element of one (never through a
+  /// pointer).
+  static bool isLocalObject(const Expr *E) {
+    E = unwrap(E);
+    if (const auto *ME = dyn_cast<MemberExpr>(E))
+      return !ME->isArrow() && isLocalObject(ME->getBase());
+    if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+      const Expr *Base = unwrap(ASE->getBase());
+      return Base->getType()->isArrayType() && isLocalObject(Base);
+    }
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+        return VD->hasLocalStorage();
+    return false;
+  }
+
+  void checkWrite(const Expr *Target, SourceLocation Loc) {
+    if (Target->getType().isVolatileQualified())
+      report(Loc, Volatile);
+    else if (!isLocalObject(Target))
+      report(Loc, WritesNonLocal);
+  }
+
+public:
+  SafeCPureBodyChecker(Sema &S, const FunctionDecl *FD, bool IsConst)
+      : Inherited(S.Context), S(S), FD(FD), IsConst(IsConst) {}
+
+  void VisitOpaqueValueExpr(const OpaqueValueExpr *E) {
+    if (const Expr *Src = E->getSourceExpr())
+      if (SeenOVEs.insert(E).second)
+        Visit(Src);
+  }
+
+  void VisitBinaryOperator(const BinaryOperator *E) {
+    if (E->isAssignmentOp())
+      checkWrite(E->getLHS(), E->getOperatorLoc());
+    Inherited::VisitStmt(E);
+  }
+
+  void VisitCompoundAssignOperator(const CompoundAssignOperator *E) {
+    VisitBinaryOperator(E);
+  }
+
+  void VisitUnaryOperator(const UnaryOperator *E) {
+    if (E->isIncrementDecrementOp())
+      checkWrite(E->getSubExpr(), E->getOperatorLoc());
+    else if (IsConst && E->getOpcode() == UO_Deref)
+      report(E->getOperatorLoc(), ReadsPointer);
+    Inherited::VisitStmt(E);
+  }
+
+  void VisitMemberExpr(const MemberExpr *E) {
+    if (IsConst && E->isArrow())
+      report(E->getOperatorLoc(), ReadsPointer);
+    Inherited::VisitStmt(E);
+  }
+
+  void VisitArraySubscriptExpr(const ArraySubscriptExpr *E) {
+    if (IsConst) {
+      const Expr *Base = unwrap(E->getBase());
+      if (!Base->getType()->isArrayType() || !isLocalObject(Base))
+        report(E->getRBracketLoc(), ReadsPointer);
+    }
+    Inherited::VisitStmt(E);
+  }
+
+  void VisitDeclRefExpr(const DeclRefExpr *E) {
+    const auto *VD = dyn_cast<VarDecl>(E->getDecl());
+    if (IsConst && VD && !VD->hasLocalStorage() &&
+        !VD->getType().isConstQualified())
+      report(E->getLocation(), ReadsGlobal, VD);
+  }
+
+  void VisitImplicitCastExpr(const ImplicitCastExpr *E) {
+    if (E->getCastKind() == CK_LValueToRValue &&
+        E->getSubExpr()->getType().isVolatileQualified())
+      report(E->getExprLoc(), Volatile);
+    Inherited::VisitStmt(E);
+  }
+
+  void VisitCallExpr(const CallExpr *E) {
+    const FunctionDecl *Callee = E->getDirectCallee();
+    if (!Callee) {
+      report(E->getExprLoc(), CallsIndirect);
+    } else {
+      // A noreturn callee (abort, an assert failure) cannot hand back a
+      // result computed from memory it wrote.
+      bool OK = Callee->hasAttr<ConstAttr>() || Callee->isNoReturn() ||
+                Callee->getCanonicalDecl() == FD->getCanonicalDecl() ||
+                (!IsConst && Callee->hasAttr<PureAttr>());
+      if (unsigned ID = Callee->getBuiltinID())
+        OK |= S.Context.BuiltinInfo.isConst(ID) ||
+              (!IsConst && S.Context.BuiltinInfo.isPure(ID));
+      if (!OK)
+        report(E->getExprLoc(), IsConst ? CallsNonConst : CallsImpure, Callee);
+    }
+    Inherited::VisitStmt(E);
+  }
+};
+} // namespace
+
 Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
                                     SkipBodyInfo *SkipBody,
                                     FnBodyKind BodyKind) {
@@ -18257,6 +18412,12 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
     SafeCUnsafeRanges.push_back(SourceRange(
         FD->getBeginLoc(), Body ? Body->getEndLoc() : FD->getEndLoc()));
   }
+
+  // System headers are trusted; everything else must earn the attribute.
+  if (getLangOpts().SafeC && FD && Body &&
+      (FD->hasAttr<PureAttr>() || FD->hasAttr<ConstAttr>()) &&
+      !SourceMgr.isInSystemHeader(FD->getLocation()))
+    SafeCPureBodyChecker(*this, FD, FD->hasAttr<ConstAttr>()).Visit(Body);
 
   if (FSI->UsesFPIntrin && FD && !FD->hasAttr<StrictFPAttr>())
     FD->addAttr(StrictFPAttr::CreateImplicit(Context));

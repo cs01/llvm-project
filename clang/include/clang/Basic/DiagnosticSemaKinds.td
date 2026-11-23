@@ -13426,6 +13426,15 @@ def warn_safe_c_void_pointer_cast : Warning<
 def note_safe_c_void_pointer_cast_fix : Note<
   "keep the typed pointer instead of 'void *' (annotate the callback or API "
   "with '__attribute__((callback(...)))'), or convert inside '__unsafe'">;
+def warn_safe_c_pure_body : Warning<
+  "%select{'pure'|'const'}0 function %1 %select{writes memory other than its "
+  "own local variables|calls %3, which is not marked 'pure' or 'const'|calls "
+  "%3, which is not marked 'const'|calls through a function pointer|reads "
+  "memory through a pointer|reads the global variable %3, which can change|"
+  "accesses volatile memory}2; callers are compiled as if it %select{only "
+  "reads memory|touches no memory}0, so calls may be merged or dropped; "
+  "compute the result in local variables, or remove '%select{pure|const}0'">,
+  InGroup<SafeCPure>, DefaultError;
 def remark_safe_c_unsafe_region : Remark<
   "%select{unsafe block|unsafe function}0: Safe C rules are not enforced here">,
   InGroup<SafeCUnsafe>;
