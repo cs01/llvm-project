@@ -18112,7 +18112,7 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
 
   // Paired with the decrement in ActOnFinishFunctionBody.
   if (getLangOpts().SafeC && isSafeCUnsafeDecl(FD)) {
-    ++SafeCUnsafeDepth;
+    beginSafeCUnsafeRegion(FD->getBeginLoc(), /*IsFunction=*/true);
     Diag(FD->getBeginLoc(), diag::remark_safe_c_unsafe_region) << 1;
   }
 
@@ -18513,12 +18513,9 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   FunctionScopeInfo *FSI = getCurFunction();
   FunctionDecl *FD = dcl ? dcl->getAsFunction() : nullptr;
 
-  if (getLangOpts().SafeC && isSafeCUnsafeDecl(FD) && SafeCUnsafeDepth > 0) {
-    --SafeCUnsafeDepth;
+  if (getLangOpts().SafeC && isSafeCUnsafeDecl(FD) && SafeCUnsafeDepth > 0)
     // The body is not attached to FD yet, so take its end from Body.
-    SafeCUnsafeRanges.push_back(SourceRange(
-        FD->getBeginLoc(), Body ? Body->getEndLoc() : FD->getEndLoc()));
-  }
+    endSafeCUnsafeRegion(Body ? Body->getEndLoc() : FD->getEndLoc());
 
   // System headers are trusted; everything else must earn the attribute.
   if (getLangOpts().SafeC && FD && Body &&

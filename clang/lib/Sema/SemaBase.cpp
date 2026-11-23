@@ -116,6 +116,44 @@ bool Sema::isInSafeCUnsafeRegion(SourceLocation Loc) const {
   return false;
 }
 
+void Sema::beginSafeCUnsafeRegion(SourceLocation Begin, bool IsFunction) {
+  ++SafeCUnsafeDepth;
+  SafeCUnsafeOpen.push_back(SafeCUnsafeRegions.size());
+  SafeCUnsafeRegions.push_back({SourceRange(Begin, Begin), IsFunction});
+}
+
+void Sema::endSafeCUnsafeRegion(SourceLocation End) {
+  if (SafeCUnsafeDepth == 0 || SafeCUnsafeOpen.empty())
+    return;
+  --SafeCUnsafeDepth;
+  SafeCUnsafeRegion &R = SafeCUnsafeRegions[SafeCUnsafeOpen.pop_back_val()];
+  R.Range.setEnd(End.isValid() ? End : R.Range.getBegin());
+  SafeCUnsafeRanges.push_back(R.Range);
+}
+
+void Sema::noteSafeCUnsafeRegionUsed(SourceLocation Loc) {
+  if (!SafeCUnsafeOpen.empty()) {
+    SafeCUnsafeRegions[SafeCUnsafeOpen.back()].Used = true;
+    return;
+  }
+  // Raised after parsing (end-of-function analyses): the innermost closed
+  // region holding Loc is the latest-starting one that contains it.
+  Loc = SourceMgr.getFileLoc(Loc);
+  SafeCUnsafeRegion *Best = nullptr;
+  for (SafeCUnsafeRegion &R : SafeCUnsafeRegions) {
+    SourceLocation B = SourceMgr.getFileLoc(R.Range.getBegin());
+    SourceLocation E = SourceMgr.getFileLoc(R.Range.getEnd());
+    if (SourceMgr.isBeforeInTranslationUnit(Loc, B) ||
+        SourceMgr.isBeforeInTranslationUnit(E, Loc))
+      continue;
+    if (!Best || SourceMgr.isBeforeInTranslationUnit(
+                     SourceMgr.getFileLoc(Best->Range.getBegin()), B))
+      Best = &R;
+  }
+  if (Best)
+    Best->Used = true;
+}
+
 Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
                                            unsigned DiagID) {
   if (getLangOpts().SafeC) {
@@ -133,6 +171,8 @@ Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
                    : DiagnosticIDs::CLASS_ERROR));
       if (!InUnsafe)
         ++SemaRef.NumSafeCSafetyErrors;
+      else
+        SemaRef.noteSafeCUnsafeRegionUsed(Loc);
     }
   }
   bool IsError =

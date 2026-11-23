@@ -91,7 +91,8 @@ StmtResult Parser::ParseStatementOrDeclaration(StmtVector &Stmts,
         return false;
       });
   if (SafeCUnsafe) {
-    ++Actions.SafeCUnsafeDepth;
+    Actions.beginSafeCUnsafeRegion(CXX11Attrs.Range.getBegin(),
+                                   /*IsFunction=*/false);
     // -Rsafe-c-unsafe lists every region, including ones a macro expands to,
     // so __unsafe hidden behind a library macro is still visible.
     Diag(CXX11Attrs.Range.getBegin(), diag::remark_safe_c_unsafe_region) << 0;
@@ -99,11 +100,9 @@ StmtResult Parser::ParseStatementOrDeclaration(StmtVector &Stmts,
   StmtResult Res = ParseStatementOrDeclarationAfterAttributes(
       Stmts, StmtCtx, TrailingElseLoc, CXX11Attrs, GNUOrMSAttrs,
       PrecedingLabel);
-  if (SafeCUnsafe) {
-    --Actions.SafeCUnsafeDepth;
-    if (Res.isUsable())
-      Actions.SafeCUnsafeRanges.push_back(Res.get()->getSourceRange());
-  }
+  if (SafeCUnsafe)
+    Actions.endSafeCUnsafeRegion(Res.isUsable() ? Res.get()->getEndLoc()
+                                                : SourceLocation());
   MaybeDestroyTemplateIds();
 
   takeAndConcatenateAttrs(CXX11Attrs, std::move(GNUOrMSAttrs));

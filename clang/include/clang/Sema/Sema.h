@@ -1466,6 +1466,22 @@ public:
   SmallVector<SourceRange, 4> SafeCUnsafeRanges;
   bool isInSafeCUnsafeRegion(SourceLocation Loc) const;
 
+  /// Each region, and whether a safety diagnostic was suppressed in it; an
+  /// unused one is reported at the end of the TU, like Rust's unused_unsafe.
+  struct SafeCUnsafeRegion {
+    SourceRange Range;
+    bool IsFunction = false;
+    bool Used = false;
+  };
+  SmallVector<SafeCUnsafeRegion, 4> SafeCUnsafeRegions;
+  /// Indices into SafeCUnsafeRegions of the regions being parsed, innermost
+  /// last.
+  SmallVector<unsigned, 4> SafeCUnsafeOpen;
+  void beginSafeCUnsafeRegion(SourceLocation Begin, bool IsFunction);
+  void endSafeCUnsafeRegion(SourceLocation End);
+  /// Marks the innermost region holding \p Loc as needed.
+  void noteSafeCUnsafeRegionUsed(SourceLocation Loc);
+
   /// Safe C: reject pointer conversions, implicit or by cast, that can make
   /// memory be read as the wrong type. Allowed: to void; null; fresh
   /// allocations; identical types (nullability counted at every level);

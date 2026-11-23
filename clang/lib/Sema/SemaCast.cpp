@@ -3807,7 +3807,37 @@ ExprResult Sema::BuildCStyleCastExpr(SourceLocation LPLoc,
                                     CastTypeInfo->getTypeLoc().getBeginLoc()))
     return ExprError();
 
-  CastOperation Op(*this, CastTypeInfo->getType(), CastExpr);
+  QualType DestTy = CastTypeInfo->getType();
+  // Safe C: a string cast to another character type ((const unsigned char *)s)
+  // stays a terminated string. Unannotated, the result would be a pointer to
+  // one character, and s[1] would trap.
+  if (getLangOpts().SafeC && getLangOpts().BoundsSafety &&
+      !CastExpr->isTypeDependent())
+    if (const auto *VTT =
+            CastExpr->IgnoreParens()->getType()->getAs<ValueTerminatedType>())
+      if (const auto *DPT = DestTy->getAs<PointerType>();
+          DPT && !DestTy->isValueTerminatedType() &&
+          !DestTy->isBoundsAttributedType() &&
+          DPT->getPointerAttributes().isUnspecified() &&
+          DPT->getPointeeType()->isCharType() &&
+          CastExpr->getType()->getPointeeType()->isCharType()) {
+        // The terminator takes the new character type, as in
+        // __terminated_by(T) on that type.
+        QualType PET = DPT->getPointeeType().getUnqualifiedType();
+        ExprResult Term(const_cast<Expr *>(
+            VTT->getTerminatorExpr()->IgnoreParenImpCasts()));
+        CastKind TermKind = PrepareScalarCast(Term, PET);
+        Term = ImpCastExprToType(Term.get(), PET, TermKind);
+        QualType NT = Context.getValueTerminatedType(
+            Context.getPointerType(DPT->getPointeeType(),
+                                   BoundsSafetyPointerAttributes::single()),
+            Term.get());
+        if (auto N = DestTy->getNullability())
+          NT = Context.getAttributedType(*N, NT, NT);
+        DestTy = Context.getQualifiedType(NT, DestTy.getQualifiers());
+      }
+
+  CastOperation Op(*this, DestTy, CastExpr);
   Op.DestRange = CastTypeInfo->getTypeLoc().getSourceRange();
   Op.OpRange = CastOperation::OpRangeType(LPLoc, LPLoc, CastExpr->getEndLoc());
 
@@ -4017,11 +4047,12 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
         Context.getTypeSizeInChars(D) > Context.getTypeSizeInChars(S)) {
       Diag(Loc, diag::warn_safe_c_void_pointer_cast)
           << Src->getType() << DestTy << Src->getSourceRange();
-      Diag(Loc, diag::note_safe_c_void_pointer_cast_fix);
+      Diag(Loc, diag::note_safe_c_pointer_cast_fix);
     }
     return;
   }
   Diag(Loc, diag::warn_safe_c_void_pointer_cast)
       << Src->getType() << DestTy << Src->getSourceRange();
-  Diag(Loc, diag::note_safe_c_void_pointer_cast_fix);
+  Diag(Loc, S->isVoidType() ? diag::note_safe_c_void_pointer_cast_fix
+                            : diag::note_safe_c_pointer_cast_fix);
 }

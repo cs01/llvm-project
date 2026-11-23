@@ -13457,6 +13457,14 @@ def warn_safe_c_pure_body : Warning<
   "reads memory|touches no memory}0, so calls may be merged or dropped; "
   "compute the result in local variables, or remove '%select{pure|const}0'">,
   InGroup<SafeCPure>, DefaultError;
+def note_safe_c_pointer_cast_fix : Note<
+  "a pointer cast is allowed to 'void *', to the same type, or between types "
+  "that hold no pointers; to reinterpret the bytes, memcpy them into a "
+  "variable of the new type">;
+def warn_safe_c_unused_unsafe : Warning<
+  "%select{unsafe block|unsafe function}0 contains nothing Safe C would "
+  "reject; remove '__unsafe' so the code stays checked">,
+  InGroup<SafeCUnusedUnsafe>;
 def remark_safe_c_unsafe_region : Remark<
   "%select{unsafe block|unsafe function}0: Safe C rules are not enforced here">,
   InGroup<SafeCUnsafe>;
