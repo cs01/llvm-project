@@ -1791,6 +1791,14 @@ def fnullability_default_EQ : Joined<["-"], "fnullability-default=">,
   NormalizedValues<["Unspecified", "Nullable", "NonNull"]>,
   MarshallingInfoEnum<LangOpts<"NullabilityDefault">, "Unspecified">;
 
+// The driver expands -fsafe-c into -fbounds-safety, -fnullability-safety and
+// -fnullability-default=nonnull unless each is given explicitly.
+defm safe_c : BoolFOption<"safe-c",
+  LangOpts<"SafeC">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable Safe C: bounds safety, nullability safety with nonnull "
+          "default, and errors for operations that can be undefined behavior">,
+  NegFlag<SetFalse>>;
 defm nullability_safety : BoolFOption<"nullability-safety",
   LangOpts<"NullabilitySafety">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],

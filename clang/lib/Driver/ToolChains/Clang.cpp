@@ -8315,10 +8315,14 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
                      options::OPT_fno_assume_sane_operator_new);
 
   /*TO_UPSTREAM(BoundsSafety) ON*/
-  // -fbounds-safety is off by default.
-  if (Arg *A = Args.getLastArg(options::OPT_fbounds_safety,
-                               options::OPT_fno_bounds_safety)) {
-    if (A->getOption().matches(options::OPT_fbounds_safety)) {
+  // -fbounds-safety is off by default; -fsafe-c turns it on unless
+  // -fno-bounds-safety is given.
+  const bool SafeC =
+      Args.hasFlag(options::OPT_fsafe_c, options::OPT_fno_safe_c, false);
+  {
+    Arg *A = Args.getLastArg(options::OPT_fbounds_safety,
+                             options::OPT_fno_bounds_safety);
+    if (A ? A->getOption().matches(options::OPT_fbounds_safety) : SafeC) {
       CmdArgs.push_back("-fbounds-safety");
       auto Iter = Args.filtered(options::OPT_mllvm);
       bool HasBoundsCheckOpt = std::any_of(Iter.begin(), Iter.end(), [](const Arg *A) {
@@ -8496,8 +8500,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
   Args.addOptInFlag(CmdArgs, options::OPT_fapple_pragma_pack,
                     options::OPT_fno_apple_pragma_pack);
 
-  Args.addOptInFlag(CmdArgs, options::OPT_fnullability_safety,
-                    options::OPT_fno_nullability_safety);
+  if (SafeC)
+    CmdArgs.push_back("-fsafe-c");
+  if (Args.hasFlag(options::OPT_fnullability_safety,
+                   options::OPT_fno_nullability_safety, SafeC))
+    CmdArgs.push_back("-fnullability-safety");
   // The built-in libc lists (nullable returns, nonnull parameters) are on by
   // default, so only the -fno- forms need to be forwarded to cc1.
   Args.addOptOutFlag(CmdArgs, options::OPT_fnullability_libc_nullable_returns,
@@ -8506,6 +8513,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
                      options::OPT_fno_nullability_libc_nonnull_params);
   if (Arg *A = Args.getLastArg(options::OPT_fnullability_default_EQ))
     A->render(Args, CmdArgs);
+  else if (SafeC)
+    CmdArgs.push_back("-fnullability-default=nonnull");
+  // In safe code a possibly-null dereference is a hard error, as in Rust.
+  if (SafeC)
+    CmdArgs.push_back("-Werror=nullability-safety");
 
   // Remarks can be enabled with any of the `-f.*optimization-record.*` flags.
   if (willEmitRemarks(Args) && checkRemarksOptions(D, Args, Triple))
