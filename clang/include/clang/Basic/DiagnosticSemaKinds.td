@@ -14060,6 +14060,9 @@ def err_bounds_safety_counted_by_on_incomplete_type_on_var_decl : Error<
   "definition or using the '__sized_by%select{|_or_null}5' attribute"
 >;
 
+def note_safe_c_single_pointer : Note<
+  "in Safe C an unannotated pointer points to exactly one element; if %0 "
+  "points to an array, declare its length with '__counted_by(n)'">;
 def err_bounds_safety_pointer_subscript : Error<
   "array subscript on %select{single|'__terminated_by'}0 pointer %1 "
   "%select{must use a constant index of 0 to be in bounds|is not allowed}0">;

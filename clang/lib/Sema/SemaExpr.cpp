@@ -6107,6 +6107,11 @@ Sema::CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
         Diag(LLoc, diag::err_bounds_safety_pointer_subscript)
             << Ty->isValueTerminatedType() << BaseExpr
             << SourceRange(LHSExp->getBeginLoc(), RHSExp->getEndLoc());
+        // Under -fsafe-c the pointer is single only because it is
+        // unannotated; say so, and say what to write.
+        if (getLangOpts().SafeC && !Ty->isValueTerminatedType())
+          Diag(BaseExpr->getExprLoc(), diag::note_safe_c_single_pointer)
+              << BaseExpr;
         return false;
       }
     } else if (PTy->isIndexable() &&
@@ -14538,6 +14543,9 @@ static void emitBoundsSafetySinglePointerArithmeticError(Sema &S, Expr *Operand)
     // attribute.
     S.Diag(Operand->getExprLoc(), diag::err_bounds_safety_single_pointer_arithmetic)
         << Operand << /* %2 */ 0 << Operand->getSourceRange();
+    if (S.getLangOpts().SafeC)
+      S.Diag(Operand->getExprLoc(), diag::note_safe_c_single_pointer)
+          << Operand;
     return;
   }
 
