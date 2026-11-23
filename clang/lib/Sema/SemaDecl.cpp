@@ -17824,6 +17824,78 @@ static bool isSafeCUnsafeDecl(const Decl *D) {
   return false;
 }
 
+/// Safe C: whether \p E is fresh memory: null, or a call to malloc, calloc,
+/// realloc(NULL, n), aligned_alloc or an alloc_size function. \p FreshLocals
+/// are locals initialized that way and never assigned.
+static bool isSafeCFreshAllocation(
+    ASTContext &Ctx, const Expr *E,
+    const llvm::SmallPtrSetImpl<const VarDecl *> &FreshLocals) {
+  E = E->IgnoreParenCasts();
+  while (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
+    if (!OVE->getSourceExpr())
+      break;
+    E = OVE->getSourceExpr()->IgnoreParenCasts();
+  }
+  if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E))
+    return isSafeCFreshAllocation(Ctx, MSE->getWrappedExpr(), FreshLocals);
+  if (const auto *PPE = dyn_cast<BoundsSafetyPointerPromotionExpr>(E))
+    return isSafeCFreshAllocation(Ctx, PPE->getPointer(), FreshLocals);
+  if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
+    return true;
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      return FreshLocals.contains(VD);
+  const auto *CE = dyn_cast<CallExpr>(E);
+  const FunctionDecl *FD = CE ? CE->getDirectCallee() : nullptr;
+  if (!FD)
+    return false;
+  if (FD->hasAttr<AllocSizeAttr>())
+    return true;
+  StringRef Name = FD->getIdentifier() ? FD->getName() : StringRef();
+  if (Name == "malloc" || Name == "calloc" || Name == "aligned_alloc")
+    return true;
+  if (Name == "realloc" && CE->getNumArgs() == 2)
+    return CE->getArg(0)->IgnoreParenCasts()->isNullPointerConstant(
+        Ctx, Expr::NPC_ValueDependentIsNotNull);
+  return false;
+}
+
+/// Safe C: an alloc_size function counts as a fresh allocation at its call
+/// sites, so its body must return only fresh memory.
+static void checkSafeCAllocatorBody(Sema &S, const FunctionDecl *FD,
+                                    const Stmt *Body) {
+  llvm::SmallPtrSet<const VarDecl *, 4> FreshLocals, Assigned;
+  llvm::SmallVector<const ReturnStmt *, 4> Returns;
+  std::function<void(const Stmt *)> Walk = [&](const Stmt *St) {
+    if (!St)
+      return;
+    if (const auto *DS = dyn_cast<DeclStmt>(St))
+      for (const Decl *D : DS->decls())
+        if (const auto *VD = dyn_cast<VarDecl>(D))
+          if (VD->hasLocalStorage() && VD->getInit() &&
+              isSafeCFreshAllocation(S.Context, VD->getInit(), FreshLocals))
+            FreshLocals.insert(VD);
+    if (const auto *BO = dyn_cast<BinaryOperator>(St))
+      if (BO->isAssignmentOp())
+        if (const auto *DRE =
+                dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParenImpCasts()))
+          if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+            Assigned.insert(VD);
+    if (const auto *RS = dyn_cast<ReturnStmt>(St))
+      Returns.push_back(RS);
+    for (const Stmt *Child : St->children())
+      Walk(Child);
+  };
+  Walk(Body);
+  for (const VarDecl *VD : Assigned)
+    FreshLocals.erase(VD);
+  for (const ReturnStmt *RS : Returns)
+    if (const Expr *V = RS->getRetValue())
+      if (!isSafeCFreshAllocation(S.Context, V, FreshLocals))
+        S.Diag(V->getExprLoc(), diag::warn_safe_c_alloc_size_body)
+            << FD << V->getSourceRange();
+}
+
 namespace {
 /// Safe C: checks a body against its pure or const attribute. CodeGen trusts
 /// these attributes (memory(read) or memory(none) on every call), so a body
@@ -18424,6 +18496,9 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
       (FD->hasAttr<PureAttr>() || FD->hasAttr<ConstAttr>()) &&
       !SourceMgr.isInSystemHeader(FD->getLocation()))
     SafeCPureBodyChecker(*this, FD, FD->hasAttr<ConstAttr>()).Visit(Body);
+  if (getLangOpts().SafeC && FD && Body && FD->hasAttr<AllocSizeAttr>() &&
+      !SourceMgr.isInSystemHeader(FD->getLocation()))
+    checkSafeCAllocatorBody(*this, FD, Body);
 
   if (FSI->UsesFPIntrin && FD && !FD->hasAttr<StrictFPAttr>())
     FD->addAttr(StrictFPAttr::CreateImplicit(Context));

@@ -4002,6 +4002,10 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
         default:
           if (FD->getIdentifier() && FD->getName() == "aligned_alloc")
             return;
+          // Safe C checks that an alloc_size function returns only fresh
+          // memory (checkSafeCAllocatorBody); system headers are trusted.
+          if (FD->hasAttr<AllocSizeAttr>())
+            return;
         }
       }
   } else if (isSameTypeDeep(Context, S, D) ||

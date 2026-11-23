@@ -13443,6 +13443,11 @@ def warn_safe_c_byte_write : Warning<
   "the fields|fill with 0, which makes every pointer null|read into a "
   "pointer-free buffer and set the pointers from it}0">,
   InGroup<SafeCByteWrite>, DefaultError;
+def warn_safe_c_alloc_size_body : Warning<
+  "%0 is marked 'alloc_size', so callers give its result a type as fresh "
+  "memory, but this returns something else; return the result of malloc, "
+  "calloc or another 'alloc_size' function (or a local holding it), or null">,
+  InGroup<SafeCVoidCast>, DefaultError;
 def warn_safe_c_pure_body : Warning<
   "%select{'pure'|'const'}0 function %1 %select{writes memory other than its "
   "own local variables|calls %3, which is not marked 'pure' or 'const'|calls "
