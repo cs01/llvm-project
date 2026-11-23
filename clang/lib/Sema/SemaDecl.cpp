@@ -15298,6 +15298,35 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
   }
 
   VarDecl *VDecl = dyn_cast<VarDecl>(RealDecl);
+
+  // Safe C: an unannotated local initialized from a terminated string becomes
+  // a terminated string itself (char *s = strdup(x)), instead of a bounded
+  // pointer that would need a scan for the terminator. Only a plain written
+  // pointer type is adopted, so explicit annotations still win.
+  if (getLangOpts().SafeC && getLangOpts().BoundsSafety && VDecl && Init &&
+      VDecl->isLocalVarDecl() && VDecl->hasLocalStorage() &&
+      VDecl->getTypeSourceInfo() && !Init->isTypeDependent())
+    if (QualType Written = VDecl->getTypeSourceInfo()->getType();
+        Written->getAs<PointerType>() && !Written->isBoundsAttributedType() &&
+        !Written->isValueTerminatedType() &&
+        Written->getAs<PointerType>()->getPointerAttributes().isUnspecified())
+      if (QualType InitTy = Init->IgnoreParens()->getType();
+          InitTy->isValueTerminatedType() &&
+          Context.hasSameUnqualifiedType(
+              Written->getPointeeType().getUnqualifiedType(),
+              InitTy->getPointeeType().getUnqualifiedType()) &&
+          Written->getPointeeType().getQualifiers() ==
+              InitTy->getPointeeType().getQualifiers())
+      {
+        // The local's written nullability wins over the initializer's.
+        QualType NewTy = InitTy.getUnqualifiedType();
+        if (auto N = Written->getNullability()) {
+          AttributedType::stripOuterNullability(NewTy);
+          NewTy = Context.getAttributedType(*N, NewTy, NewTy);
+        }
+        VDecl->setType(
+            Context.getQualifiedType(NewTy, VDecl->getType().getQualifiers()));
+      }
   if (!VDecl) {
     assert(!isa<FieldDecl>(RealDecl) && "field init shouldn't get here");
     Diag(RealDecl->getLocation(), diag::err_illegal_initializer);
