@@ -549,6 +549,7 @@ def SafeCUnion : DiagGroup<"safe-c-union">;
 def SafeCPure : DiagGroup<"safe-c-pure">;
 def SafeCIntToPointer : DiagGroup<"safe-c-int-to-pointer">;
 def SafeCByteWrite : DiagGroup<"safe-c-byte-write">;
+def SafeCUncheckedParam : DiagGroup<"safe-c-unchecked-param">;
 def NullabilitySafety : DiagGroup<"nullability-safety", [
   NullabilitySafetyDereference, NullabilitySafetyArithmetic, NullabilitySafetyReturn,
   NullabilitySafetyAssignment, NullabilitySafetyArgument]>;

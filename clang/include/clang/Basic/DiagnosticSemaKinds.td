@@ -13432,6 +13432,11 @@ def warn_safe_c_int_to_pointer : Warning<
   "array it points into), or convert to 'void *' if only the address value is "
   "needed">,
   InGroup<SafeCIntToPointer>, DefaultError;
+def warn_safe_c_unchecked_param : Warning<
+  "passing %0 to %1 drops its bounds: the parameter is '__unsafe_indexable', so "
+  "%1 reads or writes through it unchecked; call a function whose parameter "
+  "declares its size (for strings: memcpy, memcmp, strlcpy, snprintf)">,
+  InGroup<SafeCUncheckedParam>, DefaultError;
 def warn_safe_c_byte_write : Warning<
   "%select{copying %2 into|filling|reading bytes into}0 %1, which holds "
   "pointers, can forge a pointer; %select{copy from the same type, or assign "

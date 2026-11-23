@@ -5085,6 +5085,49 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
       << TheCall->getArg(DestArg)->getSourceRange();
 }
 
+/// Safe C: a pointer with bounds passed to an '__unsafe_indexable' parameter
+/// loses them, and the callee's accesses go unchecked (the SDK declares
+/// strncpy's destination this way, for example). Null, and a pointer that was
+/// already unchecked, lose nothing.
+static void checkSafeCUncheckedParams(Sema &S, CallExpr *TheCall,
+                                      const FunctionDecl *FD) {
+  if (S.SourceMgr.isInSystemHeader(TheCall->getExprLoc()))
+    return;
+  // The allocator never accesses the block through the pointer it is given
+  // (realloc copies what the allocator itself recorded).
+  if (FD->isExternC() && FD->getIdentifier() &&
+      llvm::is_contained({"free", "realloc", "reallocf"}, FD->getName()))
+    return;
+  unsigned N = std::min(TheCall->getNumArgs(), FD->getNumParams());
+  for (unsigned I = 0; I != N; ++I) {
+    const ParmVarDecl *P = FD->getParamDecl(I);
+    if (!P->getType()->isUnsafeIndexablePointerType())
+      continue;
+    const Expr *Arg = TheCall->getArg(I);
+    const Expr *Orig = Arg->IgnoreParenImpCasts();
+    while (const auto *OVE = dyn_cast<OpaqueValueExpr>(Orig)) {
+      if (!OVE->getSourceExpr())
+        break;
+      Orig = OVE->getSourceExpr()->IgnoreParenImpCasts();
+    }
+    if (Orig->isNullPointerConstant(S.Context,
+                                    Expr::NPC_ValueDependentIsNotNull) ||
+        Orig->getType()->isUnsafeIndexablePointerType())
+      continue;
+    // A C string function stops at the terminator, so a read-only string
+    // parameter is safe to pass a terminated string (strncmp, strncasecmp).
+    if (const auto *PT = P->getType()->getAs<PointerType>();
+        PT && PT->getPointeeType().isConstQualified() &&
+        PT->getPointeeType()->isCharType() && FD->getIdentifier() &&
+        FD->getName().starts_with("str") &&
+        (Orig->getType()->isValueTerminatedType() ||
+         isa<StringLiteral>(Orig)))
+      continue;
+    S.Diag(Arg->getExprLoc(), diag::warn_safe_c_unchecked_param)
+        << Orig->getType() << FD << Arg->getSourceRange();
+  }
+}
+
 bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
                              const FunctionProtoType *Proto) {
   bool IsMemberOperatorCall = isa<CXXOperatorCallExpr>(TheCall) &&
@@ -5148,8 +5191,10 @@ bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
 
   unsigned CMId = FDecl->getMemoryFunctionKind();
 
-  if (getLangOpts().SafeC)
+  if (getLangOpts().SafeC) {
     checkSafeCByteWrite(*this, TheCall, FDecl, CMId);
+    checkSafeCUncheckedParams(*this, TheCall, FDecl);
+  }
 
   // Handle memory setting and copying functions.
   switch (CMId) {

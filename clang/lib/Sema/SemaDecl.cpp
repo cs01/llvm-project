@@ -17970,6 +17970,12 @@ public:
       if (unsigned ID = Callee->getBuiltinID())
         OK |= S.Context.BuiltinInfo.isConst(ID) ||
               (!IsConst && S.Context.BuiltinInfo.isPure(ID));
+      // The C library's read-only scans, whatever the headers declare.
+      if (!IsConst && Callee->isExternC() && Callee->getIdentifier())
+        OK |= llvm::is_contained(
+            {"strlen", "strnlen", "strcmp", "strncmp", "strchr", "strrchr",
+             "strstr", "memcmp", "memchr"},
+            Callee->getName());
       if (!OK)
         report(E->getExprLoc(), IsConst ? CallsNonConst : CallsImpure, Callee);
     }

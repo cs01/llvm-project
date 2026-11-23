@@ -1566,14 +1566,19 @@ void DarwinClang::addClangTargetOptions(
   // enable -fbounds-safety annotations in its headers (rdar://84733153). This
   // is only being set during the gradual enablement of new checks and will be
   // removed once the transition is complete (rdar://137912561).
-  if (DriverArgs.hasFlagNoClaim(options::OPT_fbounds_safety,
-                                options::OPT_fno_bounds_safety, false)) {
+  // Safe C implies -fbounds-safety and always wants the libc annotations
+  // (strcpy unavailable, memcpy sized by its length, ...).
+  bool SafeC = DriverArgs.hasFlagNoClaim(options::OPT_fsafe_c,
+                                         options::OPT_fno_safe_c, false);
+  if (SafeC || DriverArgs.hasFlagNoClaim(options::OPT_fbounds_safety,
+                                         options::OPT_fno_bounds_safety,
+                                         false)) {
     LangOptions::BoundsSafetyNewChecksMaskIntTy NewChecks =
         options::ParseBoundsSafetyNewChecksMaskFromArgs(
             DriverArgs,
             /*DiagnosticsEngine=*/nullptr,
             /*DiagnoseMissingChecks=*/false);
-    if (NewChecks & LangOptions::BS_CHK_LibCAttributes) {
+    if (SafeC || (NewChecks & LangOptions::BS_CHK_LibCAttributes)) {
       bool TargetWithoutUserspaceLibc = false;
       if (getTriple().isOSDarwin() && !TargetWithoutUserspaceLibc) {
         CC1Args.push_back("-D__LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES");

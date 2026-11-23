@@ -46,18 +46,6 @@
 #define __unsafe_null_terminated_from_indexable(P, ...) (P)
 #endif
 
-/* ptrcheck.h leaves the wide pointer attributes undefined when bounds safety
-   is off, because they change the ABI. Code that uses them only on internal
-   (static) functions and locals has no ABI to break, so define them away. */
-#if !defined(__SAFEC_HAVE_PTRCHECK) || !__has_ptrcheck
-#ifndef __bidi_indexable
-#define __bidi_indexable
-#endif
-#ifndef __indexable
-#define __indexable
-#endif
-#endif
-
 /* libc string functions. The system headers leave their `const char *`
    parameters unannotated, so bounds safety would hand any buffer to them
    unchecked, and strlen() of an unterminated buffer reads past its end. These
@@ -66,7 +54,12 @@
    in either order). A buffer with known bounds passed to one of them is then
    scanned for its terminator, and the program traps if there is none.
    Known gap: printf-style variadic arguments cannot be annotated this way. */
-#if defined(__SAFEC_HAVE_PTRCHECK) && __has_ptrcheck
+/* Apple's libc annotates these itself when __LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES
+   is set (the driver sets it under -fsafe-c), and its declarations would
+   conflict with these. Where it leaves a string parameter __unsafe_indexable
+   (strncmp), Safe C accepts terminated strings (checkSafeCUncheckedParams). */
+#if defined(__SAFEC_HAVE_PTRCHECK) && __has_ptrcheck &&                        \
+    !defined(__LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES)
 typedef __SIZE_TYPE__ __safec_size_t;
 /* The read-only scans are also marked pure, so Safe C code marked
    __attribute__((pure)) may call them. */
