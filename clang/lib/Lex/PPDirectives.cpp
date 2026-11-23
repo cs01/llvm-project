@@ -1795,6 +1795,17 @@ void Preprocessor::HandleDigitDirective(Token &DigitTok) {
     // If a filename was present, read any flags that are present.
     if (ReadLineMarkerFlags(IsFileEntry, IsFileExit, FileKind, *this))
       return;
+    // Safe C exempts system headers from its checks; a line marker in a user
+    // file must not be able to claim that status. The file's own kind comes
+    // from header search, recorded at the start of its FileID.
+    if (LangOpts.SafeC && SrcMgr::isSystem(FileKind) &&
+        !SourceMgr.isInPredefinedFile(DigitTok.getLocation()) &&
+        !SrcMgr::isSystem(
+            SourceMgr.getFileCharacteristic(SourceMgr.getLocForStartOfFile(
+                SourceMgr.getFileID(DigitTok.getLocation()))))) {
+      Diag(DigitTok, diag::err_safe_c_self_declared_system_header) << 1;
+      FileKind = SrcMgr::C_User;
+    }
     if (!SourceMgr.isInPredefinedFile(DigitTok.getLocation()))
       Diag(StrTok, diag::ext_pp_gnu_line_directive);
 

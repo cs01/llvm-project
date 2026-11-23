@@ -487,6 +487,15 @@ void Preprocessor::HandlePragmaSystemHeader(Token &SysHeaderTok) {
   // Get the current file lexer we're looking at.  Ignore _Pragma 'files' etc.
   PreprocessorLexer *TheLexer = getCurrentFileLexer();
 
+  // Safe C exempts system headers from its checks, so a user file must not be
+  // able to declare itself one.
+  if (getLangOpts().SafeC &&
+      !SrcMgr::isSystem(SourceMgr.getFileCharacteristic(
+          SourceMgr.getLocForStartOfFile(TheLexer->getFileID())))) {
+    Diag(SysHeaderTok, diag::err_safe_c_self_declared_system_header) << 0;
+    return;
+  }
+
   // Mark the file as a system header.
   HeaderInfo.MarkFileSystemHeader(*TheLexer->getFileEntry());
 

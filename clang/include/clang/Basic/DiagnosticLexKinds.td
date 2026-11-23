@@ -410,6 +410,10 @@ def pp_nonportable_path_separator : Warning<
 
 def pp_pragma_once_in_main_file : Warning<"#pragma once in main file">,
   InGroup<DiagGroup<"pragma-once-outside-header">>;
+def err_safe_c_self_declared_system_header : Error<
+  "%select{'#pragma clang system_header'|a line marker with the system-header "
+  "flag}0 is not allowed under -fsafe-c: Safe C checks are lifted only by "
+  "'__unsafe' or for headers found in a system include directory (-isystem)">;
 def pp_pragma_sysheader_in_main_file : Warning<
   "#pragma system_header ignored in main file">,
   InGroup<DiagGroup<"pragma-system-header-outside-header">>;
