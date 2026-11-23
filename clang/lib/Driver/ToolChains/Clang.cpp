@@ -8319,6 +8319,18 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
   // -fno-bounds-safety is given.
   const bool SafeC =
       Args.hasFlag(options::OPT_fsafe_c, options::OPT_fno_safe_c, false);
+  // Safe C cannot be weakened from the command line; the only escape is an
+  // __unsafe region in the source, which a reviewer can see.
+  if (SafeC) {
+    for (const Arg *A : Args.filtered(options::OPT_fno_bounds_safety,
+                                      options::OPT_fno_nullability_safety))
+      D.Diag(diag::err_drv_argument_not_allowed_with)
+          << A->getAsString(Args) << "-fsafe-c";
+    if (const Arg *A = Args.getLastArg(options::OPT_fnullability_default_EQ))
+      if (StringRef(A->getValue()) != "nonnull")
+        D.Diag(diag::err_drv_argument_not_allowed_with)
+            << A->getAsString(Args) << "-fsafe-c";
+  }
   {
     Arg *A = Args.getLastArg(options::OPT_fbounds_safety,
                              options::OPT_fno_bounds_safety);
