@@ -13,11 +13,14 @@ Safe C is a **fork of Clang** with one flag, `-fsafe-c`. It combines three thing
   ownership and borrowing, checked `pure`/`const`/`alloc_size`, and `__unsafe` blocks.
 - **A fixed configuration** that no flag, pragma or attribute can weaken.
 
-We listed every way C code can corrupt memory and closed each one, so **code outside
-`__unsafe` is memory safe**: every operation that could be undefined behavior is proven
-safe at compile time, checked at run time with a trap, or rejected. The core rules are
-proved sound in Lean, and the compiler is tested against NIST's Juliet suite and real
-libraries.
+**The goal:** code outside `__unsafe` is memory safe, with every operation that could be
+undefined behavior proven safe at compile time, checked at run time with a trap, or
+rejected. **Today:** bounds, null, integers and initialization are close; use after free
+is caught for local variables and annotated calls, not yet through struct fields, arrays
+or globals; data races are not addressed, so any guarantee is single-threaded. The rules
+are modeled in Lean, the compiler is tested against NIST's Juliet suite, real libraries
+and an adversarial audit whose failing probes are in
+[safe-c-notes/audit-2026-11-23/](safe-c-notes/audit-2026-11-23/).
 
 ## What makes C unsafe
 
@@ -36,21 +39,23 @@ libraries.
 |---|---|---|---|
 | Out of bounds | `__counted_by`, `__sized_by`, `__ended_by` on interfaces; locals carry their own bounds; every access proven at compile time or trapped | Apple's `-fbounds-safety` | works |
 | Null dereference | non-null by default; `_Nullable` must be checked before use, tracked through each function | this fork | works |
-| Use after free, double free | Clang's lifetime analysis always on, as errors; `ownership_takes`/`ownership_returns`/`lifetimebound` at interfaces; checked ownership annotations and owned fields next | Clang's lifetime safety (usx95), this fork | works within functions and through annotated calls; fields planned |
+| Use after free, double free | Clang's lifetime analysis always on, as errors; `ownership_takes`/`ownership_returns`/`lifetimebound` at interfaces, checked against bodies | Clang's lifetime safety (usx95), this fork | local variables and annotated calls only; pointers stored in fields, arrays, globals or struct copies are not tracked |
 | Uninitialized reads | a maybe-uninitialized local is an error; stack aggregates and `malloc` memory start zeroed | Clang's uninitialized analysis, `-ftrivial-auto-var-init` | works |
-| Type confusion | pointer casts only to `void *`, to the same type, or between types without pointers; unions likewise; no integer-to-pointer; no raw bytes over pointers; `printf`/`scanf` arguments checked | this fork, rule from the Lean model | works |
-| Unchecked libc | `strcpy`, `sprintf`, `gets` unavailable; a bounded pointer cannot go to an unchecked parameter | Apple's libc annotations, this fork | works |
+| Type confusion | pointer casts only to `void *`, to the same type, or between types without pointers; unions likewise; no integer-to-pointer; `printf`/`scanf` arguments checked | this fork, rule from the Lean model | casts and unions work; raw byte writes over pointers (`memcpy` with SDK headers, `arc4random_buf`), `va_arg`, `%s` over-reads and mismatched declarations across files are open |
+| Unchecked libc | `strcpy`, `sprintf`, `gets` unavailable; a bounded pointer cannot go to an unchecked parameter | Apple's libc annotations, this fork | works for annotated parameters; `printf("%s")` arguments and `FILE` lifetimes are open |
 | Integer UB | signed overflow wraps (as in Rust release builds); division by zero and oversized shifts trap | `-fwrapv`, Clang's trapping sanitizers | works |
-| Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned |
-| Weakening | weakening flags rejected; safety errors cannot be lowered by `-Wno-` or pragmas; a file cannot declare itself a system header; lying `pure`/`const`/`alloc_size` rejected | this fork | works |
+| Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned; a race on a pointer and its count breaks bounds checks today |
+| Weakening | weakening flags rejected; safety errors cannot be lowered by `-Wno-` or pragmas; a file cannot declare itself a system header; lying `pure`/`const`/`alloc_size` rejected | this fork | works, except that `-isystem` marks any directory as trusted |
 | Escape hatch | `__unsafe { }` blocks and functions; `#pragma clang safe_c legacy` for headers not yet ported; each is one searchable line, and `-Rsafe-c-unsafe` lists them all | this fork | works |
 
-**Why it is sound.** [safe-c-lean/](safe-c-lean/) is a Lean 4 model of Safe C's rules
-with machine-checked proofs: a program that follows the rules, outside `__unsafe`, never
-reaches undefined behavior (it finishes, traps or runs forever), and the ownership rules
-rule out use after free and double free. Every rule has a counterexample showing the
-proof fails without it. The model is how several rules were found: the cast rule above
-comes straight from it.
+**Why it can be sound.** [safe-c-lean/](safe-c-lean/) is a Lean 4 model of Safe C's
+proposed rules with machine-checked proofs: a program that follows them, outside
+`__unsafe`, never reaches undefined behavior (it finishes, traps or runs forever), and the
+ownership rules rule out use after free and double free. Every rule has a counterexample
+showing the proof fails without it. The cast rule above comes straight from the model.
+Clang implements the core rules; the ownership model (owned pointers, exclusive borrows,
+no borrowed pointers in fields) is not built yet, and closing the gap between the model
+and the compiler is the main work ahead.
 
 ## Same code, any compiler
 
