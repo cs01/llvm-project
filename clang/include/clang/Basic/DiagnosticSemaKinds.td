@@ -13426,6 +13426,11 @@ def warn_safe_c_void_pointer_cast : Warning<
 def note_safe_c_void_pointer_cast_fix : Note<
   "keep the typed pointer instead of 'void *' (annotate the callback or API "
   "with '__attribute__((callback(...)))'), or convert inside '__unsafe'">;
+def warn_safe_c_cast_away_const : Warning<
+  "casting %0 to %1 removes 'const', so memory that must not change (a const "
+  "global, a string literal) could be written; keep 'const' on the result, or "
+  "copy the data into a writable buffer">,
+  InGroup<SafeCConst>, DefaultError;
 def warn_safe_c_int_to_pointer : Warning<
   "converting %0 to %1 makes up an address that no bounds or lifetime check "
   "can follow; keep the pointer instead of the integer (or an index into the "

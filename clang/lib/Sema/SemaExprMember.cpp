@@ -1879,18 +1879,7 @@ ExprResult Sema::InstantiateDeclRefField(Expr *BaseExpr, bool IsArrow,
 
 /// Safe C: whether values of \p T contain no pointers at any depth.
 static bool safeCIsPointerFree(ASTContext &Ctx, QualType T) {
-  T = Ctx.getCanonicalType(T).getUnqualifiedType();
-  if (T->isPointerType() || T->isBlockPointerType() || T->isFunctionType())
-    return false;
-  if (const auto *AT = Ctx.getAsArrayType(T))
-    return safeCIsPointerFree(Ctx, AT->getElementType());
-  if (const auto *RD = T->getAsRecordDecl()) {
-    for (const FieldDecl *F : RD->fields())
-      if (!safeCIsPointerFree(Ctx, F->getType()))
-        return false;
-    return true;
-  }
-  return true;
+  return Sema::isSafeCPlainData(Ctx, T, /*VoidIsPlain=*/true);
 }
 
 ExprResult

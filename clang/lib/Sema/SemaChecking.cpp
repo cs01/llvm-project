@@ -5012,19 +5012,7 @@ static QualType safeCOriginalPointee(const Expr *E) {
 /// into it cannot forge one. Unknown (void) counts as pointer-free: the
 /// conversion to 'void *' is where Safe C stops tracking.
 static bool safeCHoldsNoPointers(ASTContext &Ctx, QualType T) {
-  T = Ctx.getCanonicalType(T).getUnqualifiedType();
-  if (T->isVoidType())
-    return true;
-  if (T->isPointerType() || T->isBlockPointerType() || T->isFunctionType())
-    return false;
-  if (const auto *AT = Ctx.getAsArrayType(T))
-    return safeCHoldsNoPointers(Ctx, AT->getElementType());
-  if (const auto *RD = T->getAsRecordDecl()) {
-    for (const FieldDecl *F : RD->fields())
-      if (!safeCHoldsNoPointers(Ctx, F->getType()))
-        return false;
-  }
-  return true;
+  return Sema::isSafeCPlainData(Ctx, T, /*VoidIsPlain=*/true);
 }
 
 /// The C library name behind a call, without the fortify and bounds-safety

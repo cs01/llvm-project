@@ -1466,6 +1466,12 @@ public:
   SmallVector<SourceRange, 4> SafeCUnsafeRanges;
   bool isInSafeCUnsafeRegion(SourceLocation Loc) const;
 
+  /// Safe C: whether any bytes are a valid \p T: no pointers (bytes would
+  /// forge one) and no _Bool (only 0 and 1 are valid, and code relies on it).
+  /// \p VoidIsPlain: treat void (unknown memory) as plain.
+  static bool isSafeCPlainData(const ASTContext &Ctx, QualType T,
+                               bool VoidIsPlain = false);
+
   /// Each region, and whether a safety diagnostic was suppressed in it; an
   /// unused one is reported at the end of the TU, like Rust's unused_unsafe.
   struct SafeCUnsafeRegion {

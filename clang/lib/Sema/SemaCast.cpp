@@ -3868,6 +3868,29 @@ ExprResult Sema::BuildCStyleCastExpr(SourceLocation LPLoc,
         << Op.SrcExpr.get()->getType() << Op.DestType
         << SourceRange(LPLoc, Op.SrcExpr.get()->getEndLoc());
 
+  // Safe C: a cast may add const at any pointer level but never remove it
+  // (like turning &T into &mut T in Rust).
+  if (getLangOpts().SafeC && LPLoc != RPLoc &&
+      !SourceMgr.isInSystemHeader(LPLoc) && !SourceMgr.isInSystemMacro(LPLoc) &&
+      Op.SrcExpr.isUsable()) {
+    QualType S = Op.SrcExpr.get()->getType(), D = Op.DestType;
+    while (true) {
+      const auto *SP = S->getAs<PointerType>();
+      const auto *DP = D->getAs<PointerType>();
+      if (!SP || !DP)
+        break;
+      QualType SPee = SP->getPointeeType(), DPee = DP->getPointeeType();
+      if (SPee.isConstQualified() && !DPee.isConstQualified()) {
+        Diag(LPLoc, diag::warn_safe_c_cast_away_const)
+            << Op.SrcExpr.get()->getType() << Op.DestType
+            << SourceRange(LPLoc, Op.SrcExpr.get()->getEndLoc());
+        break;
+      }
+      S = SPee;
+      D = DPee;
+    }
+  }
+
   // CK_NoOp: a cast that changes only nested nullability, which the rule
   // also counts.
   if (Op.Kind == CK_BitCast || Op.Kind == CK_NoOp)
@@ -3938,20 +3961,31 @@ static const Expr *unwrapBoundsSafety(const Expr *E) {
 
 /// Whether values of \p T contain no pointers at any depth: reinterpreting
 /// such memory as another pointer-free type cannot forge a pointer.
-static bool isPointerFree(ASTContext &Ctx, QualType T) {
+bool Sema::isSafeCPlainData(const ASTContext &Ctx, QualType T,
+                            bool VoidIsPlain) {
   T = Ctx.getCanonicalType(T).getUnqualifiedType();
+  if (const auto *AT = T->getAs<AtomicType>())
+    return isSafeCPlainData(Ctx, AT->getValueType(), VoidIsPlain);
+  if (T->isVoidType())
+    return VoidIsPlain;
   if (T->isPointerType() || T->isBlockPointerType() ||
-      T->isObjCObjectPointerType() || T->isFunctionType() || T->isVoidType())
+      T->isObjCObjectPointerType() || T->isFunctionType() ||
+      T->isBooleanType())
     return false;
   if (const auto *AT = Ctx.getAsArrayType(T))
-    return isPointerFree(Ctx, AT->getElementType());
+    return isSafeCPlainData(Ctx, AT->getElementType(), VoidIsPlain);
   if (const auto *RD = T->getAsRecordDecl()) {
     for (const FieldDecl *F : RD->fields())
-      if (!isPointerFree(Ctx, F->getType()))
+      if (!isSafeCPlainData(Ctx, F->getType(), VoidIsPlain))
         return false;
     return true;
   }
-  return T->isScalarType();
+  // Integers, enums, floating point, complex and vector values.
+  return true;
+}
+
+static bool isPointerFree(ASTContext &Ctx, QualType T) {
+  return Sema::isSafeCPlainData(Ctx, T);
 }
 
 /// Identical types, with nullability counted at every pointer level (the
