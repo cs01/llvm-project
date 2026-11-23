@@ -262,6 +262,14 @@ Almost every remaining bounds miss uses a random index or a randomly taken branc
 no fixed input can trigger. Details and the harness's own fixes are in
 [safe-c-notes/juliet.md](safe-c-notes/juliet.md).
 
+**A machine-checked core.** [safe-c-lean/](safe-c-lean/) models Safe C's rules as a
+small calculus in Lean 4 and proves that a well-typed program without `__unsafe` never
+reaches undefined behavior: it finishes, traps or runs forever. The proof needs every
+rule it relies on, and it found two rules that are not yet sound (type confusion through
+casts, and the checked string conversion under aliasing); both are listed as open in the
+[review notes](safe-c-notes/review-2026-11-23.md). The model covers the rules, not
+clang's implementation of them; Juliet and the review probes cover that.
+
 A second number tracks annotation burden: annotations per 1,000 lines on a real library,
 and the share of its lines that need `__unsafe`.
 
