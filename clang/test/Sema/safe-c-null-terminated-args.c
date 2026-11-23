@@ -8,7 +8,7 @@
 
 #include <ptrcheck.h>
 typedef __SIZE_TYPE__ size_t;
-size_t my_strlen(const char *__null_terminated s);
+size_t my_strlen(const char *__null_terminated s __attribute__((noescape)));
 struct S { const char *__null_terminated name; };
 
 size_t arg(void) {

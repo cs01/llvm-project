@@ -134,15 +134,19 @@ char *getenv(const char *__null_terminated);
    the function frees (or keeps) its Nth parameter, so the caller must not use
    it afterwards. __safec_returns_owned: the result is new memory the caller
    must free. __safec_lifetimebound on a parameter: the result points into it.
+   __safec_noescape on a parameter: the function does not keep the pointer
+   (lets a buffer be passed where a terminated string is expected).
    Safe C checks each against the function body. */
 #if defined(__clang__)
 #define __safec_takes(N) __attribute__((ownership_takes(malloc, N)))
 #define __safec_returns_owned __attribute__((ownership_returns(malloc)))
 #define __safec_lifetimebound __attribute__((lifetimebound))
+#define __safec_noescape __attribute__((noescape))
 #else
 #define __safec_takes(N)
 #define __safec_returns_owned
 #define __safec_lifetimebound
+#define __safec_noescape
 #endif
 
 #if !defined(__clang__)

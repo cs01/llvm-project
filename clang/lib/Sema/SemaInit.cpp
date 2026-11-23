@@ -8943,11 +8943,53 @@ ExprResult InitializationSequence::Perform(Sema &S,
       // the terminator.
       // An argument that already has an error keeps it; building the checked
       // conversion around a RecoveryExpr crashes the constant evaluator.
+      // The check holds only while the callee runs, so the callee must not
+      // keep the pointer: a noescape parameter (verified against the body),
+      // or a C library function other than the few that retain their string.
+      const ParmVarDecl *SafeCParm =
+          Entity.isParameterKind() ? dyn_cast_or_null<ParmVarDecl>(Entity.getDecl()) : nullptr;
+      bool SafeCCallScoped = false;
+      if (SafeCParm) {
+        const auto *Callee =
+            dyn_cast_or_null<FunctionDecl>(SafeCParm->getDeclContext());
+        StringRef Name = Callee && Callee->getIdentifier() && Callee->isExternC()
+                             ? Callee->getName()
+                             : StringRef();
+        // The C library's string functions read their strings during the
+        // call (whether declared by a system header or by hand); these few
+        // keep them.
+        bool Retains = llvm::is_contained(
+            {"strtok", "strtok_r", "strsep", "setenv", "putenv", "setbuf",
+             "setvbuf"},
+            Name);
+        bool LibcReader = llvm::is_contained(
+            {"strlen", "strnlen", "strcmp", "strncmp", "strcasecmp",
+             "strncasecmp", "strcoll", "strchr", "strrchr", "strstr",
+             "strspn", "strcspn", "strpbrk", "strdup", "strndup", "strcpy",
+             "strcat", "strlcpy", "strlcat", "puts", "fputs", "printf",
+             "fprintf", "snprintf", "sprintf", "dprintf", "vprintf",
+             "vfprintf", "vsnprintf", "sscanf", "atoi", "atol", "atoll",
+             "atof", "strtol", "strtoll", "strtoul", "strtoull", "strtod",
+             "strtof", "strtold", "getenv", "fopen", "freopen", "remove",
+             "rename", "access", "open", "stat", "lstat", "mkdir", "rmdir",
+             "unlink", "chdir", "system", "perror"},
+            Name);
+        SafeCCallScoped =
+            SafeCParm->hasAttr<NoEscapeAttr>() || LibcReader ||
+            (S.SourceMgr.isInSystemHeader(SafeCParm->getLocation()) &&
+             !Retains);
+      }
       if (S.getLangOpts().SafeC && Entity.isParameterKind() &&
           !InitialCurInit.get()->containsErrors() &&
           ConvTy ==
               AssignConvertType::
                   IncompatibleNonValueTerminatedToValueTerminatedPointer) {
+        // Still insert the checked conversion (so the plain bounds-safety
+        // error does not follow), but say why a retaining callee is wrong.
+        if (!SafeCCallScoped && SafeCParm)
+          S.Diag(InitialCurInit.get()->getExprLoc(),
+                 diag::warn_safe_c_string_retained)
+              << SafeCParm << InitialCurInit.get()->getSourceRange();
         const auto *VTT = Step->Type->getAs<ValueTerminatedType>();
         // An array argument (char buf[N]) has not decayed yet; decaying it
         // gives the bounds-carrying pointer the conversion needs.

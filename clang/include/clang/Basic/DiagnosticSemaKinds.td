@@ -13426,6 +13426,12 @@ def warn_safe_c_void_pointer_cast : Warning<
 def note_safe_c_void_pointer_cast_fix : Note<
   "keep the typed pointer instead of 'void *' (annotate the callback or API "
   "with '__attribute__((callback(...)))'), or convert inside '__unsafe'">;
+def warn_safe_c_string_retained : Warning<
+  "a buffer passed as a terminated string is checked for its terminator only "
+  "for the call, but %0 may keep the pointer, and a later write to the buffer "
+  "could erase the terminator; mark %0 'noescape' if the function does not "
+  "keep it, or pass a string the callee can own (strdup)">,
+  InGroup<SafeCConst>, DefaultError;
 def warn_safe_c_cast_away_const : Warning<
   "casting %0 to %1 removes 'const', so memory that must not change (a const "
   "global, a string literal) could be written; keep 'const' on the result, or "
