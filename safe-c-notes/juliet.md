@@ -93,3 +93,26 @@ Every deterministically reachable integer division by zero traps at run time.
 CWE 190 (integer overflow) is not scored as a safety failure: under Safe C signed
 overflow wraps, as in Rust release builds, and any out-of-bounds access it leads to is
 caught by bounds safety.
+
+## Bounds CWEs, first look (2026-11-23, 150-case samples, full `-fsafe-c`, unannotated)
+
+| CWE | bad caught | good accepted |
+|---|---|---|
+| 121 stack overflow | 86.0% (121 trapped, 8 rejected) | 94.7% |
+| 122 heap overflow | 98.7% (40 trapped, 108 rejected) | 20.0% |
+
+Fixes that got here: `main`'s argv is counted by argc (every Juliet file failed in main
+before); `void *` to `char *` byte views are allowed (bounds safety builds them
+internally for memcpy); the harness feeds `100` (an out-of-range index) for the buffer
+CWEs and `0` for 369.
+
+121 misses: 18 of 21 are `CWE129_rand` (random index, not triggerable); the rest are the
+random-branch variant.
+
+122 good rejections are annotation burden plus one correct rule: unannotated `char *`
+sink parameters passed to libc string functions (macOS headers declare them
+`__null_terminated`), unannotated pointers passed to memcpy (`__sized_by`), unchecked
+malloc results (CWE 690 itself). 12 good cases trap at run time: variants 21/34/42/67
+route the buffer through a global, union, return value or struct field, which is
+unannotated and so one element; the good code then indexes past it. Safe, but a
+compile-time error naming the missing `__counted_by` would be better than a trap.
