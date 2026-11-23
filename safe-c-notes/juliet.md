@@ -138,9 +138,9 @@ compile-time error naming the missing `__counted_by` would be better than a trap
 |---|---|---|---|---|
 | 121 stack overflow | 3960 | 315 | **93.3%** | misses: random index, random branch |
 | 122 heap overflow | 2428 | 327 | **72.8%** | 63 of the misses are `sizeof(pointer)` bugs that only overflow on 32-bit targets (pointer size = element size on LP64) |
-| 124 buffer underwrite | 1212 | 144 | 38.2% | harness fed a positive index; the bad paths need a negative one (rerun pending) |
+| 124 buffer underwrite | 1212 | 144 | **80.6%** (rerun with a negative index) | remaining misses: random index, random branch |
 | 126 over-read | 896 | 144 | **84.0%** | |
-| 127 under-read | 1212 | 144 | 37.5% | as 124 |
+| 127 under-read | 1212 | 144 | **83.3%** (rerun with a negative index) | remaining misses: random index, random branch |
 | 415 double free | 228 | 186 | 0% | baseline: ownership is not built (M6) |
 | 416 use after free | 138 | 36 | 0% | baseline: ownership is not built (M6) |
 | 457 uninitialized read | 560 | 365 | 14.0% | baseline: definite initialization is not built (M3) |
