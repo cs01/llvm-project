@@ -44,6 +44,25 @@ compilers.
 7. A local's address may flow only into locals of the same or an inner scope and into
    `noescape` parameters (audit finding 4).
 
+## Corrections from the Lean proof (2026-11-23)
+
+The extended model (`safe-c-lean/OWNERSHIP.md`, 18 rules, `own_sound` re-proved) showed
+the rules above are not enough as written:
+
+1. A borrow of a global must not be passed to a callee that may free the global's
+   fields; ending such borrows at every call is not enough.
+2. An exclusive argument must be disjoint from every other argument, shared ones too.
+3. Through an exclusive borrow, only its owned fields may be freed or reallocated, never
+   the pointer itself, so the caller gets back what it lent.
+4. Views need a write rule: a borrow may be written only into a view that is a named
+   local.
+5. Rule 7 can be weaker: ending a local's loans when its scope ends is enough.
+6. Struct assignment needs its own rule: copying a struct with owned fields is rejected
+   (it would be two owners), unless it is written as a move.
+
+The list in `safe-c-lean/OWNERSHIP.md` ("Rules clang must enforce") supersedes the rules
+above and is the implementation spec.
+
 ## Implementation, in two layers
 
 1. **Type layer (Sema, per expression, cheap):** where each kind may be stored; moves;
