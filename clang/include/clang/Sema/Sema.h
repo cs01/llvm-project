@@ -3744,7 +3744,7 @@ private:
                              const IdentifierInfo *FnName);
 
   /// Alerts the user that they are attempting to free a non-malloc'd object.
-  void CheckFreeArguments(const CallExpr *E);
+  void CheckFreeArguments(const CallExpr *E, unsigned ArgIdx = 0);
 
   void CheckReturnValExpr(Expr *RetValExp, QualType lhsType,
                           SourceLocation ReturnLoc, bool isObjCMethod = false,

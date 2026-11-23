@@ -5225,6 +5225,13 @@ bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
           << ("'" + FnInfo->getName() + "'").str();
     checkSafeCByteWrite(*this, TheCall, FDecl, CMId);
     checkSafeCUncheckedParams(*this, TheCall, FDecl);
+    // A function that takes ownership will free the argument: a stack or
+    // global object there corrupts the allocator, as with free itself.
+    for (const auto *OA : FDecl->specific_attrs<OwnershipAttr>())
+      if (OA->isTakes())
+        for (const ParamIdx &P : OA->args())
+          if (P.getASTIndex() < TheCall->getNumArgs())
+            CheckFreeArguments(TheCall, P.getASTIndex());
   }
 
   // Handle memory setting and copying functions.
@@ -12066,12 +12073,12 @@ void CheckFreeArgumentsCast(Sema &S, const std::string &CalleeName,
 }
 } // namespace
 
-void Sema::CheckFreeArguments(const CallExpr *E) {
+void Sema::CheckFreeArguments(const CallExpr *E, unsigned ArgIdx) {
   const std::string CalleeName =
       cast<FunctionDecl>(E->getCalleeDecl())->getQualifiedNameAsString();
 
   { // Prefer something that doesn't involve a cast to make things simpler.
-    const Expr *Arg = E->getArg(0)->IgnoreParenCasts();
+    const Expr *Arg = E->getArg(ArgIdx)->IgnoreParenCasts();
     if (const auto *UnaryExpr = dyn_cast<UnaryOperator>(Arg))
       switch (UnaryExpr->getOpcode()) {
       case UnaryOperator::Opcode::UO_AddrOf:
@@ -12099,7 +12106,7 @@ void Sema::CheckFreeArguments(const CallExpr *E) {
     }
   }
   // Maybe the cast was important, check after the other cases.
-  if (const auto *Cast = dyn_cast<CastExpr>(E->getArg(0)))
+  if (const auto *Cast = dyn_cast<CastExpr>(E->getArg(ArgIdx)))
     return CheckFreeArgumentsCast(*this, CalleeName, Cast);
 }
 

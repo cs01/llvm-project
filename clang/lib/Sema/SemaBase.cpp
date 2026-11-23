@@ -82,7 +82,9 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
   // -fsafe-c) would let code write memory that must not be written.
   // A noreturn function that returns runs off into whatever follows the
   // call, which the optimizer assumed unreachable.
+  // free of a stack or global object corrupts the allocator.
   if (Group == "return-type" || Group == "invalid-noreturn" ||
+      Group == "free-nonheap-object" ||
       Group == "incompatible-pointer-types-discards-qualifiers")
     return true;
   // Variadic calls are checked only through their format string, so a format

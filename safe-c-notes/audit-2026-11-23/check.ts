@@ -22,6 +22,11 @@ const groups: Record<string, string[]> = {
   w10: ["w10.c", "w10_def.c"],
 };
 const companions = new Set(["v05_xtu_b.c", "v10_def.c", "w10_def.c"]);
+// Probes whose fix is not a trap: checked by looking at the generated code.
+const codeChecks: Record<string, RegExp> = {
+  // A 4 MB frame: every page must be touched on the way down (stack probes).
+  v14_bigframe: /ldr\s+xzr, \[sp\]|orq\s+\$0x0, \(%rsp\)/,
+};
 // Needs a header directory the audit created outside this folder.
 const skip: Record<string, string> = { v07_isystem: "needs its -isystem header directory" };
 
@@ -33,6 +38,12 @@ for (const f of readdirSync(dir).filter((f) => f.endsWith(".c")).sort()) {
   if (!readFileSync(join(dir, f), "utf8").includes("main(")) continue;
   if (skip[name]) { results.push({ name, status: "skipped", how: skip[name] }); continue; }
   const files = (groups[name] ?? [f]).map((g) => join(dir, g));
+  if (codeChecks[name]) {
+    const asm = spawnSync(cc, ["-fsafe-c", "-O1", "-isysroot", sdk, ...files, "-S", "-o", "-"]);
+    const ok = codeChecks[name].test(asm.stdout.toString());
+    results.push({ name, status: ok ? "closed" : "open", how: ok ? "probes in code" : "no probes in code" });
+    continue;
+  }
   const exe = join(tmp, `audit-${name}`);
   const c = spawnSync(cc, ["-fsafe-c", "-O1", "-isysroot", sdk, ...files, "-o", exe, "-lpthread"]);
   if (c.status !== 0) {

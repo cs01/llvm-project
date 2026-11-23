@@ -8566,6 +8566,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
     // the first write is a defined zero, not undefined behavior.
     CmdArgs.push_back("-ftrivial-auto-var-init=zero");
     CmdArgs.push_back("-fwrapv");
+    // Probe every page of a large stack frame, so a huge local cannot jump
+    // the guard page into other memory. Passed to cc1 directly: the driver
+    // flag is limited to some targets, and AArch64 Darwin probes fine.
+    CmdArgs.push_back("-fstack-clash-protection");
     // null: a pointer slot that is still zero (an array of pointers, a field,
     // calloc memory) is typed nonnull but may hold null; trap on the access,
     // including through a large offset from null. vla-bound: a VLA size that

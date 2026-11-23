@@ -20,6 +20,17 @@ void jump(void) {
   longjmp(jb, 1); // expected-error {{'longjmp' can switch off Safe C's checks}}
 }
 
+void free_local(void) {
+  int x = 0;
+  free(&x); // expected-error {{attempt to call free on non-heap object 'x'}} plain-warning {{attempt to call free on non-heap object 'x'}}
+}
+
+void drop(int *_Nullable p) __attribute__((ownership_takes(malloc, 1)));
+void free_local_via_owner(void) {
+  int arr[4] = {0};
+  drop(arr); // expected-error {{attempt to call drop on non-heap object 'arr'}}
+}
+
 int closed_twice(void) {
   FILE *_Nullable f = fopen("/dev/null", "r"); // expected-error {{does not live long enough}}
   if (!f)
