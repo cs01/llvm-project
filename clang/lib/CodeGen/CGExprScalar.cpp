@@ -223,6 +223,11 @@ getOverflowBehaviorConsideringType(const CodeGenFunction &CGF,
 
   switch (CGF.getLangOpts().getSignedOverflowBehavior()) {
   case LangOptions::SignedOverflowBehaviorTy::SOB_Defined:
+    // Safe C turns on -fwrapv and the signed-integer-overflow sanitizer: the
+    // sanitizer is there only for INT_MIN / -1, which LLVM leaves undefined
+    // even under -fwrapv. +, - and * must wrap as -fwrapv says, unchecked.
+    if (CGF.getLangOpts().SafeC)
+      return LangOptions::OverflowBehaviorKind::OB_Wrap;
     return LangOptions::OverflowBehaviorKind::OB_SignedAndDefined;
   case LangOptions::SignedOverflowBehaviorTy::SOB_Undefined:
     return LangOptions::OverflowBehaviorKind::OB_Unset;

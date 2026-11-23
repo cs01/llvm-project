@@ -8518,6 +8518,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
     // Safe C code should not need to include it.
     CmdArgs.push_back("-include");
     CmdArgs.push_back("safec.h");
+    // Integer UB the way Rust release builds handle it: signed overflow wraps
+    // (defined, nearly free); division by zero, INT_MIN / -1 (the only
+    // signed-integer-overflow check left under -fwrapv) and oversized shift
+    // amounts trap. Left-shifting a negative value is not trapped: Rust
+    // allows it and -fwrapv code generation does not exploit it.
+    CmdArgs.push_back("-fwrapv");
+    CmdArgs.push_back("-fsanitize=integer-divide-by-zero,signed-integer-"
+                      "overflow,shift-exponent");
+    CmdArgs.push_back("-fsanitize-trap=integer-divide-by-zero,signed-integer-"
+                      "overflow,shift-exponent");
   }
   if (Args.hasFlag(options::OPT_fnullability_safety,
                    options::OPT_fno_nullability_safety, SafeC))

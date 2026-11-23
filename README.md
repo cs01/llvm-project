@@ -68,8 +68,11 @@ what Safe C uses from it, and what Safe C adds.
      (defined, not UB, nearly free); division by zero, `INT_MIN / -1` and oversized
      shifts trap (one compare, usually optimized away). A wrapped size or index that goes
      out of bounds is still caught by the bounds checks. For Rust's debug behavior, also
-     trap on overflow with `-fsanitize=signed-integer-overflow -fsanitize-trap`.
-     **Planned.**
+     trap on overflow with `-fsanitize=signed-integer-overflow -fsanitize-trap`
+     (not yet combinable with `-fsafe-c`, which forces wrapping). Left-shifting a
+     negative value is not trapped: Rust allows
+     it, and `-fwrapv` code does not rely on it being undefined.
+     **Works.**
 7. **Data races**
    - Clang today: `-Wthread-safety` with lock annotations (warnings).
    - Safe C **uses** those annotations and **adds** rules for which data may be shared
@@ -196,7 +199,7 @@ free(p);
 | Use after free, double free | owned pointers, borrows, `lifetimebound` at interfaces, named lifetimes where elision is not enough | this fork, on Clang's lifetime analysis | planned |
 | Uninitialized reads | definite initialization required | `-Wuninitialized`, made an error | planned |
 | Type confusion | no pointer casts, no union punning, checked varargs | this fork | planned |
-| Integer UB | signed overflow wraps (as in Rust release builds); division by zero and oversized shifts trap | `-fwrapv` and Clang's trapping sanitizers | planned |
+| Integer UB | signed overflow wraps (as in Rust release builds); division by zero, `INT_MIN / -1` and oversized shifts trap | `-fwrapv` and Clang's trapping sanitizers | works |
 | Calls into unannotated C | only from `__unsafe` | this fork | planned |
 | Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned |
 | Escape hatch | `__unsafe { }` blocks and `__unsafe` functions lift Safe C's rules; bounds violations still need Apple's explicit `__unsafe_forge_*` forms | this fork | works |
