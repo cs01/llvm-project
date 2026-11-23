@@ -1833,6 +1833,7 @@ public:
       return;
     const Expr *LHS = BO->getLHS()->IgnoreParenImpCasts();
 
+    checkStoreIntoSlot(BO, LHS);
     handleStoreThroughPointer(LHS);
 
     if (auto LhsPath = decomposeMemberAccess(LHS))
@@ -2729,6 +2730,38 @@ private:
           if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
             checkVarArithmetic(BO, VD);
     }
+  }
+
+  /// `*pp = X` and `arr[i] = X` where the slot's pointer type is nonnull:
+  /// explicitly, or unannotated under -fnullability-default=nonnull. Reads
+  /// through such a slot trust that it is non-null (that is what makes
+  /// `int *q = *pp; *q` safe without tracking every alias of pp), so the
+  /// store is where a possibly-null value must be stopped.
+  void checkStoreIntoSlot(const BinaryOperator *BO, const Expr *LHS) {
+    if (BO->getOpcode() != BO_Assign || !Reporting ||
+        !LHS->getType()->isPointerType())
+      return;
+    const Expr *Base = nullptr;
+    bool IsElement = false;
+    if (const auto *UO = dyn_cast<UnaryOperator>(LHS);
+        UO && UO->getOpcode() == UO_Deref) {
+      Base = UO->getSubExpr();
+    } else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(LHS)) {
+      Base = ASE->getBase();
+      IsElement = true;
+    }
+    if (!Base)
+      return;
+    auto K = LHS->getType()->getNullability();
+    bool Nonnull = (K && *K == NullabilityKind::NonNull) ||
+                   (Options.DefaultNullability == NullabilityKind::NonNull &&
+                    (!K || *K == NullabilityKind::Unspecified) &&
+                    !Ctx.getSourceManager().isInSystemHeader(BO->getExprLoc()));
+    if (!Nonnull || !isExprNullable(BO->getRHS()->IgnoreParenImpCasts()))
+      return;
+    ++NumAssignmentWarnings;
+    Handler.handleNullableSlotAssignment(
+        BO->getRHS(), Base->IgnoreParenImpCasts(), IsElement);
   }
 
   /// *pp = X where pp is known to hold &local: drop local's narrowing. Only a
@@ -4109,6 +4142,10 @@ public:
   void handleNullableArgumentByIndex(const Expr *ArgExpr,
                                      unsigned ParamIndex) override {
     Inner.handleNullableArgumentByIndex(ArgExpr, ParamIndex);
+  }
+  void handleNullableSlotAssignment(const Expr *RHS, const Expr *Base,
+                                    bool IsElement) override {
+    Inner.handleNullableSlotAssignment(RHS, Base, IsElement);
   }
   void handleNullableMemberAtExit(SourceLocation Loc,
                                   const FieldDecl *Member) override {

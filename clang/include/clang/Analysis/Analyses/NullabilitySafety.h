@@ -69,6 +69,11 @@ public:
   virtual void handleNullableArgumentByIndex(const Expr *ArgExpr,
                                              unsigned ParamIndex) {}
 
+  /// A possibly-null pointer stored into `*Base` (IsElement false) or
+  /// `Base[i]` (IsElement true) whose type is nonnull.
+  virtual void handleNullableSlotAssignment(const Expr *RHS, const Expr *Base,
+                                            bool IsElement) {}
+
   /// A _Nonnull smart pointer member of this object is null on every path
   /// to the end of a method (reset, released, or moved from).
   virtual void handleNullableMemberAtExit(SourceLocation Loc,

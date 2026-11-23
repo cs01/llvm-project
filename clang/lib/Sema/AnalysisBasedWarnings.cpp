@@ -4012,6 +4012,22 @@ public:
     PartialDiagnosticAt Note(Loc, S.PDiag(diag::note_nullable_argument_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
+
+  void handleNullableSlotAssignment(const Expr *RHS, const Expr *Base,
+                                    bool IsElement) override {
+    SourceLocation Loc = RHS->getExprLoc();
+    if (!isFirst(diag::warn_nullability_safety_slot_assignment, Loc))
+      return;
+    PartialDiagnosticAt Warning(
+        Loc, S.PDiag(diag::warn_nullability_safety_slot_assignment)
+                 << IsElement << Base->getSourceRange()
+                 << (isa<DeclRefExpr>(Base)
+                         ? cast<DeclRefExpr>(Base)->getDecl()->getName()
+                         : StringRef("this pointer")));
+    PartialDiagnosticAt Note(Loc,
+                             S.PDiag(diag::note_nullable_slot_assignment_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
+  }
 };
 
 /// Run flow-sensitive nullability analysis over the entire TU, callees before
