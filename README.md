@@ -226,7 +226,7 @@ count as caught: only a compiler error or a compiler-inserted trap does. Harness
 
 **First result, null safety only** (2026-11-23, Juliet unannotated): every `bad()` in
 CWE 476 (NULL dereference, 270 cases) and CWE 690 (unchecked return value, 722 cases) is
-rejected at compile time. 55-60% of the `good()` versions are also rejected as written,
+rejected at compile time. 40-45% of the `good()` versions are also rejected as written,
 because they keep NULL in places Safe C requires to be marked `_Nullable`; that is
 annotation burden, and the annotated mode will measure it. Bounds and the other CWEs are
 not scored yet.
