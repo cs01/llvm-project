@@ -4,38 +4,76 @@
 
 Why rewrite C in a safe language when you can write C as a safe language?
 
-C is unsafe because of seven kinds of bugs:
+Safe C is a **fork of Clang**. It adds one flag, `-fsafe-c`, that makes C memory safe:
+every operation that could be undefined behavior is proven safe at compile time,
+checked at run time with a trap, or rejected. You turn on one mode and stop thinking
+about which of a dozen flags you forgot.
 
-1. **Out-of-bounds access**: reading or writing past the end of a buffer.
-2. **Null dereference**.
-3. **Use after free**: dangling pointers, double free.
-4. **Uninitialized reads**.
-5. **Type confusion**: bad pointer casts, union punning, mismatched varargs.
-6. **Integer undefined behavior**: signed overflow, oversized shifts, division by zero.
-7. **Data races**.
+**Status: early.** Items marked planned below do not exist yet.
 
-Clang already has a feature for most of these: `-fbounds-safety` for bounds,
-`lifetimebound` and `-Wlifetime-safety` for dangling pointers, `-Wuninitialized`,
-trapping sanitizers for integer UB, `-Wthread-safety` for locks. But each is separate,
-opt-in, and mostly a warning you can turn off.
+## What makes C unsafe, and what exists today
 
-This fork adds the missing pieces:
+C has seven kinds of memory and undefined-behavior bugs. For each, here is what Clang
+already offers and what this fork adds.
 
-- **Null safety**: a flow-sensitive check that every possibly-null pointer is tested
-  before use, with non-null as the default.
-- **Ownership** (planned): owned pointers and borrow checking, so use after free and
-  double free are compile errors.
-- **`__unsafe` regions** (planned): the one escape hatch, visible in the source.
+1. **Out-of-bounds access**
+   - Upstream Clang: `-fsanitize=bounds` (run time, only arrays of known size),
+     `-Warray-bounds` (warning), `counted_by` on struct fields. The `-fbounds-safety`
+     flag is accepted but mostly not implemented yet.
+   - Apple's fork of Clang: the full `-fbounds-safety`. Pointers carry their bounds,
+     interfaces declare them with `__counted_by(n)` and friends, and every access is
+     proven or trapped. Not in Xcode's clang.
+   - Safe C: built on Apple's fork, so this **works**.
+2. **Null dereference**
+   - Upstream Clang: `_Nonnull` / `_Nullable` with a few warnings at call sites; no
+     flow analysis.
+   - This fork: flow-sensitive null checking, non-null by default. **Works**.
+3. **Use after free, double free, dangling pointers**
+   - Upstream Clang: `lifetimebound` and `-Wlifetime-safety` (warnings, mostly C++),
+     the static analyzer (a separate tool), AddressSanitizer (run time, about 2x slower).
+   - This fork: owned pointers and borrow checking. **Planned**.
+4. **Uninitialized reads**
+   - Upstream Clang: `-Wuninitialized` (warning, not sound), `-ftrivial-auto-var-init`
+     (zeroes memory at run time).
+   - This fork: definite initialization required. **Planned**.
+5. **Type confusion** (bad pointer casts, union punning, mismatched varargs)
+   - Upstream Clang: `-Wincompatible-pointer-types`, `-Wformat` (warnings).
+   - This fork: casts and union punning only in `__unsafe`. **Planned**.
+6. **Integer undefined behavior** (signed overflow, oversized shifts, division by zero)
+   - Upstream Clang: `-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero`
+     with `-fsanitize-trap` (run time traps).
+   - This fork: turned on by `-fsafe-c`. **Planned**.
+7. **Data races**
+   - Upstream Clang: `-Wthread-safety` with lock annotations (warnings),
+     ThreadSanitizer (run time).
+   - This fork: Send/Sync-style rules. **Planned**.
 
-`clang -fsafe-c` turns all of it on and enforces it. Unannotated pointers get the
-strictest meaning (non-null, exactly one element), violations are errors, and no
-command-line flag can weaken it. What is left is C as safe as safe Rust: no memory
-errors outside code marked `__unsafe`.
+## Why a fork and not a set of flags
 
-The code is still C. It compiles with the normal C ABI, links with any C library, and
-the annotations are ordinary Clang attributes.
+Even where Clang has a feature, a set of flags does not give a guarantee:
 
-**Status: early.** Rows marked planned in the table below do not exist yet.
+- **Pieces are missing.** Bounds-carrying pointers are only in Apple's fork. Flow-sensitive
+  null checking, ownership and `__unsafe` are only in this one.
+- **Most of it is warnings.** Any of them can be turned off with `-Wno-...` or a pragma.
+  Under `-fsafe-c` they are errors that no flag or pragma can lower.
+- **Flags can be dropped.** One missing flag in one build file silently removes a check.
+  `-fsafe-c` rejects the flags that would weaken it (`-fno-bounds-safety` and so on).
+- **The defaults are wrong.** Upstream, an unannotated pointer means "unknown".
+  Under `-fsafe-c` it means non-null and exactly one element, so forgetting an
+  annotation is a compile error, not a hole.
+- **The escape hatch must be visible.** The only way out will be `__unsafe { }` in the
+  source, where a reviewer can see and search for it.
+
+## Standards and portability
+
+The C standard committee is unlikely to adopt any of this soon, and it does not need to.
+Compiler extensions are how C has always moved: GNU C, `__attribute__`, Apple's blocks,
+Microsoft's SAL. Safe C code stays portable: the bounds annotations come from Apple's
+`ptrcheck.h`, which defines them as nothing on compilers that do not support them, so the
+same source still builds with GCC or a stock Clang, just without the checks.
+`-fsafe-c` includes `ptrcheck.h` automatically.
+
+The code is still C. It compiles with the normal C ABI and links with any C library.
 
 ## Examples
 
