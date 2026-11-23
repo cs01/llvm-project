@@ -83,6 +83,17 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
   if (Group == "return-type" ||
       Group == "incompatible-pointer-types-discards-qualifiers")
     return true;
+  // Variadic calls are checked only through their format string, so a format
+  // the compiler cannot check, or one that does not match its arguments, is
+  // an error; so is a call through a declaration without a prototype.
+  if (Group == "format" || Group == "format-security" ||
+      Group == "format-nonliteral" || Group == "format-insufficient-args" ||
+      Group == "format-invalid-specifier" ||
+      Group == "deprecated-non-prototype")
+    return true;
+  // Safe C's own rules (safe-c-unsafe is the -R report, not a rule).
+  if (Group.starts_with("safe-c-") && Group != "safe-c-unsafe")
+    return true;
   return Group.starts_with("nullability-safety") ||
          Group == "safe-c-void-cast" ||
          Group.starts_with(

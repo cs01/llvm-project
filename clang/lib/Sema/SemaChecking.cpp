@@ -10246,6 +10246,17 @@ bool CheckScanfHandler::HandleScanfSpecifier(
     }
   }
 
+  // Safe C: %s and %[ write until the input ends; only a width bounds them.
+  if (S.getLangOpts().SafeC && FS.consumesDataArgument() &&
+      Amt.getHowSpecified() == OptionalAmount::NotSpecified &&
+      (CS.getKind() == ConversionSpecifier::sArg ||
+       CS.getKind() == ConversionSpecifier::ScanListArg))
+    EmitFormatDiagnostic(
+        S.PDiag(diag::warn_safe_c_scanf_unbounded)
+            << (CS.getKind() == ConversionSpecifier::sArg ? "s" : "["),
+        getLocationOfByte(CS.getStart()), /*IsStringLocation*/ true,
+        getSpecifierRange(startSpecifier, specifierLen));
+
   if (!FS.consumesDataArgument()) {
     // FIXME: Technically specifying a precision or field width here
     // makes no sense.  Worth issuing a warning at some point.

@@ -13406,6 +13406,11 @@ def warn_nullability_lost : Warning<
   "implicit conversion from nullable pointer %0 to non-nullable pointer "
   "type %1">,
   InGroup<NullableToNonNullConversion>, DefaultIgnore;
+def warn_safe_c_scanf_unbounded : Warning<
+  "'%%%0' without a field width can write past the end of the buffer; write "
+  "the buffer's capacity minus one as the width (for example '%%99%0' for "
+  "'char buf[100]')">,
+  InGroup<SafeCFormat>, DefaultError;
 def warn_safe_c_void_pointer_cast : Warning<
   "converting %0 to %1 can treat memory as the wrong type">,
   InGroup<SafeCVoidCast>, DefaultError;

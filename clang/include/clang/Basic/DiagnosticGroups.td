@@ -543,6 +543,7 @@ def NullabilitySafetyAssignment : DiagGroup<"nullability-safety-assignment">;
 def NullabilitySafetyArgument : DiagGroup<"nullability-safety-argument">;
 def SafeCUnsafe : DiagGroup<"safe-c-unsafe">;
 def SafeCVoidCast : DiagGroup<"safe-c-void-cast">;
+def SafeCFormat : DiagGroup<"safe-c-format">;
 def NullabilitySafety : DiagGroup<"nullability-safety", [
   NullabilitySafetyDereference, NullabilitySafetyArithmetic, NullabilitySafetyReturn,
   NullabilitySafetyAssignment, NullabilitySafetyArgument]>;
