@@ -12,11 +12,16 @@ about which of a dozen flags you forgot.
 **Status: early.** Items marked planned below do not exist yet.
 
 **Known holes.** An adversarial review on 2026-11-23 found programs that compile under
-`-fsafe-c` without `__unsafe` and still corrupt memory: null pointers in zeroed
-pointer slots, type confusion through unions and pointer casts, unchecked `printf`/
-`scanf` arguments, a spoofable system-header exemption, and several flags and
-attributes that switch checks off. Until those are closed, Safe C is safer C, not safe
-C. The list and its status: [safe-c-notes/review-2026-11-23.md](safe-c-notes/review-2026-11-23.md).
+`-fsafe-c` without `__unsafe` and still corrupt memory. Most are now closed: null
+pointers in zeroed slots, type confusion through unions and pointer casts, unchecked
+`printf`/`scanf` arguments, the spoofable system-header exemption, and the flags and
+attributes that switched checks off. Porting real code found more, now also closed:
+integer-to-pointer casts, `memcpy` of raw bytes over pointers, uninitialized heap
+memory, and Apple's libc annotations being off (so `strcpy` into a sized buffer
+compiled). Still open: use after free and double free (ownership is designed and proved
+in Lean, not built), the bytes `realloc` adds, `va_arg` of structs holding pointers, and
+the size of the trusted base (system and legacy headers are trusted as declared). The
+list: [safe-c-notes/review-2026-11-23.md](safe-c-notes/review-2026-11-23.md).
 
 ## Same code, any compiler
 
@@ -55,7 +60,8 @@ what Safe C uses from it, and what Safe C adds.
      mostly for C++).
    - Safe C **uses** those attributes and builds on that analysis, and **adds** owned
      pointers (`_Owned`), moves, and borrow checking, so use after free and double free
-     become compile errors. **Planned.**
+     become compile errors. The rules are proved sound in Lean
+     ([OWNERSHIP.md](safe-c-lean/OWNERSHIP.md)); the compiler side is **planned**.
    - Not used: the static analyzer (a separate, unsound tool) and AddressSanitizer
      (run-time only, about 2x slower).
 4. **Uninitialized reads**
@@ -64,13 +70,16 @@ what Safe C uses from it, and what Safe C adds.
      reading a local that might not be set is a compile error. Arrays, structs and other
      locals the analysis does not track start zeroed (`-ftrivial-auto-var-init=zero`),
      so a read before the first write is a defined zero rather than undefined behavior.
-     **Works** (heap memory from `malloc` is not covered yet).
+     Heap memory from `malloc` starts zeroed too. **Works** (except the bytes `realloc`
+     adds).
 5. **Type confusion** (bad pointer casts, union punning, mismatched varargs)
    - Clang today: `-Wincompatible-pointer-types` and `-Wformat` (warnings).
-   - Safe C **adds** a rule that converting `void *` to a typed pointer is allowed only
-     inside `__unsafe`, except for null, fresh allocations (`malloc`, `calloc`,
-     `realloc`) and byte views (`char *`). **Works.** Union punning and other pointer
-     casts are **planned**.
+   - Safe C **adds** the cast rule the Lean model needs: a pointer cast is allowed to
+     `void *`, between identical types, or between two pointer-free types; `void *` to
+     `T *` only from null or a fresh allocation. Union members with pointers follow the
+     same rule. Integers cannot become pointers (except null and `void *`), and
+     `memcpy`/`memset`/`read` into memory that holds pointers must copy the same type or
+     write zero. **Works.**
 6. **Integer undefined behavior** (signed overflow, oversized shifts, division by zero)
    - Clang today: `-fwrapv` (signed overflow wraps), and
      `-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero` with
@@ -212,10 +221,12 @@ free(p);
 | Weakening by flags | `-fno-bounds-safety` and friends rejected with `-fsafe-c` | this fork | works |
 | Silencing by `-Wno-` or pragma | null and bounds violations are re-issued as errors that no flag or pragma can lower | this fork | works |
 | Use after free, double free | owned pointers, borrows, `lifetimebound` at interfaces, named lifetimes where elision is not enough | this fork, on Clang's lifetime analysis | planned |
-| Uninitialized reads | maybe-uninitialized locals are errors; aggregates start zeroed | clang's uninitialized analysis and `-ftrivial-auto-var-init` | works (not heap memory) |
-| Type confusion | `void *` to `T *` only in `__unsafe` (except null, fresh allocations, byte views) | this fork | works; unions and other casts planned |
+| Uninitialized reads | maybe-uninitialized locals are errors; aggregates and `malloc` memory start zeroed | clang's uninitialized analysis and `-ftrivial-auto-var-init` | works (not bytes `realloc` adds) |
+| Type confusion | pointer casts only to `void *`, identical types or pointer-free to pointer-free; unions likewise; no integer-to-pointer; no raw bytes over pointers | this fork, rule from the Lean model | works |
+| Unchecked libc | `strcpy`, `sprintf`, `gets` unavailable; a pointer with bounds cannot go to an unchecked (`__unsafe_indexable`) parameter | Apple's libc annotations, this fork | works |
+| Lying `pure`/`const` | bodies are checked against the attribute | this fork | works |
 | Integer UB | signed overflow wraps (as in Rust release builds); division by zero, `INT_MIN / -1` and oversized shifts trap | `-fwrapv` and Clang's trapping sanitizers | works |
-| Calls into unannotated C | only from `__unsafe` | this fork | planned |
+| Calls into code not ported yet | `#pragma clang safe_c legacy` marks a header as trusted, one searchable line each | this fork | works (declarations trusted as written) |
 | Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned |
 | Escape hatch | `__unsafe { }` blocks and `__unsafe` functions lift Safe C's rules; bounds violations still need Apple's explicit `__unsafe_forge_*` forms | this fork | works |
 
@@ -274,8 +285,23 @@ casts, and the checked string conversion under aliasing); both are listed as ope
 [review notes](safe-c-notes/review-2026-11-23.md). The model covers the rules, not
 clang's implementation of them; Juliet and the review probes cover that.
 
-A second number tracks annotation burden: annotations per 1,000 lines on a real library,
-and the share of its lines that need `__unsafe`.
+The ownership rules have their own proof (`own_sound`): a program the ownership checker
+accepts never reaches use after free, double free or any other undefined behavior, and
+each rule has a counterexample showing it is needed.
+
+**Real code.** The second number is porting cost. Each port is in
+[safe-c-notes/ports/](safe-c-notes/ports/), pristine first, so `git log -p` shows what
+it took. The same source builds with Safe C, Apple clang and gcc.
+
+| Library | Lines | What changed | `__unsafe` | Tests under Safe C |
+|---|---|---|---|---|
+| [jsmn](safe-c-notes/ports/jsmn/PORT.md) (JSON tokenizer) | 471 | 4 signatures annotated, no code changes | 0 (2 in its tests, for `va_arg`) | 16/16 |
+| [cJSON](safe-c-notes/ports/cjson/PORT.md) (JSON parser and printer) | 3,512 | 448 lines, mostly `_Nullable` and bounds annotations; `sprintf`/`strcpy` to bounded forms | 3 (allocator hooks) | 18/18 |
+
+Both ports found bugs in their test code (unchecked `malloc`, a buffer length that did
+not match its buffer) and drove compiler fixes; cJSON's list of 13 Safe C gaps (things
+it rejects or makes hard that are safe) is the usability to-do list. cJSON needs a small
+update since the libc rules above landed (5 errors at its old workarounds).
 
 ## How it is built
 
