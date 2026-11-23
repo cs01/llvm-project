@@ -195,20 +195,25 @@ Most pointers need nothing: unannotated means non-null and one element, which is
 safe choice. You annotate only where a pointer does more:
 
 <!-- generated:annotations -->
-| Annotation | Meaning |
-|---|---|
-| `_Nullable` | may be null; must be checked before use |
-| `__counted_by(n)` | points to `n` elements; `n` is another parameter or field |
-| `__counted_by_or_null(n)` | as `__counted_by(n)`, or null |
-| `__sized_by(n)` | points to `n` bytes |
-| `__ended_by(end)` | valid up to the pointer `end` |
-| `__null_terminated` | a string ending in 0 (string literals and libc strings are already) |
-| `__safec_takes(i)` | the function frees (or keeps) its `i`th parameter; callers may not use it afterwards |
-| `__safec_returns_owned` | the result is new memory the caller must free |
-| `__safec_lifetimebound` | on a parameter: the result points into it and dies with it |
-| `__safec_noescape` | on a parameter: the function does not keep the pointer |
-| `__unsafe` | a block or function where Safe C's rules are lifted, for code that cannot be checked |
-| `#pragma clang safe_c legacy` | in a header not yet ported: its declarations are trusted, its code unchecked |
+| Annotation | Meaning | In Rust |
+|---|---|---|
+| *(nothing)* | non-null, exactly one element | `&T` |
+| `_Nullable` | may be null; must be checked before use | `Option<&T>`: plain `&T` is never null |
+| `__counted_by(n)` | points to `n` elements; `n` is another parameter or field | `&[T]` (a slice: pointer plus length) |
+| `__counted_by_or_null(n)` | as `__counted_by(n)`, or null | `Option<&[T]>` |
+| `__sized_by(n)` | points to `n` bytes | `&[u8]` |
+| `__ended_by(end)` | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`) |
+| `__null_terminated` | a string ending in 0 (string literals and libc strings are already) | `&CStr` |
+| `__safec_takes(i)` | the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move) |
+| `__safec_returns_owned` | the result is new memory the caller must free | returning `Box<T>` |
+| `__safec_lifetimebound` | on a parameter: the result points into it and dies with it | `fn f<'a>(x: &'a T) -> &'a U` |
+| `__safec_noescape` | on a parameter: the function does not keep the pointer | a plain `&T` parameter, which cannot outlive the call |
+| `__unsafe` | a block or function where Safe C's rules are lifted, for code that cannot be checked | `unsafe { }` |
+| `#pragma clang safe_c legacy` | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C |
+
+The Rust column is the closest equivalent, not an exact one: a plain Safe C pointer can be
+written through (like `&mut T`), and Rust's one-writer-at-a-time rule is not enforced yet;
+exclusive borrows (`&mut T` proper) come with static ownership (M2).
 <!-- end generated:annotations -->
 
 All of these come from `safec.h`, which `-fsafe-c` includes automatically, so

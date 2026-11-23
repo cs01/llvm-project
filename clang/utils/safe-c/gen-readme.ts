@@ -13,9 +13,20 @@ const check = process.argv.includes("--check");
 
 function annotations(): string {
   const h = readFileSync(join(root, "clang/lib/Headers/safec.h"), "utf8");
-  const rows = [...h.matchAll(/^\s*@annotation (.+?) \| (.+)$/gm)].map((m) => `| ${m[1]} | ${m[2]} |`);
+  // @annotation SPELLING | MEANING | RUST EQUIVALENT
+  const rows = [...h.matchAll(/^\s*@annotation (.+?) \| (.+?)(?: \| (.+))?$/gm)].map(
+    (m) => `| ${m[1]} | ${m[2]} | ${m[3] ?? ""} |`);
   if (!rows.length) throw new Error("no @annotation lines in safec.h");
-  return ["| Annotation | Meaning |", "|---|---|", ...rows].join("\n");
+  return [
+    "| Annotation | Meaning | In Rust |",
+    "|---|---|---|",
+    "| *(nothing)* | non-null, exactly one element | `&T` |",
+    ...rows,
+    "",
+    "The Rust column is the closest equivalent, not an exact one: a plain Safe C pointer can be",
+    "written through (like `&mut T`), and Rust's one-writer-at-a-time rule is not enforced yet;",
+    "exclusive borrows (`&mut T` proper) come with static ownership (M2).",
+  ].join("\n");
 }
 
 // How Rust catches each bug class, and which saved run holds Safe C's result.
