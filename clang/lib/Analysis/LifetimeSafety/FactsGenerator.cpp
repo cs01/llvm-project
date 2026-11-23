@@ -369,6 +369,9 @@ void FactsGenerator::VisitCastExpr(const CastExpr *CE) {
   case CK_BuiltinFnToFnPtr:
     // Ignore function-to-pointer decays.
     return;
+  case CK_BoundsSafetyPointerCast:
+    // -fbounds-safety changes a pointer's bounds representation (e.g. a
+    // __bidi_indexable local passed as __single), not what it points to.
   case CK_BitCast:
     // OriginLists for Src and Dst may differ here. For example when casting
     // from int** to void*
@@ -834,6 +837,34 @@ void FactsGenerator::VisitCXXDeleteExpr(const CXXDeleteExpr *DE) {
   OriginList *List = getOriginsList(*DE->getArgument());
   CurrentBlockFacts.push_back(
       FactMgr.createFact<InvalidateOriginFact>(List->getOuterOriginID(), DE));
+}
+
+// -fbounds-safety conversions between bounds representations keep the
+// pointer value, so each passes its operand's origins through. (Opaque
+// values, materialized sequences and bounds checks are not CFG statements;
+// OriginManager looks through them.)
+void FactsGenerator::flowThrough(const Expr *E, const Expr *Sub) {
+  if (!Sub)
+    return;
+  OriginList *Dst = getOriginsList(*E);
+  OriginList *Src = getOriginsList(*Sub);
+  if (Dst && Src && Dst->getLength() == Src->getLength())
+    flow(Dst, Src, /*Kill=*/true);
+}
+
+void FactsGenerator::VisitBoundsSafetyPointerPromotionExpr(
+    const BoundsSafetyPointerPromotionExpr *PPE) {
+  flowThrough(PPE, PPE->getPointer());
+}
+
+void FactsGenerator::VisitTerminatedByToIndexableExpr(
+    const TerminatedByToIndexableExpr *E) {
+  flowThrough(E, E->getPointer());
+}
+
+void FactsGenerator::VisitTerminatedByFromIndexableExpr(
+    const TerminatedByFromIndexableExpr *E) {
+  flowThrough(E, E->getPointer());
 }
 
 void FactsGenerator::VisitStmtExpr(const StmtExpr *SE) {

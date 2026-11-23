@@ -65,6 +65,12 @@ public:
   void VisitGCCAsmStmt(const GCCAsmStmt *AS);
   void VisitCXXTypeidExpr(const CXXTypeidExpr *TE);
   void VisitStmtExpr(const StmtExpr *SE);
+  void VisitBoundsSafetyPointerPromotionExpr(
+      const BoundsSafetyPointerPromotionExpr *PPE);
+  void VisitTerminatedByToIndexableExpr(const TerminatedByToIndexableExpr *E);
+  void VisitTerminatedByFromIndexableExpr(
+      const TerminatedByFromIndexableExpr *E);
+  void flowThrough(const Expr *E, const Expr *Sub);
 
 private:
   OriginList *getOriginsList(const ValueDecl &D);

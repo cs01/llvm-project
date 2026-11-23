@@ -299,6 +299,13 @@ OriginList *OriginManager::getOrCreateList(const Expr *E) {
     if (const Expr *Src = OVE->getSourceExpr())
       return getOrCreateList(Src);
 
+  // -fbounds-safety's materialized-operand sequences and bounds checks are
+  // not CFG statements either, and keep the pointer value of what they wrap.
+  if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E))
+    return getOrCreateList(MSE->getWrappedExpr());
+  if (const auto *BCE = dyn_cast<BoundsCheckExpr>(E))
+    return getOrCreateList(BCE->getGuardedExpr());
+
   if (!hasOrigins(E))
     return nullptr;
 

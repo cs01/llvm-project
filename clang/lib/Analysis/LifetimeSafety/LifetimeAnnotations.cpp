@@ -567,7 +567,19 @@ bool destructsFirstArg(const FunctionDecl &FD) {
   return isInStlNamespace(&FD) && getName(FD) == "destroy_at";
 }
 
+/// The C library's allocator by name. getBuiltinID() is 0 under -fno-builtin
+/// (and for some targets' declarations), which would hide every allocation.
+static bool isCLibraryFunction(const FunctionDecl &FD,
+                               std::initializer_list<StringRef> Names) {
+  return FD.getIdentifier() && FD.isExternC() &&
+         FD.getDeclContext()->getRedeclContext()->isTranslationUnit() &&
+         llvm::is_contained(Names, FD.getName());
+}
+
 bool isAllocatingFunction(const FunctionDecl &FD) {
+  if (isCLibraryFunction(FD, {"malloc", "calloc", "realloc", "reallocf",
+                              "aligned_alloc"}))
+    return true;
   switch (FD.getBuiltinID()) {
   case Builtin::BImalloc:
   case Builtin::BI__builtin_malloc:
@@ -586,6 +598,8 @@ bool isAllocatingFunction(const FunctionDecl &FD) {
 }
 
 bool isFreeingFunction(const FunctionDecl &FD) {
+  if (isCLibraryFunction(FD, {"free", "realloc", "reallocf"}))
+    return true;
   switch (FD.getBuiltinID()) {
   case Builtin::BIfree:
   case Builtin::BI__builtin_free:
