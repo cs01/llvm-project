@@ -1,4 +1,5 @@
 #include "clang/Sema/SemaBase.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaCUDA.h"
 
@@ -58,34 +59,33 @@ SemaBase::SemaDiagnosticBuilder::getDeviceDeferredDiags() const {
   return S.DeviceDeferredDiags;
 }
 
-/// Under -fsafe-c a nullability-safety warning becomes its error twin, which
-/// no -Wno-* flag or diagnostic pragma can silence.
-static unsigned safeCErrorFor(unsigned DiagID) {
-  switch (DiagID) {
-#define SAFE_C_TWIN(W)                                                         \
-  case diag::warn_nullability_safety_##W:                                      \
-    return diag::err_safe_c_nullability_##W;
-    SAFE_C_TWIN(dereference)
-    SAFE_C_TWIN(null_init)
-    SAFE_C_TWIN(call)
-    SAFE_C_TWIN(arithmetic)
-    SAFE_C_TWIN(return)
-    SAFE_C_TWIN(assignment)
-    SAFE_C_TWIN(field_init)
-    SAFE_C_TWIN(member_assignment)
-    SAFE_C_TWIN(member_exit)
-    SAFE_C_TWIN(default_arg)
-    SAFE_C_TWIN(argument)
-#undef SAFE_C_TWIN
-  default:
+/// Under -fsafe-c, a safety warning is re-issued as an error with the same
+/// text. The error is a custom diagnostic with no warning group, so no -Wno-*,
+/// -Wno-error=* or diagnostic pragma can lower it. Safety warnings are the
+/// nullability-safety groups, and the bounds-safety warnings that default to
+/// error (Apple's "this is an error, but you may downgrade it" class).
+/// System headers keep the original warning: they are not Safe C code.
+static unsigned safeCErrorFor(DiagnosticsEngine &Diags, SourceManager &SM,
+                              SourceLocation Loc, unsigned DiagID) {
+  DiagnosticIDs &IDs = *Diags.getDiagnosticIDs();
+  if (!IDs.isWarningOrExtension(DiagID))
     return DiagID;
-  }
+  StringRef Group = IDs.getWarningOptionForDiag(DiagID);
+  bool IsSafety = Group.starts_with("nullability-safety") ||
+                  (Group.starts_with("bounds-safety") &&
+                   IDs.isDefaultMappingAsError(DiagID));
+  if (!IsSafety || (Loc.isValid() && SM.isInSystemHeader(Loc)))
+    return DiagID;
+  return IDs.getCustomDiagID(DiagnosticIDs::CustomDiagDesc(
+      diag::Severity::Error, std::string(IDs.getDescription(DiagID)),
+      DiagnosticIDs::CLASS_ERROR));
 }
 
 Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
                                            unsigned DiagID) {
   if (getLangOpts().SafeC)
-    DiagID = safeCErrorFor(DiagID);
+    DiagID = safeCErrorFor(getDiagnostics(), SemaRef.getSourceManager(), Loc,
+                           DiagID);
   bool IsError =
       getDiagnostics().getDiagnosticIDs()->isDefaultMappingAsError(DiagID);
   bool ShouldDefer = getLangOpts().CUDA && getLangOpts().GPUDeferDiag &&

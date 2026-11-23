@@ -13465,31 +13465,6 @@ def warn_nullability_safety_argument : Warning<
 def note_nullable_argument_fix : Note<
   "add a null check before the call, or change the parameter type to "
   "'_Nullable'">;
-// Safe C: under -fsafe-c each nullability-safety warning is emitted as its
-// error twin below (see SemaBase::Diag). Errors cannot be lowered by -Wno-*
-// or #pragma clang diagnostic, so the checks cannot be switched off.
-def err_safe_c_nullability_dereference : Error<
-  "dereference of nullable pointer %0">;
-def err_safe_c_nullability_null_init : Error<
-  "initializing a variable of nonnull type %0 with null">;
-def err_safe_c_nullability_call : Error<
-  "calling nullable function pointer %0">;
-def err_safe_c_nullability_arithmetic : Error<
-  "pointer arithmetic on nullable pointer %0">;
-def err_safe_c_nullability_return : Error<
-  "returning nullable pointer from function with nonnull return type">;
-def err_safe_c_nullability_assignment : Error<
-  "assigning nullable pointer to nonnull variable %0">;
-def err_safe_c_nullability_field_init : Error<
-  "initializing nonnull member %0 with null">;
-def err_safe_c_nullability_member_assignment : Error<
-  "assigning nullable pointer to nonnull member %0">;
-def err_safe_c_nullability_member_exit : Error<
-  "nonnull member %0 is null when the function returns">;
-def err_safe_c_nullability_default_arg : Error<
-  "nullable default argument for nonnull parameter %0">;
-def err_safe_c_nullability_argument : Error<
-  "passing nullable pointer to nonnull parameter %select{%1|%2}0">;
 def warn_zero_as_null_pointer_constant : Warning<
   "zero as null pointer constant">,
   InGroup<DiagGroup<"zero-as-null-pointer-constant">>, DefaultIgnore;
