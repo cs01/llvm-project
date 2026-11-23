@@ -13443,6 +13443,13 @@ def warn_nullability_safety_field_init : Warning<
   InGroup<NullabilitySafetyAssignment>;
 def note_nullable_field_init_fix : Note<
   "remove '_Nonnull' if this member can be null, or remove the null initializer">;
+def warn_nullability_safety_address_argument : Warning<
+  "passing the address of %0, which may be null, to a parameter whose "
+  "pointee is nonnull">,
+  InGroup<NullabilitySafetyArgument>;
+def note_nullable_address_argument_fix : Note<
+  "add a null check before the call, or make the parameter's pointee type "
+  "'_Nullable' (for example 'int *_Nullable *')">;
 def warn_nullability_safety_slot_assignment : Warning<
   "storing nullable pointer into %select{the pointee of|an element of}0 '%1', "
   "which is nonnull">,

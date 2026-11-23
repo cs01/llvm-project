@@ -4028,6 +4028,18 @@ public:
                              S.PDiag(diag::note_nullable_slot_assignment_fix));
     Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
   }
+
+  void handleNullableAddressArgument(const Expr *ArgExpr,
+                                     const VarDecl *Var) override {
+    SourceLocation Loc = ArgExpr->getExprLoc();
+    if (!isFirst(diag::warn_nullability_safety_address_argument, Loc, Var))
+      return;
+    PartialDiagnosticAt Warning(
+        Loc, S.PDiag(diag::warn_nullability_safety_address_argument) << Var);
+    PartialDiagnosticAt Note(Loc,
+                             S.PDiag(diag::note_nullable_address_argument_fix));
+    Warnings.emplace_back(std::move(Warning), OptionalNotes(1, Note));
+  }
 };
 
 /// Run flow-sensitive nullability analysis over the entire TU, callees before

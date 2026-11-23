@@ -74,6 +74,11 @@ public:
   virtual void handleNullableSlotAssignment(const Expr *RHS, const Expr *Base,
                                             bool IsElement) {}
 
+  /// `&Var` passed where the parameter's pointee is nonnull, while Var may be
+  /// null: the callee reads `*param` as non-null.
+  virtual void handleNullableAddressArgument(const Expr *ArgExpr,
+                                             const VarDecl *Var) {}
+
   /// A _Nonnull smart pointer member of this object is null on every path
   /// to the end of a method (reset, released, or moved from).
   virtual void handleNullableMemberAtExit(SourceLocation Loc,
@@ -129,6 +134,9 @@ struct NullabilitySafetyOptions {
   /// Enables the built-in list of C library and POSIX pointer parameters that
   /// must not be null (strlen, fclose, ...).
   bool LibcNonnullParams = true;
+  /// -fsafe-c: also apply the rules that are sound but too strict for
+  /// gradual adoption (e.g. out-parameters must declare a _Nullable pointee).
+  bool SafeC = false;
   /// Definitions whose body began inside a `#pragma clang assume_nonnull`
   /// region (recorded by Sema; the pragma state is gone by the time the TU is
   /// analyzed). May be null.

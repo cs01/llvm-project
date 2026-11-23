@@ -1902,6 +1902,41 @@ public:
     checkPointerCallArguments(CE, Callee->IgnoreParenImpCasts()->getType());
   }
 
+  /// `f(&p)` where f's parameter is `T **` with a nonnull pointee (explicit,
+  /// or unannotated under -fnullability-default=nonnull): f reads `*param`
+  /// as non-null, so p must not be possibly null at the call. \p Callee is
+  /// null for calls through a function pointer; its location (or the call's)
+  /// decides whether the system-header exemption applies.
+  /// Only under -fsafe-c: it also rejects the common out-parameter idiom
+  /// (`T *out = NULL; get(&out);`), which must then declare `T *_Nullable *`.
+  void checkAddressArgument(const Expr *ArgExpr, QualType ParamTy,
+                            const FunctionDecl *Callee) {
+    if (!Options.SafeC || !Reporting || !ParamTy->isPointerType())
+      return;
+    QualType Pointee = ParamTy->getPointeeType();
+    if (!Pointee->isPointerType())
+      return;
+    const auto *UO = dyn_cast<UnaryOperator>(ArgExpr->IgnoreParenImpCasts());
+    if (!UO || UO->getOpcode() != UO_AddrOf)
+      return;
+    const auto *DRE = dyn_cast<DeclRefExpr>(UO->getSubExpr()->IgnoreParens());
+    const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (!VD || !VD->getType()->isPointerType())
+      return;
+    const SourceManager &SM = Ctx.getSourceManager();
+    SourceLocation DeclLoc =
+        Callee ? Callee->getLocation() : ArgExpr->getExprLoc();
+    auto K = Pointee->getNullability();
+    bool Nonnull = (K && *K == NullabilityKind::NonNull) ||
+                   (Options.DefaultNullability == NullabilityKind::NonNull &&
+                    (!K || *K == NullabilityKind::Unspecified) &&
+                    !SM.isInSystemHeader(DeclLoc));
+    if (!Nonnull || !isExprNullable(DRE))
+      return;
+    ++NumArgumentWarnings;
+    Handler.handleNullableAddressArgument(ArgExpr, VD);
+  }
+
   /// Arguments of a call through a function pointer are held to the
   /// pointer's prototype: a _Nonnull parameter, or under
   /// -fnullability-default=nonnull an unannotated one, must not receive a
@@ -1919,6 +1954,7 @@ public:
       QualType PT = FPT->getParamType(I);
       if (!PT->isPointerType())
         continue;
+      checkAddressArgument(CE->getArg(I), PT, nullptr);
       auto K = PT->getNullability();
       bool Nonnull =
           (K && *K == NullabilityKind::NonNull) ||
@@ -2352,6 +2388,7 @@ private:
     for (unsigned I = 0, N = std::min(EffArgs, Callee->getNumParams()); I < N;
          ++I) {
       const ParmVarDecl *Param = Callee->getParamDecl(I);
+      checkAddressArgument(CE->getArg(I + ArgOffset), Param->getType(), Callee);
       if (!Param->getType()->isPointerType())
         continue;
       bool ParamIsNonnull =
@@ -4147,6 +4184,10 @@ public:
                                     bool IsElement) override {
     Inner.handleNullableSlotAssignment(RHS, Base, IsElement);
   }
+  void handleNullableAddressArgument(const Expr *ArgExpr,
+                                     const VarDecl *Var) override {
+    Inner.handleNullableAddressArgument(ArgExpr, Var);
+  }
   void handleNullableMemberAtExit(SourceLocation Loc,
                                   const FieldDecl *Member) override {
     Inner.handleNullableMemberAtExit(Loc, Member);
@@ -4193,6 +4234,7 @@ NullabilitySafetyOptions::fromLangOptions(const LangOptions &LO) {
   Options.DefaultNullability = LO.getNullabilityDefault();
   Options.LibcNullableReturns = LO.NullabilityLibcNullableReturns;
   Options.LibcNonnullParams = LO.NullabilityLibcNonnullParams;
+  Options.SafeC = LO.SafeC;
   return Options;
 }
 
