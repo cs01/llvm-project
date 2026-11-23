@@ -2161,7 +2161,12 @@ void Sema::EmitDiagnostic(unsigned DiagID, const DiagnosticBuilder &DB) {
 }
 
 bool Sema::hasUncompilableErrorOccurred() const {
-  if (getDiagnostics().hasUncompilableErrorOccurred())
+  // Safe C errors re-issued from safety warnings (SemaBase::Diag) leave the
+  // AST valid. When they are the only errors, analyses keep running, so the
+  // first Safe C error does not hide the rest.
+  if (getDiagnostics().hasUncompilableErrorOccurred() &&
+      !(getLangOpts().SafeC &&
+        getDiagnostics().getNumErrors() == NumSafeCSafetyErrors))
     return true;
   auto *FD = dyn_cast<FunctionDecl>(CurContext);
   if (!FD)

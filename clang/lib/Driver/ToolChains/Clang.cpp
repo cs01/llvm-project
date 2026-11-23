@@ -8523,6 +8523,10 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
     // signed-integer-overflow check left under -fwrapv) and oversized shift
     // amounts trap. Left-shifting a negative value is not trapped: Rust
     // allows it and -fwrapv code generation does not exploit it.
+    // Locals the uninitialized-variables analysis does not track (arrays,
+    // structs, memory written through pointers) start zeroed, so a read before
+    // the first write is a defined zero, not undefined behavior.
+    CmdArgs.push_back("-ftrivial-auto-var-init=zero");
     CmdArgs.push_back("-fwrapv");
     CmdArgs.push_back("-fsanitize=integer-divide-by-zero,signed-integer-"
                       "overflow,shift-exponent");

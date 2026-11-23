@@ -71,6 +71,12 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
   StringRef Group = IDs.getWarningOptionForDiag(DiagID);
   // Indexing a local that came from a single-element pointer traps unless the
   // index is 0: say so at compile time rather than at the trap.
+  // Reading a variable that may not be initialized: Rust's definite
+  // initialization rule, from clang's uninitialized-variables analysis.
+  if (Group == "uninitialized" || Group == "sometimes-uninitialized" ||
+      Group == "conditional-uninitialized" ||
+      Group == "uninitialized-const-pointer")
+    return true;
   return Group.starts_with("nullability-safety") ||
          Group == "safe-c-void-cast" ||
          Group.starts_with(

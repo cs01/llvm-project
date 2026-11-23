@@ -4068,12 +4068,7 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
 
   DiagnosticsEngine &Diags = S.getDiagnostics();
 
-  // Safe C errors re-issued from safety warnings leave the AST valid; do not
-  // let them stop the analyses that find the remaining ones.
-  bool OnlySafeCErrors = S.getLangOpts().SafeC &&
-                         Diags.getNumErrors() == S.NumSafeCSafetyErrors;
-  if ((S.hasUncompilableErrorOccurred() && !OnlySafeCErrors) ||
-      Diags.getIgnoreAllWarnings())
+  if (S.hasUncompilableErrorOccurred() || Diags.getIgnoreAllWarnings())
     // exit if having uncompilable errors or ignoring all warnings:
     return;
 
@@ -4283,7 +4278,10 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
     Analyzer.run(AC);
   }
 
-  if (!Diags.isIgnored(diag::warn_uninit_var, D->getBeginLoc()) ||
+  // Under -fsafe-c the analysis always runs: its findings are errors that
+  // -Wno-uninitialized must not be able to switch off.
+  if (S.getLangOpts().SafeC ||
+      !Diags.isIgnored(diag::warn_uninit_var, D->getBeginLoc()) ||
       !Diags.isIgnored(diag::warn_sometimes_uninit_var, D->getBeginLoc()) ||
       !Diags.isIgnored(diag::warn_maybe_uninit_var, D->getBeginLoc()) ||
       !Diags.isIgnored(diag::warn_uninit_const_reference, D->getBeginLoc()) ||
