@@ -58,6 +58,8 @@ what Safe C uses from it, and what Safe C adds.
 5. **Type confusion** (bad pointer casts, union punning, mismatched varargs)
    - Clang today: `-Wincompatible-pointer-types` and `-Wformat` (warnings).
    - Safe C **adds** a rule that these are allowed only inside `__unsafe`. **Planned.**
+     Library macros keep the casts in one place, so everyday code stays typed: see
+     [safe-c-notes/examples/typed-helpers.c](safe-c-notes/examples/typed-helpers.c).
 6. **Integer undefined behavior** (signed overflow, oversized shifts, division by zero)
    - Clang today: `-fwrapv` (signed overflow wraps), and
      `-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero` with
