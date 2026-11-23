@@ -93,3 +93,14 @@ pythonenv*
 /clang/utils/analyzer/projects/*/RefScanBuildResults
 # automodapi puts generated documentation files here.
 /lldb/docs/python_api/
+**/.claude/settings.local.json
+*.o
+# Clang Static Analyzer output
+*.plist
+/csa_benchmark_results/
+
+# local editor/agent config and generated artifacts
+.claude/settings.local.json
+.clangd
+*.profraw
+/playground-sysroot

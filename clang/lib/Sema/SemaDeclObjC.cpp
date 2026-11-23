@@ -21,6 +21,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Edit/RefactoringFixits.h"
+#include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/DelayedDiagnostic.h"
 #include "clang/Sema/Initialization.h"
@@ -339,6 +340,11 @@ void SemaObjC::AddAnyMethodToGlobalPool(Decl *D) {
   // If we don't have a valid method decl, simply return.
   if (!MDecl)
     return;
+
+  // See the matching comment in Sema::ActOnStartOfFunctionDef.
+  if (getLangOpts().NullabilitySafety &&
+      SemaRef.PP.getPragmaAssumeNonNullLoc().isValid())
+    SemaRef.NullabilitySafetyAssumeNonnullDefs.insert(MDecl);
   if (MDecl->isInstanceMethod())
     AddInstanceMethodToGlobalPool(MDecl, true);
   else

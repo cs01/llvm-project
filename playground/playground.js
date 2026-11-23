@@ -1,0 +1,924 @@
+        const editorElement = document.getElementById('editor');
+        const outputSafety = document.getElementById('output-safety');
+        const outputMainline = document.getElementById('output-mainline');
+        const outputAnalyzer = document.getElementById('output-analyzer');
+        const compileBtn = document.getElementById('compileBtn');
+        const status = document.getElementById('status');
+        const examplesSelect = document.getElementById('examplesSelect');
+        const nullabilityDefaultSelect = document.getElementById('nullabilityDefaultSelect');
+        const nullabilityHint = document.getElementById('nullabilityHint');
+        const shareBtn = document.getElementById('shareBtn');
+        const loadingBar = document.getElementById('loadingBar');
+        const toast = document.getElementById('toast');
+        const divider = document.getElementById('divider');
+
+        let editor = null;
+        const validNullabilityDefaults = new Set(['nullable', 'nonnull', 'unspecified']);
+
+        function getNullabilityDefault() {
+            return validNullabilityDefaults.has(nullabilityDefaultSelect.value)
+                ? nullabilityDefaultSelect.value
+                : 'nullable';
+        }
+
+        // Map example numbers to names for URL parameters
+        const exampleNumbers = {
+            '1': 'hero-bug',
+            '2': 'flow-narrowing',
+            '3': 'linked-list',
+            '4': 'function-contracts',
+            '5': 'standard-clang-gap',
+            '6': 'smart-pointers',
+            '7': 'late-init',
+            '8': 'templates',
+            '9': 'smart-pointer-contracts'
+        };
+
+        // Reverse mapping from names to numbers
+        const exampleNames = {};
+        for (const [num, name] of Object.entries(exampleNumbers)) {
+            exampleNames[name] = num;
+        }
+
+const examples = {};
+const exampleFiles = {
+    'hero-bug': 'examples/hero-bug.c',
+    'flow-narrowing': 'examples/flow-narrowing.c',
+    'linked-list': 'examples/linked-list.c',
+    'function-contracts': 'examples/function-contracts.c',
+    'standard-clang-gap': 'examples/standard-clang-gap.c',
+    'smart-pointers': 'examples/smart-pointers.cpp',
+    'late-init': 'examples/late-init.cpp',
+    'templates': 'examples/templates.cpp',
+    'smart-pointer-contracts': 'examples/smart-pointer-contracts.cpp'
+};
+
+// Load all examples at startup
+async function loadExamples() {
+    for (const [name, file] of Object.entries(exampleFiles)) {
+        try {
+            const response = await fetch(file);
+            examples[name] = await response.text();
+        } catch (err) {
+            console.error('Failed to load example:', name, err);
+            examples[name] = '// Failed to load example';
+        }
+    }
+}
+
+
+        function initEditor() {
+            editor = CodeEditor.create(editorElement, {
+                value: examples['hero-bug'] || '// Loading...',
+                tabSize: 4,
+            });
+            editor.onRun(() => compile());
+
+            let diagnosticsTimeout;
+            editor.onChange(() => {
+                editGeneration++;
+                clearResults();
+                clearTimeout(diagnosticsTimeout);
+                diagnosticsTimeout = setTimeout(async () => {
+                    if (!scriptUrl || isCompiling) return;
+                    try {
+                        const code = getEditorValue();
+                        const result = await compileCode(
+                            code,
+                            [],
+                            null,
+                            getInputFile(code),
+                            getNullabilityDefault()
+                        );
+                        editor.setMarkers(parseDiagnostics(result.stderr));
+                    } catch (error) {
+                        // Silently fail - diagnostics are non-critical
+                    }
+                }, 500);
+            });
+        }
+
+        // Helper to get/set editor content
+        function getEditorValue() {
+            return editor ? editor.getValue() : '';
+        }
+
+        function setEditorValue(value) {
+            if (editor) {
+                editor.setValue(value);
+            }
+        }
+
+        const ansiPattern = /\x1b\[([0-9;]*)m/g;
+        const ansiColors = {
+            30: 'black', 31: 'red', 32: 'green', 33: 'yellow',
+            34: 'blue', 35: 'magenta', 36: 'cyan', 37: 'white',
+            90: 'bright-black', 91: 'bright-red', 92: 'bright-green',
+            93: 'bright-yellow', 94: 'bright-blue', 95: 'bright-magenta',
+            96: 'bright-cyan', 97: 'bright-white',
+        };
+
+        function stripAnsi(text) {
+            return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+        }
+
+        function appendAnsiText(element, text) {
+            const fragment = document.createDocumentFragment();
+            let start = 0;
+            let bold = false;
+            let dim = false;
+            let color = null;
+
+            function appendSegment(segment) {
+                if (!segment) return;
+                if (!bold && !dim && !color) {
+                    fragment.appendChild(document.createTextNode(segment));
+                    return;
+                }
+                const span = document.createElement('span');
+                if (bold) span.classList.add('ansi-bold');
+                if (dim) span.classList.add('ansi-dim');
+                if (color) span.classList.add(`ansi-${color}`);
+                span.textContent = segment;
+                fragment.appendChild(span);
+            }
+
+            for (const match of text.matchAll(ansiPattern)) {
+                appendSegment(text.slice(start, match.index));
+                const codes = match[1] ? match[1].split(';').map(Number) : [0];
+                for (const code of codes) {
+                    if (code === 0) {
+                        bold = false;
+                        dim = false;
+                        color = null;
+                    } else if (code === 1) {
+                        bold = true;
+                    } else if (code === 2) {
+                        dim = true;
+                    } else if (code === 22) {
+                        bold = false;
+                        dim = false;
+                    } else if (code === 39) {
+                        color = null;
+                    } else if (ansiColors[code]) {
+                        color = ansiColors[code];
+                    }
+                }
+                start = match.index + match[0].length;
+            }
+            appendSegment(text.slice(start));
+            element.appendChild(fragment);
+        }
+
+        function renderCompilerOutput(element, args, output, callout = null) {
+            const command = formatCompilerCommand(args);
+            const commandRow = document.createElement('div');
+            commandRow.className = 'compiler-command';
+
+            const commandText = document.createElement('code');
+            commandText.textContent = '$ ' + formatCompilerCommand(displayArgs(args));
+            commandText.title = 'Browser-only flags (target, sysroot, colors) are hidden; Copy gives the full command';
+
+            const copyButton = document.createElement('button');
+            copyButton.type = 'button';
+            copyButton.className = 'copy-command';
+            copyButton.textContent = 'Copy';
+            copyButton.title = 'Copy this exact compiler command';
+            copyButton.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(command);
+                    copyButton.textContent = 'Copied';
+                    showToast('Compiler command copied to clipboard!');
+                    setTimeout(() => {
+                        copyButton.textContent = 'Copy';
+                    }, 1500);
+                } catch (error) {
+                    showToast('Could not copy compiler command');
+                }
+            });
+
+            commandRow.append(commandText, copyButton);
+            element.replaceChildren(commandRow);
+
+            const diagnostics = document.createElement('div');
+            diagnostics.className = 'compiler-diagnostics';
+            appendAnsiText(diagnostics, output);
+            element.appendChild(diagnostics);
+
+            if (callout) {
+                const box = document.createElement('div');
+                box.className = 'missed-callout';
+                box.textContent = callout;
+                element.appendChild(box);
+            }
+        }
+
+        function displayArgs(args) {
+            const shown = [];
+            for (let i = 0; i < args.length; i++) {
+                const arg = args[i];
+                if (arg === '-resource-dir' || arg === '-isystem') {
+                    i++;
+                } else if (!arg.startsWith('--target=') && arg !== '-fcolor-diagnostics') {
+                    shown.push(arg);
+                }
+            }
+            return shown;
+        }
+
+        function countDiagnostics(output) {
+            const counts = { warning: 0, error: 0 };
+            for (const match of stripAnsi(output).matchAll(/^input\.(?:cpp|c):\d+:\d+:\s+(warning|error):/gm)) {
+                counts[match[1]]++;
+            }
+            return counts;
+        }
+
+        function plural(n, word) {
+            return `${n} ${word}${n === 1 ? '' : 's'}`;
+        }
+
+        function setSectionHeader(header, label, summary, tone) {
+            const infoIcon = header.querySelector('.info-icon');
+            header.replaceChildren();
+            const title = document.createElement('span');
+            title.className = 'section-title';
+            title.textContent = label;
+            const version = document.createElement('span');
+            version.className = 'section-version';
+            version.textContent = clangVersion;
+            header.append(title, version);
+            if (infoIcon) header.appendChild(infoIcon);
+            const badge = document.createElement('span');
+            badge.className = `section-summary ${tone}`;
+            badge.textContent = summary;
+            const chevron = document.createElement('span');
+            chevron.className = 'section-chevron';
+            chevron.setAttribute('aria-hidden', 'true');
+            chevron.textContent = '▾';
+            header.append(badge, chevron);
+        }
+
+        function clearResults() {
+            outputSafety.replaceChildren();
+            outputMainline.replaceChildren();
+            outputAnalyzer.replaceChildren();
+            document.querySelectorAll('.output-section-header .section-summary').forEach(badge => badge.remove());
+            if (scriptUrl && !isCompiling) {
+                status.textContent = 'Ready to compile';
+                status.className = 'status ready';
+            }
+        }
+
+        function summarize(counts, missed) {
+            if (counts.error > 0) return [plural(counts.error, 'error'), 'tone-error'];
+            if (counts.warning > 0) return [plural(counts.warning, 'warning'), 'tone-warning'];
+            if (missed > 0) return [`missed ${missed}`, 'tone-missed'];
+            return ['no warnings', 'tone-ok'];
+        }
+
+        function formatCompilerCommand(args) {
+            const safeArg = /^[A-Za-z0-9_./:=+,-]+$/;
+            const quote = arg => safeArg.test(arg)
+                ? arg
+                : `'${arg.replaceAll("'", "'\\''")}'`;
+            return 'clang ' + args.map(quote).join(' ');
+        }
+
+        function parseDiagnostics(stderr) {
+            const markers = [];
+            const lines = stripAnsi(stderr).split('\n');
+            const diagnosticRegex = /^input\.(?:cpp|c):(\d+):(\d+):\s+(error|warning|note):\s+(.+)$/;
+
+            for (const line of lines) {
+                const match = line.match(diagnosticRegex);
+                if (match) {
+                    const [, lineNum, colNum, severity, message] = match;
+                    markers.push({
+                        line: parseInt(lineNum),
+                        column: parseInt(colNum),
+                        severity,
+                        message,
+                    });
+                } else if (markers.length && /^\s{2,}\S/.test(line) && !/^\s*\d*\s*\|/.test(line)) {
+                    markers[markers.length - 1].message += ' ' + line.trim();
+                }
+            }
+            return markers;
+        }
+
+        let clangVersion = '';
+        let isCompiling = false;
+        let compileQueued = false;
+        let editGeneration = 0;
+        let isDragging = false;
+        let scriptUrl = null;
+        let wasmBinary = null;
+
+        // Auto-detect C++ from code content
+        function isCppCode(code) {
+            // Check for C++ keywords and syntax not valid in C
+            return /\b(class|template|namespace|using|public|private|protected|virtual|override|nullptr|auto\s+\w+\s*=|std::)\b/.test(code)
+                || /\b\w+\s*::\s*\w+/.test(code)  // scope resolution
+                || /\bstruct\s+\w+\s*\{[^}]*\b\w+\s*\([^)]*\)\s*(const\s*)?\{/.test(code)  // member functions in struct
+                || /[&]\s*\w+\s*[,)]/.test(code);  // reference params like (int& x) or (Foo& f)
+        }
+
+        function getInputFile(code) {
+            return isCppCode(code) ? 'input.cpp' : 'input.c';
+        }
+
+        // Toast notification
+        function showToast(message, duration = 2000) {
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, duration);
+        }
+
+        // Status update helper
+        function setStatus(message, showSpinner = false, progressPercent = null) {
+            if (showSpinner) {
+                let spinner;
+                if (progressPercent !== null) {
+                    spinner = '<span class="loading-spinner" style="--progress: ' + progressPercent + '"></span>';
+                } else {
+                    spinner = '<span class="loading-spinner"></span>';
+                }
+                status.innerHTML = spinner + ' ' + message;
+                if (progressPercent !== null) {
+                    status.title = progressPercent + '% downloaded';
+                    const spinnerEl = status.querySelector('.loading-spinner::after');
+                    if (spinnerEl) {
+                        const degrees = (progressPercent / 100) * 360;
+                        spinnerEl.style.transform = 'rotate(' + degrees + 'deg)';
+                    }
+                } else {
+                    status.title = '';
+                }
+            } else {
+                status.textContent = message;
+                status.title = '';
+            }
+        }
+
+        // Update progress spinner
+        function updateProgress(percent) {
+            const spinner = status.querySelector('.loading-spinner');
+            if (spinner) {
+                const degrees = (percent / 100) * 360;
+                spinner.style.setProperty('--progress', degrees + 'deg');
+                status.title = Math.round(percent) + '% downloaded';
+            }
+        }
+
+        // Resizable editor/output panes
+        divider.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const container = document.querySelector('.main-container');
+                const containerRect = container.getBoundingClientRect();
+                const offsetX = e.clientX - containerRect.left;
+                const percentage = (offsetX / containerRect.width) * 100;
+
+                if (percentage > 20 && percentage < 80) {
+                    const panes = document.querySelectorAll('.pane');
+                    panes[0].style.flex = '0 0 ' + percentage + '%';
+                    panes[1].style.flex = '0 0 ' + (100 - percentage) + '%';
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Examples dropdown
+        examplesSelect.addEventListener('change', (e) => {
+            const example = e.target.value;
+            if (example && examples[example]) {
+                editor.setMarkers([]);
+                setEditorValue(examples[example]);
+
+                // Update URL with ?example= parameter using example number
+                const url = new URL(window.location);
+                url.searchParams.delete('code'); // Remove code param if present
+                const exampleNum = exampleNames[example];
+                if (exampleNum) {
+                    url.searchParams.set('example', exampleNum);
+                }
+                window.history.replaceState({}, '', url);
+
+                // Auto-compile the new example
+                compileBtn.click();
+            }
+        });
+
+        const nullabilityHints = {
+            nullable: 'Every unannotated pointer may be null (strictest)',
+            nonnull: 'Unannotated pointers are non-null; annotate what can be null',
+            unspecified: 'Only functions with _Nullable or _Nonnull in their own signature are checked (the compiler default)',
+        };
+
+        function updateNullabilityHint() {
+            nullabilityHint.textContent = nullabilityHints[getNullabilityDefault()];
+        }
+
+        document.querySelectorAll('.output-section-header').forEach(header => {
+            const toggle = () => {
+                const section = header.parentElement;
+                section.classList.toggle('collapsed');
+                header.setAttribute('aria-expanded', String(!section.classList.contains('collapsed')));
+            };
+            header.addEventListener('click', toggle);
+            header.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle();
+                }
+            });
+        });
+
+        nullabilityDefaultSelect.addEventListener('change', () => {
+            updateNullabilityHint();
+            const url = new URL(window.location);
+            url.searchParams.set('nullability', getNullabilityDefault());
+            window.history.replaceState({}, '', url);
+
+            if (scriptUrl) {
+                compile();
+            }
+        });
+
+        // Share button - encode code in URL
+        shareBtn.addEventListener('click', async () => {
+            try {
+                const code = getEditorValue();
+                const encoded = btoa(unescape(encodeURIComponent(code)));
+                const url = new URL(window.location.href.split('?')[0]);
+
+                // Remove example param and add code param
+                url.searchParams.delete('example');
+                url.searchParams.set('code', encoded);
+                url.searchParams.set('nullability', getNullabilityDefault());
+
+                await navigator.clipboard.writeText(url.toString());
+                showToast('Share link copied to clipboard!');
+            } catch (err) {
+                showToast('Failed to create share link');
+                console.error('Share error:', err);
+            }
+        });
+
+        // Report bug button - create GitHub issue with context
+        const reportBugBtn = document.getElementById('reportBugBtn');
+        reportBugBtn.addEventListener('click', () => {
+            // Check if compiler is loaded and code has been compiled
+            if (!clangVersion || outputSafety.textContent === '' || outputSafety.textContent === '(no output yet)') {
+                if (!confirm('You haven\'t compiled any code yet. The bug report will be incomplete. Continue anyway?')) {
+                    return;
+                }
+            }
+
+            const code = getEditorValue();
+            const codeLang = isCppCode(code) ? 'cpp' : 'c';
+            const safetyOutput = outputSafety.textContent || '(no output yet)';
+            const mainlineOutput = outputMainline.textContent || '(no output yet)';
+            const analyzerOutput = outputAnalyzer.textContent || '(no output yet)';
+
+            // Get browser info - parse user agent for readability
+            const ua = navigator.userAgent;
+            let browserInfo = ua;
+
+            // Try to parse browser name and version
+            let browserName = 'Unknown';
+            let browserVersion = '';
+            if (ua.includes('Chrome/') && !ua.includes('Edg/')) {
+                browserName = 'Chrome';
+                browserVersion = ua.match(/Chrome\/([0-9.]+)/)?.[1] || '';
+            } else if (ua.includes('Edg/')) {
+                browserName = 'Edge';
+                browserVersion = ua.match(/Edg\/([0-9.]+)/)?.[1] || '';
+            } else if (ua.includes('Firefox/')) {
+                browserName = 'Firefox';
+                browserVersion = ua.match(/Firefox\/([0-9.]+)/)?.[1] || '';
+            } else if (ua.includes('Safari/') && !ua.includes('Chrome/')) {
+                browserName = 'Safari';
+                browserVersion = ua.match(/Version\/([0-9.]+)/)?.[1] || '';
+            }
+
+            // Get OS info
+            let osInfo = 'Unknown';
+            if (ua.includes('Mac OS X')) {
+                const osVersion = ua.match(/Mac OS X ([0-9_]+)/)?.[1]?.replace(/_/g, '.') || '';
+                osInfo = 'macOS ' + osVersion;
+            } else if (ua.includes('Windows')) {
+                osInfo = 'Windows';
+            } else if (ua.includes('Linux')) {
+                osInfo = 'Linux';
+            }
+
+            const formattedBrowser = browserName + ' ' + browserVersion + ' on ' + osInfo;
+
+            // Build the issue body
+            const issueBody = '## Bug Report from Playground\n\n' +
+                '### Environment\n' +
+                '- **Compiler Version:** `' + (clangVersion || 'not loaded') + '`\n' +
+                '- **Browser:** `' + formattedBrowser + '`\n' +
+                '- **User Agent:** `' + ua + '`\n' +
+                '- **Playground URL:** ' + window.location.href + '\n\n' +
+                '### Code\n' +
+                '\x60\x60\x60' + codeLang + '\n' +
+                code + '\x60\x60\x60\n' +
+                '### Compiler Output\n\n' +
+                '#### With Null Warnings\n' +
+                '\x60\x60\x60\n' +
+                safetyOutput + '\x60\x60\x60\n' +
+                '#### Without Null Warnings\n' +
+                '\x60\x60\x60\n' +
+                mainlineOutput + '\x60\x60\x60\n' +
+                '#### Static Analyzer\n' +
+                '\x60\x60\x60\n' +
+                analyzerOutput + '\x60\x60\x60\n' +
+                '### Expected Behavior\n' +
+                '<!-- Please describe what you expected to happen -->\n\n\n' +
+                '### Actual Behavior\n' +
+                '<!-- Please describe what actually happened -->\n\n\n' +
+                '### Additional Context\n' +
+                '<!-- Add any other context about the problem here -->\n';
+
+            // Create GitHub issue URL with pre-filled content
+            const repoUrl = 'https://github.com/cs01/llvm-project';
+            const issueUrl = new URL(repoUrl + '/issues/new');
+            issueUrl.searchParams.set('title', '[Playground Bug] ');
+            issueUrl.searchParams.set('body', issueBody);
+            issueUrl.searchParams.set('labels', 'bug,playground');
+
+            // Open in new tab
+            window.open(issueUrl.toString(), '_blank');
+            showToast('Opening bug report in GitHub...');
+        });
+
+        // Load code from URL on page load
+        function loadCodeFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const nullabilityDefault = urlParams.get('nullability');
+            if (validNullabilityDefaults.has(nullabilityDefault)) {
+                nullabilityDefaultSelect.value = nullabilityDefault;
+            }
+            updateNullabilityHint();
+
+            // Priority 1: Load from ?code= (user shared code)
+            const encodedCode = urlParams.get('code');
+            if (encodedCode) {
+                try {
+                    const code = decodeURIComponent(escape(atob(encodedCode)));
+                    setEditorValue(code);
+
+                    // Set dropdown to "Custom Code" or first option to indicate custom code
+                    examplesSelect.value = '';
+
+                    showToast('Code loaded from shared link!');
+                    return; // Stop here, don't load example
+                } catch (err) {
+                    console.error('Failed to decode URL code:', err);
+                    showToast('Failed to load code from URL');
+                }
+            }
+
+            // Priority 2: Load from ?example= (example number)
+            const exampleParam = urlParams.get('example');
+            if (exampleParam) {
+                // Convert number to example name
+                const exampleName = exampleNumbers[exampleParam];
+                if (exampleName && examples[exampleName]) {
+                    setEditorValue(examples[exampleName]);
+                    examplesSelect.value = exampleName;
+                    return; // Stop here
+                }
+            }
+
+            // Priority 3: Default to the first real example option
+            const firstOption = examplesSelect.querySelector('option:not([disabled])');
+            if (firstOption && examples[firstOption.value]) {
+                setEditorValue(examples[firstOption.value]);
+                examplesSelect.value = firstOption.value;
+            }
+        }
+
+        async function initCompiler() {
+            setStatus('Loading compiler...', true, 0);
+            status.className = 'status';
+            loadingBar.classList.add('active');
+
+            let loaded = 0;
+
+            try {
+                // Determine script URL
+                const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+                // Allow testing production URLs on localhost with ?prod=1
+                const urlParams = new URLSearchParams(window.location.search);
+                const forceProd = urlParams.get('prod') === '1' || urlParams.get('mode') === 'prod';
+
+                if (isDev && !forceProd) {
+                    // Local development - files should be in the same directory
+                    scriptUrl = './clang.js';
+                    var wasmUrl = './clang.wasm';
+                    console.log('🔧 Development mode: Using local files');
+                } else {
+                    // Production - files are served from GitHub Pages (same origin, no CORS issues!)
+                    scriptUrl = './clang.js';
+                    var wasmUrl = './clang.wasm';
+                    console.log('🚀 Production mode: Using files from GitHub Pages');
+                }
+
+                // Pre-load the WASM binary ONCE with progress tracking
+                console.log('Downloading WASM binary...');
+                const wasmResponse = await fetch(wasmUrl);
+
+                if (!wasmResponse.ok) {
+                    throw new Error(`Failed to fetch WASM: ${wasmResponse.status} ${wasmResponse.statusText}`);
+                }
+
+                const contentLength = wasmResponse.headers.get('content-length');
+                const total = parseInt(contentLength, 10);
+
+                // Update status with actual size if known
+                if (total) {
+                    const sizeMB = (total / (1024 * 1024)).toFixed(0);
+                    setStatus(`Loading compiler (${sizeMB}MB)...`, true, 0);
+                }
+
+                const reader = wasmResponse.body.getReader();
+                const chunks = [];
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    chunks.push(value);
+                    loaded += value.length;
+
+                    if (total) {
+                        const percent = (loaded / total) * 100;
+                        updateProgress(percent);
+                    }
+                }
+
+                // Combine chunks into final array buffer
+                const chunksAll = new Uint8Array(loaded);
+                let position = 0;
+                for (const chunk of chunks) {
+                    chunksAll.set(chunk, position);
+                    position += chunk.length;
+                }
+                wasmBinary = chunksAll.buffer;
+                console.log('WASM binary loaded:', wasmBinary.byteLength, 'bytes');
+
+                // Now test with a worker to get the version
+                const versionResult = await compileCode('int main() { return 0; }', ['--version']);
+                const versionOutput = versionResult.stdout + versionResult.stderr;
+                const versionMatch = versionOutput.match(/clang version ([^\s]+)/);
+                if (versionMatch) {
+                    clangVersion = versionMatch[1];
+                }
+
+                status.textContent = 'Ready to compile';
+                status.className = 'status ready';
+                status.title = '';
+                compileBtn.disabled = false;
+                loadingBar.classList.remove('active');
+                showToast('Compiler loaded successfully!');
+
+                setTimeout(() => compile(), 500);
+
+            } catch (error) {
+                console.error('Failed to load Clang WASM:', error);
+
+                // Provide a helpful error message
+                let errorMessage = 'Failed to load compiler';
+                let toastMessage = 'Failed to load compiler';
+
+                if (error.message && error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Network error - Cannot download compiler';
+                    toastMessage = 'Network error: Unable to download the compiler. Please check your internet connection.';
+                } else if (error.message && (error.message.includes('404') || error.message.includes('File not found'))) {
+                    errorMessage = 'Compiler files not found';
+                    toastMessage = 'Compiler files not found. The WASM binaries are missing from the server.';
+                } else if (loaded === 0 || (wasmBinary && wasmBinary.byteLength === 0)) {
+                    errorMessage = 'Download failed - 0 bytes received';
+                    toastMessage = 'Failed to download compiler: Received 0 bytes. Please check your internet connection and try refreshing the page.';
+                } else {
+                    toastMessage = `Failed to load compiler: ${error.message}`;
+                }
+
+                status.textContent = errorMessage;
+                status.className = 'status error';
+                status.title = '';
+                loadingBar.classList.remove('active');
+                showToast(toastMessage, 6000);
+            }
+        }
+
+        async function compile() {
+            if (isCompiling) {
+                compileQueued = true;
+                return;
+            }
+            if (!scriptUrl) {
+                outputSafety.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
+                outputMainline.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
+                outputAnalyzer.innerHTML = `<span class="error">Compiler not loaded yet. Please wait...</span>`;
+                return;
+            }
+
+            isCompiling = true;
+            compileBtn.disabled = true;
+            nullabilityDefaultSelect.disabled = true;
+            status.textContent = 'Compiling...';
+            status.className = 'status compiling';
+            outputSafety.innerHTML = '';
+            outputMainline.innerHTML = '';
+            outputAnalyzer.innerHTML = '';
+            loadingBar.classList.add('active');
+
+            const startTime = performance.now();
+            const generation = editGeneration;
+
+            // Base flags for the static analyzer: no Nullability Safety, all
+            // null-related checkers turned on. This simulates what a careful
+            // user of standard clang would get if they ran --analyze.
+            const analyzerBaseFlags = [
+                '--analyze',
+                '-Xanalyzer', '-analyzer-checker=core.NullDereference',
+                '-Xanalyzer', '-analyzer-checker=nullability',
+            ];
+
+            const mainlineBaseFlags = [
+                '-fsyntax-only',
+                '-Wnullable-to-nonnull-conversion',
+            ];
+
+            try {
+                const code = getEditorValue();
+                const inputFile = getInputFile(code);
+                const nullabilityDefault = getNullabilityDefault();
+
+                // Compile all three versions in parallel
+                const [safetyResult, mainlineResult, analyzerResult] = await Promise.all([
+                    compileCode(code, [], null, inputFile, nullabilityDefault),
+                    compileCode(code, [], mainlineBaseFlags, inputFile),
+                    compileCode(code, [], analyzerBaseFlags, inputFile)
+                ]);
+
+                if (generation !== editGeneration) return;
+
+                const duration = (performance.now() - startTime).toFixed(0);
+
+                const safetyOutput = safetyResult.stderr + safetyResult.stdout;
+                const mainlineOutput = mainlineResult.stderr + mainlineResult.stdout;
+                const analyzerOutput = analyzerResult.stderr + analyzerResult.stdout;
+                const safetyCounts = countDiagnostics(safetyOutput);
+                const mainlineCounts = countDiagnostics(mainlineOutput);
+                const analyzerCounts = countDiagnostics(analyzerOutput);
+
+                const nullWarningCount = (stripAnsi(safetyResult.stderr).match(/\[-Wnullability(?:-safety-[a-z-]+)?\]/g) || []).length;
+                const missedMessage = tool => `${tool} missed ${plural(nullWarningCount, 'null pointer bug')} that Nullability Safety caught.`;
+                const mainlineMissed = mainlineCounts.warning + mainlineCounts.error === 0 ? nullWarningCount : 0;
+                const analyzerMissed = analyzerCounts.warning + analyzerCounts.error === 0 ? nullWarningCount : 0;
+
+                editor.setMarkers(parseDiagnostics(safetyResult.stderr));
+
+                const headers = document.querySelectorAll('.output-section-header');
+                setSectionHeader(headers[0], 'Nullability Safety', ...summarize(safetyCounts, 0));
+                setSectionHeader(headers[1], 'Standard Clang', ...summarize(mainlineCounts, mainlineMissed));
+                setSectionHeader(headers[2], 'Static Analyzer', ...summarize(analyzerCounts, analyzerMissed));
+
+                renderCompilerOutput(outputSafety, safetyResult.args, safetyOutput || '✓ No errors or warnings');
+                renderCompilerOutput(outputMainline, mainlineResult.args, mainlineOutput || 'No errors or warnings',
+                    mainlineMissed ? missedMessage('Standard Clang') : null);
+                renderCompilerOutput(outputAnalyzer, analyzerResult.args, analyzerOutput || 'No warnings',
+                    analyzerMissed ? missedMessage('The static analyzer') : null);
+
+                const seconds = (duration / 1000).toFixed(2);
+                if (safetyCounts.error > 0) {
+                    status.textContent = `${plural(safetyCounts.error, 'error')} · ${seconds}s`;
+                    status.className = 'status error';
+                } else {
+                    status.textContent = `${plural(safetyCounts.warning, 'warning')} · ${seconds}s`;
+                    status.className = safetyCounts.warning > 0 ? 'status found' : 'status ready';
+                }
+            } catch (error) {
+                const errorMsg = error.message || String(error);
+                outputSafety.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
+                outputMainline.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
+                outputAnalyzer.innerHTML = `<span class="error">Compilation failed: ${errorMsg}\n\nCheck console for details.</span>`;
+                status.textContent = 'Compilation error';
+                status.className = 'status error';
+                console.error('Compilation error:', error);
+            } finally {
+                isCompiling = false;
+                compileBtn.disabled = false;
+                nullabilityDefaultSelect.disabled = false;
+                loadingBar.classList.remove('active');
+                if (generation !== editGeneration) clearResults();
+                if (compileQueued) {
+                    compileQueued = false;
+                    compile();
+                }
+            }
+        }
+
+        async function compileCode(code, extraFlags = [], baseFlags = null, inputFile = 'input.c', nullabilityDefault = null) {
+            return new Promise((resolve, reject) => {
+                const worker = new Worker('compiler-worker.js');
+
+                let stdout = '';
+                let stderr = '';
+                let completed = false;
+
+                const timeout = setTimeout(() => {
+                    if (!completed) {
+                        worker.terminate();
+                        reject(new Error('Compilation timeout'));
+                    }
+                }, 30000);
+
+                worker.onmessage = function(e) {
+                    const { type, text, error, exitCode, args } = e.data;
+
+                    if (type === 'ready') {
+                        // Worker is ready, send compile request
+                        const msg = { type: 'compile', code, extraFlags, inputFile };
+                        if (baseFlags) msg.baseFlags = baseFlags;
+                        if (nullabilityDefault) msg.nullabilityDefault = nullabilityDefault;
+                        worker.postMessage(msg);
+                    } else if (type === 'stdout') {
+                        stdout += text + '\n';
+                    } else if (type === 'stderr') {
+                        stderr += text + '\n';
+                    } else if (type === 'complete') {
+                        completed = true;
+                        clearTimeout(timeout);
+                        worker.terminate();
+                        resolve({ stdout, stderr, exitCode, args });
+                    } else if (type === 'error') {
+                        completed = true;
+                        clearTimeout(timeout);
+                        worker.terminate();
+                        reject(new Error(error));
+                    }
+                };
+
+                worker.onerror = function(error) {
+                    completed = true;
+                    clearTimeout(timeout);
+                    worker.terminate();
+                    reject(new Error(error.message || 'Compiler worker failed to start'));
+                };
+
+                worker.onmessageerror = function() {
+                    completed = true;
+                    clearTimeout(timeout);
+                    worker.terminate();
+                    reject(new Error('Browser could not deliver data to the compiler worker'));
+                };
+
+                // Send the pre-loaded WASM binary to the worker
+                worker.postMessage({
+                    type: 'load',
+                    scriptUrl,
+                    wasmBinary  // Share the pre-loaded WASM
+                });
+            });
+        }
+
+        compileBtn.addEventListener('click', compile);
+
+        // Position fixed tooltips relative to their info icons
+        document.querySelectorAll('.info-icon').forEach(icon => {
+            icon.addEventListener('mouseenter', () => {
+                const tooltip = icon.querySelector('.tooltip');
+                if (!tooltip) return;
+                const rect = icon.getBoundingClientRect();
+                let left = rect.left + rect.width / 2 - 140; // 140 = half of 280px width
+                // Keep tooltip within viewport
+                left = Math.max(8, Math.min(left, window.innerWidth - 288));
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = (rect.bottom + 8) + 'px';
+            });
+        });
+
+        // Auto-compile on load
+        window.addEventListener('load', async () => {
+            await loadExamples();  // Load all examples from files
+            initEditor();
+            loadCodeFromURL();   // Load code from URL if present
+            initCompiler();
+        });

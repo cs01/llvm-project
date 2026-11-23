@@ -1,0 +1,98 @@
+name: Deploy Playground to GitHub Pages
+
+on:
+  # Deploy when the WASM build finishes
+  workflow_run:
+    workflows: ["Build Playground WASM"]
+    types:
+      - completed
+  # Also deploy on push (for HTML/JS-only changes that skip the WASM build)
+  push:
+    branches:
+      - nullability-safety
+    paths:
+      - 'playground/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-gh-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Skip if triggered by a failed WASM build
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download latest WASM files from release
+        run: |
+          # Try playground-latest first (auto-updated), fall back to playground-v* tags
+          RELEASE_TAG="playground-latest"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}")
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "No playground-latest release, falling back to latest playground-v* tag"
+            RELEASE_TAG=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
+              | jq -r '[.[] | select(.tag_name | startswith("playground-v"))][0].tag_name')
+          fi
+
+          echo "Using release: $RELEASE_TAG"
+
+          if [ -z "$RELEASE_TAG" ] || [ "$RELEASE_TAG" = "null" ]; then
+            echo "No playground release found"
+            exit 1
+          fi
+
+          mkdir -p /tmp/wasm-files
+          cd /tmp/wasm-files
+
+          # Download the compressed individual files from the release
+          curl -L -f -o clang.wasm.gz "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/clang.wasm.gz"
+          curl -L -f -o clang.js.gz "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/clang.js.gz"
+
+          # Decompress
+          gzip -d clang.wasm.gz
+          gzip -d clang.js.gz
+
+          echo "Downloaded files:"
+          ls -lh
+
+      - name: Deploy to gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin gh-pages; then
+            git fetch origin gh-pages
+            git checkout gh-pages
+          else
+            git checkout --orphan gh-pages
+          fi
+
+          git rm -rf . 2>/dev/null || true
+
+          git checkout nullability-safety -- playground
+          mv playground/* .
+          rm -rf playground
+
+          cp /tmp/wasm-files/* .
+
+          touch .nojekyll
+
+          git add -A
+
+          if git diff --staged --quiet; then
+            echo "No changes to deploy"
+          else
+            git commit -m "Deploy playground from ${{ github.sha }}"
+            git push origin gh-pages
+          fi

@@ -1,0 +1,7 @@
+# Generated WASM files (too large to commit, will be built from source or downloaded from releases)
+clang.wasm
+clang.js
+
+# Python cache
+__pycache__/
+*.pyc
