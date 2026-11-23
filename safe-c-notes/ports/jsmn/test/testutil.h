@@ -16,19 +16,19 @@ static int vtokeq(const char *_Nullable s, jsmntok_t *__counted_by(numtok) t,
     size = -1;
     value = NULL;
     for (i = 0; i < numtok; i++) {
-      type = va_arg(ap, jsmntype_t);
+      __unsafe { type = va_arg(ap, jsmntype_t); } /* va_arg: unchecked count and type */
       if (type == JSMN_STRING) {
         /* va_arg cannot know what the caller passed. */
         __unsafe { value = __unsafe_forge_null_terminated(char *, va_arg(ap, char *)); }
-        size = va_arg(ap, int);
+        __unsafe { size = va_arg(ap, int); } /* va_arg: unchecked count and type */
         start = end = -1;
       } else if (type == JSMN_PRIMITIVE) {
         __unsafe { value = __unsafe_forge_null_terminated(char *, va_arg(ap, char *)); }
         start = end = size = -1;
       } else {
-        start = va_arg(ap, int);
-        end = va_arg(ap, int);
-        size = va_arg(ap, int);
+        __unsafe { start = va_arg(ap, int); } /* va_arg: unchecked count and type */
+        __unsafe { end = va_arg(ap, int); } /* va_arg: unchecked count and type */
+        __unsafe { size = va_arg(ap, int); } /* va_arg: unchecked count and type */
         value = NULL;
       }
       if (t[i].type != type) {

@@ -19,14 +19,15 @@ pass under Safe C, Apple clang and gcc. Same source, no `#ifdef SAFE_C`.
 
 No code changes. Every index into `js` and `tokens` is now bounds-checked.
 
-## Tests (testutil.h): 9 changed lines, 2 `__unsafe`
+## Tests (testutil.h): 14 changed lines, 7 `__unsafe`
 
 - `__counted_by(numtok)` on the token parameters of `vtokeq`/`tokeq`.
 - `_Nullable` on `s`, which the tests pass as NULL.
 - `__null_terminated_to_indexable(s)` before slicing the input (checked scan
   for the terminator; string literals only allow `p++` otherwise).
-- 2 `__unsafe` lines: `va_arg(ap, char *)`. Nothing can check what a caller
-  passed through `...`; this is the honest unsafe boundary.
+- 7 `__unsafe` lines, all `va_arg`: nothing can check the count or types a
+  caller passed through `...` (Safe C requires `__unsafe` for every `va_arg`
+  since the 2026-11-23 audit); this is the honest unsafe boundary.
 - `strncmp(slice, value, n)` became `memcmp`: the slice has no terminator
   inside its bounds, and the length is already known.
 - **Real bug found:** `parse()` used `malloc` without a null check.
