@@ -1214,6 +1214,29 @@ void FactsGenerator::handleFreeingCall(const Expr *Call, const FunctionDecl *FD,
   }
 }
 
+void FactsGenerator::handleIndirectOwnershipCall(const CallExpr *CE,
+                                                 const Decl &D,
+                                                 ArrayRef<const Expr *> Args) {
+  for (const OwnershipAttr *Attr : D.specific_attrs<OwnershipAttr>()) {
+    if (Attr->getOwnKind() == OwnershipAttr::Takes) {
+      for (const ParamIdx &Idx : Attr->args()) {
+        unsigned I = Idx.getASTIndex();
+        if (I >= Args.size())
+          continue;
+        if (OriginList *ArgList = getOriginsList(*Args[I]))
+          CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
+              ArgList->getOuterOriginID(), CE));
+      }
+    } else if (Attr->getOwnKind() == OwnershipAttr::Returns) {
+      if (OriginList *CallList = getOriginsList(*CE)) {
+        const Loan *L = createNewAllocLoan(FactMgr, CE);
+        CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
+            L->getID(), CallList->getOuterOriginID()));
+      }
+    }
+  }
+}
+
 void FactsGenerator::handleAllocatingCall(const Expr *Call,
                                           const FunctionDecl *FD) {
   if (!isAllocatingFunction(*FD))
@@ -1236,8 +1259,17 @@ void FactsGenerator::handleFunctionCall(const Expr *Call,
   // The callee may dereference any argument to any depth.
   for (const Expr *Arg : Args)
     handleUse(Arg);
-  if (!CallInfo.FD)
+  if (!CallInfo.FD) {
+    // A call through a function pointer (a variable or field) whose
+    // declaration carries ownership_takes/ownership_returns frees or allocates
+    // like a direct call, e.g. `hooks->deallocate(p)`.
+    // AnyCall does not model such calls, so take the arguments from the call.
+    if (const auto *CE = dyn_cast<CallExpr>(Call->IgnoreParenImpCasts()))
+      if (const Decl *D = CE->getCalleeDecl(); D && !isa<FunctionDecl>(D))
+        handleIndirectOwnershipCall(
+            CE, *D, llvm::ArrayRef(CE->getArgs(), CE->getNumArgs()));
     return;
+  }
   OriginList *CallList = getOriginsList(*Call);
   // Ignore functions returning values with no origin.
   const FunctionDecl *FD = getDeclWithMergedLifetimeBoundAttrs(CallInfo.FD);

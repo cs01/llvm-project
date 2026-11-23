@@ -23,3 +23,12 @@ int *escape(void) {
   int *p = &x; // expected-warning {{stack memory associated with local variable 'x' is returned}}
   return p;    // expected-note {{returned here}}
 }
+
+// A call through a function pointer declared ownership_takes frees its
+// argument like a direct call.
+struct hooks { void (*dealloc)(void *) __attribute__((ownership_takes(malloc, 1))); };
+int indirect(struct hooks *h) {
+  int *p = malloc(sizeof(int)); // expected-warning {{object allocated by 'malloc' does not live long enough}}
+  h->dealloc(p);                // expected-note {{freed here}}
+  return *p;                    // expected-note {{later used here}}
+}

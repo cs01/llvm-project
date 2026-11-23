@@ -758,7 +758,15 @@ private:
     if (isa<CXXDeleteExpr>(InvalidationExpr))
       return true;
     const FunctionDecl *FD = FunctionCallInfo(InvalidationExpr).FD;
-    return FD && isFreeingFunction(*FD);
+    if (FD)
+      return isFreeingFunction(*FD);
+    // A call through a function pointer declared ownership_takes.
+    if (const auto *CE =
+            dyn_cast<CallExpr>(InvalidationExpr->IgnoreParenImpCasts()))
+      if (const Decl *D = CE->getCalleeDecl())
+        return llvm::any_of(D->specific_attrs<OwnershipAttr>(),
+                            [](const OwnershipAttr *A) { return A->isTakes(); });
+    return false;
   }
 
   struct LifetimeBoundMacroCache {

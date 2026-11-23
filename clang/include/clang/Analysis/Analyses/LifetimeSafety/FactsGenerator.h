@@ -131,6 +131,8 @@ private:
   // Handles calls that allocate memory (e.g. functions annotated with
   // `ownership_returns`): the call result is a fresh allocation, so a new
   // loan is issued for it.
+  void handleIndirectOwnershipCall(const CallExpr *CE, const Decl &D,
+                                   ArrayRef<const Expr *> Args);
   void handleAllocatingCall(const Expr *Call, const FunctionDecl *FD);
 
   // Handles calls that free memory (e.g. functions annotated with
