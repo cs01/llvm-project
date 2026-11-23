@@ -1451,6 +1451,12 @@ public:
   /// the pragma state is gone.
   llvm::SmallPtrSet<const Decl *, 8> NullabilitySafetyAssumeNonnullDefs;
 
+  /// Errors issued under -fsafe-c by re-issuing a safety warning (see
+  /// SemaBase::Diag). The AST is still valid after them, so end-of-TU
+  /// analyses keep running when these are the only errors; otherwise the
+  /// first Safe C error would hide every later one.
+  unsigned NumSafeCSafetyErrors = 0;
+
   /// Warn when implicitly casting 0 to nullptr.
   void diagnoseZeroToNullptrConversion(CastKind Kind, const Expr *E);
 

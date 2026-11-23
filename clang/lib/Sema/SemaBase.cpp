@@ -83,9 +83,14 @@ static unsigned safeCErrorFor(DiagnosticsEngine &Diags, SourceManager &SM,
 
 Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
                                            unsigned DiagID) {
-  if (getLangOpts().SafeC)
-    DiagID = safeCErrorFor(getDiagnostics(), SemaRef.getSourceManager(), Loc,
-                           DiagID);
+  if (getLangOpts().SafeC) {
+    unsigned NewID = safeCErrorFor(getDiagnostics(),
+                                   SemaRef.getSourceManager(), Loc, DiagID);
+    if (NewID != DiagID) {
+      ++SemaRef.NumSafeCSafetyErrors;
+      DiagID = NewID;
+    }
+  }
   bool IsError =
       getDiagnostics().getDiagnosticIDs()->isDefaultMappingAsError(DiagID);
   bool ShouldDefer = getLangOpts().CUDA && getLangOpts().GPUDeferDiag &&

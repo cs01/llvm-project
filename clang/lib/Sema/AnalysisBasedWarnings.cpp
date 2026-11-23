@@ -4027,7 +4027,12 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
 
   DiagnosticsEngine &Diags = S.getDiagnostics();
 
-  if (S.hasUncompilableErrorOccurred() || Diags.getIgnoreAllWarnings())
+  // Safe C errors re-issued from safety warnings leave the AST valid; do not
+  // let them stop the analyses that find the remaining ones.
+  bool OnlySafeCErrors = S.getLangOpts().SafeC &&
+                         Diags.getNumErrors() == S.NumSafeCSafetyErrors;
+  if ((S.hasUncompilableErrorOccurred() && !OnlySafeCErrors) ||
+      Diags.getIgnoreAllWarnings())
     // exit if having uncompilable errors or ignoring all warnings:
     return;
 
