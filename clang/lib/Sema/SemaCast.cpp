@@ -3954,7 +3954,17 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
     // allocation works.
     if (const auto *CE = dyn_cast<CallExpr>(unwrapBoundsSafety(Src)))
       if (const FunctionDecl *FD = CE->getDirectCallee()) {
-        switch (FD->getBuiltinID()) {
+        // By name as well as builtin ID, so -fno-builtin does not make every
+        // allocation an error.
+        StringRef Name = FD->getIdentifier() && FD->isExternC()
+                             ? FD->getName()
+                             : StringRef();
+        unsigned ID = FD->getBuiltinID();
+        if (Name == "malloc" || Name == "calloc")
+          ID = Builtin::BImalloc;
+        else if (Name == "realloc")
+          ID = Builtin::BIrealloc;
+        switch (ID) {
         case Builtin::BImalloc:
         case Builtin::BIcalloc:
         case Builtin::BI__builtin_malloc:

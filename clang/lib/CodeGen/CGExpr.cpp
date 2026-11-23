@@ -7531,6 +7531,27 @@ RValue CodeGenFunction::EmitCallExpr(const CallExpr *E,
   if (E->getCallee()->getType()->isBlockPointerType())
     return EmitBlockCallExpr(E, ReturnValue, CallOrInvoke);
 
+  // Safe C: malloc returns zeroed memory. An uninitialized pointer field in a
+  // heap struct would otherwise be a wild pointer; zeroed, it is null and
+  // traps on use. Matched by name rather than builtin ID so -fno-builtin
+  // cannot turn it off.
+  if (getLangOpts().SafeC && E->getNumArgs() == 1)
+    if (const FunctionDecl *FD = E->getDirectCallee();
+        FD && FD->getIdentifier() && FD->getName() == "malloc" &&
+        FD->isExternC() && FD->getNumParams() == 1) {
+      llvm::Value *Size = EmitScalarExpr(E->getArg(0));
+      Size = Builder.CreateZExtOrTrunc(Size, SizeTy);
+      llvm::FunctionCallee Calloc = CGM.CreateRuntimeFunction(
+          llvm::FunctionType::get(VoidPtrTy, {SizeTy, SizeTy}, false),
+          "calloc");
+      llvm::CallInst *Call =
+          EmitNounwindRuntimeCall(Calloc, {llvm::ConstantInt::get(SizeTy, 1),
+                                           Size});
+      Call->addRetAttr(llvm::Attribute::NoAlias);
+      *CallOrInvoke = Call;
+      return RValue::get(Call);
+    }
+
   if (const auto *CE = dyn_cast<CXXMemberCallExpr>(E))
     return EmitCXXMemberCallExpr(CE, ReturnValue, CallOrInvoke);
 
