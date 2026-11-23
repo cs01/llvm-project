@@ -3882,7 +3882,15 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
     return;
   // Fresh memory from the allocator has no type yet; giving it one is how
   // allocation works, as with Rust's typed allocation.
-  if (const auto *CE = dyn_cast<CallExpr>(Src->IgnoreParenImpCasts()))
+  // Bounds safety wraps the call in OpaqueValueExprs when it builds the
+  // result's bounds (e.g. `(char *)result + size` for __sized_by).
+  const Expr *Inner = Src->IgnoreParenImpCasts();
+  while (const auto *OVE = dyn_cast<OpaqueValueExpr>(Inner)) {
+    if (!OVE->getSourceExpr())
+      break;
+    Inner = OVE->getSourceExpr()->IgnoreParenImpCasts();
+  }
+  if (const auto *CE = dyn_cast<CallExpr>(Inner))
     if (const FunctionDecl *FD = CE->getDirectCallee())
       switch (FD->getBuiltinID()) {
       case Builtin::BImalloc:
