@@ -26,40 +26,44 @@ includes it automatically.
 
 ## What makes C unsafe, and what exists today
 
-C has seven kinds of memory and undefined-behavior bugs. For each, here is what Clang
-already offers and what this fork adds.
+C has seven kinds of memory and undefined-behavior bugs. For each: what Clang has today,
+what Safe C uses from it, and what Safe C adds.
 
 1. **Out-of-bounds access**
-   - Upstream Clang: `-fsanitize=bounds` (run time, only arrays of known size),
-     `-Warray-bounds` (warning), `counted_by` on struct fields. The `-fbounds-safety`
-     flag is accepted but mostly not implemented yet.
-   - Apple's fork of Clang: the full `-fbounds-safety`. Pointers carry their bounds,
-     interfaces declare them with `__counted_by(n)` and friends, and every access is
-     proven or trapped. Not in Xcode's clang.
-   - Safe C: built on Apple's fork, so this **works**.
+   - Clang today: `-fsanitize=bounds` (run time, arrays of known size only),
+     `-Warray-bounds` (a warning). The full `-fbounds-safety`, with pointers that carry
+     their bounds, exists only in Apple's fork of Clang, not in Xcode's clang.
+   - Safe C **uses** Apple's `-fbounds-safety` as is: interfaces declare bounds with
+     `__counted_by(n)` and friends, every access is proven or trapped. **Works.**
 2. **Null dereference**
-   - Upstream Clang: `_Nonnull` / `_Nullable` with a few warnings at call sites; no
-     flow analysis.
-   - This fork: flow-sensitive null checking, non-null by default. **Works**.
+   - Clang today: `_Nonnull` / `_Nullable` annotations and a few call-site warnings; no
+     tracking of null checks through a function.
+   - Safe C **uses** the same annotations and **adds** flow-sensitive null checking,
+     with non-null as the default. **Works.**
 3. **Use after free, double free, dangling pointers**
-   - Upstream Clang: `lifetimebound` and `-Wlifetime-safety` (warnings, mostly C++),
-     the static analyzer (a separate tool), AddressSanitizer (run time, about 2x slower).
-   - This fork: owned pointers and borrow checking. **Planned**.
+   - Clang today: the `lifetimebound` and `lifetime_capture_by` attributes, and the
+     `-Wlifetime-safety` analysis that uses them to find dangling pointers (warnings,
+     mostly for C++).
+   - Safe C **uses** those attributes and builds on that analysis, and **adds** owned
+     pointers (`_Owned`), moves, and borrow checking, so use after free and double free
+     become compile errors. **Planned.**
+   - Not used: the static analyzer (a separate, unsound tool) and AddressSanitizer
+     (run-time only, about 2x slower).
 4. **Uninitialized reads**
-   - Upstream Clang: `-Wuninitialized` (warning, not sound), `-ftrivial-auto-var-init`
-     (zeroes memory at run time).
-   - This fork: definite initialization required. **Planned**.
+   - Clang today: `-Wuninitialized` (a warning, misses cases).
+   - Safe C **adds** a definite-initialization rule: reading a variable that might not
+     be set is an error. **Planned.**
 5. **Type confusion** (bad pointer casts, union punning, mismatched varargs)
-   - Upstream Clang: `-Wincompatible-pointer-types`, `-Wformat` (warnings).
-   - This fork: casts and union punning only in `__unsafe`. **Planned**.
+   - Clang today: `-Wincompatible-pointer-types` and `-Wformat` (warnings).
+   - Safe C **adds** a rule that these are allowed only inside `__unsafe`. **Planned.**
 6. **Integer undefined behavior** (signed overflow, oversized shifts, division by zero)
-   - Upstream Clang: `-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero`
-     with `-fsanitize-trap` (run time traps).
-   - This fork: turned on by `-fsafe-c`. **Planned**.
+   - Clang today: `-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero` with
+     `-fsanitize-trap` (cheap run-time traps, off by default).
+   - Safe C **uses** those traps and turns them on with `-fsafe-c`. **Planned.**
 7. **Data races**
-   - Upstream Clang: `-Wthread-safety` with lock annotations (warnings),
-     ThreadSanitizer (run time).
-   - This fork: Send/Sync-style rules. **Planned**.
+   - Clang today: `-Wthread-safety` with lock annotations (warnings).
+   - Safe C **uses** those annotations and **adds** rules for which data may be shared
+     or moved between threads. **Planned.**
 
 ## Why a fork and not a set of flags
 
