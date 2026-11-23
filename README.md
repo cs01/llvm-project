@@ -102,7 +102,7 @@ free(p);
 | Out of bounds | `__counted_by`, `__sized_by`, `__ended_by` on interfaces; locals carry their own bounds; proven at compile time or trapped | Apple's `-fbounds-safety` | works |
 | Null dereference | non-null by default, `_Nullable` must be checked before use | this fork | works |
 | Weakening by flags | `-fno-bounds-safety` and friends rejected with `-fsafe-c` | this fork | works |
-| Silencing by `-Wno-` or pragma | violations become hard errors | this fork | planned |
+| Silencing by `-Wno-` or pragma | null violations are hard errors; bounds errors already are | this fork | works |
 | Use after free, double free | owned pointers, borrows, `lifetimebound` at interfaces | this fork, on Clang's lifetime analysis | planned |
 | Uninitialized reads | definite initialization required | `-Wuninitialized`, made an error | planned |
 | Type confusion | no pointer casts, no union punning, checked varargs | this fork | planned |

@@ -58,8 +58,34 @@ SemaBase::SemaDiagnosticBuilder::getDeviceDeferredDiags() const {
   return S.DeviceDeferredDiags;
 }
 
+/// Under -fsafe-c a nullability-safety warning becomes its error twin, which
+/// no -Wno-* flag or diagnostic pragma can silence.
+static unsigned safeCErrorFor(unsigned DiagID) {
+  switch (DiagID) {
+#define SAFE_C_TWIN(W)                                                         \
+  case diag::warn_nullability_safety_##W:                                      \
+    return diag::err_safe_c_nullability_##W;
+    SAFE_C_TWIN(dereference)
+    SAFE_C_TWIN(null_init)
+    SAFE_C_TWIN(call)
+    SAFE_C_TWIN(arithmetic)
+    SAFE_C_TWIN(return)
+    SAFE_C_TWIN(assignment)
+    SAFE_C_TWIN(field_init)
+    SAFE_C_TWIN(member_assignment)
+    SAFE_C_TWIN(member_exit)
+    SAFE_C_TWIN(default_arg)
+    SAFE_C_TWIN(argument)
+#undef SAFE_C_TWIN
+  default:
+    return DiagID;
+  }
+}
+
 Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
                                            unsigned DiagID) {
+  if (getLangOpts().SafeC)
+    DiagID = safeCErrorFor(DiagID);
   bool IsError =
       getDiagnostics().getDiagnosticIDs()->isDefaultMappingAsError(DiagID);
   bool ShouldDefer = getLangOpts().CUDA && getLangOpts().GPUDeferDiag &&
