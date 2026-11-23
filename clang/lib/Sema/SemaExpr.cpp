@@ -12996,11 +12996,6 @@ bool Sema::CheckDynamicBoundVariableEscape(QualType LHSType, Expr *RHSExp) {
 AssignConvertType
 Sema::CheckValueTerminatedAssignmentConstraints(QualType LHSType,
                                                 Expr *RHSExpr) {
-  // After an earlier error the RHS may be a RecoveryExpr, which is value
-  // dependent; evaluating its terminator element asserts. The error is
-  // already reported.
-  if (RHSExpr->containsErrors() || RHSExpr->isValueDependent())
-    return AssignConvertType::Compatible;
   const auto *LVTT = LHSType->getAs<ValueTerminatedType>();
   if (LVTT && LVTT->isPointerType()) {
     const auto *SL = dyn_cast<StringLiteral>(RHSExpr->IgnoreParenImpCasts());
@@ -13059,7 +13054,10 @@ Sema::CheckValueTerminatedAssignmentConstraints(QualType LHSType,
              Context.hasSameUnqualifiedType(
                  Context.getCorrespondingSignedType(LPointee),
                  Context.getCorrespondingSignedType(RPointee)));
+        // After an earlier error RHSExpr may contain a RecoveryExpr, which is
+        // value dependent; evaluating it asserts.
         if (CompatiblePointees && RHSExpr->isPRValue() &&
+            !RHSExpr->isValueDependent() && !RHSExpr->containsErrors() &&
             RHSExpr->tryEvaluateTerminatorElement(Evald, Context) &&
             Evald.Val.isInt() &&
             llvm::APSInt::isSameValue(LVTT->getTerminatorValue(Context),
