@@ -1,0 +1,5 @@
+name = "safe-c-lean"
+defaultTargets = ["SafeC"]
+
+[[lean_lib]]
+name = "SafeC"
