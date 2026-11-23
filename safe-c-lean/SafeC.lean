@@ -2,3 +2,6 @@
 import SafeC.Defs
 import SafeC.Sound
 import SafeC.Holes
+import SafeC.Own
+import SafeC.OwnHoles
+import SafeC.OwnSound

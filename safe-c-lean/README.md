@@ -19,6 +19,10 @@ lists only `propext`, `Classical.choice` and `Quot.sound`.
 - `SafeC/Holes.lean`: one well-typed program per review hole, run in the
   kernel (`by decide`) to `ub` under the rule that has the hole and to `trap`
   under the fix. Also shows that no conjunct of `Rules.Sound` can be dropped.
+- `SafeC/Own.lean`, `SafeC/OwnSound.lean`, `SafeC/OwnHoles.lean`: a separate
+  model of owned and borrowed pointers, `free` and `realloc`, with its own
+  soundness theorem (`own_sound`: no UB, so no use after free or double free)
+  and one counterexample per ownership rule. See `OWNERSHIP.md`.
 
 ## What is modeled
 
@@ -54,7 +58,8 @@ lists only `propext`, `Classical.choice` and `Quot.sound`.
 
 ## What is not modeled
 
-Free and lifetimes, struct layout and byte-level representation (one cell per
+In this core model: free and lifetimes (those are in the ownership model, see
+`OWNERSHIP.md`), struct layout and byte-level representation (one cell per
 element), function pointers, variadics, `realloc`, uninitialized heap memory
 (`alloc` zero-fills), and the system-header and driver-flag issues. `counted n`
 has a fixed `n`. Safe C reads the count from a variable, which is the same once
