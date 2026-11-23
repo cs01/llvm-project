@@ -8941,7 +8941,10 @@ ExprResult InitializationSequence::Perform(Sema &S,
       // longer-lived terminated pointer (a field, a global) keeps the explicit
       // rule, because writes through the original pointer could later erase
       // the terminator.
+      // An argument that already has an error keeps it; building the checked
+      // conversion around a RecoveryExpr crashes the constant evaluator.
       if (S.getLangOpts().SafeC && Entity.isParameterKind() &&
+          !InitialCurInit.get()->containsErrors() &&
           ConvTy ==
               AssignConvertType::
                   IncompatibleNonValueTerminatedToValueTerminatedPointer) {

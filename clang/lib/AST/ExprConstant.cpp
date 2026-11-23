@@ -18757,6 +18757,12 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
   case Builtin::BI__builtin_bcmp:
   case Builtin::BI__builtin_wmemcmp: {
     LValue String1, String2;
+    // After a bounds-safety error an argument can be left in a form that is
+    // not a pointer prvalue; it cannot be folded, so do not try.
+    for (unsigned I = 0; I != 2; ++I)
+      if (!E->getArg(I)->isPRValue() ||
+          !E->getArg(I)->getType()->hasPointerRepresentation())
+        return false;
     if (!EvaluatePointer(E->getArg(0), String1, Info) ||
         !EvaluatePointer(E->getArg(1), String2, Info))
       return false;
