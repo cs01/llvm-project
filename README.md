@@ -53,13 +53,17 @@ what Safe C uses from it, and what Safe C adds.
      (run-time only, about 2x slower).
 4. **Uninitialized reads**
    - Clang today: `-Wuninitialized` (a warning, misses cases).
-   - Safe C **adds** a definite-initialization rule: reading a variable that might not
-     be set is an error. **Planned.**
+   - Safe C **uses** clang's uninitialized-variables analysis, always on and as errors:
+     reading a local that might not be set is a compile error. Arrays, structs and other
+     locals the analysis does not track start zeroed (`-ftrivial-auto-var-init=zero`),
+     so a read before the first write is a defined zero rather than undefined behavior.
+     **Works** (heap memory from `malloc` is not covered yet).
 5. **Type confusion** (bad pointer casts, union punning, mismatched varargs)
    - Clang today: `-Wincompatible-pointer-types` and `-Wformat` (warnings).
-   - Safe C **adds** a rule that these are allowed only inside `__unsafe`. **Planned.**
-     Library macros keep the casts in one place, so everyday code stays typed: see
-     [safe-c-notes/examples/typed-helpers.c](safe-c-notes/examples/typed-helpers.c).
+   - Safe C **adds** a rule that converting `void *` to a typed pointer is allowed only
+     inside `__unsafe`, except for null, fresh allocations (`malloc`, `calloc`,
+     `realloc`) and byte views (`char *`). **Works.** Union punning and other pointer
+     casts are **planned**.
 6. **Integer undefined behavior** (signed overflow, oversized shifts, division by zero)
    - Clang today: `-fwrapv` (signed overflow wraps), and
      `-fsanitize=signed-integer-overflow,shift,integer-divide-by-zero` with
@@ -197,8 +201,8 @@ free(p);
 | Weakening by flags | `-fno-bounds-safety` and friends rejected with `-fsafe-c` | this fork | works |
 | Silencing by `-Wno-` or pragma | null and bounds violations are re-issued as errors that no flag or pragma can lower | this fork | works |
 | Use after free, double free | owned pointers, borrows, `lifetimebound` at interfaces, named lifetimes where elision is not enough | this fork, on Clang's lifetime analysis | planned |
-| Uninitialized reads | definite initialization required | `-Wuninitialized`, made an error | planned |
-| Type confusion | no pointer casts, no union punning, checked varargs | this fork | planned |
+| Uninitialized reads | maybe-uninitialized locals are errors; aggregates start zeroed | clang's uninitialized analysis and `-ftrivial-auto-var-init` | works (not heap memory) |
+| Type confusion | `void *` to `T *` only in `__unsafe` (except null, fresh allocations, byte views) | this fork | works; unions and other casts planned |
 | Integer UB | signed overflow wraps (as in Rust release builds); division by zero, `INT_MIN / -1` and oversized shifts trap | `-fwrapv` and Clang's trapping sanitizers | works |
 | Calls into unannotated C | only from `__unsafe` | this fork | planned |
 | Data races | thread-safety annotations, Send/Sync-style rules | `-Wthread-safety` | planned |
@@ -231,8 +235,25 @@ count as caught: only a compiler error or a compiler-inserted trap does. Harness
 CWE 476 (NULL dereference, 270 cases) and CWE 690 (unchecked return value, 722 cases) is
 rejected at compile time. 40-45% of the `good()` versions are also rejected as written,
 because they keep NULL in places Safe C requires to be marked `_Nullable`; that is
-annotation burden, and the annotated mode will measure it. Bounds and the other CWEs are
-not scored yet.
+annotation burden, and the annotated mode will measure it.
+
+**Full run, all CWEs scored so far** (2026-11-23). `strict` counts only cases whose
+`good()` compiles and runs, so a file-level error that rejects both says nothing:
+
+| CWE | strict caught |
+|---|---|
+| 476 NULL dereference, 690 unchecked return | 100% (all at compile time) |
+| 121 stack overflow | 93.3% |
+| 126 buffer over-read | 84.0% |
+| 127 buffer under-read | 83.3% |
+| 124 buffer underwrite | 80.6% |
+| 122 heap overflow | 72.8% (63 of the misses only overflow on 32-bit targets) |
+| 369 integer divide by zero | every deterministically reachable case traps |
+| 415 double free, 416 use after free | 0% (ownership not built yet) |
+
+Almost every remaining bounds miss uses a random index or a randomly taken branch, which
+no fixed input can trigger. Details and the harness's own fixes are in
+[safe-c-notes/juliet.md](safe-c-notes/juliet.md).
 
 A second number tracks annotation burden: annotations per 1,000 lines on a real library,
 and the share of its lines that need `__unsafe`.
