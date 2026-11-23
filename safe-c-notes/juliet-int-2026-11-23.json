@@ -1,0 +1,4790 @@
+[
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_01",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_01.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_02",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_02.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_03",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_03.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_04",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_04.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_05",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_05.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_06",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_06.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_07",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_07.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_08",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_08.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_09",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_09.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_10",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_10.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_11",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_11.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_12",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_13",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_13.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_14",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_14.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_15",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_15.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_16",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_16.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_17",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_17.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_18",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_18.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_21",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_21.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_22",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_22a.c",
+   "CWE369_Divide_by_Zero__float_fgets_22b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_31",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_31.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_32",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_32.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_34",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_34.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_41",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_41.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_42",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_42.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_44",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_44.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_45",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_45.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_51",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_51a.c",
+   "CWE369_Divide_by_Zero__float_fgets_51b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_52",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_52a.c",
+   "CWE369_Divide_by_Zero__float_fgets_52b.c",
+   "CWE369_Divide_by_Zero__float_fgets_52c.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_53",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_53a.c",
+   "CWE369_Divide_by_Zero__float_fgets_53b.c",
+   "CWE369_Divide_by_Zero__float_fgets_53c.c",
+   "CWE369_Divide_by_Zero__float_fgets_53d.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_54",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_54a.c",
+   "CWE369_Divide_by_Zero__float_fgets_54b.c",
+   "CWE369_Divide_by_Zero__float_fgets_54c.c",
+   "CWE369_Divide_by_Zero__float_fgets_54d.c",
+   "CWE369_Divide_by_Zero__float_fgets_54e.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_61",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_61a.c",
+   "CWE369_Divide_by_Zero__float_fgets_61b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_63",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_63a.c",
+   "CWE369_Divide_by_Zero__float_fgets_63b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_64",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_64a.c",
+   "CWE369_Divide_by_Zero__float_fgets_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__float_fgets_64b.c:29:23: error: converting 'void *' to 'float *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__float_fgets_64b.c:47:23: error: converting 'void *' to 'float *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_65",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_65a.c",
+   "CWE369_Divide_by_Zero__float_fgets_65b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_66",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_66a.c",
+   "CWE369_Divide_by_Zero__float_fgets_66b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_67",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_67a.c",
+   "CWE369_Divide_by_Zero__float_fgets_67b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fgets_68",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fgets_68a.c",
+   "CWE369_Divide_by_Zero__float_fgets_68b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_01",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_01.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_02",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_02.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_03",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_03.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_04",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_04.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_05",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_05.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_06",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_06.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_07",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_07.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_08",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_08.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_09",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_09.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_10",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_10.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_11",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_11.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_12",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_13",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_13.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_14",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_14.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_15",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_15.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_16",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_16.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_17",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_17.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_18",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_18.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_21",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_21.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_22",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_22a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_22b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_31",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_31.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_32",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_32.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_34",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_34.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_41",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_41.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_42",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_42.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_44",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_44.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_45",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_45.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_51",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_51a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_51b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_52",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_52a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_52b.c",
+   "CWE369_Divide_by_Zero__float_fscanf_52c.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_53",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_53a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_53b.c",
+   "CWE369_Divide_by_Zero__float_fscanf_53c.c",
+   "CWE369_Divide_by_Zero__float_fscanf_53d.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_54",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_54a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_54b.c",
+   "CWE369_Divide_by_Zero__float_fscanf_54c.c",
+   "CWE369_Divide_by_Zero__float_fscanf_54d.c",
+   "CWE369_Divide_by_Zero__float_fscanf_54e.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_61",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_61a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_61b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_63",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_63a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_63b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_64",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_64a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__float_fscanf_64b.c:27:23: error: converting 'void *' to 'float *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__float_fscanf_64b.c:45:23: error: converting 'void *' to 'float *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_65",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_65a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_65b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_66",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_66a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_66b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_67",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_67a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_67b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_fscanf_68",
+  "files": [
+   "CWE369_Divide_by_Zero__float_fscanf_68a.c",
+   "CWE369_Divide_by_Zero__float_fscanf_68b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_01",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_01.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_02",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_02.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_03",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_03.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_04",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_04.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_05",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_05.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_06",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_06.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_07",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_07.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_08",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_08.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_09",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_09.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_10",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_10.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_11",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_11.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_12",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_13",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_13.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_14",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_14.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_15",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_15.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_16",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_16.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_17",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_17.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_18",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_18.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_21",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_21.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_22",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_22a.c",
+   "CWE369_Divide_by_Zero__float_rand_22b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_31",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_31.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_32",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_32.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_34",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_34.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_41",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_41.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_42",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_42.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_44",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_44.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_45",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_45.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_51",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_51a.c",
+   "CWE369_Divide_by_Zero__float_rand_51b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_52",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_52a.c",
+   "CWE369_Divide_by_Zero__float_rand_52b.c",
+   "CWE369_Divide_by_Zero__float_rand_52c.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_53",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_53a.c",
+   "CWE369_Divide_by_Zero__float_rand_53b.c",
+   "CWE369_Divide_by_Zero__float_rand_53c.c",
+   "CWE369_Divide_by_Zero__float_rand_53d.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_54",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_54a.c",
+   "CWE369_Divide_by_Zero__float_rand_54b.c",
+   "CWE369_Divide_by_Zero__float_rand_54c.c",
+   "CWE369_Divide_by_Zero__float_rand_54d.c",
+   "CWE369_Divide_by_Zero__float_rand_54e.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_61",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_61a.c",
+   "CWE369_Divide_by_Zero__float_rand_61b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_63",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_63a.c",
+   "CWE369_Divide_by_Zero__float_rand_63b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_64",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_64a.c",
+   "CWE369_Divide_by_Zero__float_rand_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__float_rand_64b.c:27:23: error: converting 'void *' to 'float *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__float_rand_64b.c:45:23: error: converting 'void *' to 'float *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_65",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_65a.c",
+   "CWE369_Divide_by_Zero__float_rand_65b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_66",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_66a.c",
+   "CWE369_Divide_by_Zero__float_rand_66b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_67",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_67a.c",
+   "CWE369_Divide_by_Zero__float_rand_67b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_rand_68",
+  "files": [
+   "CWE369_Divide_by_Zero__float_rand_68a.c",
+   "CWE369_Divide_by_Zero__float_rand_68b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_01",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_01.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_02",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_02.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_03",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_03.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_04",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_04.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_05",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_05.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_06",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_06.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_07",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_07.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_08",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_08.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_09",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_09.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_10",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_10.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_11",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_11.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_12",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_13",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_13.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_14",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_14.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_15",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_15.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_16",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_16.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_17",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_17.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_18",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_18.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_21",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_21.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_22",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_22a.c",
+   "CWE369_Divide_by_Zero__float_zero_22b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_31",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_31.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_32",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_32.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_34",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_34.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_41",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_41.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_42",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_42.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_44",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_44.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_45",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_45.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_51",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_51a.c",
+   "CWE369_Divide_by_Zero__float_zero_51b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_52",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_52a.c",
+   "CWE369_Divide_by_Zero__float_zero_52b.c",
+   "CWE369_Divide_by_Zero__float_zero_52c.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_53",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_53a.c",
+   "CWE369_Divide_by_Zero__float_zero_53b.c",
+   "CWE369_Divide_by_Zero__float_zero_53c.c",
+   "CWE369_Divide_by_Zero__float_zero_53d.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_54",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_54a.c",
+   "CWE369_Divide_by_Zero__float_zero_54b.c",
+   "CWE369_Divide_by_Zero__float_zero_54c.c",
+   "CWE369_Divide_by_Zero__float_zero_54d.c",
+   "CWE369_Divide_by_Zero__float_zero_54e.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_61",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_61a.c",
+   "CWE369_Divide_by_Zero__float_zero_61b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_63",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_63a.c",
+   "CWE369_Divide_by_Zero__float_zero_63b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_64",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_64a.c",
+   "CWE369_Divide_by_Zero__float_zero_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__float_zero_64b.c:27:23: error: converting 'void *' to 'float *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__float_zero_64b.c:45:23: error: converting 'void *' to 'float *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_65",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_65a.c",
+   "CWE369_Divide_by_Zero__float_zero_65b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_66",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_66a.c",
+   "CWE369_Divide_by_Zero__float_zero_66b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_67",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_67a.c",
+   "CWE369_Divide_by_Zero__float_zero_67b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__float_zero_68",
+  "files": [
+   "CWE369_Divide_by_Zero__float_zero_68a.c",
+   "CWE369_Divide_by_Zero__float_zero_68b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_01",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_01.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_02",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_02.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_03",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_03.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_04",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_04.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_05",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_05.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_06",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_06.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_07",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_07.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_08",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_08.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_09",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_09.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_10",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_10.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_11",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_11.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_12",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_13",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_13.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_14",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_14.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_15",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_15.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_16",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_16.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_17",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_17.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_18",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_18.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_21",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_21.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_22",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_22a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_22b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_31",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_31.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_32",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_32.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_34",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_34.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_41",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_41.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_42",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_42.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_44",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_44.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_45",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_45.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_51",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_51a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_51b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_52",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_52a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_52b.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_52c.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_53",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_53a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_53b.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_53c.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_53d.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_54",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_54a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_54b.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_54c.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_54d.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_54e.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_61",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_61a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_61b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_63",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_63a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_63b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_64",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_64a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__int_fgets_divide_64b.c:27:21: error: converting 'void *' to 'int *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__int_fgets_divide_64b.c:42:21: error: converting 'void *' to 'int *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_65",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_65a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_65b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_66",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_66a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_66b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_67",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_67a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_67b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_divide_68",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_divide_68a.c",
+   "CWE369_Divide_by_Zero__int_fgets_divide_68b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_01",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_01.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_02",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_02.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_03",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_03.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_04",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_04.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_05",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_05.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_06",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_06.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_07",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_07.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_08",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_08.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_09",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_09.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_10",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_10.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_11",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_11.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_12",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_13",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_13.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_14",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_14.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_15",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_15.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_16",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_16.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_17",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_17.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_18",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_18.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_21",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_21.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_22",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_22a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_22b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_31",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_31.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_32",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_32.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_34",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_34.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_41",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_41.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_42",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_42.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_44",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_44.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_45",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_45.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_51",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_51a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_51b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_52",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_52a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_52b.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_52c.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_53",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_53a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_53b.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_53c.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_53d.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_54",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_54a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_54b.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_54c.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_54d.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_54e.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_61",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_61a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_61b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_63",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_63a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_63b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_64",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_64a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__int_fgets_modulo_64b.c:27:21: error: converting 'void *' to 'int *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__int_fgets_modulo_64b.c:42:21: error: converting 'void *' to 'int *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_65",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_65a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_65b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_66",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_66a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_66b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_67",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_67a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_67b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fgets_modulo_68",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fgets_modulo_68a.c",
+   "CWE369_Divide_by_Zero__int_fgets_modulo_68b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_01",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_01.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_02",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_02.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_03",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_03.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_04",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_04.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_05",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_05.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_06",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_06.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_07",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_07.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_08",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_08.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_09",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_09.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_10",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_10.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_11",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_11.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_12",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_12.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_13",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_13.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_14",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_14.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_15",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_15.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_16",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_16.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_17",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_17.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_18",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_18.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_21",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_21.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_22",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_22a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_22b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_31",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_31.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_32",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_32.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_34",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_34.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_41",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_41.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_42",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_42.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_44",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_44.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_45",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_45.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_51",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_51a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_51b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_52",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_52a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_52b.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_52c.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_53",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_53a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_53b.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_53c.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_53d.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_54",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_54a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_54b.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_54c.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_54d.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_54e.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_61",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_61a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_61b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_63",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_63a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_63b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_64",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_64a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__int_fscanf_divide_64b.c:25:21: error: converting 'void *' to 'int *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s01/CWE369_Divide_by_Zero__int_fscanf_divide_64b.c:40:21: error: converting 'void *' to 'int *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_65",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_65a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_65b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_66",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_66a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_66b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_67",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_67a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_67b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_divide_68",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_divide_68a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_divide_68b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_01",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_01.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_02",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_02.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_03",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_03.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_04",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_04.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_05",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_05.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_06",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_06.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_07",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_07.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_08",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_08.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_09",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_09.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_10",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_10.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_11",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_11.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_12",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_13",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_13.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_14",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_14.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_15",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_15.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_16",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_16.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_17",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_17.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_18",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_18.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_21",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_21.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_22",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_22a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_22b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_31",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_31.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_32",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_32.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_34",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_34.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_41",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_41.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_42",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_42.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_44",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_44.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_45",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_45.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_51",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_51a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_51b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_52",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_52a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_52b.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_52c.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_53",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_53a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_53b.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_53c.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_53d.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_54",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_54a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_54b.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_54c.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_54d.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_54e.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_61",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_61a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_61b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_63",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_63a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_63b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_64",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_64a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_fscanf_modulo_64b.c:25:21: error: converting 'void *' to 'int *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_fscanf_modulo_64b.c:40:21: error: converting 'void *' to 'int *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_65",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_65a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_65b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_66",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_66a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_66b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_67",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_67a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_67b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_fscanf_modulo_68",
+  "files": [
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_68a.c",
+   "CWE369_Divide_by_Zero__int_fscanf_modulo_68b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_01",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_01.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_02",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_02.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_03",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_03.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_04",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_04.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_05",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_05.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_06",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_06.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_07",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_07.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_08",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_08.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_09",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_09.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_10",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_10.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_11",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_11.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_12",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_13",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_13.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_14",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_14.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_15",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_15.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_16",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_16.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_17",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_17.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_18",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_18.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_21",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_21.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_22",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_22a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_22b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_31",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_31.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_32",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_32.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_34",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_34.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_41",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_41.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_42",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_42.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_44",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_44.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_45",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_45.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_51",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_51a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_51b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_52",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_52a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_52b.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_52c.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_53",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_53a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_53b.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_53c.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_53d.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_54",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_54a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_54b.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_54c.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_54d.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_54e.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_61",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_61a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_61b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_63",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_63a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_63b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_64",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_64a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_rand_divide_64b.c:25:21: error: converting 'void *' to 'int *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_rand_divide_64b.c:40:21: error: converting 'void *' to 'int *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_65",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_65a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_65b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_66",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_66a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_66b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_67",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_67a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_67b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_divide_68",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_divide_68a.c",
+   "CWE369_Divide_by_Zero__int_rand_divide_68b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_01",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_01.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_02",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_02.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_03",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_03.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_04",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_04.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_05",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_05.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_06",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_06.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_07",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_07.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_08",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_08.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_09",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_09.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_10",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_10.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_11",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_11.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_12",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_13",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_13.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_14",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_14.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_15",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_15.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_16",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_16.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_17",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_17.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_18",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_18.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_21",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_21.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_22",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_22a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_22b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_31",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_31.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_32",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_32.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_34",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_34.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_41",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_41.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_42",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_42.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_44",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_44.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_45",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_45.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_51",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_51a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_51b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_52",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_52a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_52b.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_52c.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_53",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_53a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_53b.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_53c.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_53d.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_54",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_54a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_54b.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_54c.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_54d.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_54e.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_61",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_61a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_61b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_63",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_63a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_63b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_64",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_64a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_rand_modulo_64b.c:25:21: error: converting 'void *' to 'int *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_rand_modulo_64b.c:40:21: error: converting 'void *' to 'int *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_65",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_65a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_65b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_66",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_66a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_66b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_67",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_67a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_67b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_rand_modulo_68",
+  "files": [
+   "CWE369_Divide_by_Zero__int_rand_modulo_68a.c",
+   "CWE369_Divide_by_Zero__int_rand_modulo_68b.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_01",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_01.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_02",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_02.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_03",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_03.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_04",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_04.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_05",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_05.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_06",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_06.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_07",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_07.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_08",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_08.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_09",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_09.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_10",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_10.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_11",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_11.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_12",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_12.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_13",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_13.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_14",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_14.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_15",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_15.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_16",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_16.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_17",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_17.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_18",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_18.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_21",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_21.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_22",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_22a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_22b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_31",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_31.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_32",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_32.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_34",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_34.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_41",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_41.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_42",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_42.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_44",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_44.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_45",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_45.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_51",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_51a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_51b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_52",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_52a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_52b.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_52c.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_53",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_53a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_53b.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_53c.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_53d.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_54",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_54a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_54b.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_54c.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_54d.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_54e.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_61",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_61a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_61b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_63",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_63a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_63b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_64",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_64a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_zero_divide_64b.c:25:21: error: converting 'void *' to 'int *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_zero_divide_64b.c:40:21: error: converting 'void *' to 'int *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_65",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_65a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_65b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_66",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_66a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_66b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_67",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_67a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_67b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_divide_68",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_divide_68a.c",
+   "CWE369_Divide_by_Zero__int_zero_divide_68b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_01",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_01.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_02",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_02.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_03",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_03.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_04",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_04.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_05",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_05.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_06",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_06.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_07",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_07.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_08",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_08.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_09",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_09.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_10",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_10.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_11",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_11.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_12",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_12.c"
+  ],
+  "bad": "missed",
+  "badExit": 0,
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_13",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_13.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_14",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_14.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_15",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_15.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_16",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_16.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_17",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_17.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_18",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_18.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_21",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_21.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_22",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_22a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_22b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_31",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_31.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_32",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_32.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_34",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_34.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_41",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_41.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_42",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_42.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_44",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_44.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_45",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_45.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_51",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_51a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_51b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_52",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_52a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_52b.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_52c.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_53",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_53a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_53b.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_53c.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_53d.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_54",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_54a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_54b.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_54c.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_54d.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_54e.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_61",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_61a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_61b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_63",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_63a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_63b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_64",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_64a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_64b.c"
+  ],
+  "bad": "rejected",
+  "badErr": "suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_zero_modulo_64b.c:25:21: error: converting 'void *' to 'int *' can treat memory as the wrong type",
+  "good": "false-positive",
+  "goodErr": "compile: suite/C/testcases/CWE369_Divide_by_Zero/s02/CWE369_Divide_by_Zero__int_zero_modulo_64b.c:40:21: error: converting 'void *' to 'int *' can treat memory as the wrong type"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_65",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_65a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_65b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_66",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_66a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_66b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_67",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_67a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_67b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ },
+ {
+  "cwe": "369",
+  "case": "CWE369_Divide_by_Zero__int_zero_modulo_68",
+  "files": [
+   "CWE369_Divide_by_Zero__int_zero_modulo_68a.c",
+   "CWE369_Divide_by_Zero__int_zero_modulo_68b.c"
+  ],
+  "bad": "trapped",
+  "badSignal": "SIGTRAP",
+  "good": "accepted"
+ }
+]

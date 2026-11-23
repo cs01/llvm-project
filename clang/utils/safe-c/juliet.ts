@@ -49,8 +49,8 @@ function collect(): Case[] {
   return cases;
 }
 
-const sh = async (cmd: string[], o: { cwd?: string; timeoutMs?: number } = {}) => {
-  const p = Bun.spawn(cmd, { cwd: o.cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+const sh = async (cmd: string[], o: { cwd?: string; timeoutMs?: number; input?: string } = {}) => {
+  const p = Bun.spawn(cmd, { cwd: o.cwd, stdin: o.input !== undefined ? new TextEncoder().encode(o.input) : "ignore", stdout: "pipe", stderr: "pipe" });
   let timedOut = false;
   const t = o.timeoutMs ? setTimeout(() => { timedOut = true; p.kill("SIGKILL"); }, o.timeoutMs) : null;
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
@@ -80,7 +80,9 @@ async function build(c: Case, variant: "bad" | "good", dir: string, support: str
 }
 
 async function runExe(exe: string, cwd: string) {
-  const r = await sh([exe], { cwd, timeoutMs: 5000 });
+  // Juliet bad paths read their bad value from stdin (fgets/fscanf); "0" is the
+  // value that triggers division by zero and similar input-driven bugs.
+  const r = await sh([exe], { cwd, timeoutMs: 5000, input: "0\n".repeat(64) });
   return { signal: r.timedOut ? "TIMEOUT" : r.signal, code: r.code };
 }
 

@@ -76,3 +76,20 @@ Only flow variant 64 is still missed (25 cases per CWE): the pointer is laundere
 annotation burden, not a wrong analysis: the good variants keep NULL in globals, pass
 `&p` to out-parameters and store NULL into pointer slots on purpose, and under Safe C
 each of those needs a `_Nullable`. The annotated mode will report it separately.
+
+## Integer rules: CWE 369 divide by zero (2026-11-23)
+
+Flags: `-Xclang -fsafe-c -fwrapv -fsanitize(-trap)=integer-divide-by-zero,signed-integer-overflow,shift-exponent`
+(what `-fsafe-c` turns on). The harness now feeds `0` on stdin, the value Juliet's
+input-driven bad paths need; before that, fgets/fscanf cases never reached the bug.
+
+| Family | Cases | Caught | Note |
+|---|---|---|---|
+| int, constant zero / fgets / fscanf, `/` and `%` | 228 | 224 (98.2%) | the 4 misses are flow variant 12, whose bad branch is taken only when `globalReturnsTrueOrFalse()` (random) says so |
+| int, `rand()` divisor | 76 | not scored | the divisor is random; no input triggers the bug reliably |
+| float | 152 | not scored | float division by zero is defined (IEEE: infinity), as in Rust |
+
+Every deterministically reachable integer division by zero traps at run time.
+CWE 190 (integer overflow) is not scored as a safety failure: under Safe C signed
+overflow wraps, as in Rust release builds, and any out-of-bounds access it leads to is
+caught by bounds safety.
