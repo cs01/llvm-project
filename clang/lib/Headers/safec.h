@@ -38,6 +38,12 @@
 #define __ended_by(E)
 #define __terminated_by(T)
 #define __null_terminated
+#define __unsafe_forge_single(T, P) ((T)(P))
+#define __unsafe_forge_bidi_indexable(T, P, S) ((T)(P))
+#define __unsafe_forge_null_terminated(T, P) ((T)(P))
+#define __null_terminated_to_indexable(P) (P)
+#define __unsafe_null_terminated_to_indexable(P) (P)
+#define __unsafe_null_terminated_from_indexable(P, ...) (P)
 #endif
 
 /* libc string functions. The system headers leave their `const char *`
