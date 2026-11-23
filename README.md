@@ -105,11 +105,15 @@ builds and ships at every step.
   | 2. Safe, with `__unsafe` | `-fsafe-c`, the hard spots wrapped in `__unsafe` | everything outside those blocks is checked |
   | 3. Fully safe | `-fsafe-c`, no `__unsafe` | the full guarantee |
 
-- **Calling code that is not safe yet** (planned). Calling an unannotated function from
-  safe code is an error unless its header is declared legacy, once per header with
-  `#pragma clang safe_c legacy`. System headers count as legacy. The trust boundary is
-  one searchable line per header, not one `__unsafe` per call. Pointers returned from
-  legacy code carry no bounds, so they cannot be indexed without an explicit check.
+- **Calling code that is not safe yet.** Put `#pragma clang safe_c legacy` at the top of
+  a header that is not ready. Safe C then treats it like a system header: its code is not
+  checked and its declarations are trusted. The trust boundary is one searchable line per
+  header, not one `__unsafe` per call, and `-Rsafe-c-unsafe` lists every legacy header in
+  a build. The pragma is an error in the file being compiled (that file is always
+  checked), and outside Safe C it does nothing. `#pragma clang system_header` in a user
+  file is rejected, so this is the only way to declare one. Not yet done: requiring
+  legacy declarations' pointers to be checked before use (today they are trusted as
+  declared).
 - **Order:** code that handles untrusted input first (parsers, decoders, protocol
   handlers), where most memory-safety CVEs are; leaf utilities next; the core last.
 - **Tooling** (planned): an annotator that proposes annotations from inference and

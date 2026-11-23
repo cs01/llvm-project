@@ -478,7 +478,8 @@ void Preprocessor::HandlePragmaPoison() {
 
 /// HandlePragmaSystemHeader - Implement \#pragma GCC system_header.  We know
 /// that the whole directive has been parsed.
-void Preprocessor::HandlePragmaSystemHeader(Token &SysHeaderTok) {
+void Preprocessor::HandlePragmaSystemHeader(Token &SysHeaderTok,
+                                            bool SafeCLegacy) {
   if (isInPrimaryFile()) {
     Diag(SysHeaderTok, diag::pp_pragma_sysheader_in_main_file);
     return;
@@ -489,7 +490,7 @@ void Preprocessor::HandlePragmaSystemHeader(Token &SysHeaderTok) {
 
   // Safe C exempts system headers from its checks, so a user file must not be
   // able to declare itself one.
-  if (getLangOpts().SafeC &&
+  if (getLangOpts().SafeC && !SafeCLegacy &&
       !SrcMgr::isSystem(SourceMgr.getFileCharacteristic(
           SourceMgr.getLocForStartOfFile(TheLexer->getFileID())))) {
     Diag(SysHeaderTok, diag::err_safe_c_self_declared_system_header) << 0;
@@ -2040,6 +2041,39 @@ struct PragmaAssumeNonNullHandler : public PragmaHandler {
   }
 };
 
+/// "\#pragma clang safe_c legacy": the header holding it is code Safe C does
+/// not check, and its declarations are trusted the way system headers are.
+/// One searchable line per header marks the trust boundary. Only a header can
+/// be legacy: the file being compiled is checked, with __unsafe for the parts
+/// that cannot be.
+struct PragmaSafeCHandler : public PragmaHandler {
+  PragmaSafeCHandler() : PragmaHandler("safe_c") {}
+
+  void HandlePragma(Preprocessor &PP, PragmaIntroducer Introducer,
+                    Token &NameTok) override {
+    Token Tok;
+    PP.LexUnexpandedToken(Tok);
+    const IdentifierInfo *Mode = Tok.getIdentifierInfo();
+    if (!Mode || !Mode->isStr("legacy")) {
+      PP.Diag(Tok.getLocation(), diag::err_pp_safe_c_pragma_syntax);
+      return;
+    }
+    Token Next;
+    PP.LexUnexpandedToken(Next);
+    if (Next.isNot(tok::eod))
+      PP.Diag(Next, diag::ext_pp_extra_tokens_at_eol) << "pragma";
+    // Outside Safe C the header is plain C anyway.
+    if (!PP.getLangOpts().SafeC)
+      return;
+    if (PP.isInPrimaryFile()) {
+      PP.Diag(Tok.getLocation(), diag::err_pp_safe_c_legacy_in_main_file);
+      return;
+    }
+    PP.Diag(Tok.getLocation(), diag::remark_pp_safe_c_legacy_header);
+    PP.HandlePragmaSystemHeader(Tok, /*SafeCLegacy=*/true);
+  }
+};
+
 /* TO_UPSTREAM(BoundsSafety) ON*/
 struct PragmaAbiPointerAttributesHandler : public PragmaHandler {
   PragmaAbiPointerAttributesHandler() : PragmaHandler("abi_ptr_attr") {}
@@ -2278,6 +2312,7 @@ void Preprocessor::RegisterBuiltinPragmas() {
   // #pragma clang ...
   AddPragmaHandler("clang", new PragmaPoisonHandler());
   AddPragmaHandler("clang", new PragmaSystemHeaderHandler());
+  AddPragmaHandler("clang", new PragmaSafeCHandler());
   AddPragmaHandler("clang", new PragmaDebugHandler());
   AddPragmaHandler("clang", new PragmaDependencyHandler());
   AddPragmaHandler("clang", new PragmaDiagnosticHandler("clang"));

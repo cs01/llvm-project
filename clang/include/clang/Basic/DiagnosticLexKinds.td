@@ -410,10 +410,20 @@ def pp_nonportable_path_separator : Warning<
 
 def pp_pragma_once_in_main_file : Warning<"#pragma once in main file">,
   InGroup<DiagGroup<"pragma-once-outside-header">>;
+def err_pp_safe_c_pragma_syntax : Error<
+  "expected 'legacy' after '#pragma clang safe_c'">;
+def err_pp_safe_c_legacy_in_main_file : Error<
+  "'#pragma clang safe_c legacy' marks a header whose code Safe C does not "
+  "check; the file being compiled is always checked: annotate it, and wrap "
+  "only the parts that cannot be checked in '__unsafe'">;
+def remark_pp_safe_c_legacy_header : Remark<
+  "legacy header: Safe C trusts its declarations and does not check its code">,
+  InGroup<SafeCUnsafe>;
 def err_safe_c_self_declared_system_header : Error<
   "%select{'#pragma clang system_header'|a line marker with the system-header "
   "flag}0 is not allowed under -fsafe-c: Safe C checks are lifted only by "
-  "'__unsafe' or for headers found in a system include directory (-isystem)">;
+  "'__unsafe', '#pragma clang safe_c legacy', or for headers found in a "
+  "system include directory (-isystem)">;
 def pp_pragma_sysheader_in_main_file : Warning<
   "#pragma system_header ignored in main file">,
   InGroup<DiagGroup<"pragma-system-header-outside-header">>;

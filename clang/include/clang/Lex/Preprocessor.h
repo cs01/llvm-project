@@ -3058,7 +3058,8 @@ public:
   void HandlePragmaOnce(Token &OnceTok);
   void HandlePragmaMark(Token &MarkTok);
   void HandlePragmaPoison();
-  void HandlePragmaSystemHeader(Token &SysHeaderTok);
+  /// \p SafeCLegacy: from "#pragma clang safe_c legacy", which Safe C allows.
+  void HandlePragmaSystemHeader(Token &SysHeaderTok, bool SafeCLegacy = false);
   void HandlePragmaDependency(Token &DependencyTok);
   void HandlePragmaPushMacro(Token &Tok);
   void HandlePragmaPopMacro(Token &Tok);
