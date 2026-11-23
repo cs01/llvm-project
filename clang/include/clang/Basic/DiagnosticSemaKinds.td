@@ -13465,12 +13465,6 @@ def warn_safe_c_takes_lost : Warning<
   "'__attribute__((ownership_takes(malloc, %1)))' (safec.h: "
   "'__safec_takes(%1)')">,
   InGroup<SafeCOwnership>, DefaultError;
-def warn_safe_c_returns_fresh : Warning<
-  "%0 returns memory it allocated, but callers are not told, so a use after "
-  "they free it goes unchecked; declare it "
-  "'__attribute__((ownership_returns(malloc)))' (safec.h: "
-  "'__safec_returns_owned')">,
-  InGroup<SafeCOwnership>, DefaultError;
 def warn_safe_c_stack_escape : Warning<
   "storing the address of local %0 through a pointer or in a global lets it "
   "outlive %0; return the value instead, or allocate the object with malloc "

@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "SafeCState.h"
 #include "SemaAPINotesInternal.h"
 #include "UsedDeclVisitor.h"
 #include "clang/AST/ASTContext.h"
@@ -2009,19 +2010,7 @@ void Sema::ActOnEndOfTranslationUnit() {
   if (!PP.isIncrementalProcessingEnabled())
     TUScope = nullptr;
 
-  // Safe C: an __unsafe region in which nothing was suppressed lifts checks
-  // for no reason. Only regions spelled directly in the user's code are
-  // reported: one inside another macro may be needed at its other uses.
-  // After an error, some diagnostics were never issued, so say nothing.
-  if (getLangOpts().SafeC && !getDiagnostics().hasErrorOccurred())
-    for (const SafeCUnsafeRegion &R : SafeCUnsafeRegions) {
-      SourceLocation B = R.Range.getBegin();
-      if (R.Used || B.isInvalid() || SourceMgr.isInSystemHeader(B) ||
-          (B.isMacroID() &&
-           SourceMgr.getImmediateMacroCallerLoc(B).isMacroID()))
-        continue;
-      Diag(B, diag::warn_safe_c_unused_unsafe) << R.IsFunction;
-    }
+  emitSafeCUnusedUnsafeWarnings();
 
   checkExposure(Context.getTranslationUnitDecl());
 }

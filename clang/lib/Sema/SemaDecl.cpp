@@ -17982,8 +17982,7 @@ static void checkSafeCReturnsOwned(Sema &S, const FunctionDecl *FD,
   };
   Walk(Body);
   if (Found)
-    S.Diag(Found->getRetValue()->getExprLoc(),
-           diag::warn_safe_c_returns_fresh)
+    S.SafeCDiag(Found->getRetValue()->getExprLoc(), "returns-fresh")
         << FD << Found->getRetValue()->getSourceRange();
 }
 
@@ -18726,7 +18725,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   FunctionScopeInfo *FSI = getCurFunction();
   FunctionDecl *FD = dcl ? dcl->getAsFunction() : nullptr;
 
-  if (getLangOpts().SafeC && isSafeCUnsafeDecl(FD) && SafeCUnsafeDepth > 0)
+  if (getLangOpts().SafeC && isSafeCUnsafeDecl(FD) && inSafeCUnsafeParse())
     // The body is not attached to FD yet, so take its end from Body.
     endSafeCUnsafeRegion(Body ? Body->getEndLoc() : FD->getEndLoc());
 

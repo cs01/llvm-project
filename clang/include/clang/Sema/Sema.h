@@ -114,6 +114,9 @@ struct InlineAsmIdentifierInfo;
 } // namespace llvm
 
 namespace clang {
+class SafeCState;
+}
+namespace clang {
 class ADLResult;
 class APValue;
 class ASTConstraintSatisfaction;
@@ -1457,36 +1460,31 @@ public:
   /// first Safe C error would hide every later one.
   unsigned NumSafeCSafetyErrors = 0;
 
-  /// Safe C `__unsafe` regions: statements and functions carrying
-  /// [[clang::suppress("safe-c")]]. Safe C's own safety diagnostics are not
-  /// issued inside them. The depth covers diagnostics raised while the region
-  /// is being parsed; the ranges cover those raised later, by end-of-TU
-  /// analyses.
-  unsigned SafeCUnsafeDepth = 0;
-  SmallVector<SourceRange, 4> SafeCUnsafeRanges;
+  /// Safe C (-fsafe-c) state, kept in its own type (lib/Sema/SafeCState.h)
+  /// so Safe C can grow without editing this header. Regions are `__unsafe`
+  /// statements and functions ([[clang::suppress("safe-c")]]); Safe C's own
+  /// safety diagnostics are not issued inside them.
+  std::unique_ptr<SafeCState> SafeC;
+  SafeCState &safeC();
+  /// Whether an `__unsafe` region is being parsed.
+  bool inSafeCUnsafeParse() const;
   bool isInSafeCUnsafeRegion(SourceLocation Loc) const;
+  void beginSafeCUnsafeRegion(SourceLocation Begin, bool IsFunction);
+  void endSafeCUnsafeRegion(SourceLocation End);
+  /// Marks the innermost region holding \p Loc as needed.
+  void noteSafeCUnsafeRegionUsed(SourceLocation Loc);
+  /// Like Rust's unused_unsafe, at the end of the TU.
+  void emitSafeCUnusedUnsafeWarnings();
+  /// A Safe C diagnostic registered at run time (lib/Sema/SemaSafeC.cpp):
+  /// an unsilenceable error, ignored inside `__unsafe`. New Safe C
+  /// diagnostics belong there, not in DiagnosticSemaKinds.td.
+  SemaDiagnosticBuilder SafeCDiag(SourceLocation Loc, StringRef Key);
 
   /// Safe C: whether any bytes are a valid \p T: no pointers (bytes would
   /// forge one) and no _Bool (only 0 and 1 are valid, and code relies on it).
   /// \p VoidIsPlain: treat void (unknown memory) as plain.
   static bool isSafeCPlainData(const ASTContext &Ctx, QualType T,
                                bool VoidIsPlain = false);
-
-  /// Each region, and whether a safety diagnostic was suppressed in it; an
-  /// unused one is reported at the end of the TU, like Rust's unused_unsafe.
-  struct SafeCUnsafeRegion {
-    SourceRange Range;
-    bool IsFunction = false;
-    bool Used = false;
-  };
-  SmallVector<SafeCUnsafeRegion, 4> SafeCUnsafeRegions;
-  /// Indices into SafeCUnsafeRegions of the regions being parsed, innermost
-  /// last.
-  SmallVector<unsigned, 4> SafeCUnsafeOpen;
-  void beginSafeCUnsafeRegion(SourceLocation Begin, bool IsFunction);
-  void endSafeCUnsafeRegion(SourceLocation End);
-  /// Marks the innermost region holding \p Loc as needed.
-  void noteSafeCUnsafeRegionUsed(SourceLocation Loc);
 
   /// Safe C: reject pointer conversions, implicit or by cast, that can make
   /// memory be read as the wrong type. Allowed: to void; null; fresh

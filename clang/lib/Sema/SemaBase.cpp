@@ -123,58 +123,6 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
           IDs.isDefaultMappingAsError(DiagID));
 }
 
-bool Sema::isInSafeCUnsafeRegion(SourceLocation Loc) const {
-  if (Loc.isInvalid() || SafeCUnsafeRanges.empty())
-    return false;
-  Loc = SourceMgr.getFileLoc(Loc);
-  for (SourceRange R : SafeCUnsafeRanges) {
-    SourceLocation B = SourceMgr.getFileLoc(R.getBegin());
-    SourceLocation E = SourceMgr.getFileLoc(R.getEnd());
-    if (!SourceMgr.isBeforeInTranslationUnit(Loc, B) &&
-        !SourceMgr.isBeforeInTranslationUnit(E, Loc))
-      return true;
-  }
-  return false;
-}
-
-void Sema::beginSafeCUnsafeRegion(SourceLocation Begin, bool IsFunction) {
-  ++SafeCUnsafeDepth;
-  SafeCUnsafeOpen.push_back(SafeCUnsafeRegions.size());
-  SafeCUnsafeRegions.push_back({SourceRange(Begin, Begin), IsFunction});
-}
-
-void Sema::endSafeCUnsafeRegion(SourceLocation End) {
-  if (SafeCUnsafeDepth == 0 || SafeCUnsafeOpen.empty())
-    return;
-  --SafeCUnsafeDepth;
-  SafeCUnsafeRegion &R = SafeCUnsafeRegions[SafeCUnsafeOpen.pop_back_val()];
-  R.Range.setEnd(End.isValid() ? End : R.Range.getBegin());
-  SafeCUnsafeRanges.push_back(R.Range);
-}
-
-void Sema::noteSafeCUnsafeRegionUsed(SourceLocation Loc) {
-  if (!SafeCUnsafeOpen.empty()) {
-    SafeCUnsafeRegions[SafeCUnsafeOpen.back()].Used = true;
-    return;
-  }
-  // Raised after parsing (end-of-function analyses): the innermost closed
-  // region holding Loc is the latest-starting one that contains it.
-  Loc = SourceMgr.getFileLoc(Loc);
-  SafeCUnsafeRegion *Best = nullptr;
-  for (SafeCUnsafeRegion &R : SafeCUnsafeRegions) {
-    SourceLocation B = SourceMgr.getFileLoc(R.Range.getBegin());
-    SourceLocation E = SourceMgr.getFileLoc(R.Range.getEnd());
-    if (SourceMgr.isBeforeInTranslationUnit(Loc, B) ||
-        SourceMgr.isBeforeInTranslationUnit(E, Loc))
-      continue;
-    if (!Best || SourceMgr.isBeforeInTranslationUnit(
-                     SourceMgr.getFileLoc(Best->Range.getBegin()), B))
-      Best = &R;
-  }
-  if (Best)
-    Best->Used = true;
-}
-
 Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
                                            unsigned DiagID) {
   if (getLangOpts().SafeC) {
@@ -184,7 +132,7 @@ Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
       // Inside __unsafe the programmer takes responsibility: issue nothing.
       // Elsewhere the error has no warning group, so nothing can lower it.
       bool InUnsafe =
-          SemaRef.SafeCUnsafeDepth > 0 || SemaRef.isInSafeCUnsafeRegion(Loc);
+          SemaRef.inSafeCUnsafeParse() || SemaRef.isInSafeCUnsafeRegion(Loc);
       DiagID = IDs.getCustomDiagID(DiagnosticIDs::CustomDiagDesc(
           InUnsafe ? diag::Severity::Ignored : diag::Severity::Error,
           std::string(IDs.getDescription(DiagID)),
