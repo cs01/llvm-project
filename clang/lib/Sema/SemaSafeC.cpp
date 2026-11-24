@@ -664,7 +664,7 @@ static void checkOwnershipRoot(Sema &S, const Expr *Place, unsigned Op,
   const VarDecl *Root = lifetimes::safeCRootVar(Place);
   if (!Root || !Root->getType()->isPointerType())
     return; // a global (rejected elsewhere) or a stack object
-  StringRef K = safeCPointerKind(Root->getType());
+  StringRef K = lifetimes::safeCDeclKind(Root);
   if (K == "owned" || K == "excl" || isOwnedStorage(Root) ||
       isInferredOwnerLocal(S.Context, Root, Body))
     return;
@@ -687,7 +687,7 @@ static bool isExclusiveReborrowCall(ASTContext &Ctx, const Expr *E,
   for (unsigned I = 0, N = std::min(Call->getNumArgs(), F->getNumParams());
        I != N; ++I) {
     const ParmVarDecl *P = F->getParamDecl(I);
-    if (safeCPointerKind(P->getType()) == "excl" &&
+    if (lifetimes::safeCParamKind(P->getType()) == "excl" &&
         P->hasAttr<LifetimeBoundAttr>() &&
         !exclusiveArgBlocker(Ctx, Call->getArg(I), Body))
       return true;
@@ -1006,7 +1006,7 @@ public:
     SmallVector<std::pair<const VarDecl *, unsigned>, 4> Lent;
     for (unsigned I = 0; I != N; ++I) {
       QualType PT = F->getParamDecl(I)->getType();
-      StringRef K = safeCPointerKind(PT);
+      StringRef K = lifetimes::safeCParamKind(PT);
       if (K != "excl" && !(K == "owned" || safeCTakesParam(F, I)))
         continue;
       if (const VarDecl *Root = lifetimes::safeCRootVar(Call->getArg(I)))
@@ -1020,7 +1020,7 @@ public:
         if (const auto *DRE = dyn_cast<DeclRefExpr>(
                 Call->getArg(I)->IgnoreParenImpCasts()))
           if (const auto *VD = dyn_cast<ValueDecl>(DRE->getDecl());
-              VD && safeCPointerKind(VD->getType()) == "excl")
+              VD && lifetimes::safeCDeclKind(VD) == "excl")
             S.SafeCDiag(DRE->getExprLoc(), "excl-reassigned") << VD << 1;
     }
     for (auto [Root, LentAt] : Lent)

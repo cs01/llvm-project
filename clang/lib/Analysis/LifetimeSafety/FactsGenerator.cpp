@@ -735,14 +735,14 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
                               ->getAs<FunctionProtoType>())
       for (unsigned I = 0, N = std::min(CE->getNumArgs(), FPT->getNumParams());
            I != N; ++I) {
-        StringRef K = safeCPointerKind(FPT->getParamType(I));
+        StringRef K = safeCParamKind(FPT->getParamType(I));
         if (K == "excl" || K == "owned")
           EndBorrowsThrough(CE->getArg(I));
       }
   if (const FunctionDecl *FD = CE->getDirectCallee()) {
     unsigned N = std::min(CE->getNumArgs(), FD->getNumParams());
     for (unsigned I = 0; I != N; ++I) {
-      StringRef K = safeCPointerKind(FD->getParamDecl(I)->getType());
+      StringRef K = safeCParamKind(FD->getParamDecl(I)->getType());
       if (K == "excl" || K == "owned")
         EndBorrowsThrough(CE->getArg(I));
     }

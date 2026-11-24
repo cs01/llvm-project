@@ -655,6 +655,28 @@ static llvm::cl::opt<bool>
 
 bool safeCOwnershipFlag() { return SafeCOwnership; }
 
+static llvm::cl::opt<bool> SafeCExclDefault(
+    "safe-c-excl-default",
+    llvm::cl::desc("Safe C: an unannotated pointer-to-non-const parameter is "
+                   "_Excl (Rust's &mut), as `const T *` is a shared borrow"),
+    llvm::cl::init(false));
+
+llvm::StringRef safeCParamKind(QualType T) {
+  llvm::StringRef K = safeCPointerKind(T);
+  if (!K.empty() || !SafeCExclDefault || !T->isPointerType())
+    return K;
+  QualType Pointee = T->getPointeeType();
+  if (Pointee.isConstQualified() || Pointee->isFunctionType() ||
+      Pointee->isVoidType())
+    return K;
+  return "excl";
+}
+
+llvm::StringRef safeCDeclKind(const ValueDecl *D) {
+  return isa<ParmVarDecl>(D) ? safeCParamKind(D->getType())
+                             : safeCPointerKind(D->getType());
+}
+
 const Expr *safeCPeel(const Expr *E) {
   while (true) {
     E = E->IgnoreParenImpCasts();
