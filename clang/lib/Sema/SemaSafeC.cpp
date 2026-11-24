@@ -622,47 +622,6 @@ static void checkTaggedUnions(Sema &S, const RecordDecl *RD) {
   }
 }
 
-/// What a pointer type promises a caller, beyond its C type: the ownership
-/// kind, and its bounds (with the parameters a count names, by position).
-static std::string promiseOf(QualType T) {
-  std::string Out = safeCPointerKind(T).str();
-  // Giving ownership away may be written on the pointer's declaration
-  // (_Takes) instead: checkSafeCTakesStore compares that.
-  if (Out == "owned")
-    Out.clear();
-  if (const auto *CAT = T->getAs<CountAttributedType>()) {
-    Out += "|count" + std::to_string(int(CAT->getKind())) + ":";
-    struct Printer : RecursiveASTVisitor<Printer> {
-      std::string Out;
-      bool VisitDeclRefExpr(DeclRefExpr *E) {
-        if (const auto *P = dyn_cast<ParmVarDecl>(E->getDecl()))
-          Out += "#" + std::to_string(P->getFunctionScopeIndex());
-        else
-          Out += E->getDecl()->getNameAsString();
-        Out += ",";
-        return true;
-      }
-      bool VisitIntegerLiteral(IntegerLiteral *E) {
-        Out += llvm::toString(E->getValue(), 10, false) + ",";
-        return true;
-      }
-      bool VisitBinaryOperator(BinaryOperator *E) {
-        Out += E->getOpcodeStr().str();
-        return true;
-      }
-    } P;
-    P.TraverseStmt(CAT->getCountExpr());
-    Out += P.Out;
-  } else if (T->isBoundsAttributedType()) {
-    Out += "|bounds";
-  } else if (T->isValueTerminatedType()) {
-    Out += "|terminated";
-  }
-  if (T->isPointerType() && T->getPointeeType()->isPointerType())
-    Out += "*" + promiseOf(T->getPointeeType());
-  return Out;
-}
-
 /// A call through a pointer knows only the pointer's type, so a function may
 /// be stored only in one that makes the same promises.
 void clang::checkSafeCFunctionConversion(Sema &S, QualType Dst,
@@ -678,12 +637,12 @@ void clang::checkSafeCFunctionConversion(Sema &S, QualType Dst,
       S.getSourceManager().isInSystemHeader(Src->getExprLoc()))
     return;
   for (unsigned I = 0, N = DP->getNumParams(); I != N; ++I)
-    if (promiseOf(DP->getParamType(I)) != promiseOf(SP->getParamType(I))) {
+    if (lifetimes::safeCPromise(DP->getParamType(I)) != lifetimes::safeCPromise(SP->getParamType(I))) {
       S.SafeCDiag(Src->getExprLoc(), "fn-promise")
           << ("parameter " + std::to_string(I + 1)) << Dst;
       return;
     }
-  if (promiseOf(DP->getReturnType()) != promiseOf(SP->getReturnType()))
+  if (lifetimes::safeCPromise(DP->getReturnType()) != lifetimes::safeCPromise(SP->getReturnType()))
     S.SafeCDiag(Src->getExprLoc(), "fn-promise") << "the result" << Dst;
 }
 
@@ -759,6 +718,8 @@ static const ValueDecl *namedStorage(const Expr *E) {
 /// part of one, a function, null, or another _Static.
 static bool isStaticAddress(ASTContext &Ctx, const Expr *E) {
   E = E->IgnoreParens();
+  if (isa<ImplicitValueInitExpr>(E->IgnoreParenImpCasts()))
+    return true; // left out of an initializer: null
   if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
     return true;
   if (const auto *CE = dyn_cast<CastExpr>(E)) {

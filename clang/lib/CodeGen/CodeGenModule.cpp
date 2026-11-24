@@ -28,6 +28,7 @@
 #include "CoverageMappingGen.h"
 #include "QualTypeMapper.h"
 #include "TargetInfo.h"
+#include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/CharUnits.h"
@@ -1254,19 +1255,28 @@ void CodeGenModule::emitSafeCTypeSignatures() {
         SM.isInSystemHeader(VD->getLocation()))
       continue;
     QualType T = getContext().getCanonicalType(Canon->getType());
+    // Both files describe the first declaration they saw (a shared header's).
+    // An array's own size is left to the types above.
+    std::string Promise = isa<FunctionDecl>(Canon) ||
+                                  !Canon->getType()->isArrayType()
+                              ? lifetimes::safeCSignature(Canon)
+                              : std::string();
     if (!GV->isDeclaration()) {
       if (!GV->hasExternalLinkage())
         continue;
       // The definition's own type; a complete array also answers users that
       // declared it without a size.
       QualType DT = getContext().getCanonicalType(VD->getType());
-      llvm::SmallVector<std::string, 2> Sigs = {SigName(Name, DT.getAsString())};
+      llvm::SmallVector<std::string, 2> Sigs = {SigName(Name, DT.getAsString() + Promise)};
       if (const auto *CAT = getContext().getAsConstantArrayType(DT))
         Sigs.push_back(SigName(
             Name, getContext()
                       .getIncompleteArrayType(CAT->getElementType(),
                                               ArraySizeModifier::Normal, 0)
-                      .getAsString()));
+                      .getAsString() + Promise));
+      for (const auto &[Struct, Contents] :
+           lifetimes::safeCPointedStructs(VD))
+        Sigs.push_back(SigName((Name + ".struct." + Struct).str(), Contents));
       for (const std::string &S : Sigs)
         if (!getModule().getNamedGlobal(S))
           new llvm::GlobalVariable(getModule(), Int8Ty, /*isConstant=*/true,
@@ -1274,13 +1284,18 @@ void CodeGenModule::emitSafeCTypeSignatures() {
                                    llvm::ConstantInt::get(Int8Ty, 0), S);
       continue;
     }
-    std::string S = SigName(Name, T.getAsString());
-    llvm::GlobalVariable *Ref = getModule().getNamedGlobal(S);
-    if (!Ref)
-      Ref = new llvm::GlobalVariable(getModule(), Int8Ty, /*isConstant=*/true,
-                                     llvm::GlobalValue::ExternalLinkage,
-                                     nullptr, S);
-    Refs.push_back(Ref);
+    llvm::SmallVector<std::string, 2> Uses = {
+        SigName(Name, T.getAsString() + Promise)};
+    for (const auto &[Struct, Contents] : lifetimes::safeCPointedStructs(VD))
+      Uses.push_back(SigName((Name + ".struct." + Struct).str(), Contents));
+    for (const std::string &S : Uses) {
+      llvm::GlobalVariable *Ref = getModule().getNamedGlobal(S);
+      if (!Ref)
+        Ref = new llvm::GlobalVariable(getModule(), Int8Ty, /*isConstant=*/true,
+                                       llvm::GlobalValue::ExternalLinkage,
+                                       nullptr, S);
+      Refs.push_back(Ref);
+    }
   }
   // A declaration cannot be kept alive directly; an internal pointer to it
   // can, and makes the linker resolve it.
