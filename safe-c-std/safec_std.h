@@ -208,7 +208,7 @@ static inline i64_result str_to_i64(str s) {
     if (c < '0' || c > '9')
       return ERR(i64_result, PARSE_NOT_A_NUMBER);
     if (v > (__LONG_MAX__ - (c - '0')) / 10)
-      return ERR(long_result, PARSE_OVERFLOW);
+      return ERR(i64_result, PARSE_OVERFLOW);
     v = v * 10 + (c - '0');
   }
   return OK(i64_result, neg ? -v : v);
