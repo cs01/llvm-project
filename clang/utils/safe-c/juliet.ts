@@ -67,7 +67,14 @@ const sh = async (cmd: string[], o: { cwd?: string; timeoutMs?: number; input?: 
 // ported project would mark an unported header legacy.
 const base = ["-isystem", SUP, "-DINCLUDEMAIN", ...sys, ...extra];
 const supBase = ["-w", "-I", SUP, ...sys];
-const firstError = (s: string) => (s.split("\n").find(l => /error|undefined|ld:/.test(l)) ?? s.split("\n")[0] ?? "").trim().slice(0, 300);
+// The line that says why a build failed: an error first, then a linker
+// failure (Undefined symbols), and only then anything ld printed (its
+// warnings come first and are not the reason).
+const firstError = (s: string) => {
+  const lines = s.split("\n");
+  return (lines.find(l => /error/.test(l)) ?? lines.find(l => /[Uu]ndefined/.test(l)) ??
+          lines.find(l => /ld:/.test(l)) ?? lines[0] ?? "").trim().slice(0, 300);
+};
 
 // plain = true builds without the flags under test (and with the baseline
 // compiler), to tell a compiler-inserted trap from one the platform raises on
