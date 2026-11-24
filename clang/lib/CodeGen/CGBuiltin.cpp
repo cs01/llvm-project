@@ -6034,27 +6034,33 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
     return RValue::get(EmitLValue(E->getArg(0)).getPointer(*this));
   case Builtin::BI__builtin_safec_take: {
     // Load the pointer, then leave null behind (and a zero count, so the
-    // struct's bounds stay true).
-    // The struct's base is evaluated once, even with side effects.
+    // struct's bounds stay true). EmitLValue evaluates the place once and
+    // keeps its bounds checks (a wide base pointer is checked as usual).
     const Expr *Arg = E->getArg(0)->IgnoreParens();
-    const auto *ME = dyn_cast<MemberExpr>(Arg);
-    const auto *Field = ME ? dyn_cast<FieldDecl>(ME->getMemberDecl()) : nullptr;
-    std::optional<LValue> Base;
-    if (Field)
-      Base = ME->isArrow()
-                 ? MakeNaturalAlignAddrLValue(
-                       EmitScalarExpr(ME->getBase()),
-                       ME->getBase()->getType()->getPointeeType())
-                 : EmitLValue(ME->getBase());
-    LValue LV = Base ? EmitLValueForField(*Base, Field) : EmitLValue(Arg);
+    LValue LV = EmitLValue(Arg);
     llvm::Value *V = EmitLoadOfScalar(LV, E->getExprLoc());
     EmitStoreOfScalar(llvm::Constant::getNullValue(V->getType()), LV);
-    if (const auto *CAT = Arg->getType()->getAs<CountAttributedType>(); CAT && Base)
+    const auto *ME = dyn_cast<MemberExpr>(Arg);
+    const auto *Field = ME ? dyn_cast<FieldDecl>(ME->getMemberDecl()) : nullptr;
+    if (const auto *CAT = Arg->getType()->getAs<CountAttributedType>();
+        CAT && Field) {
+      // The count is a sibling field: find the record from the field's own
+      // address rather than evaluating the base again.
+      const RecordDecl *RD = Field->getParent();
+      CharUnits FieldOff = getContext().toCharUnitsFromBits(
+          getContext().getFieldOffset(Field));
+      Address RecAddr =
+          Builder.CreateConstInBoundsByteGEP(LV.getAddress().withElementType(Int8Ty),
+                                             -FieldOff)
+              .withElementType(ConvertTypeForMem(getContext().getCanonicalTagType(RD)));
+      LValue RecLV = MakeAddrLValue(RecAddr, getContext().getCanonicalTagType(RD));
       for (const TypeCoupledDeclRefInfo &DI : CAT->getCoupledDecls())
-        if (auto *Count = dyn_cast<FieldDecl>(DI.getDecl()))
+        if (auto *Count = dyn_cast<FieldDecl>(DI.getDecl());
+            Count && Count->getParent() == RD)
           EmitStoreOfScalar(
               llvm::Constant::getNullValue(ConvertType(Count->getType())),
-              EmitLValueForField(*Base, Count));
+              EmitLValueForField(RecLV, Count));
+    }
     return RValue::get(V);
   }
   case Builtin::BI__builtin_function_start:
