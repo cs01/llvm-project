@@ -13,7 +13,7 @@ cpSync(join(src, "suite/C/testcasesupport"), join(out, "suite/C/testcasesupport"
 cpSync(join(import.meta.dir, "juliet_port.h"), join(out, "suite/C/testcasesupport/juliet_port.h"));
 
 const stats: Record<string, number> = { files: 0, nullable: 0, strfns: 0 };
-function port(text: string): string {
+function port(text: string, file: string): string {
   text = text.replace(/\r\n/g, "\n"); // Juliet ships CRLF
   // (a) A pointer local set to NULL may be null: say so. (Rust: Option<&T>.)
   text = text.replace(/^(\s+)((?:const\s+)?[A-Za-z_][\w ]*?\s*\*+)\s*([A-Za-z_]\w*)\s*=\s*NULL\s*;/gm,
@@ -43,7 +43,15 @@ function port(text: string): string {
   // across the call (Rust: a slice); a plain pointer parameter is one
   // element, so the sink's copy would trap on correct code. The buggy
   // versions keep their buffers' real bounds and still trap.
-  text = text.replace(/([(,]\s*)((?:const\s+)?[A-Za-z_]\w*) \* data(\s*[,)])/g,
+  // Variants 63 and 64 pass a pointer to one variable (`dataPtr`), not a
+  // buffer, and declare it as `data` in another file: leave them alone.
+  const pointsToOne = /_6[34][a-z]?\.c$/.test(file);
+  // ...but when that variable is the buffer pointer itself (`T * * dataPtr`),
+  // the pointer it points to carries the buffer's bounds.
+  if (pointsToOne)
+    text = text.replace(/([(,]\s*)((?:const\s+)?[A-Za-z_]\w*) \* \* (data|dataPtr)(\s*[,)])/g,
+      (_m, pre, ty, name, post) => { stats.slices = (stats.slices ?? 0) + 1; return `${pre}${ty} *__bidi_indexable * ${name}${post}`; });
+  if (!pointsToOne) text = text.replace(/([(,]\s*)((?:const\s+)?[A-Za-z_]\w*) \* data(\s*[,)])/g,
     (_m, pre, ty, post) => { stats.slices = (stats.slices ?? 0) + 1; return `${pre}${ty} *__bidi_indexable data${post}`; });
   text = text.replace(/\(\*funcPtr\) \(((?:const\s+)?[A-Za-z_]\w*) \*\)/g, "(*funcPtr) ($1 *__bidi_indexable)");
   // ...and the same through a source function's result (variants 42, 61)
@@ -65,7 +73,7 @@ for (const d of readdirSync(TC)) {
       const p = join(dir, e), rel = p.slice(TC.length + 1), o = join(OTC, rel);
       if (statSync(p).isDirectory()) { walk(p); continue; }
       mkdirSync(dirname(o), { recursive: true });
-      if (p.endsWith(".c")) { stats.files++; writeFileSync(o, port(readFileSync(p, "utf8"))); }
+      if (p.endsWith(".c")) { stats.files++; writeFileSync(o, port(readFileSync(p, "utf8"), p)); }
       else cpSync(p, o);
     }
   };
