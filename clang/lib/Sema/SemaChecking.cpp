@@ -7859,6 +7859,11 @@ tryAgain:
     return SLCT_NotALiteral;
 
   E = E->IgnoreParenCasts();
+  // -fbounds-safety: a literal passed where the callee's header is not
+  // annotated (glibc's printf) is wrapped in its conversion to a terminated
+  // string.
+  while (const auto *TBF = dyn_cast<TerminatedByFromIndexableExpr>(E))
+    E = TBF->getPointer()->IgnoreParenCasts();
 
   if (E->isNullPointerConstant(S.Context, Expr::NPC_ValueDependentIsNotNull))
     // Technically -Wformat-nonliteral does not warn about this case.
