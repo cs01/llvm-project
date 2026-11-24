@@ -674,6 +674,8 @@ static void checkOwnershipRoot(Sema &S, const Expr *Place, unsigned Op,
 
 static const ValueDecl *exclusiveArgBlocker(ASTContext &Ctx, const Expr *E,
                                             const Stmt *Body);
+static bool isInferredExclusiveLocal(ASTContext &Ctx, const VarDecl *VD,
+                                     const Stmt *Body);
 
 /// A call that returns an exclusive reborrow: some `_Excl _Lifetimebound`
 /// parameter gets an argument that is itself exclusive (Rust's `&mut` in,
@@ -742,6 +744,11 @@ static const ValueDecl *exclusiveArgBlocker(ASTContext &Ctx, const Expr *E,
                                             const Stmt *Body) {
   E = lifetimes::safeCPeel(E);
   if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+    // `&local` lends the variable itself, a stack object, whatever it holds
+    // (strtod's end pointer, an out-parameter).
+    if (UO->getOpcode() == UO_AddrOf &&
+        isa<DeclRefExpr>(lifetimes::safeCPeel(UO->getSubExpr())))
+      return nullptr;
     if (UO->getOpcode() == UO_AddrOf || UO->getOpcode() == UO_Deref)
       return exclusiveArgBlocker(Ctx, UO->getSubExpr(), Body);
   }
@@ -762,11 +769,64 @@ static const ValueDecl *exclusiveArgBlocker(ASTContext &Ctx, const Expr *E,
   const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
   if (!VD || !VD->getType()->isPointerType())
     return nullptr; // a stack object (or array), or something else
-  StringRef K = safeCPointerKind(VD->getType());
+  StringRef K = lifetimes::safeCDeclKind(VD);
   if (K == "owned" || K == "excl" || isOwnedStorage(VD) ||
-      isInferredOwnerLocal(Ctx, VD, Body))
+      isInferredOwnerLocal(Ctx, VD, Body) ||
+      isInferredExclusiveLocal(Ctx, VD, Body))
     return nullptr;
   return VD;
+}
+
+/// A plain local is an exclusive borrow, as a Rust `&mut` reborrow is, when
+/// its address is never taken and every value stored in it is itself fine to
+/// lend exclusively (from an exclusive parameter, an owner, an owned field of
+/// one, or a stack object). `c = c->next` stays within c's own values.
+static bool isInferredExclusiveLocal(ASTContext &Ctx, const VarDecl *VD,
+                                     const Stmt *Body) {
+  static thread_local llvm::SmallPtrSet<const VarDecl *, 8> Visiting;
+  if (!VD->isLocalVarDecl() || VD->isStaticLocal() || !Body ||
+      !VD->getType()->isPointerType() ||
+      !safeCPointerKind(VD->getType()).empty())
+    return false;
+  if (!Visiting.insert(VD).second)
+    return true;
+  auto Fine = [&](const Expr *E) {
+    return E->IgnoreParenCasts()->isNullPointerConstant(
+               Ctx, Expr::NPC_ValueDependentIsNotNull) ||
+           !exclusiveArgBlocker(Ctx, E, Body);
+  };
+  bool Ok = true;
+  if (const Expr *Init = VD->getInit(); Init && !Fine(Init))
+    Ok = false;
+  struct Finder : RecursiveASTVisitor<Finder> {
+    const VarDecl *VD;
+    std::function<bool(const Expr *)> Fine;
+    bool Ok = true;
+    bool names(const Expr *E) {
+      const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+      return DRE && DRE->getDecl() == VD;
+    }
+    bool VisitBinaryOperator(BinaryOperator *BO) {
+      // `p += n` moves within the same object: still the same borrow.
+      if (BO->isAssignmentOp() && names(BO->getLHS()) &&
+          BO->getOpcode() != BO_AddAssign && BO->getOpcode() != BO_SubAssign &&
+          (BO->getOpcode() != BO_Assign || !Fine(BO->getRHS())))
+        Ok = false;
+      return Ok;
+    }
+    bool VisitUnaryOperator(UnaryOperator *UO) {
+      if (UO->getOpcode() == UO_AddrOf && names(UO->getSubExpr()))
+        Ok = false;
+      return Ok;
+    }
+  };
+  if (Ok) {
+    Finder F{{}, VD, Fine};
+    F.TraverseStmt(const_cast<Stmt *>(Body));
+    Ok = F.Ok;
+  }
+  Visiting.erase(VD);
+  return Ok;
 }
 
 /// A local whose cleanup frees it (`_Drop_free`, safec.h's trusted

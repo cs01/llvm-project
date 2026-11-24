@@ -38,3 +38,22 @@ int shared_ok(void) {
   free(_Take(s.p));
   return v;
 }
+
+// A plain local whose values all come from an exclusive source is itself
+// exclusive (Rust's reborrow): it may be lent on, also after `p += n`.
+struct Node { int v; struct Node *_Owned _Nullable next; };
+void bump(struct Node *n) { n->v++; }
+void out(int **slot);
+void reborrow(struct Node *head) {
+  struct Node *cur = head;
+  bump(cur);
+  int x = 0;
+  int *__single px = &x;
+  out(&px);
+}
+void walk(char *__counted_by(n) buf, int n) {
+  char *p = buf;
+  p += n;
+  void fill(char *__counted_by(k) d, int k);
+  fill(p, 0);
+}
