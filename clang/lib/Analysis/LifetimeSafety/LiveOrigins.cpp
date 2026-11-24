@@ -71,6 +71,8 @@ static SourceLocation GetFactLoc(CausingFactType F) {
       return GlobalEsc->getGlobal()->getLocation();
     if (auto *ThisEsc = dyn_cast<ThisEscapeFact>(OEF))
       return ThisEsc->getLoc();
+    if (auto *ParamEsc = dyn_cast<ParamEscapeFact>(OEF))
+      return ParamEsc->getParam()->getLocation();
   }
   llvm_unreachable("unhandled causing fact in PointerUnion");
 }
@@ -85,7 +87,8 @@ public:
   AnalysisImpl(const CFG &C, AnalysisDeclContext &AC, FactManager &F,
                LivenessMap::Factory &SF)
       : DataflowAnalysis(C, AC, F), FactMgr(F), Factory(SF),
-        PersistentOrigins(F.getPersistentOrigins()) {}
+        PersistentOrigins(F.getPersistentOrigins()),
+        SafeC(AC.getASTContext().getLangOpts().SafeC) {}
   using DataflowAnalysis<AnalysisImpl, Lattice, Direction::Backward>::transfer;
 
   StringRef getAnalysisName() const { return "LiveOrigins"; }
@@ -166,7 +169,9 @@ public:
   // escaping through a reference parameter, e.g. `out = local_view;`. That
   // needs a separate warning.
   Lattice transfer(Lattice In, const OriginEscapesFact &OEF) {
-    if (isa<ParamEscapeFact>(OEF))
+    // Safe C: what a parameter points at outlives the call, so a borrow
+    // stored there must too (reported as a dangling parameter).
+    if (isa<ParamEscapeFact>(OEF) && !SafeC)
       return In;
     return addLive(In, OEF.getEscapedOriginID(),
                    LivenessInfo(&OEF, LivenessKind::Must));
@@ -247,6 +252,7 @@ private:
   /// Origins referenced from more than one basic block; see
   /// `FactManager::getPersistentOrigins`.
   const llvm::BitVector &PersistentOrigins;
+  bool SafeC;
 };
 } // namespace
 

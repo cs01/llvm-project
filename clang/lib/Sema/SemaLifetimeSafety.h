@@ -394,6 +394,21 @@ public:
         << DanglingField->getEndLoc();
   }
 
+  void reportDanglingParam(const Expr *IssueExpr, const ParmVarDecl *Param,
+                           const Expr *InvalidationExpr,
+                           SourceLocation ExpiryLoc) override {
+    if (!S.getLangOpts().SafeC || !IssueExpr)
+      return;
+    S.SafeCDiag(IssueExpr->getExprLoc(), "param-escape")
+        << getDiagSubjectDescription(IssueExpr) << Param
+        << IssueExpr->getSourceRange();
+    if (InvalidationExpr)
+      S.Diag(InvalidationExpr->getExprLoc(), diag::note_lifetime_safety_freed_here)
+          << getDiagSubjectDescription(IssueExpr);
+    else if (ExpiryLoc.isValid())
+      S.SafeCDiag(ExpiryLoc, "param-escape-ends");
+  }
+
   void reportDanglingGlobal(const Expr *IssueExpr,
                             const VarDecl *DanglingGlobal,
                             const Expr *MovedExpr, SourceLocation ExpiryLoc,

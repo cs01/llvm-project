@@ -929,6 +929,34 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
       break;
     LHSExpr = ignoreParensAndImpCasts(Addr->getSubExpr());
   }
+  // Safe C: a store through a pointer parameter (`*out = v`, `out[i] = v`,
+  // `out->f = v` on a view) adds v's loans to what the caller lent, which
+  // escapes the call (so a borrow of a local stored there is reported).
+  if (AC.getASTContext().getLangOpts().SafeC) {
+    const Expr *Through = nullptr;
+    if (const auto *UO = dyn_cast<UnaryOperator>(LHSExpr);
+        UO && UO->getOpcode() == UO_Deref)
+      Through = UO->getSubExpr();
+    else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(LHSExpr))
+      Through = ASE->getBase();
+    else if (const auto *ME = dyn_cast<MemberExpr>(LHSExpr); ME && ME->isArrow())
+      Through = ME->getBase();
+    // `*out = &local` (or a local array) is already an error in Sema.
+    const Expr *R = RHSExpr->IgnoreParenCasts();
+    if (const auto *UO = dyn_cast<UnaryOperator>(R);
+        (UO && UO->getOpcode() == UO_AddrOf) || R->getType()->isArrayType())
+      Through = nullptr;
+    if (Through)
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(safeCPeel(Through)))
+        if (const auto *PVD = dyn_cast<ParmVarDecl>(DRE->getDecl());
+            PVD && PVD->getType()->isPointerType())
+          if (OriginList *PL = getOriginsList(*PVD))
+            if (OriginList *Pointee = PL->peelOuterOrigin())
+              if (OriginList *RHS = readValue(RHSExpr))
+                CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+                    Pointee->getOuterOriginID(), RHS->getOuterOriginID(),
+                    /*Kill=*/false));
+  }
   // Safe C: `s.p = x` on a view, or `a[i] = x` on a local array, adds x's
   // loans to the aggregate (which keeps the borrows of every field or
   // element), and to each one enclosing it (`w.s.p`, `arr[1].p`).
@@ -1574,7 +1602,12 @@ void FactsGenerator::handleExitBlock() {
   if (const auto *Fn = dyn_cast_if_present<FunctionDecl>(AC.getDecl()))
     for (const ParmVarDecl *PVD : Fn->parameters()) {
       OriginList *List = getOriginsList(*PVD);
-      if (!List || !PVD->getType()->isReferenceType())
+      // Safe C: a pointer parameter points at the caller's storage, which
+      // outlives this call, as a reference's does. (Re-pointing it at a
+      // local first is still reported: it is rare and easy to rename.)
+      if (!List || !(PVD->getType()->isReferenceType() ||
+                     (AC.getASTContext().getLangOpts().SafeC &&
+                      PVD->getType()->isPointerType())))
         continue;
       for (OriginList *Inner = List->peelOuterOrigin(); Inner;
            Inner = Inner->peelOuterOrigin())

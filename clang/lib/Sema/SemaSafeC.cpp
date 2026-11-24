@@ -262,6 +262,12 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"union-init-mismatch", false,
      "this initializer sets the tag to %0 but fills %1, which is not live "
      "for that tag; initialize the member the tag names"},
+    {"param-escape", false,
+     "a borrow of %0 is stored where %1 points, which the caller can still "
+     "read after %0 is gone; store something the caller lends or owns "
+     "(a field of %1, or another parameter's data), or return the value "
+     "instead"},
+    {"param-escape-ends", true, "it ends here"},
     {"compound-literal-store", false,
      "this compound literal's storage ends with the block it is written in, "
      "and the pointer assigned here may outlive it; declare it as a named "

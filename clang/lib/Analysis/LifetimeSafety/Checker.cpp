@@ -407,7 +407,10 @@ public:
                      dyn_cast<const OriginEscapesFact *>(CausingFact)) {
         llvm::SmallVector<const Expr *> ExprChain =
             getExprChain(LoanPropagation.buildOriginFlowChain(OEF, LID, Cfg));
-        if (Warning.InvalidatedByExpr) {
+        if (const auto *ParamEscape = dyn_cast<ParamEscapeFact>(OEF)) {
+          SemaHelper->reportDanglingParam(IssueExpr, ParamEscape->getParam(),
+                                          Warning.InvalidatedByExpr, ExpiryLoc);
+        } else if (Warning.InvalidatedByExpr) {
           if (const auto *FieldEscape = dyn_cast<FieldEscapeFact>(OEF)) {
             // Invalidated object escapes to a field.
             if (IssueExpr)
