@@ -8,6 +8,12 @@ safec=${SAFEC:-$here/../../build.noindex/bin/clang}
 sdk=$(xcrun --show-sdk-path)
 out=$(mktemp -d)
 fail=0
+# The vendored safec.h copies (for compilers without Safe C) must match the
+# real one, or the non-Safe-C builds test a different header.
+for copy in "$here"/cjson/safec.h "$here"/jsmn/safec.h "$here"/../../safe-c-std/safec.h; do
+  cmp -s "$copy" "$here/../../clang/lib/Headers/safec.h" ||
+    { echo "stale: $copy (cp clang/lib/Headers/safec.h there)"; fail=1; }
+done
 # cJSON's circular-reference test recurses 10000 deep on purpose; ASan's
 # larger frames need more than the default 8 MB stack.
 ulimit -s 65520

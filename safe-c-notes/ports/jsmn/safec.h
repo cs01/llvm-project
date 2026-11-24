@@ -17,11 +17,12 @@
 #ifndef __SAFEC_H
 #define __SAFEC_H
 
+
 /* What you annotate. One line per annotation; the README's table is generated
    from these lines (clang/utils/safe-c/gen-readme.ts), so keep them current.
    @annotation `_Nullable` | Clang | may be null; must be checked before use (with `__counted_by(n)`: null, or `n` elements) | `Option<&T>`: plain `&T` is never null | `char *_Nullable getenv(const char *name);`
    @annotation `__counted_by(n)` | Apple | points to `n` elements; `n` is another parameter or field | `&[T]` (a slice: pointer plus length) | `int sum(const int *__counted_by(n) v, size_t n);`
-   @annotation `__counted_by_or_null(n)` | Apple | the same as `_Nullable __counted_by(n)` under Safe C; kept for code written for Apple's compiler | `Option<&[T]>` | `struct buf { char *_Nullable __counted_by_or_null(len) data; size_t len; };`
+   @annotation `__counted_by_or_null(n)` | Apple | the same as `_Nullable __counted_by(n)` under Safe C; kept for code written for Apple's compiler | `Option<&[T]>` | `struct buf { char *_Owned _Nullable __counted_by_or_null(len) data; size_t len; };`
    @annotation `__sized_by(n)` | Apple | points to `n` bytes | `&[u8]` | `void fill(void *__sized_by(n) dst, size_t n);`
    @annotation `__ended_by(end)` | Apple | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`) | `int scan(const char *__ended_by(end) p, const char *end);`
    @annotation `__null_terminated` | Apple | a string ending in 0 (string literals and libc strings are already) | `&CStr` | `size_t my_strlen(const char *__null_terminated s);`
@@ -236,5 +237,27 @@ char *getenv(const char *__null_terminated);
 #define _Returns_owned __safec_returns_owned
 #define _Lifetimebound __safec_lifetimebound
 #define _Noescape __safec_noescape
+
+/* Automatic cleanup at the end of a scope, like Rust's Drop:
+     string s _Drop(string_free) = {0};   calls string_free(&s)
+     char *p _Drop_free = malloc(n);      calls free(p)
+   A _Drop variable is never given away by name (that would free it twice);
+   move it out with _Take(p), which leaves null for the cleanup. Clang and GCC
+   both have the cleanup attribute; other compilers get no cleanup. */
+#if defined(__GNUC__) || defined(__clang__)
+/* __builtin_free so that safec.h needs no libc header. The annotation tells
+   Safe C this void * parameter is a cleanup's variable, not a byte write. */
+__attribute__((annotate("safec_cleanup")))
+static inline void safec_drop_free_(void *pp) {
+  /* unsafe: pp is the address of a pointer variable (or of a wide pointer,
+     whose first field is the pointer); the cleanup only frees it. */
+  __unsafe { __builtin_free(*(void **)pp); }
+}
+#define _Drop(fn) __attribute__((cleanup(fn)))
+#define _Drop_free __attribute__((cleanup(safec_drop_free_)))
+#else
+#define _Drop(fn)
+#define _Drop_free
+#endif
 
 #endif /* __SAFEC_H */

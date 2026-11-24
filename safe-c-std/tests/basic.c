@@ -53,10 +53,21 @@ static void test_vec(void) {
   vec_free(&nums);
 }
 
+static void test_drop(void) {
+  for (int i = 0; i < 100; i++) {
+    string s _Drop(string_free) = {0, 0, 0}; /* freed at the end of each pass */
+    CHECK(string_push(&s, S("hello")));
+    if (i % 2)
+      continue; /* early exits free it too */
+    CHECK(s.len == 5);
+  }
+}
+
 int main(void) {
   test_str();
   test_string();
   test_vec();
+  test_drop();
   printf(failures ? "%d failed\n" : "ok\n", failures);
   return failures != 0;
 }
