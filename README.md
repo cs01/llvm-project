@@ -39,6 +39,27 @@ t->kind;         // note: later used here
 The same code compiles as plain C on any compiler: the annotations come from one header,
 `safec.h`, and expand to nothing elsewhere.
 
+## Get started
+
+1. **Build the compiler** ([building](safe-c-docs/building.md)), then compile one file:
+   `clang -fsafe-c parser.c`. Start with the file that reads untrusted input.
+2. **Fix what it reports.** Each error says what is wrong and what to write.
+3. **Most code needs four words:**
+
+   | Write | When |
+   |---|---|
+   | `_Nullable` | the pointer may be null |
+   | `__counted_by(n)` | the pointer has a length, `n` |
+   | `_Owned` | whoever holds it must free it |
+   | `_Excl` | the function changes what it points to |
+
+4. **Not ready to fix a spot yet?** Put `#pragma clang safe_c legacy` at the top of a
+   header to trust it as is, or wrap the code in `__unsafe { }`. Both are easy to find
+   later.
+
+Every annotation, with its Rust equivalent: [annotations](safe-c-docs/annotations.md).
+Eight real bugs and their errors: [examples](safe-c-docs/examples.md).
+
 ## Status
 
 | Problem | Status |
@@ -56,29 +77,20 @@ small libraries are ported so far; larger ones are the real test.
 
 Details: [how each is closed](safe-c-docs/protection.md).
 
-## Results: NIST's Juliet suite
+## Results
 
-[Juliet](https://samate.nist.gov/SARD/test-suites/112) is NIST's standard test suite for
-C security tools: thousands of small programs, each with a real bug in a `bad()` function
-and fixed `good()` versions, sorted by CWE (the standard list of weakness types). Static
-analyzers and sanitizers are measured against it. A normal C compiler builds every one of
-them without an error.
-
-A case counts as caught only if Safe C stops it with a compile error, or with a trap at
-the bad access when it runs (a crash or segfault does not count). The fixed versions must
-still compile and run.
+The US government's test suite for C security tools (NIST's
+[Juliet](https://samate.nist.gov/SARD/test-suites/112)) is thousands of small programs,
+each with a known memory bug. A normal C compiler builds all of them without a word.
+Safe C:
 
 <!-- generated:summary -->
-On NIST's Juliet suite, bugs Rust rejects at compile time (null, double free, use after
-free): 498 of 498 rejected at compile time. Bugs Rust catches at run time (bounds,
-division by zero): 1915 of 2017 trapped, counting cases whose bug the test input reaches.
+- **Null, double free, use after free: 498 of 498 caught at compile time.** Same as Rust.
+- **Out of bounds, divide by zero: 94.9% stopped at the bad access** (1915 of 2017), where Rust would panic.
 <!-- end generated:summary -->
 
-What this means: the memory bugs behind most C security fixes (use after free, double
-free, null, out of bounds) are compile errors or a clean stop at the bad access, the same
-split Rust makes. Scope: these are the 3011 cases whose fixed version builds under Safe C
-as written. The rest need annotations first, mostly raw pointers in struct fields: that
-is porting work, not missed bugs. Full table in [results](safe-c-docs/results.md).
+Counted only when Safe C gives a compile error or traps at the bug; on the 3011 cases
+whose fixed version builds as written. [Full table](safe-c-docs/results.md).
 
 Ports: [jsmn](safe-c-notes/ports/jsmn/PORT.md) and [cJSON](safe-c-notes/ports/cjson/PORT.md)
 pass their tests under Safe C, Apple clang and gcc. More in [results](safe-c-docs/results.md).

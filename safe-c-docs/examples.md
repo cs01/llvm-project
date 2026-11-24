@@ -2,7 +2,109 @@
 
 [Back to the README](../README.md)
 
-## Examples
+## Eight classic C bugs, as compile errors
+
+Each one compiles without a word under a normal C compiler. Errors are copied from the
+compiler, shortened where marked `...`.
+
+### 1. A view into a string, then the string grows
+
+```c
+string s _Drop(string_free) = {0, 0, 0};
+string_push(&s, S("hello"));
+str first = string_view(&s);
+string_push(&s, S(" world")); // may realloc
+write_all(1, first);
+```
+```
+error: 'string_view' returns a borrow of '&s', which ends ... before this pointer's
+last use; call 'string_view' again after that point, or finish using the pointer first
+```
+
+### 2. Use after free in a linked list
+
+```c
+struct node *_Nullable d = h->next;
+free(_Take(h->next));
+return d ? d->v : 0;
+```
+```
+error: this pointer is borrowed from 'h->next', and the borrow ends (the field is
+taken, ...) before its last use; read 'h->next' again after that point, ...
+```
+
+### 3. Double free: two owners of one block
+
+```c
+int *_Nullable o = malloc(4);
+a.p = o;
+b.p = o;
+free(_Take(a.p));
+free(_Take(b.p));
+```
+```
+error: object allocated by 'malloc' does not live long enough
+note: local variable 'o' aliases the storage of object allocated by 'malloc'
+```
+
+### 4. Returning a pointer to the stack
+
+```c
+int *pair(int v) { return (int[]){v, v}; }
+```
+```
+error: stack memory associated with compound literal is returned
+```
+
+### 5. Off by one
+
+```c
+int a[4] = {1, 2, 3, 4};
+SLICE(int) v = {a, 5};
+```
+```
+error: initializing 'v.p' ... and count value of 5 with array 'a' (which has 4
+elements) always fails
+```
+
+### 6. Using a result without checking it
+
+```c
+i64_result r = str_to_i64(s);
+return r.value;
+```
+```
+error: reading 'value' needs the tag 'ok' known to be true here, ...; check it first
+(as in 'if (x.ok)')
+```
+
+### 7. A thread given a pointer into the caller's stack
+
+```c
+static void *worker(void *arg) { ... return NULL; }
+
+int local = 42;
+pthread_t __single t; // __single: a macOS SDK workaround, for now
+pthread_create(&t, NULL, worker, &local);
+```
+```
+error: the new thread may outlive what this pointer borrows (the spawning function can
+return or free it first); give the thread memory it owns (a new allocation, moved in)
+or static data
+```
+
+### 8. Shared data without its lock
+
+```c
+struct mtx stats_lock;
+int hits _Guarded_by(stats_lock);
+void count(void) { hits++; }
+```
+```
+error: writing variable 'hits' requires holding mutex 'stats_lock' exclusively
+```
+
+## More examples
 
 ### Null: unchecked `malloc`
 

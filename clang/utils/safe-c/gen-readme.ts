@@ -68,10 +68,11 @@ let lastTotals: any;
 function summary(): string {
   if (!lastTotals) juliet();
   const { ct, rt } = lastTotals;
+  const reached = rt.n - rt.inputMiss - rt.excused;
+  const pct = (((rt.c + rt.r) / reached) * 100).toFixed(1);
   return [
-    `On NIST's Juliet suite, bugs Rust rejects at compile time (null, double free, use after`,
-    `free): ${ct.c} of ${ct.n} rejected at compile time. Bugs Rust catches at run time (bounds,`,
-    `division by zero): ${rt.c + rt.r} of ${rt.n - rt.inputMiss - rt.excused} trapped, counting cases whose bug the test input reaches.`,
+    `- **Null, double free, use after free: ${ct.c} of ${ct.n} caught at compile time.** Same as Rust.`,
+    `- **Out of bounds, divide by zero: ${pct}% stopped at the bad access** (${rt.c + rt.r} of ${reached}), where Rust would panic.`,
   ].join("\n");
 }
 
