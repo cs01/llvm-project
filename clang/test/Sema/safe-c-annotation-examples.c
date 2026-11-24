@@ -17,8 +17,14 @@ void fill(void *__sized_by(n) dst, size_t n);
 int scan(const char *__ended_by(end) p, const char *end);
 size_t my_strlen(const char *__null_terminated s);
 __safec_takes(1) void json_free(struct json *item);
-void json_delete(struct json *__safec_owned item);
-__safec_returns_owned struct json *json_parse(const char *text);
-const char *name_of(const struct json *j __safec_lifetimebound);
-size_t count_spaces(const char *s __safec_noescape);
+void json_delete(struct json *_Owned item);
+struct node { int v; struct node *_Owned _Nullable next; };
+struct node *_Nullable pop(struct node *_Excl n) { return _Take(n->next); }
+void clear(struct node *_Excl n);
+struct op { const char *_Static name; int code; };
+struct node2 { struct node2 *_Unchecked _Nullable prev; };
+struct _View span { const int *__counted_by(n) p; int n; };
+_Returns_owned struct json *json_parse(const char *text);
+const char *name_of(const struct json *j _Lifetimebound);
+size_t count_spaces(const char *s _Noescape);
 int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }

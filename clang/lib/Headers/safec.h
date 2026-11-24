@@ -25,11 +25,17 @@
    @annotation `__sized_by(n)` | Apple | points to `n` bytes | `&[u8]` | `void fill(void *__sized_by(n) dst, size_t n);`
    @annotation `__ended_by(end)` | Apple | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`) | `int scan(const char *__ended_by(end) p, const char *end);`
    @annotation `__null_terminated` | Apple | a string ending in 0 (string literals and libc strings are already) | `&CStr` | `size_t my_strlen(const char *__null_terminated s);`
-   @annotation `__safec_takes(i)` | Safe C (Clang's `ownership_takes`) | the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move) | `__safec_takes(1) void json_free(struct json *item);` (prefer `__safec_owned` on the parameter)
-   @annotation `__safec_owned` | Safe C | on a parameter: the function takes ownership (frees it, or keeps it to free later); the caller may not use it afterwards | taking a `Box<T>` by value (a move) | `void json_delete(struct json *__safec_owned item);`
-   @annotation `__safec_returns_owned` | Safe C (Clang's `ownership_returns`) | the result is new memory the caller must free | returning `Box<T>` | `__safec_returns_owned struct json *json_parse(const char *text);`
-   @annotation `__safec_lifetimebound` | Safe C (Clang's `lifetimebound`) | on a parameter: the result points into it and dies with it | `fn f<'a>(x: &'a T) -> &'a U` | `const char *name_of(const struct json *j __safec_lifetimebound);`
-   @annotation `__safec_noescape` | Safe C (Clang's `noescape`) | on a parameter: the function does not keep the pointer | a plain `&T` parameter, which cannot outlive the call | `size_t count_spaces(const char *s __safec_noescape);`
+   @annotation `__safec_takes(i)` | Safe C (Clang's `ownership_takes`) | old form of `_Owned` on a parameter, by index; the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move) | `__safec_takes(1) void json_free(struct json *item);` (prefer `_Owned` on the parameter)
+   @annotation `_Owned` | Safe C | on a parameter: the function takes ownership (frees it, or keeps it to free later); the caller may not use it afterwards | taking a `Box<T>` by value (a move) | `void json_delete(struct json *_Owned item);`
+   @annotation `T *_Owned` (field, global) | Safe C | this pointer is responsible for freeing its target; it is moved, never copied | `Box<T>` | `struct node { int v; struct node *_Owned _Nullable next; };`
+   @annotation `_Take(place)` | Safe C | moves an owned pointer out of a field or global, leaving null | `Option::take` | `struct node *_Nullable pop(struct node *_Excl n) { return _Take(n->next); }`
+   @annotation `T *_Excl` | Safe C | an exclusive borrow: the function may take, free or replace owned fields through it | `&mut T` | `void clear(struct node *_Excl n);`
+   @annotation `T *_Static` | Safe C | points only at string literals, globals or functions | `&'static T` | `struct op { const char *_Static name; int code; };`
+   @annotation `T *_Unchecked` | Safe C | may point anywhere; its value is used only inside `__unsafe` | `*const T` (a raw pointer) | `struct node2 { struct node2 *_Unchecked _Nullable prev; };`
+   @annotation `struct _View` | Safe C | a struct holding borrows; lives only in locals and parameters | a struct with a lifetime, `struct S<'a>` | `struct _View span { const int *__counted_by(n) p; int n; };`
+   @annotation `_Returns_owned` | Safe C (Clang's `ownership_returns`) | the result is new memory the caller must free | returning `Box<T>` | `_Returns_owned struct json *json_parse(const char *text);`
+   @annotation `_Lifetimebound` | Safe C (Clang's `lifetimebound`) | on a parameter: the result points into it and dies with it | `fn f<'a>(x: &'a T) -> &'a U` | `const char *name_of(const struct json *j _Lifetimebound);`
+   @annotation `_Noescape` | Safe C (Clang's `noescape`) | on a parameter: the function does not keep the pointer | a plain `&T` parameter, which cannot outlive the call | `size_t count_spaces(const char *s _Noescape);`
    @annotation `__unsafe` | Safe C | a block or function where Safe C's rules are lifted, for code that cannot be checked | `unsafe { }` | `int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }`
    @annotation `#pragma clang safe_c legacy` | Safe C | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C | first line of a header not yet ported
    Everything else needs nothing: an unannotated pointer is non-null and points to
@@ -214,5 +220,17 @@ char *getenv(const char *__null_terminated);
 #define _Nullable
 #define _Null_unspecified
 #endif
+
+/* Short spellings, in the style of _Nullable (names of this form belong to
+   the implementation, which this header is). The long __safec_ forms stay. */
+#define _Owned __safec_owned
+#define _Excl __safec_excl
+#define _Static __safec_static
+#define _Unchecked __safec_unchecked
+#define _View __safec_view
+#define _Take(lv) __safec_take(lv)
+#define _Returns_owned __safec_returns_owned
+#define _Lifetimebound __safec_lifetimebound
+#define _Noescape __safec_noescape
 
 #endif /* __SAFEC_H */
