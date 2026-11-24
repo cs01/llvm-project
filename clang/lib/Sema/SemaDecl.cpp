@@ -18027,9 +18027,61 @@ static void checkSafeCAllocatorBody(Sema &S, const FunctionDecl *FD,
   Walk(Body);
   for (const VarDecl *VD : Assigned)
     FreshLocals.erase(VD);
+  // The block must be as big as promised: its size is made of the size
+  // parameters, only added to or multiplied.
+  std::function<bool(const Expr *)> Smaller = [&](const Expr *E) -> bool {
+    E = E->IgnoreParenCasts();
+    if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E))
+      return Smaller(MSE->getWrappedExpr());
+    if (const auto *PPE = dyn_cast<BoundsSafetyPointerPromotionExpr>(E))
+      return Smaller(PPE->getPointer());
+    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E))
+      return OVE->getSourceExpr() && Smaller(OVE->getSourceExpr());
+    if (const auto *BCE = dyn_cast<BoundsCheckExpr>(E))
+      return Smaller(BCE->getGuardedExpr());
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+      const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+      return VD && VD->hasLocalStorage() && VD->getInit() &&
+             !isa<ParmVarDecl>(VD) && Smaller(VD->getInit());
+    }
+    const auto *CE = dyn_cast<CallExpr>(E);
+    if (!CE)
+      return false;
+    struct Ops : RecursiveASTVisitor<Ops> {
+      const FunctionDecl *FD;
+      llvm::SmallPtrSet<const ParmVarDecl *, 2> Named;
+      bool Shrinks = false;
+      bool VisitDeclRefExpr(DeclRefExpr *D) {
+        if (const auto *P = dyn_cast<ParmVarDecl>(D->getDecl()))
+          Named.insert(P);
+        return true;
+      }
+      bool VisitBinaryOperator(BinaryOperator *B) {
+        Shrinks |= B->getOpcode() != BO_Mul && B->getOpcode() != BO_Add;
+        return true;
+      }
+      bool VisitOpaqueValueExpr(OpaqueValueExpr *E) {
+        return !E->getSourceExpr() || TraverseStmt(E->getSourceExpr());
+      }
+      bool VisitConditionalOperator(ConditionalOperator *) {
+        Shrinks = true;
+        return true;
+      }
+    } O;
+    for (const Expr *A : CE->arguments())
+      O.TraverseStmt(const_cast<Expr *>(A));
+    const auto *AS = FD->getAttr<AllocSizeAttr>();
+    if (!AS || O.Shrinks)
+      return true;
+    auto Uses = [&](ParamIdx I) {
+      return !I.isValid() ||
+             O.Named.contains(FD->getParamDecl(I.getASTIndex()));
+    };
+    return !Uses(AS->getElemSizeParam()) || !Uses(AS->getNumElemsParam());
+  };
   for (const ReturnStmt *RS : Returns)
     if (const Expr *V = RS->getRetValue())
-      if (!isSafeCFreshAllocation(S.Context, V, FreshLocals))
+      if (!isSafeCFreshAllocation(S.Context, V, FreshLocals) || Smaller(V))
         S.Diag(V->getExprLoc(), diag::warn_safe_c_alloc_size_body)
             << FD << V->getSourceRange();
 }
@@ -23363,6 +23415,8 @@ void Sema::ActOnPragmaRedefineExtname(IdentifierInfo* Name,
 void Sema::ActOnPragmaWeakID(IdentifierInfo* Name,
                              SourceLocation PragmaLoc,
                              SourceLocation NameLoc) {
+  if (getLangOpts().SafeC && !SourceMgr.isInSystemHeader(PragmaLoc))
+    Diag(PragmaLoc, diag::warn_safe_c_escape) << "'#pragma weak'";
   NamedDecl *PrevDecl =
       LookupSingleName(TUScope, Name, NameLoc, LookupOrdinaryName);
 
@@ -23380,6 +23434,8 @@ void Sema::ActOnPragmaWeakAlias(IdentifierInfo* Name,
                                 SourceLocation PragmaLoc,
                                 SourceLocation NameLoc,
                                 SourceLocation AliasNameLoc) {
+  if (getLangOpts().SafeC && !SourceMgr.isInSystemHeader(PragmaLoc))
+    Diag(PragmaLoc, diag::warn_safe_c_escape) << "'#pragma weak'";
   Decl *PrevDecl = LookupSingleName(TUScope, AliasName, AliasNameLoc,
                                     LookupOrdinaryName);
   WeakInfo W = WeakInfo(Name, NameLoc);

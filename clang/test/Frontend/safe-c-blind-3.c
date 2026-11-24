@@ -100,4 +100,29 @@ void between(void) {
   t.k = 0; // expected-error {{after this the tag 'k'}}
   t.l = peek(&t); // expected-error {{needs the tag}}
 }
+__attribute__((malloc, alloc_size(1))) char *liar(size_t n) {
+  (void)n;
+  char *_Nullable p = malloc(1);
+  if (!p) abort();
+  return p; // expected-error {{is marked 'alloc_size'}}
+}
+__attribute__((malloc, alloc_size(1))) char *honest(size_t n) {
+  char *_Nullable p = malloc(n + 1);
+  if (!p) abort();
+  return p;
+}
+__attribute__((returns_nonnull)) int *_Nullable nn(void); // expected-error {{can switch off Safe C's checks}}
+__attribute__((no_thread_safety_analysis)) void nts(void); // expected-error {{can switch off Safe C's checks}}
+static _Atomic int sect __attribute__((section("__TEXT,__const"))) = 1; // expected-error {{can switch off Safe C's checks}}
+#pragma weak zz = nn // expected-error {{can switch off Safe C's checks}}
+void nop(struct s *s);
+void chosen(struct s *_Exclusive s, int c) {
+  (c ? del : nop)(s); // expected-error {{has different ownership or bounds annotations}}
+}
+void locals(int n) {
+  extern int block_scope; // expected-error {{declare 'block_scope' at file scope}}
+  int *_Nullable v[n];    // expected-error {{is not zeroed}}
+  (void)v;
+}
+static int *_Static const table[2] = {&(int){1}, (int[]){2, 3}}; // expected-error 0+ {{}}
 #endif

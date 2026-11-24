@@ -5222,7 +5222,8 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
     while (!Elem.isNull() && Elem->isArrayType())
       Elem = S.Context.getBaseElementType(Elem);
     Expr::EvalResult R;
-    if (!Elem.isNull() && !safeCHoldsNoPointers(S.Context, Elem) &&
+    // (And a size that is not the element's could make the product wrap.)
+    if (!Elem.isNull() && !Elem->isVoidType() && !Elem->isIncompleteType() &&
         (!TheCall->getArg(2)->EvaluateAsInt(R, S.Context) ||
          R.Val.getInt() !=
              S.Context.getTypeSizeInChars(Elem).getQuantity()))

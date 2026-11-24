@@ -306,9 +306,8 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "in a local for the call (move its owned fields with '_Take', and move "
      "them back after), or let the callee use the global by name"},
     {"sort-size", false,
-     "the element size must be the size of %0 (write it with 'sizeof'): %0 "
-     "holds pointers, and sorting pieces of any other size would mix their "
-     "bytes"},
+     "the element size must be the size of %0 (write it with 'sizeof'): with "
+     "any other size the sort would mix or overrun its elements"},
     {"void-over-pointers", false,
      "%0 holds pointers, and as a 'void *' kept here its bytes could be "
      "overwritten (memcpy, memset, read), forging them; keep the pointer's "
@@ -384,6 +383,15 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "nothing checks these arguments against the format; write one function "
      "marked 'format(printf, ...)' that passes its own format and '...' on "
      "once, between 'va_start' and 'va_end'"},
+    {"extern-local", false,
+     "declare %0 at file scope (in a header), where its type and whether it "
+     "may be shared are checked"},
+    {"vla-pointers", false,
+     "a variable-length array is not zeroed, and %0 holds pointers, which "
+     "would be garbage; use a fixed size, or 'calloc'"},
+    {"static-element", false,
+     "these elements are '_Static', so they may point only at string literals, "
+     "globals, functions or constants"},
     {"partial-pointer", false,
      "%0 holds pointers, so it is copied or cleared only whole: the size must "
      "be 'n * sizeof' of it"},
@@ -1605,6 +1613,13 @@ public:
   bool VisitDeclRefExpr(DeclRefExpr *E) {
     collectVoid();
     const auto *F = dyn_cast<FunctionDecl>(E->getDecl());
+    // Lock requirements are not part of a pointer's type.
+    if (F && !DirectCallees.contains(E) &&
+        (F->hasAttr<RequiresCapabilityAttr>() ||
+         F->hasAttr<AcquireCapabilityAttr>() ||
+         F->hasAttr<ReleaseCapabilityAttr>() ||
+         F->hasAttr<TryAcquireCapabilityAttr>()))
+      S.SafeCDiag(E->getExprLoc(), "fn-library-pointer") << F;
     if (!F || DirectCallees.contains(E) || !F->getIdentifier() ||
         !S.getSourceManager().isInSystemHeader(F->getLocation()))
       return true;
@@ -1626,6 +1641,16 @@ public:
     return checkSlotValue(E);
   }
   bool VisitStmtExpr(StmtExpr *E) { return checkSlotValue(E); }
+  // `(c ? del : keep)(&s)`: the common type drops what they promise.
+  bool VisitConditionalOperator(ConditionalOperator *E) {
+    if (E->getType()->isFunctionPointerType()) {
+      checkSafeCFunctionConversion(S, E->getType(),
+                                   E->getTrueExpr()->IgnoreParenImpCasts());
+      checkSafeCFunctionConversion(S, E->getType(),
+                                   E->getFalseExpr()->IgnoreParenImpCasts());
+    }
+    return true;
+  }
   /// A call's result used as such a pointer (an ignored one is harmless).
   void checkSlotCall(const Expr *E) {
     const auto *Call =
@@ -1766,6 +1791,14 @@ public:
   }
 
   bool VisitVarDecl(VarDecl *VD) {
+    if (VD->isLocalExternDecl())
+      S.SafeCDiag(VD->getLocation(), "extern-local") << VD;
+    if (isLibraryHandle(VD->getType()))
+      S.SafeCDiag(VD->getLocation(), "library-field") << VD->getType();
+    if (const auto *VLA = S.Context.getAsVariableArrayType(VD->getType());
+        VLA && VD->isLocalVarDecl() &&
+        !S.isSafeCPlainData(S.Context, VLA->getElementType(), true))
+      S.SafeCDiag(VD->getLocation(), "vla-pointers") << VLA->getElementType();
     if (VD->hasAttr<CleanupAttr>()) {
       if (isDropFree(VD) &&
           (!VD->getType()->isPointerType() ||
@@ -1800,6 +1833,11 @@ public:
     // semantic one, which has an entry per field.
     if (InitListExpr *Sem = ILE->getSemanticForm())
       ILE = Sem;
+    if (const ArrayType *AT = ILE->getType()->getAsArrayTypeUnsafe())
+      if (safeCPointerKind(AT->getElementType()) == "static")
+        for (const Expr *Init : ILE->inits())
+          if (Init && !isStaticAddress(S.Context, Init))
+            S.SafeCDiag(Init->getExprLoc(), "static-element");
     const RecordDecl *RD = ILE->getType()->getAsRecordDecl();
     if (!RD)
       return true;
@@ -2085,6 +2123,9 @@ public:
         S.SafeCDiag(E->getExprLoc(), "borrow-slot-value");
     }
     checkGlobalLent(Call);
+    if (const FunctionDecl *F = Call->getDirectCallee();
+        F && F->getIdentifier() && F->getName().starts_with("__sync_"))
+      S.SafeCDiag(Call->getExprLoc(), "builtin-unchecked-name") << F->getName();
     if (const FunctionDecl *F = Call->getDirectCallee())
       checkVaList(Call, F);
     // `_Take(id(&s)->p)`, `del(id(&s))`: whose borrows end?

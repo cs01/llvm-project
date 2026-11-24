@@ -9299,6 +9299,27 @@ ProcessDeclAttribute(Sema &S, Decl *D, const ParsedAttr &AL,
                      const Sema::ProcessDeclAttributeOptions &Options) {
   if (AL.isInvalid() || AL.getKind() == ParsedAttr::IgnoredAttribute)
     return;
+  // Attributes that are believed, or that change what a symbol is.
+  if (S.getLangOpts().SafeC &&
+      !S.getSourceManager().isInSystemHeader(
+          S.getSourceManager().getSpellingLoc(AL.getLoc())))
+    switch (AL.getKind()) {
+    case ParsedAttr::AT_NoThreadSafetyAnalysis:
+    case ParsedAttr::AT_AssertCapability:
+    case ParsedAttr::AT_ReturnsNonNull:
+    case ParsedAttr::AT_Section:
+    case ParsedAttr::AT_Weak:
+    case ParsedAttr::AT_WeakRef:
+    case ParsedAttr::AT_WeakImport:
+    case ParsedAttr::AT_Alias:
+    case ParsedAttr::AT_IFunc:
+    case ParsedAttr::AT_Naked:
+      S.Diag(AL.getLoc(), diag::warn_safe_c_escape)
+          << ("'" + AL.getAttrName()->getName() + "'").str();
+      break;
+    default:
+      break;
+    }
 
   // Ignore C++11 attributes on declarator chunks: they appertain to the type
   // instead. Note, isCXX11Attribute() will look at whether the attribute is
