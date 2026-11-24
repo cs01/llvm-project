@@ -3616,6 +3616,7 @@ sema::AnalysisBasedWarnings::getPolicyInEffectAt(SourceLocation Loc) {
       P.enableCheckUnreachable |= PolicyOverrides.enableCheckUnreachable;
       P.enableThreadSafetyAnalysis |=
           PolicyOverrides.enableThreadSafetyAnalysis;
+      P.enableThreadSafetyAnalysis |= S.getLangOpts().SafeC;
       P.enableConsumedAnalysis |= PolicyOverrides.enableConsumedAnalysis;
       return P;
     }
@@ -3638,6 +3639,8 @@ sema::AnalysisBasedWarnings::getPolicyInEffectAt(SourceLocation Loc) {
 
   P.enableCheckUnreachable |= PolicyOverrides.enableCheckUnreachable;
   P.enableThreadSafetyAnalysis |= PolicyOverrides.enableThreadSafetyAnalysis;
+  // Safe C (M5): locked data is checked always, like lifetimes.
+  P.enableThreadSafetyAnalysis |= S.getLangOpts().SafeC;
   P.enableConsumedAnalysis |= PolicyOverrides.enableConsumedAnalysis;
   return P;
 }

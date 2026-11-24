@@ -257,6 +257,29 @@ char *getenv(const char *__null_terminated);
 #define _When(...)
 #endif
 
+/* Data shared between threads, checked by Clang's thread-safety analysis
+   (always on under Safe C):
+     safec_mutex lock;
+     int hits _Guarded_by(lock);          every access must hold lock
+     void bump(void) _Requires(lock);     callers must hold lock
+   Lock types are declared with _Capability("mutex"); their lock and unlock
+   functions with _Acquires(m) and _Releases(m). */
+#if defined(__clang__)
+#define _Capability(name) __attribute__((capability(name)))
+#define _Guarded_by(m) __attribute__((guarded_by(m)))
+#define _Pt_guarded_by(m) __attribute__((pt_guarded_by(m)))
+#define _Requires(...) __attribute__((requires_capability(__VA_ARGS__)))
+#define _Acquires(...) __attribute__((acquire_capability(__VA_ARGS__)))
+#define _Releases(...) __attribute__((release_capability(__VA_ARGS__)))
+#else
+#define _Capability(name)
+#define _Guarded_by(m)
+#define _Pt_guarded_by(m)
+#define _Requires(...)
+#define _Acquires(...)
+#define _Releases(...)
+#endif
+
 /* Automatic cleanup at the end of a scope, like Rust's Drop:
      string s _Drop(string_free) = {0};   calls string_free(&s)
      char *p _Drop_free = malloc(n);      calls free(p)

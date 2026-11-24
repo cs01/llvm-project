@@ -95,6 +95,13 @@ static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
       Group == "format-invalid-specifier" ||
       Group == "deprecated-non-prototype")
     return true;
+  // M5: data reached without holding its lock, a lock released twice or held
+  // at return, a function called without the lock it requires.
+  if (llvm::is_contained({"thread-safety-analysis", "thread-safety-precise",
+                          "thread-safety-reference", "thread-safety-pointer",
+                          "thread-safety-reference-return"},
+                         Group))
+    return true;
   // Lifetime safety's findings (use after free or scope, dangling pointers,
   // broken lifetimebound/noescape/capture contracts); not its suggestions.
   if (llvm::is_contained(
