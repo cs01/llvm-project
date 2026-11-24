@@ -5077,6 +5077,100 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
     S.SafeCDiag(TheCall->getExprLoc(), "wide-format") << FD;
     return;
   }
+  // Library functions: only those whose header says how much they access
+  // through each pointer. (By name: ones checked elsewhere, or that keep
+  // nothing and access only what their types say.)
+  if (!FD->getBuiltinID() || !FD->getIdentifier() ||
+      !FD->getName().starts_with("__"))
+    if (S.getSourceManager().isInSystemHeader(
+            FD->getCanonicalDecl()->getLocation()) &&
+        FD->isExternC() &&
+        // (A directory the build marks with -isystem is trusted.)
+        S.getSourceManager()
+            .getFilename(S.getSourceManager().getSpellingLoc(
+                FD->getCanonicalDecl()->getLocation()))
+            .contains("/usr/include/")) {
+      static const llvm::StringSet<> Checked = {
+          "malloc", "calloc", "realloc", "reallocf", "free", "aligned_alloc",
+          "memcpy", "memmove", "memset", "memcmp", "memchr", "bzero", "bcopy",
+          "printf", "fprintf", "dprintf", "snprintf", "vsnprintf", "vprintf",
+          "vfprintf", "asprintf", "scanf", "fscanf", "sscanf", "perror",
+          "qsort", "bsearch", "strtol", "strtoul", "strtoll", "strtoull",
+          "strtod", "strtof", "strtold", "fopen", "fdopen", "freopen",
+          "fclose", "popen", "pclose", "opendir", "closedir", "pthread_create",
+          "pthread_join", "pthread_self", "pthread_equal", "time", "signal",
+          "sigaction", "abort", "exit", "atexit", "setlocale", "strdup",
+          "strndup", "getline", "fgets", "fputs", "puts", "fputc", "fgetc",
+          "getc", "putc", "ungetc", "fread", "fwrite", "fflush", "feof",
+          "ferror", "clearerr", "fseek", "ftell", "rewind", "fileno", "remove",
+          "rename", "tmpfile", "system", "getenv", "strerror", "modf", "frexp",
+          "va_copy"};
+      static const llvm::StringSet<> Never = {
+          "setvbuf", "setbuf", "setbuffer", "setlinebuf", "setenv", "putenv",
+          "unsetenv", "munmap", "mmap"};
+      bool Bad = Never.contains(FD->getName());
+      if (!Bad && !Checked.contains(FD->getName()))
+        for (unsigned I = 0, N = std::min(FD->getNumParams(),
+                                          TheCall->getNumArgs());
+             I != N; ++I) {
+          const ParmVarDecl *P = FD->getParamDecl(I);
+          QualType T = P->getType();
+          if (!T->isPointerType()) {
+            Bad |= T->isRecordType() &&
+                   !Sema::isSafeCPlainData(S.Context, T, /*VoidIsPlain=*/false);
+            continue;
+          }
+          if (T->isBoundsAttributedType() || T->isValueTerminatedType() ||
+              T->isFunctionPointerType())
+            continue;
+          QualType Pointee = T->getPointeeType();
+          const RecordDecl *RD = Pointee->getAsRecordDecl();
+          // A handle: opaque, or made only by the library (FILE, DIR).
+          if (RD && (!RD->getDefinition() ||
+                     llvm::is_contained({"__sFILE", "_IO_FILE"}, RD->getName())))
+            continue;
+          if (T->isSinglePointerType() && !Pointee->isVoidType() &&
+              !Pointee->isCharType() &&
+              Sema::isSafeCPlainData(S.Context, Pointee, /*VoidIsPlain=*/false))
+            continue;
+          // An unannotated parameter, by what is passed: nothing, a
+          // terminated string for `const char *`, or a whole variable of
+          // exactly the parameter's type.
+          const Expr *A = TheCall->getArg(I)->IgnoreParenImpCasts();
+          for (;;) {
+            if (const auto *OVE = dyn_cast<OpaqueValueExpr>(A);
+                OVE && OVE->getSourceExpr())
+              A = OVE->getSourceExpr()->IgnoreParenImpCasts();
+            else if (const auto *PPE =
+                         dyn_cast<BoundsSafetyPointerPromotionExpr>(A))
+              A = PPE->getPointer()->IgnoreParenImpCasts();
+            else
+              break;
+          }
+          if (A->isNullPointerConstant(S.Context,
+                                       Expr::NPC_ValueDependentIsNotNull))
+            continue;
+          if (Pointee->isCharType() && Pointee.isConstQualified() &&
+              (isa<StringLiteral>(A) || A->getType()->isValueTerminatedType()))
+            continue;
+          const auto *UO = dyn_cast<UnaryOperator>(A);
+          if (UO && UO->getOpcode() == UO_AddrOf &&
+              isa<DeclRefExpr, MemberExpr>(
+                  UO->getSubExpr()->IgnoreParens()) &&
+              S.Context.hasSameUnqualifiedType(UO->getSubExpr()->getType(),
+                                               Pointee) &&
+              (Sema::isSafeCPlainData(S.Context, Pointee,
+                                      /*VoidIsPlain=*/false) ||
+               llvm::is_contained({"tm", "_opaque_pthread_mutex_t"},
+                                  RD ? RD->getName() : StringRef())))
+            continue;
+          Bad = true;
+        }
+      if (Bad) {
+        S.SafeCDiag(TheCall->getExprLoc(), "library-unchecked") << FD;
+        return;
+      }
+    }
   // Compiler builtins that take pointers: only those whose accesses are
   // checked (or that make none).
   if (FD->getBuiltinID() && FD->getIdentifier() &&

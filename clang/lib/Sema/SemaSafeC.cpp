@@ -362,6 +362,11 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"tag-address", false,
      "%0 is a tag: changing it through a pointer would leave the union holding "
      "another member's bytes; assign it by name, together with the member"},
+    {"library-unchecked", false,
+     "nothing says how much memory %0 accesses or keeps, so this call cannot "
+     "be checked; use a checked function ('snprintf', 'fread', 'strtol'), or "
+     "write one wrapper for it that checks its sizes, with the call itself in "
+     "'__unsafe'"},
     {"owned-in-union", false,
      "%0 is an '_Owned' member of an untagged union, so another member could "
      "read and free the same pointer; tag the union ('_Tagged_by', '_When'), "
