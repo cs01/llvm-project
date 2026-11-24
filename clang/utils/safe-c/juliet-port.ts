@@ -39,6 +39,13 @@ function port(text: string): string {
     text = text.replace(/(voidSecond\s*=\s*)\(void \*\)/g, "$1");
     text = text.replace(/\(char \*\)(structCharVoid(?:\.|->)voidSecond)/g, "$1");
   }
+  // (e) A buffer handed to a sink as `T * data` must carry its bounds
+  // across the call (Rust: a slice); a plain pointer parameter is one
+  // element, so the sink's copy would trap on correct code. The buggy
+  // versions keep their buffers' real bounds and still trap.
+  text = text.replace(/([(,]\s*)((?:const\s+)?[A-Za-z_]\w*) \* data(\s*[,)])/g,
+    (_m, pre, ty, post) => { stats.slices = (stats.slices ?? 0) + 1; return `${pre}${ty} *__bidi_indexable data${post}`; });
+  text = text.replace(/\(\*funcPtr\) \(((?:const\s+)?[A-Za-z_]\w*) \*\)/g, "(*funcPtr) ($1 *__bidi_indexable)");
   // (b) strcpy/strcat/wcscpy/wcscat: checked copies that trap (juliet_port.h).
   if (/\b(strcpy|strcat|wcscpy|wcscat|strncat|wcsncat)\s*\(/.test(text)) {
     stats.strfns++;
