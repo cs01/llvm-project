@@ -9,6 +9,16 @@ JULIET_ROOT=~/git/ref/juliet bun clang/utils/safe-c/juliet.ts --cc build.noindex
   --cwe 121,122,476 --limit 30 --run --out /tmp/j.json
 ```
 
+**Long runs use a frozen compiler.** The full suite takes a long time and launches the
+compiler once per case, so a rebuild mid-run would mix two compilers in one result. Copy
+the compiler first and point the run at the copy; builds can then continue:
+
+```
+S=build.snap; rm -rf $S && mkdir -p $S/bin $S/lib && cp build.noindex/bin/clang-24 $S/bin/clang-24 \
+  && ln -sf clang-24 $S/bin/clang && cp -R build.noindex/lib/clang $S/lib/
+JULIET_ROOT=~/git/ref/juliet bun clang/utils/safe-c/juliet.ts --cc build.snap/bin/clang ...
+```
+
 Scoring: bad is caught if it fails to compile or dies by SIGTRAP/SIGILL (a compiler
 trap). SIGSEGV/SIGABRT count as missed: that is the UB happening to crash.
 Good must compile, run, exit 0.
