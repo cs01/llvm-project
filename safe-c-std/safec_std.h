@@ -14,6 +14,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -163,8 +164,8 @@ static inline void string_free(string *_Excl s) {
 /* TRY(expr, name): like Rust's `?`. Evaluates expr (a result); on error,
    returns ERR(name, its err) from the current function, whose result type
    is struct name; otherwise gives the value. The error types must match.
-     long_result parse_two(str a, str b) {
-       long x = TRY(str_to_long(a), long_result);
+     i64_result parse_two(str a, str b) {
+       int64_t x = TRY(str_to_i64(a), i64_result);
        ...                                                          */
 #define TRY(expr, name)                                                        \
   ({                                                                           \
@@ -187,29 +188,30 @@ static inline void string_free(string *_Excl s) {
 #define SOME(name, v) ((struct name){.some = true, .value = (v)})
 #define NONE(name) ((struct name){.some = false, .none_ = 0})
 
-/* Parses a decimal integer; the error says why it is not one. */
+/* Parses a decimal integer; the error says why it is not one. Fixed width:
+   long is 32 bits on some platforms and 64 on others. */
 enum parse_error { PARSE_EMPTY, PARSE_NOT_A_NUMBER, PARSE_OVERFLOW };
-typedef RESULT(long_result, long, enum parse_error) long_result;
+typedef RESULT(i64_result, int64_t, enum parse_error) i64_result;
 
-static inline long_result str_to_long(str s) {
+static inline i64_result str_to_i64(str s) {
   if (s.len == 0)
-    return ERR(long_result, PARSE_EMPTY);
+    return ERR(i64_result, PARSE_EMPTY);
   size_t i = 0;
   bool neg = s.p[0] == '-';
   if (neg || s.p[0] == '+')
     i = 1;
   if (i == s.len)
-    return ERR(long_result, PARSE_NOT_A_NUMBER);
-  long v = 0;
+    return ERR(i64_result, PARSE_NOT_A_NUMBER);
+  int64_t v = 0;
   for (; i < s.len; i++) {
     char c = s.p[i];
     if (c < '0' || c > '9')
-      return ERR(long_result, PARSE_NOT_A_NUMBER);
+      return ERR(i64_result, PARSE_NOT_A_NUMBER);
     if (v > (__LONG_MAX__ - (c - '0')) / 10)
       return ERR(long_result, PARSE_OVERFLOW);
     v = v * 10 + (c - '0');
   }
-  return OK(long_result, neg ? -v : v);
+  return OK(i64_result, neg ? -v : v);
 }
 
 /* ---- io ------------------------------------------------------------------ */

@@ -102,26 +102,26 @@ static long sum(int_slice s) {
   return t;
 }
 
-static long_result add_two(str a, str b) {
-  long x = TRY(str_to_long(a), long_result);
-  long y = TRY(str_to_long(b), long_result);
-  return OK(long_result, x + y);
+static i64_result add_two(str a, str b) {
+  int64_t x = TRY(str_to_i64(a), i64_result);
+  int64_t y = TRY(str_to_i64(b), i64_result);
+  return OK(i64_result, x + y);
 }
 
 static void test_result(void) {
   int arr[4] = {1, 2, 3, 4};
   CHECK(sum((int_slice){arr, 4}) == 10);
-  long_result ok2 = add_two(S("40"), S("2"));
+  i64_result ok2 = add_two(S("40"), S("2"));
   CHECK(ok2.ok && ok2.value == 42);
-  long_result bad2 = add_two(S("40"), S("x"));
+  i64_result bad2 = add_two(S("40"), S("x"));
   CHECK(!bad2.ok && bad2.err == PARSE_NOT_A_NUMBER);
-  long_result r = str_to_long(S("-1234"));
+  i64_result r = str_to_i64(S("-1234"));
   CHECK(r.ok && r.value == -1234);
-  long_result bad = str_to_long(S("12x"));
+  i64_result bad = str_to_i64(S("12x"));
   CHECK(!bad.ok);
   if (!bad.ok)
     CHECK(bad.err == PARSE_NOT_A_NUMBER);
-  long_result big = str_to_long(S("99999999999999999999"));
+  i64_result big = str_to_i64(S("99999999999999999999"));
   CHECK(!big.ok);
 }
 
