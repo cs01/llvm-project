@@ -114,13 +114,13 @@ static void test_result(void) {
   i64_result ok2 = add_two(S("40"), S("2"));
   CHECK(ok2.ok && ok2.value == 42);
   i64_result bad2 = add_two(S("40"), S("x"));
-  CHECK(!bad2.ok && bad2.err == PARSE_NOT_A_NUMBER);
+  CHECK(!bad2.ok && bad2.err.kind == PARSE_BAD_CHAR);
   i64_result r = str_to_i64(S("-1234"));
   CHECK(r.ok && r.value == -1234);
   i64_result bad = str_to_i64(S("12x"));
   CHECK(!bad.ok);
-  if (!bad.ok)
-    CHECK(bad.err == PARSE_NOT_A_NUMBER);
+  if (!bad.ok && bad.err.kind == PARSE_BAD_CHAR)
+    CHECK(bad.err.bad.at == 2 && bad.err.bad.c == 'x');
   i64_result big = str_to_i64(S("99999999999999999999"));
   CHECK(!big.ok);
 }

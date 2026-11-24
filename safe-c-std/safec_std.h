@@ -188,27 +188,35 @@ static inline void string_free(string *_Excl s) {
 #define SOME(name, v) ((struct name){.some = true, .value = (v)})
 #define NONE(name) ((struct name){.some = false, .none_ = 0})
 
-/* Parses a decimal integer; the error says why it is not one. Fixed width:
-   long is 32 bits on some platforms and 64 on others. */
-enum parse_error { PARSE_EMPTY, PARSE_NOT_A_NUMBER, PARSE_OVERFLOW };
-typedef RESULT(i64_result, int64_t, enum parse_error) i64_result;
+/* Why a parse failed, and where: like a Rust enum with data in a variant. */
+struct parse_error {
+  enum parse_error_kind { PARSE_EMPTY, PARSE_BAD_CHAR, PARSE_OVERFLOW } kind;
+  union _Tagged_by(kind) {
+    struct { size_t at; char c; } bad _When(PARSE_BAD_CHAR);
+  };
+};
+
+/* Parses a decimal integer. Fixed width: long is 32 bits on some platforms
+   and 64 on others. */
+typedef RESULT(i64_result, int64_t, struct parse_error) i64_result;
 
 static inline i64_result str_to_i64(str s) {
   if (s.len == 0)
-    return ERR(i64_result, PARSE_EMPTY);
+    return ERR(i64_result, (struct parse_error){.kind = PARSE_EMPTY});
   size_t i = 0;
   bool neg = s.p[0] == '-';
   if (neg || s.p[0] == '+')
     i = 1;
   if (i == s.len)
-    return ERR(i64_result, PARSE_NOT_A_NUMBER);
+    return ERR(i64_result, (struct parse_error){.kind = PARSE_EMPTY});
   int64_t v = 0;
   for (; i < s.len; i++) {
     char c = s.p[i];
     if (c < '0' || c > '9')
-      return ERR(i64_result, PARSE_NOT_A_NUMBER);
-    if (v > (__LONG_MAX__ - (c - '0')) / 10)
-      return ERR(i64_result, PARSE_OVERFLOW);
+      return ERR(i64_result, ((struct parse_error){
+                                 .kind = PARSE_BAD_CHAR, .bad = {i, c}}));
+    if (v > (INT64_MAX - (c - '0')) / 10)
+      return ERR(i64_result, (struct parse_error){.kind = PARSE_OVERFLOW});
     v = v * 10 + (c - '0');
   }
   return OK(i64_result, neg ? -v : v);
