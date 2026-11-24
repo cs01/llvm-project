@@ -834,20 +834,27 @@ public:
     for (const FieldDecl *F : TagField->getParent()->fields()) {
       if (taggedByName(F->getType()) != TagField->getName())
         continue;
-      whenValues(S.Context, F->getType()->getAsRecordDecl(),
-                 [&](const FieldDecl *, llvm::APSInt V, SourceLocation) {
-                   for (const llvm::APSInt &C : Cases)
-                     if (llvm::APSInt::isSameValue(C, V))
-                       return;
-                   std::string Name = toString(V, 10);
-                   if (const auto *ET = TagField->getType()->getAs<EnumType>())
-                     for (const EnumConstantDecl *E :
-                          ET->getOriginalDecl()->getDefinitionOrSelf()->enumerators())
-                       if (llvm::APSInt::isSameValue(E->getInitVal(), V))
-                         Name = E->getName().str();
-                   S.SafeCDiag(SS->getSwitchLoc(), "switch-not-exhaustive")
-                       << TagField->getName() << Name;
-                 });
+      auto Require = [&](llvm::APSInt V, std::string Name) {
+        for (const llvm::APSInt &C : Cases)
+          if (llvm::APSInt::isSameValue(C, V))
+            return;
+        S.SafeCDiag(SS->getSwitchLoc(), "switch-not-exhaustive")
+            << TagField->getName() << Name;
+      };
+      // An enum tag's every enumerator is a variant, with or without a member
+      // holding data (Rust's unit variants); an integer tag's variants are
+      // the values its members name.
+      if (const auto *ET = TagField->getType()->getAs<EnumType>()) {
+        for (const EnumConstantDecl *E :
+             ET->getOriginalDecl()->getDefinitionOrSelf()->enumerators())
+          Require(E->getInitVal(), E->getName().str());
+      } else {
+        whenValues(S.Context, F->getType()->getAsRecordDecl(),
+                   [&](const FieldDecl *, llvm::APSInt V, SourceLocation) {
+                     Require(V, toString(V, 10));
+                   });
+      }
+      break;
     }
     return true;
   }

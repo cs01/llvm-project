@@ -59,3 +59,21 @@ struct bad3 {
     short c _When(0); // expected-error {{tag value 0 is claimed by both 'a' and 'c'; each value must name one live member}}
   } u;
 };
+
+// Unit variants: with an enum tag, every enumerator is a variant, so a
+// variant without data needs no member, and a switch must still handle it.
+struct parse_error {
+  enum { EMPTY, BAD_CHAR, OVERFLOW } kind;
+  union _Tagged_by(kind) {
+    struct { unsigned at; char c; } bad _When(BAD_CHAR);
+  };
+};
+int describe(const struct parse_error *e) {
+  switch (e->kind) { // expected-error {{this switch on 'kind' does not handle OVERFLOW}} expected-warning {{enumeration value 'OVERFLOW' not handled in switch}} expected-note {{add missing switch cases}} plain-warning {{enumeration value 'OVERFLOW' not handled in switch}} plain-note {{add missing switch cases}}
+  case EMPTY:
+    return 0;
+  case BAD_CHAR:
+    return e->bad.c;
+  }
+  return -1;
+}
