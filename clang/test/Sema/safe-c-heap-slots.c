@@ -18,7 +18,7 @@ struct either { int *_Nullable _Owned a; int *_Owned _Nullable b; };
 struct ptrs { int *_Nullable *_Nullable _Owned slots; }; // expected-error {{this heap memory holds pointers of type 'int *__single _Nullable', which nothing tracks, so they can outlive what they point to; give the inner pointer a kind, as in 'T *_Owned *' if the memory owns what they point to, or 'T *_Static *'}}
 
 void f(int *p) {
-  int *_Nullable *_Nullable h = malloc(sizeof(int *)); // expected-error {{this heap memory holds pointers of type 'int *__single _Nullable'}}
+  int *_Nullable *_Nullable h = malloc(sizeof(int *)); // expected-error {{this heap memory holds pointers of type 'int *__single _Nullable'}} expected-error {{points to a place that holds a borrow}}
   int *_Owned _Nullable *_Nullable ok = malloc(sizeof(int *));
   int *_Nullable local[2] = {p, p}; // a stack array of borrows is fine
   (void)h; (void)ok; (void)local;

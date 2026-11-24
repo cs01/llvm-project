@@ -21,7 +21,7 @@ void implicit(void *ctx) {
 }
 
 void explicit_cast(void *ctx) {
-  int **pp = (int **)ctx; // expected-error {{converting 'void *' to 'int **' can treat memory as the wrong type}} expected-note {{keep the typed pointer instead of 'void *'}}
+  int **pp = (int **)ctx; // expected-error {{converting 'void *' to 'int **' can treat memory as the wrong type}} expected-note {{keep the typed pointer instead of 'void *'}} expected-error {{points to a place that holds a borrow}}
   (void)pp;
 }
 

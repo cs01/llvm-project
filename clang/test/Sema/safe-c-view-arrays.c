@@ -77,7 +77,7 @@ void through_param(struct tok *_Exclusive v, const char *__counted_by(1) in) {
 void through_alias(const char *__counted_by(1) in) {
   struct tok *_Owned _Nullable t = calloc(1, sizeof *t);
   if (!t) return;
-  struct tok *q = t;
+  struct tok *q = t; // expected-error {{points to a place that holds a borrow}}
   q[0].text = in; q[0].n = 1; // expected-error {{writing a borrow into a '_View' through a pointer}}
   free(t);
 }
@@ -101,14 +101,14 @@ void copy_param(struct tok *_Exclusive out, const char *__counted_by(1) in) {
 void copy_alias(const char *__counted_by(1) in) {
   struct tok *_Owned _Nullable t = calloc(1, sizeof *t);
   if (!t) return;
-  struct tok *q = t;
+  struct tok *q = t; // expected-error {{points to a place that holds a borrow}}
   struct tok v = {in, 1};
   q[0] = v; // expected-error {{writing a borrow into a '_View' through a pointer}}
   memcpy(t, &v, sizeof v); // expected-error {{copying bytes into '_View' structs}}
   free(t);
 }
 void copy_moved_param(struct tok *out, struct tok *other, struct tok v) {
-  out = other;
+  out = other; // expected-error {{which place cannot be told}}
   *out = v; // expected-error {{writing a borrow into a '_View' through a pointer}}
 }
 struct _View arr { const char *_Nullable p[2]; };

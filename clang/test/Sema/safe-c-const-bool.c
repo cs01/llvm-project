@@ -14,7 +14,7 @@ struct Flags { _Bool on; int n; };
 void f(const char *__null_terminated s, int *raw, struct Flags *fl, int *const *pp) {
   int *p = (int *)&k;                 // expected-error {{removes 'const', so memory that must not change}}
   char *w = (char *)s;                // expected-error {{removes 'const'}}
-  int **q = (int **)pp;               // expected-error {{removes 'const'}} expected-error {{can treat memory as the wrong type}}
+  int **q = (int **)pp;               // expected-error {{removes 'const'}} expected-error {{can treat memory as the wrong type}} expected-error {{points to a place that holds a borrow}}
   const int *ok = (const int *)raw;   // adding const is fine
   _Bool *b = (_Bool *)raw;            // expected-error {{can treat memory as the wrong type}}
   memcpy(fl, raw, sizeof *raw);       // expected-error {{can forge a pointer}}

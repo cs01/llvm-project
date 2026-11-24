@@ -30,7 +30,7 @@ void structs(struct A *a, struct P1 *p1) {
 }
 
 void nullability(int *_Nonnull *pp) {
-  int *_Nullable *q = (int *_Nullable *)pp; // expected-error {{can treat memory as the wrong type}}
+  int *_Nullable *q = (int *_Nullable *)pp; // expected-error {{can treat memory as the wrong type}} expected-error {{points to a place that holds a borrow}}
   (void)q;
 }
 
@@ -43,7 +43,7 @@ void fnptr(void) {
 // Separate functions: realloc frees its argument, so a second realloc of the
 // same pointer would be a use after free.
 _Takes(1) void grow_other(long *_Nullable l) {
-  int *_Nullable *_Nullable pp = realloc(l, 2 * sizeof(int *)); // expected-error {{can treat memory as the wrong type}} expected-error {{this heap memory holds pointers}}
+  int *_Nullable *_Nullable pp = realloc(l, 2 * sizeof(int *)); // expected-error {{can treat memory as the wrong type}} expected-error {{this heap memory holds pointers}} expected-error {{points to a place that holds a borrow}}
   (void)pp;
 }
 _Takes(1) void grow_same(long *_Nullable l) {

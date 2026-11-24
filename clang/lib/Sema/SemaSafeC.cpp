@@ -343,6 +343,15 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "copying bytes into '_View' structs through a pointer hides which "
      "borrows they hold; assign each one through the local '_Owned' pointer "
      "that holds them ('v[i] = other')"},
+    {"borrow-slot", false,
+     "%select{local|field}0 %1 points to a place that holds a "
+     "borrow, so a store through it changes what that place borrows without "
+     "naming it; %select{write '&place' where it is used instead of keeping it|"
+     "pass the place's address as its own parameter}0"},
+    {"borrow-slot-value", false,
+     "this gives a pointer to a place that holds a borrow, but which place "
+     "cannot be told from here; name it directly ('&place', or a parameter) in "
+     "each branch"},
     {"view-pointer-storage", false,
      "%select{global|field}0 %1 points to '_View' structs, whose borrows are "
      "tracked only while a local or parameter holds the pointer; keep it in a "
@@ -424,6 +433,25 @@ static bool isViewType(QualType T) {
     T = AT->getElementType();
   const RecordDecl *RD = T->getAsRecordDecl();
   return RD && hasSafeCAnnotation(RD, "safec_view");
+}
+
+/// A pointer to a place that holds a borrow (`int **`, `struct view *`). What
+/// is written through it changes what the place borrows, so every use must
+/// name that place: it may be a parameter, or `&place` written where it is
+/// used, never a value that could be one of several places.
+static bool isBorrowSlotPtr(QualType T) {
+  while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
+    T = AT->getElementType();
+  if (!T->isPointerType())
+    return false;
+  StringRef Kind = safeCPointerKind(T);
+  if (Kind == "owned" || Kind == "static" || Kind == "unchecked")
+    return false;
+  QualType Slot = T->getPointeeType();
+  while (const ArrayType *AT = Slot->getAsArrayTypeUnsafe())
+    Slot = AT->getElementType();
+  return isViewType(Slot) ||
+         (holdsBorrow(Slot) && safeCPointerKind(Slot).empty());
 }
 
 /// A pointer (at any depth) to `_View` structs.
@@ -524,6 +552,8 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
       for (const FieldDecl *FD : RD->fields())
         if (pointsToView(FD->getType()))
           S.SafeCDiag(FD->getLocation(), "view-pointer-storage") << 1 << FD;
+        else if (isBorrowSlotPtr(FD->getType()))
+          S.SafeCDiag(FD->getLocation(), "borrow-slot") << 1 << FD;
       return;
     }
     for (const FieldDecl *FD : RD->fields()) {
@@ -1057,6 +1087,9 @@ public:
       : S(S), Body(Body) {}
 
   bool VisitBinaryOperator(BinaryOperator *BO) {
+    if (BO->getOpcode() == BO_Comma ||
+        (BO->getOpcode() == BO_Assign && isBorrowSlotPtr(BO->getLHS()->getType())))
+      checkSlotValue(BO);
     checkSigactionStore(BO);
     if (BO->getOpcode() == BO_Assign && !isTrackedLocal(BO->getLHS()) &&
         BO->getLHS()->getType()->isPointerType() &&
@@ -1089,7 +1122,37 @@ public:
     return true;
   }
 
+  bool VisitAbstractConditionalOperator(AbstractConditionalOperator *E) {
+    return checkSlotValue(E);
+  }
+  bool VisitStmtExpr(StmtExpr *E) { return checkSlotValue(E); }
+  /// A call's result used as such a pointer (an ignored one is harmless).
+  void checkSlotCall(const Expr *E) {
+    const auto *Call =
+        dyn_cast<CallExpr>(lifetimes::safeCPeel(E)->IgnoreParenCasts());
+    if (Call && Call->getBuiltinCallee() != Builtin::BI__builtin_safec_take)
+      checkSlotValue(Call);
+  }
+  bool VisitMemberExpr(MemberExpr *E) {
+    if (E->isArrow())
+      checkSlotCall(E->getBase());
+    return true;
+  }
+  bool VisitArraySubscriptExpr(ArraySubscriptExpr *E) {
+    checkSlotCall(E->getBase());
+    return true;
+  }
+  bool checkSlotValue(const Expr *E) {
+    QualType T = E->getType();
+    if (isBorrowSlotPtr(T) ||
+        (T->isPointerType() && isBorrowSlotPtr(T->getPointeeType())))
+      S.SafeCDiag(E->getExprLoc(), "borrow-slot-value");
+    return true;
+  }
+
   bool VisitVarDecl(VarDecl *VD) {
+    if (VD->isLocalVarDecl() && isBorrowSlotPtr(VD->getType()))
+      S.SafeCDiag(VD->getLocation(), "borrow-slot") << 0 << VD;
     if (const Expr *Init = VD->getInit(); Init && !isa<InitListExpr>(Init))
       checkStore(VD, Init, VD->getLocation());
     return true;
@@ -1165,6 +1228,12 @@ public:
   }
 
   bool VisitUnaryOperator(UnaryOperator *UO) {
+    if (UO->getOpcode() == UO_Deref)
+      checkSlotCall(UO->getSubExpr());
+    // One level deeper: `&out`, where out is such a pointer itself.
+    if (UO->getOpcode() == UO_AddrOf &&
+        isBorrowSlotPtr(UO->getSubExpr()->getType()))
+      checkSlotValue(UO);
     StringRef Tag;
     if (UO->getOpcode() == UO_AddrOf)
       if (const FieldDecl *M = pointerUnionMember(S.Context, UO->getSubExpr(), Tag))
@@ -1327,6 +1396,8 @@ public:
   }
 
   bool VisitCallExpr(CallExpr *Call) {
+    for (const Expr *Arg : Call->arguments())
+      checkSlotCall(Arg);
     checkCallAliasing(Call);
     if (const FunctionDecl *F = Call->getDirectCallee();
         F && F->isExternC() && F->getIdentifier() && Call->getNumArgs() >= 2) {

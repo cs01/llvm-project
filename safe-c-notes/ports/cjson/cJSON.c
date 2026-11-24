@@ -1292,7 +1292,10 @@ CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithLengthOpts(const char *_Nullable _
         goto fail;
     }
 
-    if (!parse_value(item, buffer_skip_whitespace(skip_utf8_bom(&buffer))))
+    /* two calls: what a call returns cannot be told apart from other buffers */
+    skip_utf8_bom(&buffer);
+    buffer_skip_whitespace(&buffer);
+    if (!parse_value(item, &buffer))
     {
         /* parse failure. ep is set. */
         goto fail;
