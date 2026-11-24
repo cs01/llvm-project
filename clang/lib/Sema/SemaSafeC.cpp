@@ -1292,6 +1292,12 @@ public:
     return reachesOwner(PT->getPointeeType());
   }
 
+  bool sameRoot(const VarDecl *A, const VarDecl *B) {
+    return A && B &&
+           (A == B || lifetimes::safeCResolveRoot(A, Body, 0) ==
+                          lifetimes::safeCResolveRoot(B, Body, 0));
+  }
+
   void checkCallAliasing(CallExpr *Call) {
     const FunctionDecl *F = Call->getDirectCallee();
     if (!F)
@@ -1321,7 +1327,7 @@ public:
     for (auto [Root, LentAt] : Lent)
       for (unsigned J = 0, NA = Call->getNumArgs(); J != NA; ++J)
         if (J != LentAt && Call->getArg(J)->getType()->isPointerType() &&
-            lifetimes::safeCRootVar(Call->getArg(J)) == Root &&
+            sameRoot(lifetimes::safeCRootVar(Call->getArg(J)), Root) &&
             lentCanFree(F, LentAt))
           S.SafeCDiag(Call->getArg(J)->getExprLoc(), "excl-aliased-arg")
               << Root;

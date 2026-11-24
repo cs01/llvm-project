@@ -34,6 +34,10 @@ bool isPointerLikeType(QualType QT);
 /// sugar ("owned", "excl", "static", "unchecked"), or "" for a plain borrow.
 /// Arrays give their elements' kind.
 llvm::StringRef safeCPointerKind(QualType T);
+/// The variable a borrow local is rooted at (`q` from `q = x->p` is x),
+/// following its values in Body; VD itself when it has no single root.
+const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
+                                unsigned Depth);
 /// The kind of a parameter of type \p T: its written kind, or (with
 /// -mllvm -safe-c-excl-default) "excl" for a plain pointer to non-const data.
 llvm::StringRef safeCParamKind(QualType T);

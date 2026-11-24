@@ -875,6 +875,7 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
     return;
   }
 
+  llvm::SmallPtrSet<const Expr *, 4> Lent;
   // An argument lent to an exclusive parameter may have its owned fields
   // taken or replaced by the callee; one given away to an owned parameter
   // is gone. Either way, borrows rooted at it end. Through a function
@@ -887,16 +888,55 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
       for (unsigned I = 0, N = std::min(CE->getNumArgs(), FPT->getNumParams());
            I != N; ++I) {
         StringRef K = safeCParamKind(FPT->getParamType(I));
-        if (K == "excl" || K == "owned")
+        if (K == "excl" || K == "owned") {
           EndBorrowsThrough(CE->getArg(I));
+          Lent.insert(CE->getArg(I));
+        }
       }
+  // The callee may use its other arguments after it has changed or freed
+  // what it was lent or given, so none may hold a borrow that just ended
+  // (`f(q, &s)` where q borrows s.p).
+  auto UseOthers = [&] {
+    if (Lent.empty())
+      return;
+    const FunctionDecl *FD = CE->getDirectCallee();
+    const auto *FPT =
+        CE->getCallee()->getType()->getPointeeType()->getAs<FunctionProtoType>();
+    for (unsigned I = 0, N = CE->getNumArgs(); I != N; ++I) {
+      const Expr *Arg = CE->getArg(I);
+      // An `_Unchecked` parameter is used only inside `__unsafe`.
+      if (FD && I < FD->getNumParams()
+              ? safeCParamDeclKind(FD->getParamDecl(I)) == "unchecked"
+              : FPT && I < FPT->getNumParams() &&
+                    safeCParamKind(FPT->getParamType(I)) == "unchecked")
+        continue;
+      // Rooted at a lent variable: rule 8 reports it, by name.
+      auto Resolve = [&](const Expr *E) {
+        const VarDecl *VD = safeCRootVar(E);
+        return VD ? safeCResolveRoot(VD, AC.getBody(), 0) : nullptr;
+      };
+      const VarDecl *Root = Resolve(Arg);
+      if (FD && Root && Arg->getType()->isPointerType() &&
+          llvm::any_of(Lent, [&](const Expr *L) { return Resolve(L) == Root; }))
+        continue;
+      if (!Lent.contains(Arg) &&
+          (Arg->getType()->isPointerType() || isSafeCViewType(Arg->getType())))
+        if (OriginList *L = getOriginsList(*Arg))
+          CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(*Arg, L));
+    }
+  };
+  if (!CE->getDirectCallee())
+    UseOthers();
   if (const FunctionDecl *FD = CE->getDirectCallee()) {
     unsigned N = std::min(CE->getNumArgs(), FD->getNumParams());
     for (unsigned I = 0; I != N; ++I) {
       StringRef K = safeCParamDeclKind(FD->getParamDecl(I));
-      if (K == "excl" || K == "owned")
+      if (K == "excl" || K == "owned") {
         EndBorrowsThrough(CE->getArg(I));
+        Lent.insert(CE->getArg(I));
+      }
     }
+    UseOthers();
     // A `_Lifetimebound` parameter makes the result a borrow of its
     // argument's root, so it ends when that root's owned fields change
     // (a getter `get(&s)` of `s.p`, then `_Take(s.p)`) or the root is lent
@@ -2401,3 +2441,9 @@ llvm::SmallVector<Fact *> FactsGenerator::issuePlaceholderLoans() {
 }
 
 } // namespace clang::lifetimes::internal
+
+const clang::VarDecl *
+clang::lifetimes::safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
+                                   unsigned Depth) {
+  return internal::safeCResolveRoot(VD, Body, Depth);
+}
