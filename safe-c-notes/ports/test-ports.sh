@@ -50,5 +50,7 @@ for spec in "${configs[@]}"; do
   run "$name" "$cc" $(ls "$port"/tests/*.c | grep -vE 'utils_tests|json_patch|unity_setup')
   port=$here/jsmn; label=jsmn; lib=
   run "$name" "$cc" "$port"/test/tests.c
+  port=$here/../../safe-c-std; label=std; lib=
+  run "$name" "$cc" "$port"/tests/*.c
 done
 exit $fail
