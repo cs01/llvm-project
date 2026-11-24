@@ -38,3 +38,24 @@ int fresh(void) {
   free(p);
   return v;
 }
+
+// Fuzzer round 3: an _Excl local pointing at a global is a second name for
+// it, and a lifetimebound getter of a global borrows the globals.
+struct S2 { int *_Owned _Nullable p; };
+static struct S2 G2;
+struct _View V2 { int *_Nullable p; };
+struct V2 view2(struct S2 *s _Lifetimebound) { struct V2 v = {s->p}; return v; }
+void sfree2(struct S2 *_Excl s) { free(_Take(s->p)); }
+
+int excl_alias_global(void) {
+  int *_Nullable q = G2.p; // expected-error {{this pointer is borrowed from 'G2.p'}}
+  struct S2 *_Excl x = &G2;
+  free(_Take(x->p));       // expected-note {{the borrow ends here}}
+  return q ? *q : 0;       // expected-note {{later used here}}
+}
+
+int getter_global(void) {
+  int *_Nullable q = view2(&G2).p; // expected-error {{'view2' returns a borrow of '&G2'}}
+  sfree2(&G2);                     // expected-note {{the borrow ends here}}
+  return q ? *q : 0;               // expected-note {{later used here}}
+}

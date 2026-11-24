@@ -145,6 +145,8 @@ static const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
 /// The root a value derives from: a variable reached by a place, or the root
 /// of a lifetimebound argument of a call. Null for null, allocations and
 /// unknown values.
+static const VarDecl *safeCRootOrGlobal(const Expr *E);
+
 static const VarDecl *safeCValueRoot(const Expr *E, const Stmt *Body,
                                      unsigned Depth) {
   E = safeCPeel(E);
@@ -158,7 +160,8 @@ static const VarDecl *safeCValueRoot(const Expr *E, const Stmt *Body,
         return safeCValueRoot(Call->getArg(I), Body, Depth + 1);
     return nullptr;
   }
-  if (const VarDecl *VD = safeCRootVar(E))
+  // Globals too: `struct S *_Excl x = &G` borrows G.
+  if (const VarDecl *VD = safeCRootOrGlobal(E))
     return safeCResolveRoot(VD, Body, Depth + 1);
   return nullptr;
 }
@@ -741,15 +744,20 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
         const ParmVarDecl *P = FD->getParamDecl(I);
         if (!P->hasAttr<LifetimeBoundAttr>())
           continue;
-        const VarDecl *Root = safeCRootVar(CE->getArg(I));
+        const VarDecl *Root = safeCRootOrGlobal(CE->getArg(I));
         OriginList *ArgL = getOriginsList(*CE->getArg(I));
         if (!Root || !ArgL)
           continue;
         const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
-        if (Resolved->hasGlobalStorage())
+        // A getter of a global (`get(&G)`) borrows the globals: those loans
+        // end when any of them is taken, lent or changed by a call.
+        if (Resolved->hasGlobalStorage() && !isa<FunctionDecl>(AC.getDecl()))
           continue;
         const Loan *L = FactMgr.getLoanMgr().createLoan(
-            safeCRootInterior(FactMgr.getLoanMgr(), *Resolved), CE);
+            Resolved->hasGlobalStorage()
+                ? safeCGlobalsInterior(AC.getDecl())
+                : safeCRootInterior(FactMgr.getLoanMgr(), *Resolved),
+            CE);
         CurrentBlockFacts.push_back(
             FactMgr.createFact<IssueFact>(L->getID(), ArgL->getOuterOriginID()));
         CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
