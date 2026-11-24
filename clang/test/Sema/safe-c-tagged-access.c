@@ -121,3 +121,39 @@ double deref_form(const struct shape *s) {
     return s->width;
   return 0;
 }
+
+// Three back doors to a member whose bytes a tag change reuses: a pointer to
+// the member, a tag write through an alias, and a call given an alias.
+int g_int = 42;
+int member_address(void) {
+  struct value x = {1, {.p = &g_int}};
+  int *_Static *_Nullable pp = 0;
+  if (x.is_ptr == 1)
+    pp = &x.p; // expected-error {{a pointer to 'p' would outlive a change of the tag 'is_ptr', after which these bytes may be another member's (one that holds pointers); use the member by name, or copy its value out ('x = s.p;')}}
+  return pp ? **pp : 0;
+}
+int alias_write(void) {
+  struct value x = {1, {.p = &g_int}};
+  struct value *q = &x;
+  if (x.is_ptr != 1)
+    return 0;
+  q->is_ptr = 0;
+  return *x.p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
+}
+void clobber(struct value *w);
+int alias_call(void) {
+  struct value x = {1, {.p = &g_int}};
+  struct value *q = &x;
+  if (x.is_ptr != 1)
+    return 0;
+  clobber(q);
+  return *x.p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
+}
+int unaliased_local_survives_calls(void) {
+  struct value x = {1, {.p = &g_int}};
+  struct value other = {0, {.n = 0}};
+  if (x.is_ptr != 1)
+    return 0;
+  clobber(&other); // x's address was never taken: its tag cannot change
+  return *x.p;
+}

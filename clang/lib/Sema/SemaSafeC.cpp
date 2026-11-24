@@ -234,6 +234,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "or the union's bytes could be another member's; check it first (as in "
      "%select{'if (x.%2 == %3)' or 'case %3:'|'if (x.%2)'|'if (!x.%2)'}4)"
      "%select{|, or set it ('x.%2 = %3;') before writing}0"},
+    {"tagged-member-address", false,
+     "a pointer to %0 would outlive a change of the tag '%1', after which "
+     "these bytes may be another member's (one that holds pointers); use the "
+     "member by name, or copy its value out ('x = s.%2;')"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
@@ -708,6 +712,26 @@ static const VarDecl *dropLocalNamed(const Expr *E) {
              : nullptr;
 }
 
+/// A member of a tagged union that holds pointers in some member, named by
+/// \p E (a member access), or null. Its address must not be taken: a later
+/// tag change would let the pointer read another member's bytes.
+static const FieldDecl *pointerUnionMember(const ASTContext &Ctx,
+                                           const Expr *E, StringRef &Tag) {
+  const auto *ME = dyn_cast<MemberExpr>(E->IgnoreParens());
+  const auto *F = ME ? dyn_cast<FieldDecl>(ME->getMemberDecl()) : nullptr;
+  const RecordDecl *U = F ? F->getParent() : nullptr;
+  if (!U || !U->isUnion())
+    return nullptr;
+  Tag = taggedByName(U);
+  if (Tag.empty())
+    return nullptr;
+  for (const FieldDecl *M : U->fields())
+    if (!Sema::isSafeCPlainData(const_cast<ASTContext &>(Ctx), M->getType(),
+                                /*VoidIsPlain=*/true))
+      return F;
+  return nullptr;
+}
+
 namespace {
 class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   Sema &S;
@@ -859,6 +883,15 @@ public:
     return true;
   }
 
+  bool VisitUnaryOperator(UnaryOperator *UO) {
+    StringRef Tag;
+    if (UO->getOpcode() == UO_AddrOf)
+      if (const FieldDecl *M = pointerUnionMember(S.Context, UO->getSubExpr(), Tag))
+        S.SafeCDiag(UO->getOperatorLoc(), "tagged-member-address")
+            << M << Tag << M->getName();
+    return true;
+  }
+
   bool VisitCStyleCastExpr(CStyleCastExpr *CE) {
     // (void)s discards the value; nothing is copied.
     if (CE->getCastKind() == CK_ToVoid)
@@ -947,6 +980,13 @@ public:
   }
 
   bool VisitImplicitCastExpr(ImplicitCastExpr *ICE) {
+    if (ICE->getCastKind() == CK_ArrayToPointerDecay) {
+      StringRef Tag;
+      if (const FieldDecl *M = pointerUnionMember(S.Context, ICE->getSubExpr(), Tag))
+        S.SafeCDiag(ICE->getExprLoc(), "tagged-member-address")
+            << M << Tag << M->getName();
+      return true;
+    }
     if (ICE->getCastKind() != CK_LValueToRValue)
       return true;
     // A compound literal is a new object, not a copy of one.
@@ -1116,8 +1156,17 @@ static bool matchTagTest(const ASTContext &Ctx, const Expr *Cond, TagPath &P,
   return false;
 }
 
+/// Whether a fact about \p Root can be changed through some other path: a
+/// parameter or global, a pointer, or a local whose address was taken.
+static bool mayBeAliased(const VarDecl *Root,
+                         const llvm::DenseSet<const VarDecl *> &AddrTaken) {
+  return !Root || isa<ParmVarDecl>(Root) || Root->hasGlobalStorage() ||
+         Root->getType()->isPointerType() || AddrTaken.count(Root);
+}
+
 /// Updates facts for one statement (assignments to tags, kills).
-static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F) {
+static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F,
+                     const llvm::DenseSet<const VarDecl *> &AddrTaken) {
   // `struct S s = {TAG, ...}`: an initializer sets each tag it names.
   if (const auto *DS = dyn_cast<DeclStmt>(St)) {
     for (const Decl *D : DS->decls())
@@ -1151,6 +1200,12 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F) {
       if (const auto *Fld = dyn_cast<FieldDecl>(ME->getMemberDecl());
           Fld && isTagField(Fld))
         if (std::optional<TagPath> P = structPath(L)) {
+          // The same tag of another struct may be this one under another
+          // name (`q = &x; q->kind = ...`): forget those.
+          llvm::erase_if(F, [&](const auto &KV) {
+            return KV.first.Fields.back() == Fld && KV.first.Root != P->Root &&
+                   mayBeAliased(KV.first.Root, AddrTaken);
+          });
           setFact(F, *P,
                   BO->getOpcode() == BO_Assign
                       ? BO->getRHS()->getIntegerConstantExpr(Ctx)
@@ -1167,7 +1222,8 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F) {
       UO && UO->isIncrementDecrementOp())
     if (std::optional<TagPath> P = structPath(UO->getSubExpr()))
       setFact(F, *P, std::nullopt);
-  // A call given a pointer to a modifiable object may change its tag.
+  // A call given a pointer to a modifiable object may change any tag that
+  // can be reached through a pointer, not only the argument's.
   if (const auto *Call = dyn_cast<CallExpr>(St))
     for (const Expr *A : Call->arguments()) {
       QualType T = A->getType();
@@ -1175,6 +1231,10 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F) {
         continue;
       if (const VarDecl *Root = lifetimes::safeCRootVar(A))
         killRoot(F, Root);
+      llvm::erase_if(F, [&](const auto &KV) {
+        return mayBeAliased(KV.first.Root, AddrTaken);
+      });
+      break;
     }
 }
 
@@ -1253,6 +1313,36 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
   if (!Find.Any)
     return;
 
+  // Locals whose address escapes may change behind a name the analysis sees.
+  struct AddrFinder : RecursiveASTVisitor<AddrFinder> {
+    llvm::DenseSet<const VarDecl *> Taken;
+    void note(const Expr *E) {
+      while (true) {
+        E = E->IgnoreParenImpCasts();
+        if (const auto *ME = dyn_cast<MemberExpr>(E); ME && !ME->isArrow())
+          E = ME->getBase();
+        else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
+          E = ASE->getBase();
+        else
+          break;
+      }
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+          Taken.insert(VD);
+    }
+    bool VisitUnaryOperator(UnaryOperator *UO) {
+      if (UO->getOpcode() == UO_AddrOf)
+        note(UO->getSubExpr());
+      return true;
+    }
+    bool VisitImplicitCastExpr(ImplicitCastExpr *ICE) {
+      if (ICE->getCastKind() == CK_ArrayToPointerDecay)
+        note(ICE->getSubExpr());
+      return true;
+    }
+  } Addr;
+  Addr.TraverseStmt(Body);
+
   CFG::BuildOptions Opts;
   Opts.setAllAlwaysAdd(); // every member access is its own element
   std::unique_ptr<CFG> G = CFG::buildCFG(Fn, Body, &S.Context, Opts);
@@ -1324,7 +1414,7 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
               }
             }
         }
-      transfer(Ctx, St, F);
+      transfer(Ctx, St, F, Addr.Taken);
     }
     return F;
   };
