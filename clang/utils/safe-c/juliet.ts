@@ -76,7 +76,9 @@ async function build(c: Case, variant: "bad" | "good", dir: string, support: str
   const def = variant === "bad" ? "-DOMITGOOD" : "-DOMITBAD";
   const objs: string[] = [];
   const compiler = plain ? baselineCc : cc!;
-  const flags = plain ? ["-I", SUP, "-DINCLUDEMAIN", ...sys] : base;
+  // The baseline leaves libc's _FORTIFY_SOURCE off, as -fsafe-c does: a
+  // fortify trap in the baseline is not a platform trap Safe C would share.
+  const flags = plain ? ["-I", SUP, "-DINCLUDEMAIN", "-D_FORTIFY_SOURCE=0", ...sys] : base;
   for (const [i, f] of c.files.entries()) {
     const o = join(dir, `${plain ? "plain-" : ""}${variant}${i}.o`);
     const r = await sh([compiler, ...flags, def, "-I", dirname(f), "-c", f, "-o", o]);
