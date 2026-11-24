@@ -507,7 +507,10 @@ bool UnsafeOperationVisitor::FindSingleEntity(
       return false;
     }
 
-    assert(IsReallySinglePtr(DirectCallDecl->getReturnType()));
+    // A builtin with custom type checking (Safe C's __builtin_safec_take)
+    // gives its call a type its declaration does not have.
+    if (!IsReallySinglePtr(DirectCallDecl->getReturnType()))
+      return false;
 
     BoundsSafetySuggestionHandler::SingleEntity Entity = {
         /*Kind*/ BoundsSafetySuggestionHandler::AssignmentSourceKind::
