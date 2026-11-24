@@ -4031,7 +4031,10 @@ static bool samePointerLoose(ASTContext &Ctx, QualType S, QualType D,
   // A parameter: the caller (through Dst) may pass null unless it promises
   // not to, so the callee (Src) must accept it. A return: the callee may
   // return null only if the caller expects it.
-  if (IsParam ? (DNull && !SNull) : (SNull && DN && !DNull))
+  // Unannotated on both sides is the same type, which a plain assignment
+  // converts without a cast; a cast must not be stricter.
+  bool Same = !SN && !DN;
+  if (!Same && (IsParam ? (DNull && !SNull) : (SNull && DN && !DNull)))
     return false;
   QualType SPt = SP->getPointeeType(), DPt = DP->getPointeeType();
   if (SPt->isFunctionType() && DPt->isFunctionType())
