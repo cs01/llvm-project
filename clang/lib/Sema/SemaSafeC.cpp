@@ -212,6 +212,21 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "copying %0 byte by byte duplicates its owned field %1, and both copies "
      "would free it; move the field with '_Take' and assign the others, or "
      "pass a pointer to the struct instead"},
+    {"tag-field-missing", false,
+     "the union is tagged by '%0', but the struct has no field of that name; "
+     "name the field that holds the tag, as in '_Tagged_by(kind)'"},
+    {"tag-field-type", false,
+     "the tag '%0' must be an integer or enum field, so its value can say "
+     "which member is live"},
+    {"when-missing", false,
+     "member %0 of a tagged union does not say when it is live; add "
+     "'_When(VALUE)' with the tag values for which it holds data"},
+    {"when-duplicate", false,
+     "tag value %0 is claimed by both %1 and %2; each value must name one "
+     "live member"},
+    {"switch-not-exhaustive", false,
+     "this switch on '%0' does not handle %1, a tag value of the union it "
+     "describes; add 'case %1:' (or 'default:')"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
@@ -305,6 +320,73 @@ static bool isViewType(QualType T) {
   return RD && hasSafeCAnnotation(RD, "safec_view");
 }
 
+/// The annotation of \p D named \p Name, if any.
+static const AnnotateAttr *getSafeCAnnotation(const Decl *D, StringRef Name) {
+  for (const auto *A : D->specific_attrs<AnnotateAttr>())
+    if (A->getAnnotation() == Name)
+      return A;
+  return nullptr;
+}
+
+/// The tag field name of a tagged union type, or "".
+static StringRef taggedByName(QualType T) {
+  const RecordDecl *U = T->getAsRecordDecl();
+  if (!U || !U->isUnion())
+    return "";
+  const AnnotateAttr *A = getSafeCAnnotation(U, "safec_tagged_by");
+  if (!A || A->args_size() == 0)
+    return "";
+  if (const auto *SL =
+          dyn_cast<StringLiteral>(A->args_begin()[0]->IgnoreParenImpCasts()))
+    return SL->getString();
+  return "";
+}
+
+/// The tag values of each member of tagged union \p U, as written in _When.
+static void whenValues(
+    const ASTContext &Ctx, const RecordDecl *U,
+    llvm::function_ref<void(const FieldDecl *, llvm::APSInt, SourceLocation)>
+        Each) {
+  for (const FieldDecl *M : U->fields())
+    if (const AnnotateAttr *A = getSafeCAnnotation(M, "safec_when"))
+      for (const Expr *V : llvm::make_range(A->args_begin(), A->args_end()))
+        if (std::optional<llvm::APSInt> I = V->getIntegerConstantExpr(Ctx))
+          Each(M, *I, V->getExprLoc());
+}
+
+/// M4: each tagged union member of \p RD names a sibling integer tag, and
+/// each of its members says, with distinct values, when it is live.
+static void checkTaggedUnions(Sema &S, const RecordDecl *RD) {
+  for (const FieldDecl *FD : RD->fields()) {
+    StringRef Tag = taggedByName(FD->getType());
+    if (Tag.empty())
+      continue;
+    const FieldDecl *TagField = nullptr;
+    for (const FieldDecl *F : RD->fields())
+      if (F->getName() == Tag)
+        TagField = F;
+    if (!TagField) {
+      S.SafeCDiag(FD->getLocation(), "tag-field-missing") << Tag;
+      continue;
+    }
+    if (!TagField->getType()->isIntegralOrEnumerationType())
+      S.SafeCDiag(TagField->getLocation(), "tag-field-type") << Tag;
+    const RecordDecl *U = FD->getType()->getAsRecordDecl();
+    for (const FieldDecl *M : U->fields())
+      if (!getSafeCAnnotation(M, "safec_when"))
+        S.SafeCDiag(M->getLocation(), "when-missing") << M;
+    llvm::SmallVector<std::pair<llvm::APSInt, const FieldDecl *>, 8> Seen;
+    whenValues(S.Context, U,
+               [&](const FieldDecl *M, llvm::APSInt V, SourceLocation L) {
+                 for (auto &[W, Owner] : Seen)
+                   if (llvm::APSInt::isSameValue(W, V) && Owner != M)
+                     S.SafeCDiag(L, "when-duplicate")
+                         << toString(V, 10) << Owner << M;
+                 Seen.push_back({V, M});
+               });
+  }
+}
+
 void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
   if (!safeCOwnershipEnabled(S) ||
       S.getSourceManager().isInSystemHeader(D->getLocation()))
@@ -313,6 +395,7 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
     return !safeCPointerKind(X->getType()).empty();
   };
   if (auto *RD = dyn_cast<RecordDecl>(D)) {
+    checkTaggedUnions(S, RD);
     if (hasSafeCAnnotation(RD, "safec_view"))
       return;
     for (const FieldDecl *FD : RD->fields()) {
@@ -719,6 +802,43 @@ public:
       // A slot can be empty (filled implicitly).
       if (const Expr *Init = ILE->getInit(I++))
         checkStore(FD, Init, ILE->getBeginLoc());
+    }
+    return true;
+  }
+
+  bool VisitSwitchStmt(SwitchStmt *SS) {
+    // M4 rule 4: a switch on a union's tag handles every tag value.
+    const auto *ME = dyn_cast<MemberExpr>(SS->getCond()->IgnoreParenImpCasts());
+    const auto *TagField = ME ? dyn_cast<FieldDecl>(ME->getMemberDecl()) : nullptr;
+    if (!TagField)
+      return true;
+    llvm::SmallVector<llvm::APSInt, 8> Cases;
+    for (const SwitchCase *C = SS->getSwitchCaseList(); C;
+         C = C->getNextSwitchCase()) {
+      if (isa<DefaultStmt>(C))
+        return true;
+      if (const auto *CS = dyn_cast<CaseStmt>(C))
+        if (std::optional<llvm::APSInt> V =
+                CS->getLHS()->getIntegerConstantExpr(S.Context))
+          Cases.push_back(*V);
+    }
+    for (const FieldDecl *F : TagField->getParent()->fields()) {
+      if (taggedByName(F->getType()) != TagField->getName())
+        continue;
+      whenValues(S.Context, F->getType()->getAsRecordDecl(),
+                 [&](const FieldDecl *, llvm::APSInt V, SourceLocation) {
+                   for (const llvm::APSInt &C : Cases)
+                     if (llvm::APSInt::isSameValue(C, V))
+                       return;
+                   std::string Name = toString(V, 10);
+                   if (const auto *ET = TagField->getType()->getAs<EnumType>())
+                     for (const EnumConstantDecl *E :
+                          ET->getOriginalDecl()->getDefinitionOrSelf()->enumerators())
+                       if (llvm::APSInt::isSameValue(E->getInitVal(), V))
+                         Name = E->getName().str();
+                   S.SafeCDiag(SS->getSwitchLoc(), "switch-not-exhaustive")
+                       << TagField->getName() << Name;
+                 });
     }
     return true;
   }

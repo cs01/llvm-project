@@ -238,6 +238,25 @@ char *getenv(const char *__null_terminated);
 #define _Lifetimebound __safec_lifetimebound
 #define _Noescape __safec_noescape
 
+/* Tagged unions, like Rust's enums with data:
+     struct shape {
+       enum kind kind;
+       union _Tagged_by(kind) {
+         struct circle c _When(CIRCLE);
+         struct rect r _When(RECT, SQUARE);
+       };
+     };
+   _Tagged_by names the sibling field holding the tag; _When lists the tag
+   values for which a member is live. A switch on the tag must handle every
+   value (or have a default). */
+#if defined(__clang__)
+#define _Tagged_by(f) __attribute__((annotate("safec_tagged_by", #f)))
+#define _When(...) __attribute__((annotate("safec_when", __VA_ARGS__)))
+#else
+#define _Tagged_by(f)
+#define _When(...)
+#endif
+
 /* Automatic cleanup at the end of a scope, like Rust's Drop:
      string s _Drop(string_free) = {0};   calls string_free(&s)
      char *p _Drop_free = malloc(n);      calls free(p)
