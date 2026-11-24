@@ -839,6 +839,10 @@ public:
   }
 
   llvm::SmallPtrSet<const Expr *, 4> GlobalReturns;
+  void reportOwnedParamStored(const ParmVarDecl *Owned,
+                              const ParmVarDecl *Out) override {
+    S.SafeCDiag(Owned->getLocation(), "owned-param-stored") << Owned << Out;
+  }
   void reportGlobalBorrowStored(const Expr *IssueExpr,
                                 const ParmVarDecl *Param) override {
     if (Param)

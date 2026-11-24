@@ -28,7 +28,6 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static _Thread_local cJSON item[1];
 
 static void assert_is_array(cJSON *array_item)
 {
@@ -42,7 +41,7 @@ static void assert_is_array(cJSON *array_item)
     assert_has_no_string(array_item);
 }
 
-static void assert_not_array(const char *json)
+static void assert_not_array(cJSON *_Exclusive item, const char *json)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -55,7 +54,7 @@ static void assert_not_array(const char *json)
     assert_is_invalid(item);
 }
 
-static void assert_parse_array(const char *json)
+static void assert_parse_array(cJSON *_Exclusive item, const char *json)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -70,36 +69,38 @@ static void assert_parse_array(const char *json)
 
 static void parse_array_should_parse_empty_arrays(void)
 {
-    assert_parse_array("[]");
+    cJSON item[1] = {0};
+    assert_parse_array(item, "[]");
     assert_has_no_child(item);
 
-    assert_parse_array("[\n\t]");
+    assert_parse_array(item, "[\n\t]");
     assert_has_no_child(item);
 }
 
 
 static void parse_array_should_parse_arrays_with_one_element(void)
 {
+    cJSON item[1] = {0};
 
-    assert_parse_array("[1]");
+    assert_parse_array(item, "[1]");
     assert_has_child(item);
     assert_has_type(item->child, cJSON_Number);
     reset(item);
 
-    assert_parse_array("[\"hello!\"]");
+    assert_parse_array(item, "[\"hello!\"]");
     assert_has_child(item);
     assert_has_type(item->child, cJSON_String);
     TEST_ASSERT_EQUAL_STRING("hello!", item->child->valuestring);
     reset(item);
 
-    assert_parse_array("[[]]");
+    assert_parse_array(item, "[[]]");
     assert_has_child(item);
     TEST_ASSERT_NOT_NULL(item->child);
     assert_has_type(item->child, cJSON_Array);
     assert_has_no_child(item->child);
     reset(item);
 
-    assert_parse_array("[null]");
+    assert_parse_array(item, "[null]");
     assert_has_child(item);
     assert_has_type(item->child, cJSON_NULL);
     reset(item);
@@ -107,7 +108,8 @@ static void parse_array_should_parse_arrays_with_one_element(void)
 
 static void parse_array_should_parse_arrays_with_multiple_elements(void)
 {
-    assert_parse_array("[1\t,\n2, 3]");
+    cJSON item[1] = {0};
+    assert_parse_array(item, "[1\t,\n2, 3]");
     assert_has_child(item);
     TEST_ASSERT_NOT_NULL(item->child->next);
     TEST_ASSERT_NOT_NULL(item->child->next->next);
@@ -130,7 +132,7 @@ static void parse_array_should_parse_arrays_with_multiple_elements(void)
             cJSON_String,
             cJSON_Object
         };
-        assert_parse_array("[1, null, true, false, [], \"hello\", {}]");
+        assert_parse_array(item, "[1, null, true, false, [], \"hello\", {}]");
 
         node = item->child;
         for (
@@ -148,19 +150,18 @@ static void parse_array_should_parse_arrays_with_multiple_elements(void)
 
 static void parse_array_should_not_parse_non_arrays(void)
 {
-    assert_not_array("");
-    assert_not_array("[");
-    assert_not_array("]");
-    assert_not_array("{\"hello\":[]}");
-    assert_not_array("42");
-    assert_not_array("3.14");
-    assert_not_array("\"[]hello world!\n\"");
+    cJSON item[1] = {0};
+    assert_not_array(item, "");
+    assert_not_array(item, "[");
+    assert_not_array(item, "]");
+    assert_not_array(item, "{\"hello\":[]}");
+    assert_not_array(item, "42");
+    assert_not_array(item, "3.14");
+    assert_not_array(item, "\"[]hello world!\n\"");
 }
 
 int CJSON_CDECL main(void)
 {
-    /* initialize cJSON item */
-    memset(item, 0, sizeof(cJSON));
 
     UNITY_BEGIN();
     RUN_TEST(parse_array_should_parse_empty_arrays);

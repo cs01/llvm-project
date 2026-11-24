@@ -70,7 +70,7 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 | Uninitialized reads | locals must be set before use; heap memory is zero-filled (except the bytes `realloc` adds) |
 | Integer UB | division by zero and oversized shifts trap; signed overflow wraps (as in Rust release builds) |
 | Type confusion | unions holding pointers must be tagged unions, and every read checks the tag. Open: raw bytes copied in through a `void *` variable, `va_arg` of a struct holding pointers |
-| Use after free, double free | on by default, **not sound yet**: the common forms are caught, but not every path is tracked. Of 53 accepted programs with real bugs found on 2026-11-24, 12 are still accepted; they are [listed](safe-c-notes/review-2026-11-23.md) and being fixed. A null check can also survive a call that clears the pointer through a global |
+| Use after free, double free | on by default, **not sound yet**: the common forms are caught, but not every path is tracked. Of 53 accepted programs with real bugs found on 2026-11-24, all are now rejected ([the open issues](safe-c-notes/review-2026-11-23.md)); a fresh search is expected to find more. A null check can also survive a call that clears the pointer through a global |
 | Data races | a thread owns its argument; locked data, mutable globals and signal handlers are checked. Not yet: a counted pointer and its count under one lock, shared owners (`Arc`) |
 
 **Maturity.** Early. Tested on macOS (arm64) against Apple's SDK. Linux builds but is not usable yet

@@ -34,6 +34,10 @@ bool isPointerLikeType(QualType QT);
 /// sugar ("owned", "excl", "static", "unchecked"), or "" for a plain borrow.
 /// Arrays give their elements' kind.
 llvm::StringRef safeCPointerKind(QualType T);
+/// Whether a call may read or change this program's globals (rule 14).
+bool safeCMayTouchGlobals(const CallExpr *CE, const SourceManager &SM);
+/// Whether a value of type T holds an owned pointer (opaque structs: assumed).
+bool safeCReachesOwner(QualType T, unsigned Depth = 0);
 /// The variable a borrow local is rooted at (`q` from `q = x->p` is x),
 /// following its values in Body; VD itself when it has no single root.
 const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,

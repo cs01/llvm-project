@@ -147,8 +147,24 @@ public:
     OriginID EscapedOID = OEF->getEscapedOriginID();
     LoanSet EscapedLoans = LoanPropagation.getLoans(EscapedOID, OEF);
     auto CheckParam = [&](const ParmVarDecl *PVD, bool IsMoved) {
-      // NoEscape param should not escape.
-      if (PVD->hasAttr<NoEscapeAttr>()) {
+      // Safe C: an owned parameter is freed or given on by this function, so
+      // a borrow of it may not be left where another parameter points.
+      if (auto *ParamEsc = dyn_cast<ParamEscapeFact>(OEF);
+          ParamEsc && ParamEsc->getParam() != PVD && SemaHelper &&
+          safeCParamDeclKind(PVD) == "owned")
+        SemaHelper->reportOwnedParamStored(PVD, ParamEsc->getParam());
+      // NoEscape param should not escape. (A promise on any declaration
+      // binds: callers may have seen only that one.)
+      auto Promised = [&] {
+        for (const FunctionDecl *R : cast<FunctionDecl>(PVD->getDeclContext())->redecls())
+          if (PVD->getFunctionScopeIndex() < R->getNumParams() &&
+              R->getParamDecl(PVD->getFunctionScopeIndex())
+                  ->hasAttr<NoEscapeAttr>())
+            return true;
+        return false;
+      };
+      if (PVD->hasAttr<NoEscapeAttr>() ||
+          (isa<FunctionDecl>(PVD->getDeclContext()) && Promised())) {
         if (auto *ReturnEsc = dyn_cast<ReturnEscapeFact>(OEF))
           NoescapeWarningsMap.try_emplace(PVD, ReturnEsc->getReturnExpr());
         if (auto *FieldEsc = dyn_cast<FieldEscapeFact>(OEF))

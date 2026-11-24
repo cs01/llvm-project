@@ -109,6 +109,10 @@ public:
                                    const Expr *InvalidationExpr,
                                    SourceLocation ExpiryLoc) {}
 
+  /// Safe C: a borrow of owned parameter \p Owned is left where \p Out points.
+  virtual void reportOwnedParamStored(const ParmVarDecl *Owned,
+                                      const ParmVarDecl *Out) {}
+
   /// Safe C: a borrow of a global's owned target is stored where \p Param
   /// points, where callers cannot see it end.
   virtual void reportGlobalBorrowStored(const Expr *IssueExpr,

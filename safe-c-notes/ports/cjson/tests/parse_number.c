@@ -28,7 +28,6 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static _Thread_local cJSON item[1];
 
 static void assert_is_number(cJSON *number_item)
 {
@@ -43,7 +42,7 @@ static void assert_is_number(cJSON *number_item)
     assert_has_no_string(number_item);
 }
 
-static void assert_parse_number(const char *string, int integer, double real)
+static void assert_parse_number(cJSON *_Exclusive item, const char *string, int integer, double real)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -58,7 +57,7 @@ static void assert_parse_number(const char *string, int integer, double real)
     TEST_ASSERT_EQUAL_DOUBLE(real, item->valuedouble);
 }
 
-static void assert_parse_big_number(const char *string)
+static void assert_parse_big_number(cJSON *_Exclusive item, const char *string)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -73,56 +72,60 @@ static void assert_parse_big_number(const char *string)
 
 static void parse_number_should_parse_zero(void)
 {
-    assert_parse_number("0", 0, 0);
-    assert_parse_number("0.0", 0, 0.0);
-    assert_parse_number("-0", 0, -0.0);
+    cJSON item[1] = {0};
+    assert_parse_number(item, "0", 0, 0);
+    assert_parse_number(item, "0.0", 0, 0.0);
+    assert_parse_number(item, "-0", 0, -0.0);
 }
 
 static void parse_number_should_parse_negative_integers(void)
 {
-    assert_parse_number("-1", -1, -1);
-    assert_parse_number("-32768", -32768, -32768.0);
-    assert_parse_number("-2147483648", (int)-2147483648.0, -2147483648.0);
+    cJSON item[1] = {0};
+    assert_parse_number(item, "-1", -1, -1);
+    assert_parse_number(item, "-32768", -32768, -32768.0);
+    assert_parse_number(item, "-2147483648", (int)-2147483648.0, -2147483648.0);
 }
 
 static void parse_number_should_parse_positive_integers(void)
 {
-    assert_parse_number("1", 1, 1);
-    assert_parse_number("32767", 32767, 32767.0);
-    assert_parse_number("2147483647", (int)2147483647.0, 2147483647.0);
+    cJSON item[1] = {0};
+    assert_parse_number(item, "1", 1, 1);
+    assert_parse_number(item, "32767", 32767, 32767.0);
+    assert_parse_number(item, "2147483647", (int)2147483647.0, 2147483647.0);
 }
 
 static void parse_number_should_parse_positive_reals(void)
 {
-    assert_parse_number("0.001", 0, 0.001);
-    assert_parse_number("10e-10", 0, 10e-10);
-    assert_parse_number("10E-10", 0, 10e-10);
-    assert_parse_number("10e10", INT_MAX, 10e10);
-    assert_parse_number("123e+127", INT_MAX, 123e127);
-    assert_parse_number("123e-128", 0, 123e-128);
+    cJSON item[1] = {0};
+    assert_parse_number(item, "0.001", 0, 0.001);
+    assert_parse_number(item, "10e-10", 0, 10e-10);
+    assert_parse_number(item, "10E-10", 0, 10e-10);
+    assert_parse_number(item, "10e10", INT_MAX, 10e10);
+    assert_parse_number(item, "123e+127", INT_MAX, 123e127);
+    assert_parse_number(item, "123e-128", 0, 123e-128);
 }
 
 static void parse_number_should_parse_negative_reals(void)
 {
-    assert_parse_number("-0.001", 0, -0.001);
-    assert_parse_number("-10e-10", 0, -10e-10);
-    assert_parse_number("-10E-10", 0, -10e-10);
-    assert_parse_number("-10e20", INT_MIN, -10e20);
-    assert_parse_number("-123e+127", INT_MIN, -123e127);
-    assert_parse_number("-123e-128", 0, -123e-128);
+    cJSON item[1] = {0};
+    assert_parse_number(item, "-0.001", 0, -0.001);
+    assert_parse_number(item, "-10e-10", 0, -10e-10);
+    assert_parse_number(item, "-10E-10", 0, -10e-10);
+    assert_parse_number(item, "-10e20", INT_MIN, -10e20);
+    assert_parse_number(item, "-123e+127", INT_MIN, -123e127);
+    assert_parse_number(item, "-123e-128", 0, -123e-128);
 }
 
 static void parse_number_should_parse_big_numbers(void)
 {
-    assert_parse_big_number("9999999999999999999999999999999999999999999999912345678901234567");
-    assert_parse_big_number("9999999999999999999999999999999999999999999999912345678901234567E10");
-    assert_parse_big_number("999999999999999999999999999999999999999999999991234567890.1234567");
+    cJSON item[1] = {0};
+    assert_parse_big_number(item, "9999999999999999999999999999999999999999999999912345678901234567");
+    assert_parse_big_number(item, "9999999999999999999999999999999999999999999999912345678901234567E10");
+    assert_parse_big_number(item, "999999999999999999999999999999999999999999999991234567890.1234567");
 }
 
 int CJSON_CDECL main(void)
 {
-    /* initialize cJSON item */
-    memset(item, 0, sizeof(cJSON));
     UNITY_BEGIN();
     RUN_TEST(parse_number_should_parse_zero);
     RUN_TEST(parse_number_should_parse_negative_integers);

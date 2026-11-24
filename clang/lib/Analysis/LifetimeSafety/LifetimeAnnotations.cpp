@@ -708,6 +708,25 @@ bool isSafeCViewType(QualType T) {
   return false;
 }
 
+bool safeCReachesOwner(QualType T, unsigned Depth) {
+  if (Depth > 8)
+    return true;
+  // Pointer kinds are type attributes: read them before any desugaring.
+  if (T->isPointerType())
+    return safeCPointerKind(T) == "owned";
+  if (const ArrayType *AT = T->getAsArrayTypeUnsafe())
+    return safeCReachesOwner(AT->getElementType(), Depth + 1);
+  if (const RecordDecl *RD = T->getAsRecordDecl()) {
+    const RecordDecl *Def = RD->getDefinition();
+    if (!Def)
+      return true; // opaque: assume it can
+    for (const FieldDecl *FD : Def->fields())
+      if (safeCReachesOwner(FD->getType(), Depth + 1))
+        return true;
+  }
+  return false;
+}
+
 const VarDecl *safeCRootVar(const Expr *E) {
   while (true) {
     E = safeCPeel(E);

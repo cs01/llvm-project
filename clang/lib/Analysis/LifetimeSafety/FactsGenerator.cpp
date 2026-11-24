@@ -79,7 +79,9 @@ void FactsGenerator::flow(OriginList *Dst, OriginList *Src, bool Kill,
     return;
   assert(Src &&
          "Dst is non-null but Src is null. List must have the same length");
-  assert(Dst->getLength() == Src->getLength() &&
+  // (Safe C rejects the programs where they differ, but still analyzes them.)
+  assert((Dst->getLength() == Src->getLength() ||
+          AC.getASTContext().getLangOpts().SafeC) &&
          "Lists must have the same length");
 
   while (Dst && Src) {
@@ -632,7 +634,14 @@ void FactsGenerator::safeCFlowThroughOutArgs(const CallExpr *CE) {
       return true;
     StringRef Kind = safeCPointerKind(T);
     return T->isPointerType() && !T->isFunctionPointerType() &&
-           Kind != "owned" && Kind != "static";
+           Kind != "static";
+  };
+  // Given away: the block itself is the callee's to free, but views in it
+  // still carry borrows.
+  auto IsOwned = [&](unsigned I) {
+    return (FD && I < FD->getNumParams()
+                ? safeCParamDeclKind(FD->getParamDecl(I))
+                : safeCParamKind(Proto->getParamType(I))) == "owned";
   };
   // Every level of every variable an out argument may reach.
   auto Outs = [&](unsigned Except) {
@@ -669,14 +678,14 @@ void FactsGenerator::safeCFlowThroughOutArgs(const CallExpr *CE) {
       continue;
     OriginList *First = Src;
     // The pointer itself is not kept; what it points to may be copied out.
-    if (IsNoEscape(I))
+    if (IsNoEscape(I) || IsOwned(I))
       Src = Src->peelOuterOrigin();
     for (; Src; Src = Src->peelOuterOrigin())
       Flow(Src->getOuterOriginID(), To);
     // `*out = s->owned` is a borrow rooted at what s names, ended by the next
     // take or exclusive lend of it. (The argument's own origin is used up by
     // the call, so it can carry the loan.)
-    if (IsNoEscape(I) || !safeCOwnershipOn(AC.getASTContext()))
+    if (IsNoEscape(I) || IsOwned(I) || !safeCOwnershipOn(AC.getASTContext()))
       continue;
     if (const VarDecl *Root = safeCRootOrGlobal(CE->getArg(I))) {
       Root = safeCResolveRoot(Root, AC.getBody(), 0);
@@ -779,8 +788,13 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
       // borrow one of them (a getter `int *get(void) { return g; }`), so
       // it ends when they change, like a direct read of g. New memory
       // (allocators, _Returns_owned) is not a borrow.
-      if (Callee && safeCReturnsGlobalBorrow(*Callee) &&
-          !Callee->hasAttr<OwnershipAttr>() && !isAllocatingFunction(*Callee) &&
+      // Through a pointer it may be such a getter.
+      const Decl *Ptr = CE->getCalleeDecl();
+      if ((Callee ? safeCReturnsGlobalBorrow(*Callee) &&
+                        !Callee->hasAttr<OwnershipAttr>() &&
+                        !isAllocatingFunction(*Callee)
+                  : !CE->getType()->isVoidPointerType() &&
+                        (!Ptr || !Ptr->hasAttr<OwnershipAttr>())) &&
           (CE->getType()->isPointerType() || isSafeCViewType(CE->getType())) &&
           safeCPointerKind(CE->getType()).empty())
         if (OriginList *R = getOriginsList(*CE)) {
@@ -822,8 +836,8 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
       if (!isa<FunctionDecl>(AC.getDecl()))
         return;
       AccessPath G = safeCGlobalsInterior(AC.getDecl());
-      CurrentBlockFacts.push_back(
-          FactMgr.createFact<ExpireFact>(G, CE->getBeginLoc()));
+      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
+          safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));
       // A local borrowing a global, lent on, is reborrowed as for any root.
       if (Root != Resolved)
         if (OriginList *L = getOriginsList(*Root)) {
@@ -863,6 +877,14 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
               L->getID(), Dst->getOuterOriginID()));
           CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
               Dst->getOuterOriginID(), Val->getOuterOriginID(), /*Kill=*/false));
+          // Views in the block keep what they borrow.
+          for (OriginList *DI = Dst->peelOuterOrigin(),
+                          *VI = Val->peelOuterOrigin();
+               DI && VI;
+               DI = DI->peelOuterOrigin(), VI = VI->peelOuterOrigin())
+            CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+                DI->getOuterOriginID(), VI->getOuterOriginID(),
+                /*Kill=*/false));
           // The place is null afterwards: it holds nothing.
           CurrentBlockFacts.push_back(
               FactMgr.createFact<KillOriginFact>(Val->getOuterOriginID()));
@@ -2446,4 +2468,9 @@ const clang::VarDecl *
 clang::lifetimes::safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
                                    unsigned Depth) {
   return internal::safeCResolveRoot(VD, Body, Depth);
+}
+
+bool clang::lifetimes::safeCMayTouchGlobals(const CallExpr *CE,
+                                            const SourceManager &SM) {
+  return internal::safeCCallTouchesGlobals(CE, SM, 0);
 }

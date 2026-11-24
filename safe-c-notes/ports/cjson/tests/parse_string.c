@@ -28,7 +28,6 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static _Thread_local cJSON item[1];
 
 static void assert_is_string(cJSON *string_item)
 {
@@ -43,7 +42,7 @@ static void assert_is_string(cJSON *string_item)
     assert_has_no_string(string_item);
 }
 
-static void assert_parse_string(const char *string, const char *expected)
+static void assert_parse_string(cJSON *_Exclusive item, const char *string, const char *expected)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -59,7 +58,7 @@ static void assert_parse_string(const char *string, const char *expected)
     global_hooks.deallocate(_Take(item[0].valuestring));
 }
 
-static void assert_not_parse_string(const char * const string)
+static void assert_not_parse_string(cJSON *_Exclusive item, const char * const string)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -76,57 +75,62 @@ static void assert_not_parse_string(const char * const string)
 
 static void parse_string_should_parse_strings(void)
 {
-    assert_parse_string("\"\"", "");
-    assert_parse_string(
+    cJSON item[1] = {0};
+    assert_parse_string(item, "\"\"", "");
+    assert_parse_string(item, 
         "\" !\\\"#$%&'()*+,-./\\/0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\\]^_'abcdefghijklmnopqrstuvwxyz{|}~\"",
         " !\"#$%&'()*+,-.//0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_'abcdefghijklmnopqrstuvwxyz{|}~");
-    assert_parse_string(
+    assert_parse_string(item, 
         "\"\\\"\\\\\\/\\b\\f\\n\\r\\t\\u20AC\\u732b\"",
         "\"\\/\b\f\n\r\t€猫");
     reset(item);
-    assert_parse_string("\"\b\f\n\r\t\"", "\b\f\n\r\t");
+    assert_parse_string(item, "\"\b\f\n\r\t\"", "\b\f\n\r\t");
     reset(item);
 }
 
 static void parse_string_should_parse_utf16_surrogate_pairs(void)
 {
-    assert_parse_string("\"\\uD83D\\udc31\"", "🐱");
+    cJSON item[1] = {0};
+    assert_parse_string(item, "\"\\uD83D\\udc31\"", "🐱");
     reset(item);
 }
 
 static void parse_string_should_not_parse_non_strings(void)
 {
-    assert_not_parse_string("this\" is not a string\"");
+    cJSON item[1] = {0};
+    assert_not_parse_string(item, "this\" is not a string\"");
     reset(item);
-    assert_not_parse_string("");
+    assert_not_parse_string(item, "");
     reset(item);
 }
 
 static void parse_string_should_not_parse_invalid_backslash(void)
 {
-    assert_not_parse_string("Abcdef\\123");
+    cJSON item[1] = {0};
+    assert_not_parse_string(item, "Abcdef\\123");
     reset(item);
-    assert_not_parse_string("Abcdef\\e23");
+    assert_not_parse_string(item, "Abcdef\\e23");
     reset(item);
 }
 
 static void parse_string_should_not_overflow_with_closing_backslash(void)
 {
-    assert_not_parse_string("\"000000000000000000\\");
+    cJSON item[1] = {0};
+    assert_not_parse_string(item, "\"000000000000000000\\");
     reset(item);
 }
 
 static void parse_string_should_parse_bug_94(void)
 {
+    cJSON item[1] = {0};
     const char string[] = "\"~!@\\\\#$%^&*()\\\\\\\\-\\\\+{}[]:\\\\;\\\\\\\"\\\\<\\\\>?/.,DC=ad,DC=com\"";
-    assert_parse_string(string, "~!@\\#$%^&*()\\\\-\\+{}[]:\\;\\\"\\<\\>?/.,DC=ad,DC=com");
+    assert_parse_string(item, string, "~!@\\#$%^&*()\\\\-\\+{}[]:\\;\\\"\\<\\>?/.,DC=ad,DC=com");
     reset(item);
 }
 
 int CJSON_CDECL main(void)
 {
     /* initialize cJSON item and error pointer */
-    memset(item, 0, sizeof(cJSON));
 
     UNITY_BEGIN();
     RUN_TEST(parse_string_should_parse_strings);

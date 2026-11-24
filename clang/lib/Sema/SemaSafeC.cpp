@@ -300,6 +300,22 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "this borrows memory a global owns, and storing it where %0 points hides "
      "that from the caller, who could use it after the global frees it; take "
      "the object that owns it as a parameter instead of reading the global"},
+    {"global-lent", false,
+     "global %0 owns memory, and this call is passed a pointer to it but may "
+     "also reach %0 by name and free what the callee is using; keep the object "
+     "in a local for the call (move its owned fields with '_Take', and move "
+     "them back after), or let the callee use the global by name"},
+    {"owned-param-stored", false,
+     "%0 is owned by this function, which frees it or gives it on, but a "
+     "borrow of it is stored where %1 points, so the caller could use it "
+     "after that; return it instead, or store it as an owner "
+     "('_Owned *' parameter)"},
+    {"view-of-owner", false,
+     "'_View' field %0 points to a struct that owns memory, and a view does "
+     "not track what it could free; pass that struct as its own parameter"},
+    {"view-realloc", false,
+     "reallocating memory that holds '_View' structs loses track of what they "
+     "borrow; allocate the new array and copy the views into it one by one"},
     {"global-borrow-returned", false,
      "this returns a borrow of memory a global owns, and callers in other "
      "files cannot see that, so they could use it after the global frees it; "
@@ -349,9 +365,9 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "naming it; %select{write '&place' where it is used instead of keeping it|"
      "pass the place's address as its own parameter}0"},
     {"borrow-slot-value", false,
-     "this gives a pointer to a place that holds a borrow, but which place "
-     "cannot be told from here; name it directly ('&place', or a parameter) in "
-     "each branch"},
+     "this gives a pointer to a place that holds a borrow or an owner, but "
+     "which place cannot be told from here; name it directly ('&place', or a "
+     "parameter) in each branch"},
     {"view-pointer-storage", false,
      "%select{global|field}0 %1 points to '_View' structs, whose borrows are "
      "tracked only while a local or parameter holds the pointer; keep it in a "
@@ -450,6 +466,9 @@ static bool isBorrowSlotPtr(QualType T) {
   QualType Slot = T->getPointeeType();
   while (const ArrayType *AT = Slot->getAsArrayTypeUnsafe())
     Slot = AT->getElementType();
+  // A pointer to a pointer that holds views, owned or not.
+  if (Slot->isPointerType() && isViewType(Slot->getPointeeType()))
+    return true;
   return isViewType(Slot) ||
          (holdsBorrow(Slot) && safeCPointerKind(Slot).empty());
 }
@@ -554,6 +573,12 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
           S.SafeCDiag(FD->getLocation(), "view-pointer-storage") << 1 << FD;
         else if (isBorrowSlotPtr(FD->getType()))
           S.SafeCDiag(FD->getLocation(), "borrow-slot") << 1 << FD;
+        else if (QualType T = FD->getType();
+                 T->isPointerType() && safeCPointerKind(T).empty() &&
+                 T->getPointeeType()->isRecordType() &&
+                 T->getPointeeType()->getAsRecordDecl()->getDefinition() &&
+                 lifetimes::safeCReachesOwner(T->getPointeeType()))
+          S.SafeCDiag(FD->getLocation(), "view-of-owner") << FD;
       return;
     }
     for (const FieldDecl *FD : RD->fields()) {
@@ -1264,23 +1289,8 @@ public:
   /// Whether data reached through \p T can be freed: it holds an owner,
   /// directly or in a member. Other pointer members are _Static or
   /// _Unchecked (fields hold no borrows), so replacing them cannot dangle.
-  static bool reachesOwner(QualType T, unsigned Depth = 0) {
-    if (Depth > 8)
-      return true;
-    // Pointer kinds are type attributes: read them before any desugaring.
-    if (T->isPointerType())
-      return safeCPointerKind(T) == "owned";
-    if (const ArrayType *AT = T->getAsArrayTypeUnsafe())
-      return reachesOwner(AT->getElementType(), Depth + 1);
-    if (const RecordDecl *RD = T->getAsRecordDecl()) {
-      const RecordDecl *Def = RD->getDefinition();
-      if (!Def)
-        return true; // opaque: assume it can
-      for (const FieldDecl *FD : Def->fields())
-        if (reachesOwner(FD->getType(), Depth + 1))
-          return true;
-    }
-    return false;
+  static bool reachesOwner(QualType T) {
+    return lifetimes::safeCReachesOwner(T);
   }
   /// A call lending argument I may free or replace what other arguments
   /// reach: it is given away, or it is lent exclusively and what it points
@@ -1296,6 +1306,38 @@ public:
     return A && B &&
            (A == B || lifetimes::safeCResolveRoot(A, Body, 0) ==
                           lifetimes::safeCResolveRoot(B, Body, 0));
+  }
+
+  /// `f(&g)`: f may reach g's owned memory through its parameter and free it
+  /// through the global's name, which neither side can see alone.
+  void checkGlobalLent(CallExpr *Call) {
+    const FunctionDecl *F = Call->getDirectCallee();
+    for (unsigned I = 0, N = Call->getNumArgs(); I != N; ++I) {
+      QualType T = Call->getArg(I)->getType();
+      if (!T->isPointerType() || T->getPointeeType()->isPointerType() ||
+          !lifetimes::safeCReachesOwner(T->getPointeeType()))
+        continue;
+      if (F && I < F->getNumParams()) {
+        StringRef K = lifetimes::safeCParamDeclKind(F->getParamDecl(I));
+        if (K == "unchecked" || K == "owned" || safeCTakesParam(F, I))
+          continue;
+      }
+      const VarDecl *Root = lifetimes::safeCRootVar(Call->getArg(I));
+      if (!Root) {
+        const Expr *E = lifetimes::safeCPeel(Call->getArg(I));
+        if (const auto *UO = dyn_cast<UnaryOperator>(E);
+            UO && UO->getOpcode() == UO_AddrOf)
+          E = UO->getSubExpr()->IgnoreParens();
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenCasts()))
+          Root = dyn_cast<VarDecl>(DRE->getDecl());
+      } else {
+        Root = lifetimes::safeCResolveRoot(Root, Body, 0);
+      }
+      if (Root && Root->hasGlobalStorage() &&
+          !Root->getType().isConstQualified() &&
+          lifetimes::safeCMayTouchGlobals(Call, S.getSourceManager()))
+        S.SafeCDiag(Call->getArg(I)->getExprLoc(), "global-lent") << Root;
+    }
   }
 
   void checkCallAliasing(CallExpr *Call) {
@@ -1402,8 +1444,27 @@ public:
   }
 
   bool VisitCallExpr(CallExpr *Call) {
-    for (const Expr *Arg : Call->arguments())
+    for (const Expr *Arg : Call->arguments()) {
       checkSlotCall(Arg);
+      // `f(c ? &a : &b)`: which owner f can reach cannot be told.
+      const Expr *E = lifetimes::safeCPeel(Arg)->IgnoreParenCasts();
+      if ((isa<AbstractConditionalOperator, StmtExpr>(E) ||
+           (isa<BinaryOperator>(E) &&
+            cast<BinaryOperator>(E)->getOpcode() == BO_Comma)) &&
+          Arg->getType()->isPointerType() &&
+          Arg->getType()->getPointeeType()->isRecordType() &&
+          lifetimes::safeCReachesOwner(Arg->getType()->getPointeeType()))
+        S.SafeCDiag(E->getExprLoc(), "borrow-slot-value");
+    }
+    checkGlobalLent(Call);
+    if (const FunctionDecl *F = Call->getDirectCallee();
+        F && F->getIdentifier() &&
+        (F->getName() == "realloc" || F->getName() == "reallocf") &&
+        Call->getNumArgs() >= 1) {
+      const Expr *E = lifetimes::safeCPeel(Call->getArg(0))->IgnoreParenCasts();
+      if (pointsToView(E->getType()))
+        S.SafeCDiag(E->getExprLoc(), "view-realloc");
+    }
     checkCallAliasing(Call);
     if (const FunctionDecl *F = Call->getDirectCallee();
         F && F->isExternC() && F->getIdentifier() && Call->getNumArgs() >= 2) {

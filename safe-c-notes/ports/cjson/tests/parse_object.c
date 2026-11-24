@@ -28,7 +28,6 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static _Thread_local cJSON item[1];
 
 static void assert_is_object(cJSON *object_item)
 {
@@ -50,7 +49,7 @@ static void assert_is_child(cJSON *child_item, const char *name, int type)
     TEST_ASSERT_BITS(0xFF, type, child_item->type);
 }
 
-static void assert_not_object(const char *json)
+static void assert_not_object(cJSON *_Exclusive item, const char *json)
 {
     parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -64,7 +63,7 @@ static void assert_not_object(const char *json)
     reset(item);
 }
 
-static void assert_parse_object(const char *json)
+static void assert_parse_object(cJSON *_Exclusive item, const char *json)
 {
     parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -79,38 +78,41 @@ static void assert_parse_object(const char *json)
 
 static void parse_object_should_parse_empty_objects(void)
 {
-    assert_parse_object("{}");
+    cJSON item[1] = {0};
+    assert_parse_object(item, "{}");
     assert_has_no_child(item);
     reset(item);
 
-    assert_parse_object("{\n\t}");
+    assert_parse_object(item, "{\n\t}");
     assert_has_no_child(item);
     reset(item);
 }
 
 static void parse_object_should_parse_objects_with_one_element(void)
 {
+    cJSON item[1] = {0};
 
-    assert_parse_object("{\"one\":1}");
+    assert_parse_object(item, "{\"one\":1}");
     assert_is_child(item->child, "one", cJSON_Number);
     reset(item);
 
-    assert_parse_object("{\"hello\":\"world!\"}");
+    assert_parse_object(item, "{\"hello\":\"world!\"}");
     assert_is_child(item->child, "hello", cJSON_String);
     reset(item);
 
-    assert_parse_object("{\"array\":[]}");
+    assert_parse_object(item, "{\"array\":[]}");
     assert_is_child(item->child, "array", cJSON_Array);
     reset(item);
 
-    assert_parse_object("{\"null\":null}");
+    assert_parse_object(item, "{\"null\":null}");
     assert_is_child(item->child, "null", cJSON_NULL);
     reset(item);
 }
 
 static void parse_object_should_parse_objects_with_multiple_elements(void)
 {
-    assert_parse_object("{\"one\":1\t,\t\"two\"\n:2, \"three\":3}");
+    cJSON item[1] = {0};
+    assert_parse_object(item, "{\"one\":1\t,\t\"two\"\n:2, \"three\":3}");
     assert_is_child(item->child, "one", cJSON_Number);
     TEST_ASSERT_NOT_NULL(item->child);
     assert_is_child(item->child->next, "two", cJSON_Number);
@@ -141,7 +143,7 @@ static void parse_object_should_parse_objects_with_multiple_elements(void)
             "world",
             "object"
         };
-        assert_parse_object("{\"one\":1, \"NULL\":null, \"TRUE\":true, \"FALSE\":false, \"array\":[], \"world\":\"hello\", \"object\":{}}");
+        assert_parse_object(item, "{\"one\":1, \"NULL\":null, \"TRUE\":true, \"FALSE\":false, \"array\":[], \"world\":\"hello\", \"object\":{}}");
 
         node = item->child;
         for (
@@ -159,19 +161,18 @@ static void parse_object_should_parse_objects_with_multiple_elements(void)
 
 static void parse_object_should_not_parse_non_objects(void)
 {
-    assert_not_object("");
-    assert_not_object("{");
-    assert_not_object("}");
-    assert_not_object("[\"hello\",{}]");
-    assert_not_object("42");
-    assert_not_object("3.14");
-    assert_not_object("\"{}hello world!\n\"");
+    cJSON item[1] = {0};
+    assert_not_object(item, "");
+    assert_not_object(item, "{");
+    assert_not_object(item, "}");
+    assert_not_object(item, "[\"hello\",{}]");
+    assert_not_object(item, "42");
+    assert_not_object(item, "3.14");
+    assert_not_object(item, "\"{}hello world!\n\"");
 }
 
 int CJSON_CDECL main(void)
 {
-    /* initialize cJSON item */
-    memset(item, 0, sizeof(cJSON));
 
     UNITY_BEGIN();
     RUN_TEST(parse_object_should_parse_empty_objects);
