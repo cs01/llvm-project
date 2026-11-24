@@ -25,7 +25,7 @@ struct op { const char *_Static name; int code; };
 struct node2 { struct node2 *_Unchecked _Nullable prev; };
 struct _View span { const int *__counted_by(n) p; int n; };
 _Returns_owned struct json *json_parse(const char *text);
-const char *name_of(const struct json *j _Lifetimebound);
+const char *pick(const struct json *j _Lifetimebound, const char *fallback);
 size_t count_spaces(const char *s _Noescape);
 struct shape { int kind; union _Tagged_by(kind) { double radius _When(0); double side _When(1); }; };
 struct guard { int held; }; void release(struct guard *g); void use_guard(void) { struct guard g _Drop(release) = {1}; }
