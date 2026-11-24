@@ -10,7 +10,7 @@ out=$(mktemp -d)
 fail=0
 # The vendored safec.h copies (for compilers without Safe C) must match the
 # real one, or the non-Safe-C builds test a different header.
-for copy in "$here"/cjson/safec.h "$here"/jsmn/safec.h "$here"/../../safe-c-std/safec.h; do
+for copy in "$here"/cjson/safec.h "$here"/jsmn/safec.h "$here"/lz4/safec.h "$here"/../../safe-c-std/safec.h; do
   cmp -s "$copy" "$here/../../clang/lib/Headers/safec.h" ||
     { echo "stale: $copy (cp clang/lib/Headers/safec.h there)"; fail=1; }
 done
@@ -56,6 +56,9 @@ for spec in "${configs[@]}"; do
   run "$name" "$cc" $(ls "$port"/tests/*.c | grep -vE 'utils_tests|json_patch|unity_setup')
   port=$here/jsmn; label=jsmn; lib=
   run "$name" "$cc" "$port"/test/tests.c
+  # test.c reads lz4.c and lz4.h from its own directory
+  port=$here/lz4; label=lz4; lib=$port/lz4.c
+  run "$name" "$cc" "$port"/test.c
   port=$here/../../safe-c-std; label=std; lib=
   run "$name" "$cc" "$port"/tests/*.c "$port"/examples/*.c
 done
