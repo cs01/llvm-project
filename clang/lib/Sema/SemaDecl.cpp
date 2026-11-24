@@ -18094,6 +18094,8 @@ static void checkSafeCFreedParams(Sema &S, const FunctionDecl *FD,
               DRE ? dyn_cast<ParmVarDecl>(DRE->getDecl()) : nullptr;
           if (!PVD || PVD->getDeclContext() != FD ||
               safeCTakesParam(FD, PVD->getFunctionScopeIndex()) ||
+              // An exclusive borrow is never freed; that has its own error.
+              safeCPointerKind(PVD->getType()) == "excl" ||
               !Reported.insert(PVD).second)
             continue;
           S.Diag(DRE->getLocation(), diag::warn_safe_c_frees_param)

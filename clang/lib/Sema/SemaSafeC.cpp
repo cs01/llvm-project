@@ -182,6 +182,15 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "what its owner holds while callers may still be using it; declare '%1' "
      "'__safec_excl' (an exclusive borrow, like Rust's '&mut')%select{, or "
      "'__safec_owned' if this function owns it|}2"},
+    {"excl-reassigned", false,
+     "%0 is an exclusive borrow of the caller's object, which the caller "
+     "still owns after the call; %select{assigning a new pointer to it|"
+     "giving it away}1 would leave the caller with the wrong object; use a "
+     "local variable instead"},
+    {"excl-aliased-arg", false,
+     "%0 is lent exclusively to this call, so no other argument may reach "
+     "it (the callee could free or replace what that argument points to); "
+     "pass it once, or finish with the other use before the call"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
@@ -500,6 +509,11 @@ public:
         S.SafeCDiag(BO->getRHS()->getExprLoc(), "alloc-untracked")
             << describe(BO->getLHS());
     }
+    if (BO->isAssignmentOp())
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(BO->getLHS()->IgnoreParens()))
+        if (safeCPointerKind(DRE->getDecl()->getType()) == "excl")
+          S.SafeCDiag(BO->getOperatorLoc(), "excl-reassigned")
+              << DRE->getDecl() << 0;
     if (BO->getOpcode() == BO_Assign) {
       if (!isTrackedLocal(BO->getLHS()) &&
           safeCPointerKind(BO->getLHS()->getType()) == "owned")
@@ -564,7 +578,38 @@ public:
     return true;
   }
 
+  void checkCallAliasing(CallExpr *Call) {
+    const FunctionDecl *F = Call->getDirectCallee();
+    if (!F)
+      return;
+    unsigned N = std::min(Call->getNumArgs(), F->getNumParams());
+    // Rule 8: roots lent exclusively (or moved) must not appear elsewhere.
+    SmallVector<std::pair<const VarDecl *, unsigned>, 4> Lent;
+    for (unsigned I = 0; I != N; ++I) {
+      QualType PT = F->getParamDecl(I)->getType();
+      StringRef K = safeCPointerKind(PT);
+      if (K != "excl" && !(K == "owned" || safeCTakesParam(F, I)))
+        continue;
+      if (const VarDecl *Root = lifetimes::safeCRootVar(Call->getArg(I)))
+        Lent.push_back({Root, I});
+      // Rule 7: an exclusive variable is never given away.
+      if (K != "excl")
+        if (const auto *DRE = dyn_cast<DeclRefExpr>(
+                Call->getArg(I)->IgnoreParenImpCasts()))
+          if (const auto *VD = dyn_cast<ValueDecl>(DRE->getDecl());
+              VD && safeCPointerKind(VD->getType()) == "excl")
+            S.SafeCDiag(DRE->getExprLoc(), "excl-reassigned") << VD << 1;
+    }
+    for (auto [Root, LentAt] : Lent)
+      for (unsigned J = 0, NA = Call->getNumArgs(); J != NA; ++J)
+        if (J != LentAt && Call->getArg(J)->getType()->isPointerType() &&
+            lifetimes::safeCRootVar(Call->getArg(J)) == Root)
+          S.SafeCDiag(Call->getArg(J)->getExprLoc(), "excl-aliased-arg")
+              << Root;
+  }
+
   bool VisitCallExpr(CallExpr *Call) {
+    checkCallAliasing(Call);
     if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
         Call->getNumArgs() == 1)
       checkOwnershipRoot(S, Call->getArg(0), 0);
