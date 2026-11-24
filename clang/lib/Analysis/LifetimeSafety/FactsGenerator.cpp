@@ -11,6 +11,7 @@
 #include <string>
 
 #include "clang/AST/Decl.h"
+#include "clang/AST/ParentMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/Expr.h"
@@ -561,6 +562,27 @@ void FactsGenerator::VisitMemberExpr(const MemberExpr *ME) {
   }
 }
 
+// Whether E's value is stored straight into Var (`Var = E`, through casts
+// and bounds-safety wrappers).
+bool FactsGenerator::safeCAssignedBackTo(const Expr *E, const VarDecl *Var) {
+  ParentMap &PM = AC.getParentMap();
+  const Stmt *Cur = E;
+  while (const Stmt *P = PM.getParent(Cur)) {
+    if (isa<ParenExpr, ImplicitCastExpr, CStyleCastExpr, OpaqueValueExpr,
+            MaterializeSequenceExpr, BoundsSafetyPointerPromotionExpr,
+            BoundsCheckExpr>(P)) {
+      Cur = P;
+      continue;
+    }
+    const auto *BO = dyn_cast<BinaryOperator>(P);
+    if (!BO || BO->getOpcode() != BO_Assign)
+      return false;
+    const auto *DRE = dyn_cast<DeclRefExpr>(safeCPeel(BO->getLHS()));
+    return DRE && DRE->getDecl() == Var;
+  }
+  return false;
+}
+
 static bool safeCIsAlloca(const CallExpr *CE) {
   unsigned ID = CE->getBuiltinCallee();
   return ID == Builtin::BIalloca || ID == Builtin::BI__builtin_alloca;
@@ -766,11 +788,24 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
         // end when any of them is taken, lent or changed by a call.
         if (Resolved->hasGlobalStorage() && !isa<FunctionDecl>(AC.getDecl()))
           continue;
-        const Loan *L = FactMgr.getLoanMgr().createLoan(
-            Resolved->hasGlobalStorage()
-                ? safeCGlobalsInterior(AC.getDecl())
-                : safeCRootInterior(FactMgr.getLoanMgr(), *Resolved),
-            CE);
+        AccessPath Fresh = Resolved->hasGlobalStorage()
+                               ? safeCGlobalsInterior(AC.getDecl())
+                               : safeCRootInterior(FactMgr.getLoanMgr(), *Resolved);
+        // `p = f(p)`: the result replaces the variable it borrows from (Rust
+        // moves the reborrow in and out). It holds what p holds after this
+        // call lent it (an exclusive lend gives p a fresh borrow), not the
+        // argument's earlier loans, which that lend just ended.
+        if (safeCAssignedBackTo(CE, Root)) {
+          if (OriginList *RootL = getOriginsList(*Root)) {
+            CurrentBlockFacts.push_back(
+                FactMgr.createFact<KillOriginFact>(Result->getOuterOriginID()));
+            CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+                Result->getOuterOriginID(), RootL->getOuterOriginID(),
+                /*Kill=*/false));
+          }
+          continue;
+        }
+        const Loan *L = FactMgr.getLoanMgr().createLoan(Fresh, CE);
         CurrentBlockFacts.push_back(
             FactMgr.createFact<IssueFact>(L->getID(), ArgL->getOuterOriginID()));
         CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(

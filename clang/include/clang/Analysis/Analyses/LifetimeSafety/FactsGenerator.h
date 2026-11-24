@@ -56,6 +56,8 @@ public:
   void VisitCXXFunctionalCastExpr(const CXXFunctionalCastExpr *FCE);
   void VisitInitListExpr(const InitListExpr *ILE);
   void VisitCompoundLiteralExpr(const CompoundLiteralExpr *CLE);
+  /// Safe C: E is stored straight into Var (`Var = E`).
+  bool safeCAssignedBackTo(const Expr *E, const VarDecl *Var);
   void VisitCXXBindTemporaryExpr(const CXXBindTemporaryExpr *BTE);
   void VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *MTE);
   void VisitLambdaExpr(const LambdaExpr *LE);

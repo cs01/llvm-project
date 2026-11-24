@@ -57,3 +57,14 @@ void walk(char *__counted_by(n) buf, int n) {
   void fill(char *__counted_by(k) d, int k);
   fill(p, 0);
 }
+
+// `p = f(p)` with a lifetimebound exclusive parameter: the result replaces p
+// (Rust moves the reborrow in and out), so lending p again is fine.
+struct Node *next_of(struct Node *n _Lifetimebound);
+void chain(struct Node *head) {
+  struct Node *cur = head;
+  cur = next_of(cur);
+  bump(cur);
+  cur = next_of(cur);
+  bump(cur);
+}
