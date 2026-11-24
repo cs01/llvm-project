@@ -14,3 +14,6 @@ import SafeC.DropHoles
 import SafeC.Err
 import SafeC.ErrSound
 import SafeC.ErrHoles
+import SafeC.Out
+import SafeC.OutSound
+import SafeC.OutHoles
