@@ -21,3 +21,10 @@ char *escape(void) {
   char *p = (char *)alloca(4); // expected-error {{stack memory associated with result of call to 'alloca' is returned}}
   return p;                    // expected-note {{returned here}}
 }
+
+void sink(int *p);
+void never_null(void) {
+  int *_Nullable data = 0;
+  data = (int *)alloca(10 * sizeof(int));
+  sink(data); // alloca never returns null: no check needed
+}

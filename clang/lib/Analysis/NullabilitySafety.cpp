@@ -3379,6 +3379,13 @@ private:
     if (!Init)
       return false;
     Init = stripOpaqueValue(Init->IgnoreParenImpCasts());
+    if (const Expr *U = ignoreBoundsSafetyWrappers(Init); U != Init)
+      return isNonnullInit(U);
+    // A callee promising returns_nonnull (alloca, under Safe C).
+    if (const auto *Call = dyn_cast<CallExpr>(Init))
+      if (const FunctionDecl *Callee = Call->getDirectCallee();
+          Callee && Callee->hasAttr<ReturnsNonNullAttr>())
+        return true;
     // Ternary: both arms must be non-null, either unconditionally or because
     // the condition guards the arm (p ? p : fallback).
     if (const auto *CO = dyn_cast<AbstractConditionalOperator>(Init)) {
@@ -3594,7 +3601,10 @@ private:
       if (isStlNonnullReturnCall(CE))
         return false;
       if (const auto *Callee = CE->getDirectCallee()) {
-        if (isKnownAllReturnsNonnull(Callee))
+        // returns_nonnull is a promise about every return (alloca carries
+        // it implicitly under Safe C).
+        if (Callee->hasAttr<ReturnsNonNullAttr>() ||
+            isKnownAllReturnsNonnull(Callee))
           return false;
       }
       // sp.get() follows the smart pointer's flow state. Falls through when

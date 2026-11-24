@@ -19636,6 +19636,9 @@ void Sema::AddKnownFunctionAttributes(FunctionDecl *FD) {
       if (getLangOpts().BoundsSafety && !FD->hasAttr<AllocSizeAttr>())
         FD->addAttr(AllocSizeAttr::CreateImplicit(
             Context, ParamIdx(1, FD), ParamIdx(), FD->getLocation()));
+      // alloca never returns null (a block too big overflows the stack).
+      if (getLangOpts().SafeC && !FD->hasAttr<ReturnsNonNullAttr>())
+        FD->addAttr(ReturnsNonNullAttr::CreateImplicit(Context, FD->getLocation()));
       break;
     default:
       break;
