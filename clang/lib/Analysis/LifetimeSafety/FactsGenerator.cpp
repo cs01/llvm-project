@@ -14,6 +14,7 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/OperationKinds.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/Facts.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/FactsGenerator.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
@@ -22,6 +23,7 @@
 #include "clang/Analysis/CFG.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/OperatorKinds.h"
+#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
@@ -161,6 +163,58 @@ static const VarDecl *safeCRootOrGlobal(const Expr *E) {
 /// these loans never meet a scope end.
 static AccessPath safeCGlobalsInterior(const Decl *Fn) {
   return AccessPath(AccessPath(cast<ValueDecl>(Fn)), PathElement::getInterior());
+}
+
+static bool safeCTouchesGlobals(const FunctionDecl *FD, unsigned Depth);
+
+/// Whether a call may touch this program's globals (rule 14). Library code
+/// (builtins, system and legacy headers) cannot name them; it is clean
+/// unless it calls back into user code. A function with a body here is
+/// clean when the body names no global and calls only clean functions.
+static bool safeCCallTouchesGlobals(const CallExpr *CE, const SourceManager &SM,
+                                    unsigned Depth) {
+  const FunctionDecl *Callee = CE->getDirectCallee();
+  if (!Callee)
+    return true; // through a pointer: unknown
+  if (Callee->hasAttr<PureAttr>() || Callee->hasAttr<ConstAttr>())
+    return false;
+  bool CallsBack = llvm::any_of(CE->arguments(), [](const Expr *A) {
+    return A->getType()->isFunctionPointerType();
+  });
+  if (CE->getBuiltinCallee() ||
+      SM.isInSystemHeader(Callee->getCanonicalDecl()->getLocation()))
+    return CallsBack;
+  return CallsBack || safeCTouchesGlobals(Callee, Depth + 1);
+}
+
+static bool safeCTouchesGlobals(const FunctionDecl *FD, unsigned Depth) {
+  const FunctionDecl *Def = nullptr;
+  // Unknown bodies, deep chains and recursion count as touching.
+  if (Depth > 6 || !FD->hasBody(Def) || !Def)
+    return true;
+  const SourceManager &SM = Def->getASTContext().getSourceManager();
+  struct Finder : RecursiveASTVisitor<Finder> {
+    const SourceManager &SM;
+    const FunctionDecl *Self;
+    unsigned Depth;
+    bool Touches = false;
+    bool VisitDeclRefExpr(DeclRefExpr *DRE) {
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+          VD && VD->hasGlobalStorage() && !VD->getType().isConstQualified())
+        Touches = true;
+      return !Touches;
+    }
+    bool VisitCallExpr(CallExpr *CE) {
+      if (CE->getDirectCallee() &&
+          CE->getDirectCallee()->getCanonicalDecl() == Self->getCanonicalDecl())
+        Touches = true;
+      else if (safeCCallTouchesGlobals(CE, SM, Depth))
+        Touches = true;
+      return !Touches;
+    }
+  } F{{}, SM, Def, Depth};
+  F.TraverseStmt(Def->getBody());
+  return F.Touches;
 }
 
 static AccessPath safeCRootInterior(LoanManager &LM, const VarDecl &VD) {
@@ -361,14 +415,9 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
     // including ones passed to it, which it could free (so its arguments are
     // used again after the expiry).
     const FunctionDecl *Callee = CE->getDirectCallee();
-    // Library builtins touch no user globals, unless they call back into
-    // user code (qsort's comparator).
-    bool Pure = Callee && (Callee->hasAttr<PureAttr>() ||
-                           Callee->hasAttr<ConstAttr>() ||
-                           (CE->getBuiltinCallee() &&
-                            llvm::none_of(CE->arguments(), [](const Expr *A) {
-                              return A->getType()->isFunctionPointerType();
-                            })));
+    (void)Callee;
+    bool Pure = !safeCCallTouchesGlobals(
+        CE, AC.getASTContext().getSourceManager(), /*Depth=*/0);
     if (!Pure && isa<FunctionDecl>(AC.getDecl())) {
       CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
           safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));

@@ -38,3 +38,21 @@ int passed_to_impure(void) {
 }
 
 void take_global(void) { free(_Take(cur)); }
+
+// Purity is inferred (rule 14.4): a function whose body names no global and
+// calls only clean functions does not end borrows of globals.
+int counter;
+static int clean(const struct node *n) { return n->v + 1; }
+static int dirty(const struct node *n) { counter++; return n->v; }
+int inferred(void) {
+  struct node *_Nullable r = cur;
+  if (!r)
+    return 0;
+  return clean(r) + r->v;
+}
+int inferred_dirty(void) {
+  struct node *_Nullable r = cur; // expected-error {{this pointer is borrowed from 'cur'}}
+  if (!r)
+    return 0;
+  return dirty(r); // expected-note {{the borrow ends here}} expected-note {{later used here}}
+}

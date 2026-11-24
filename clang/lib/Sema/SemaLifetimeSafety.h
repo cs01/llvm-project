@@ -271,11 +271,23 @@ public:
     if (S.getLangOpts().SafeC &&
         (!IssueDRE || (IssueVar && IssueVar->hasGlobalStorage())) &&
         lifetimes::safeCPointerKind(IssueExpr->getType()) == "owned") {
+      // Inside a macro the spelled text may be unavailable; name the field.
+      std::string Place =
+          Lexer::getSourceText(S.getSourceManager().getExpansionRange(
+                                   IssueExpr->getSourceRange()),
+                               S.getSourceManager(), S.getLangOpts())
+              .str();
+      if (Place.empty() || Place.size() > 40) {
+        const Expr *E = IssueExpr->IgnoreParenImpCasts();
+        if (const auto *ME = dyn_cast<MemberExpr>(E))
+          Place = "the field '" + ME->getMemberDecl()->getNameAsString() + "'";
+        else if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+          Place = DRE->getDecl()->getNameAsString();
+        else
+          Place = "this place";
+      }
       S.SafeCDiag(IssueExpr->getExprLoc(), "field-borrow-ended")
-          << Lexer::getSourceText(
-                 CharSourceRange::getTokenRange(IssueExpr->getSourceRange()),
-                 S.getSourceManager(), S.getLangOpts())
-          << IssueExpr->getSourceRange();
+          << Place << IssueExpr->getSourceRange();
       S.SafeCDiag(FreeLoc, "field-borrow-ended-here");
       reportUseNote(Use);
       return;
