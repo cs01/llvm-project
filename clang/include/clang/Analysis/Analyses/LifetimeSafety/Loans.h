@@ -259,14 +259,14 @@ public:
 
   llvm::ArrayRef<const Loan *> getLoans() const { return AllLoans; }
 
-private:
-  LoanID getNextLoanID() { return NextLoanID++; }
-
   /// Gets or creates a placeholder base for a given parameter, method, or
   /// field.
   const PlaceholderBase *getOrCreatePlaceholderBase(const ParmVarDecl *PVD);
   const PlaceholderBase *getOrCreatePlaceholderBase(const CXXMethodDecl *MD);
   const PlaceholderBase *getOrCreatePlaceholderBase(const FieldDecl *FD);
+
+private:
+  LoanID getNextLoanID() { return NextLoanID++; }
 
   LoanID NextLoanID{0};
 

@@ -15,6 +15,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/IgnoreExpr.h"
 #include "clang/AST/Type.h"
+#include "llvm/Support/CommandLine.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Analysis/AnyCall.h"
 #include "clang/Basic/OperatorKinds.h"
@@ -643,6 +644,52 @@ bool isStdReferenceCast(const FunctionDecl *FD) {
 const Expr *ignoreParensAndImpCasts(const Expr *E) {
   return IgnoreExprNodes(E, IgnoreParensSingleStep,
                          IgnoreImplicitCastsSingleStep);
+}
+
+
+static llvm::cl::opt<bool>
+    SafeCOwnership("safe-c-ownership",
+                   llvm::cl::desc("Safe C: enforce the M2 ownership rules"),
+                   llvm::cl::init(false));
+
+bool safeCOwnershipFlag() { return SafeCOwnership; }
+
+const VarDecl *safeCRootVar(const Expr *E) {
+  while (true) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *ME = dyn_cast<MemberExpr>(E))
+      E = ME->getBase();
+    else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
+      E = ASE->getBase();
+    else if (const auto *UO = dyn_cast<UnaryOperator>(E);
+             UO && (UO->getOpcode() == UO_Deref || UO->getOpcode() == UO_AddrOf))
+      E = UO->getSubExpr();
+    else
+      break;
+  }
+  const auto *DRE = dyn_cast<DeclRefExpr>(E);
+  const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  return VD && !VD->hasGlobalStorage() ? VD : nullptr;
+}
+
+llvm::StringRef safeCPointerKind(QualType T) {
+  while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
+    T = AT->getElementType();
+  // Walk this pointer's own sugar (typedefs, bounds and nullability
+  // attributes), never into its pointee.
+  for (const Type *Cur = T.getTypePtr();;) {
+    if (const auto *AT = dyn_cast<AttributedType>(Cur)) {
+      if (const auto *A = dyn_cast_or_null<AnnotateTypeAttr>(AT->getAttr()))
+        if (A->getAnnotation().starts_with("safec_"))
+          return A->getAnnotation().drop_front(6);
+      Cur = AT->getModifiedType().getTypePtr();
+      continue;
+    }
+    QualType Next = Cur->getLocallyUnqualifiedSingleStepDesugaredType();
+    if (Next.getTypePtr() == Cur)
+      return "";
+    Cur = Next.getTypePtr();
+  }
 }
 
 } // namespace clang::lifetimes

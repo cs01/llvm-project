@@ -18,6 +18,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/Basic/Builtins.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "clang/Basic/DiagnosticSema.h"
@@ -176,6 +177,17 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "they can outlive what they point to; give the inner pointer a kind, as "
      "in 'T *__safec_owned *' if the memory owns what they point to, or "
      "'T *__safec_static *'"},
+    {"ownership-through-borrow", false,
+     "%select{taking from|replacing}0 an owned field through '%1' changes "
+     "what its owner holds while callers may still be using it; declare '%1' "
+     "'__safec_excl' (an exclusive borrow, like Rust's '&mut')%select{, or "
+     "'__safec_owned' if this function owns it|}2"},
+    {"field-borrow-ended", false,
+     "this pointer is borrowed from '%0', and the borrow ends (the field is "
+     "taken, replaced, or lent to an exclusive parameter) before its last "
+     "use; read '%0' again after that point, or finish using the pointer "
+     "first"},
+    {"field-borrow-ended-here", true, "the borrow ends here"},
     {"view-write-through-pointer", false,
      "writing a borrow into a '__safec_view' through a pointer can outlive "
      "what it points to, because the view's own lifetime is unknown here; "
@@ -212,33 +224,12 @@ Sema::SemaDiagnosticBuilder Sema::SafeCDiag(SourceLocation Loc,
                                 : DiagnosticIDs::CLASS_ERROR)));
 }
 
-static llvm::cl::opt<bool>
-    SafeCOwnership("safe-c-ownership",
-                   llvm::cl::desc("Safe C: enforce the M2 ownership rules"),
-                   llvm::cl::init(false));
-
 bool clang::safeCOwnershipEnabled(const Sema &S) {
-  return S.getLangOpts().SafeC && SafeCOwnership;
+  return S.getLangOpts().SafeC && lifetimes::safeCOwnershipFlag();
 }
 
 StringRef clang::safeCPointerKind(QualType T) {
-  while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
-    T = AT->getElementType();
-  // Walk this pointer's own sugar (typedefs, bounds and nullability
-  // attributes), never into its pointee.
-  for (const Type *Cur = T.getTypePtr();;) {
-    if (const auto *AT = dyn_cast<AttributedType>(Cur)) {
-      if (const auto *A = dyn_cast_or_null<AnnotateTypeAttr>(AT->getAttr()))
-        if (A->getAnnotation().starts_with("safec_"))
-          return A->getAnnotation().drop_front(6);
-      Cur = AT->getModifiedType().getTypePtr();
-      continue;
-    }
-    QualType Next = Cur->getLocallyUnqualifiedSingleStepDesugaredType();
-    if (Next.getTypePtr() == Cur)
-      return "";
-    Cur = Next.getTypePtr();
-  }
+  return lifetimes::safeCPointerKind(T);
 }
 
 static bool hasKind(const ValueDecl *D, StringRef K) {
@@ -453,6 +444,20 @@ static std::string describe(const Expr *E) {
   return "memory reached through a pointer";
 }
 
+/// An ownership operation through \p Place is allowed when its root is a
+/// stack object, or a pointer that owns it or borrows it exclusively. Reports
+/// and returns false otherwise.
+static void checkOwnershipRoot(Sema &S, const Expr *Place, unsigned Op) {
+  const VarDecl *Root = lifetimes::safeCRootVar(Place);
+  if (!Root || !Root->getType()->isPointerType())
+    return; // a global (rejected elsewhere) or a stack object
+  StringRef K = safeCPointerKind(Root->getType());
+  if (K == "owned" || K == "excl" || isOwnedStorage(Root))
+    return;
+  S.SafeCDiag(Place->getExprLoc(), "ownership-through-borrow")
+      << Op << Root->getName() << (isa<ParmVarDecl>(Root) ? 1 : 0);
+}
+
 namespace {
 class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   Sema &S;
@@ -496,6 +501,9 @@ public:
             << describe(BO->getLHS());
     }
     if (BO->getOpcode() == BO_Assign) {
+      if (!isTrackedLocal(BO->getLHS()) &&
+          safeCPointerKind(BO->getLHS()->getType()) == "owned")
+        checkOwnershipRoot(S, BO->getLHS(), 1);
       checkStore(namedStorage(BO->getLHS()), BO->getRHS(), BO->getOperatorLoc());
       const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens());
       if (ME && ME->isArrow() && holdsBorrow(ME->getType()) &&
@@ -557,6 +565,9 @@ public:
   }
 
   bool VisitCallExpr(CallExpr *Call) {
+    if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
+        Call->getNumArgs() == 1)
+      checkOwnershipRoot(S, Call->getArg(0), 0);
     const Decl *Callee = Call->getCalleeDecl();
     if (!Callee)
       return true;

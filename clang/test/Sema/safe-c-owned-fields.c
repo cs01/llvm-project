@@ -16,24 +16,24 @@ struct node { int v; struct node *_Nullable __safec_owned next; };
 struct list { struct node *_Nullable __safec_owned head; size_t len; };
 struct node *_Nullable __safec_owned spare;
 
-void push(struct list *l, struct node *_Nullable __safec_owned n) {
+void push(struct list *__safec_excl l, struct node *_Nullable __safec_owned n) {
   if (!n)
     return;
   n->next = __safec_take(l->head);
   l->head = n;
 }
 
-void bad_stores(struct list *l, struct node *borrowed) {
+void bad_stores(struct list *__safec_excl l, struct node *borrowed) {
   struct node *_Nullable fresh = malloc(sizeof(struct node));
   l->head = fresh;
   l->head = borrowed; // expected-error {{'head' is '__safec_owned', so it must be given a pointer it may free: a new allocation, an owned local (which is then moved), or '__safec_take(...)' of another owned field; this value is borrowed, so its owner would free it too}}
   struct node *_Nullable h = l->head;
   if (h)
-    h->next = l->head; // expected-error {{'next' is '__safec_owned'}}
+    h->next = l->head; // expected-error {{'next' is '__safec_owned'}} expected-error {{replacing an owned field through 'h' changes what its owner holds}}
   spare = __safec_take(l->head);
 }
 
-void frees(struct list *l) {
+void frees(struct list *__safec_excl l) {
   free(l->head); // expected-error {{freeing a pointer that is still stored in 'head' leaves it dangling; move it out first, as in 'free(__safec_take(n->next))', where the place is '__safec_owned'}}
   free(spare);   // expected-error {{freeing a pointer that is still stored in 'spare'}}
   free(__safec_take(l->head));
@@ -53,7 +53,7 @@ void copies(struct list *a) {
 }
 
 struct counted { int *_Nullable __safec_owned __counted_by(n) data; size_t n; };
-void counted_take(struct counted *c) { free(__safec_take(c->data)); }
+void counted_take(struct counted *__safec_excl c) { free(__safec_take(c->data)); }
 
 struct nn { int *__safec_owned p; };
 void take_nonnull(struct nn *x) {
@@ -75,7 +75,7 @@ void arrays(void) {
 void destroy(int *_Nullable *pp) {
   free(*pp); // expected-error {{freeing a pointer that is still stored in memory reached through a pointer}}
 }
-void destroy_owned(int *__safec_owned _Nullable *pp) { free(__safec_take(*pp)); }
-void destroy_borrowed(int *_Nullable *pp) {
+void destroy_owned(int *__safec_owned _Nullable *__safec_excl pp) { free(__safec_take(*pp)); }
+void destroy_borrowed(int *_Nullable *__safec_excl pp) {
   free(__safec_take(*pp)); // expected-error {{memory reached through a pointer is borrowed, so its owner will free what it points to too; declare it '__safec_owned' if this code is responsible for freeing it}}
 }

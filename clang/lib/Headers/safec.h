@@ -182,6 +182,14 @@ char *getenv(const char *__null_terminated);
 #else /* plain clang: [[]] after _Nullable would not parse */
 #define __safec_unchecked
 #endif
+/* On a parameter: an exclusive borrow, through which the function may take,
+   free or replace owned fields (Rust's &mut). The caller's borrows of the
+   argument end at the call. */
+#if defined(__SAFE_C__)
+#define __safec_excl [[clang::annotate_type("safec_excl")]]
+#else
+#define __safec_excl
+#endif
 /* On a struct: holds borrows, so it lives only in locals and parameters. */
 #define __safec_view __attribute__((annotate("safec_view")))
 /* Move an owned pointer out of a field or global, leaving null (and a zero
@@ -196,6 +204,7 @@ char *getenv(const char *__null_terminated);
 #define __safec_static
 #define __safec_unchecked
 #define __safec_view
+#define __safec_excl
 /* Evaluates lv twice; fine for the plain lvalues take is used on. */
 #define __safec_take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })
 #endif

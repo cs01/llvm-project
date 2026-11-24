@@ -263,6 +263,19 @@ public:
                            llvm::ArrayRef<const Expr *> ExprChain) override {
     if (inSafeCUnsafe(Use.getLoc(), FreeLoc))
       return;
+    // Safe C (M2): a borrow read out of an owned field, ended by taking,
+    // replacing or lending the place it came from.
+    if (S.getLangOpts().SafeC && !isa<DeclRefExpr>(IssueExpr->IgnoreParens()) &&
+        lifetimes::safeCPointerKind(IssueExpr->getType()) == "owned") {
+      S.SafeCDiag(IssueExpr->getExprLoc(), "field-borrow-ended")
+          << Lexer::getSourceText(
+                 CharSourceRange::getTokenRange(IssueExpr->getSourceRange()),
+                 S.getSourceManager(), S.getLangOpts())
+          << IssueExpr->getSourceRange();
+      S.SafeCDiag(FreeLoc, "field-borrow-ended-here");
+      reportUseNote(Use);
+      return;
+    }
     unsigned DiagID;
     if (Use.getKind() == UseKind::Destructor)
       DiagID = diag::warn_lifetime_safety_destructor_use_after_scope;

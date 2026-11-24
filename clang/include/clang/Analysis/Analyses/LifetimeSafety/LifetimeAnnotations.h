@@ -30,6 +30,19 @@ bool isInStlNamespace(const Decl *D);
 
 bool isPointerLikeType(QualType QT);
 
+/// Safe C: the kind of a pointer type, from its [[clang::annotate_type]]
+/// sugar ("owned", "excl", "static", "unchecked"), or "" for a plain borrow.
+/// Arrays give their elements' kind.
+llvm::StringRef safeCPointerKind(QualType T);
+
+/// Safe C: whether the M2 ownership rules are on (-mllvm -safe-c-ownership,
+/// while they are staged).
+bool safeCOwnershipFlag();
+
+/// Safe C: the local variable or parameter a place is reached from (`l` in
+/// `l->head->next`, `v` in `v.items[i]`), or null for globals and others.
+const VarDecl *safeCRootVar(const Expr *E);
+
 /// Returns the most recent declaration of the method to ensure all
 /// lifetime-bound attributes from redeclarations are considered.
 const FunctionDecl *getDeclWithMergedLifetimeBoundAttrs(const FunctionDecl *FD);

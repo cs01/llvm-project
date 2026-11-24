@@ -20,6 +20,7 @@
 #include "clang/Analysis/Analyses/LifetimeSafety/Origins.h"
 #include "clang/Analysis/Analyses/PostOrderCFGView.h"
 #include "clang/Analysis/CFG.h"
+#include "clang/Basic/Builtins.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -127,6 +128,22 @@ static const Loan *createNewAllocLoan(FactManager &FactMgr,
                                       const CallExpr *CE) {
   AccessPath Path(CE);
   return FactMgr.getLoanMgr().createLoan(Path, CE);
+}
+
+// Safe C (M2): a pointer read out of an owned field is a borrow rooted at the
+// variable the place is reached from (`l` in `l->head->next`). An ownership
+// operation through that variable (a take, an owned-field store, or lending it
+// to an exclusive parameter) ends every such borrow. The loan's path is the
+// root's interior, so the root itself stays usable.
+static AccessPath safeCRootInterior(LoanManager &LM, const VarDecl &VD) {
+  if (const auto *PVD = dyn_cast<ParmVarDecl>(&VD))
+    return AccessPath(AccessPath(LM.getOrCreatePlaceholderBase(PVD)),
+                      PathElement::getInterior());
+  return AccessPath(AccessPath(&VD), PathElement::getInterior());
+}
+
+static bool safeCOwnershipOn(const ASTContext &Ctx) {
+  return Ctx.getLangOpts().SafeC && safeCOwnershipFlag();
 }
 
 void FactsGenerator::run() {
@@ -312,6 +329,25 @@ void FactsGenerator::VisitMemberExpr(const MemberExpr *ME) {
 
 void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
   handleFunctionCall(CE);
+  if (!safeCOwnershipOn(AC.getASTContext()))
+    return;
+  auto EndBorrowsThrough = [&](const Expr *Place) {
+    if (const VarDecl *Root = safeCRootVar(Place))
+      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
+          safeCRootInterior(FactMgr.getLoanMgr(), *Root), CE->getBeginLoc()));
+  };
+  if (CE->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
+      CE->getNumArgs() == 1) {
+    EndBorrowsThrough(CE->getArg(0));
+    return;
+  }
+  // An argument lent to an exclusive parameter may have its owned fields
+  // taken or replaced by the callee.
+  if (const FunctionDecl *FD = CE->getDirectCallee())
+    for (unsigned I = 0, N = std::min(CE->getNumArgs(), FD->getNumParams());
+         I != N; ++I)
+      if (safeCPointerKind(FD->getParamDecl(I)->getType()) == "excl")
+        EndBorrowsThrough(CE->getArg(I));
 }
 
 void FactsGenerator::VisitCXXNullPtrLiteralExpr(
@@ -333,6 +369,15 @@ void FactsGenerator::VisitCastExpr(const CastExpr *CE) {
     // `int *p, *q; p = q;`) should propagate the inner origin (what the pointer
     // points to), not the outer origin (the pointer's storage location).
     flow(Dest, readValue(SubExpr), /*Kill=*/true);
+    if (Dest && safeCOwnershipOn(AC.getASTContext()) &&
+        !isa<DeclRefExpr>(SubExpr->IgnoreParens()) &&
+        safeCPointerKind(SubExpr->getType()) == "owned")
+      if (const VarDecl *Root = safeCRootVar(SubExpr)) {
+        const Loan *L = FactMgr.getLoanMgr().createLoan(
+            safeCRootInterior(FactMgr.getLoanMgr(), *Root), SubExpr);
+        CurrentBlockFacts.push_back(
+            FactMgr.createFact<IssueFact>(L->getID(), Dest->getOuterOriginID()));
+      }
     return;
   case CK_NullToPointer:
     // TODO: Flow into them a null origin.
@@ -515,6 +560,14 @@ void FactsGenerator::handlePointerArithmetic(const BinaryOperator *BO) {
 }
 
 void FactsGenerator::VisitBinaryOperator(const BinaryOperator *BO) {
+  // Safe C (M2): replacing an owned field ends the borrows read out of it.
+  if (BO->getOpcode() == BO_Assign && safeCOwnershipOn(AC.getASTContext()) &&
+      !isa<DeclRefExpr>(BO->getLHS()->IgnoreParens()) &&
+      safeCPointerKind(BO->getLHS()->getType()) == "owned")
+    if (const VarDecl *Root = safeCRootVar(BO->getLHS()))
+      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
+          safeCRootInterior(FactMgr.getLoanMgr(), *Root),
+          BO->getOperatorLoc()));
   if (BO->getOpcode() == BO_PtrMemD || BO->getOpcode() == BO_PtrMemI) {
     // `obj.*pm` / `objptr->*pm` names a member of the object, so a borrow of it
     // borrows the object; flow the object's origin into the result. For `.*`
