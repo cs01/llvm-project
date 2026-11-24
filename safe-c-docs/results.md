@@ -58,9 +58,14 @@ Rust): null, use after free, uninitialized reads and data races are compile erro
 Rust, soundly. Bounds are checked at run time in Rust too, so the random-index cases
 above would go unseen there as well, and signed overflow wraps in Rust release builds as
 it does here. Safe C matches Rust today on bounds, null, initialization and integers;
-Rust is ahead on use after free (sound for every pointer, where Safe C covers locals and
-annotated interfaces) and on data races, where Safe C checks thread arguments, locked
-data and signal handlers but not yet every global.
+On use after free, every pointer outside `__unsafe` is covered in both: Safe C requires every
+pointer in a field or global to say whether it owns its target, and every parameter and
+return to be a borrow, an owner or tied to a parameter. Both trust declarations they cannot
+see into (Rust's `extern "C"`, Safe C's system and legacy headers). Rust is ahead in what
+it can express safely: a struct can hold a borrow with a lifetime (`&'a T`), which Safe C
+cannot yet, so back-pointers and graphs need `_Unchecked` (used only inside `__unsafe`). On
+data races Safe C checks thread arguments, locked data, mutable globals and signal handlers,
+but not yet that a counted pointer and its count share a lock, nor shared owners (`Arc`).
 
 **The Lean core.** [safe-c-lean/](../safe-c-lean/) models the rules as a small calculus.
 `safe_c_sound` covers bounds, null, casts and integers; `own_sound` covers ownership;
