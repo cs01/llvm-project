@@ -112,7 +112,8 @@ static char* __bidi_indexable ini_strncpy0(char* __counted_by(size) dest _Lifeti
 /* Read the next line from src into str (num bytes), fgets-style: returns
    nonzero with a NUL-terminated line, or 0 at end of input. The string
    source is the fgets() equivalent upstream calls ini_reader_string(). */
-static int ini_read_line(ini_source* src, char* __counted_by(num) str, int num)
+static int ini_read_line(ini_source* src, char* __counted_by(num) str _Noescape,
+                         int num)
 {
     size_t i = 0;
     char c;

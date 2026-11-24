@@ -371,7 +371,7 @@ typedef struct _View
 #define buffer_at_offset(buffer) ((buffer)->content + (buffer)->offset)
 
 /* Parse the input text to generate a number, and populate the result into item. */
-static cJSON_bool parse_number(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_number(cJSON *_Exclusive const item _Noescape, parse_buffer * const input_buffer)
 {
     double number = 0;
     /* strtod stores a pointer into its NUL-terminated input; it is only compared */
@@ -934,7 +934,7 @@ fail:
 }
 
 /* Parse the input text into an unescaped cinput, and populate item. */
-static cJSON_bool parse_string(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_string(cJSON *_Exclusive const item _Noescape, parse_buffer * const input_buffer)
 {
     const unsigned char *input_pointer = buffer_at_offset(input_buffer) + 1;
     const unsigned char *input_end = buffer_at_offset(input_buffer) + 1;
@@ -1200,11 +1200,11 @@ static cJSON_bool print_string(const cJSON * const item, printbuffer *_Exclusive
 }
 
 /* Predeclare these prototypes. */
-static cJSON_bool parse_value(cJSON *_Exclusive const item, parse_buffer * const input_buffer);
+static cJSON_bool parse_value(cJSON *_Exclusive const item _Noescape, parse_buffer * const input_buffer);
 static cJSON_bool print_value(const cJSON * const item, printbuffer *_Exclusive const output_buffer);
-static cJSON_bool parse_array(cJSON *_Exclusive const item, parse_buffer * const input_buffer);
+static cJSON_bool parse_array(cJSON *_Exclusive const item _Noescape, parse_buffer * const input_buffer);
 static cJSON_bool print_array(const cJSON * const item, printbuffer *_Exclusive const output_buffer);
-static cJSON_bool parse_object(cJSON *_Exclusive const item, parse_buffer * const input_buffer);
+static cJSON_bool parse_object(cJSON *_Exclusive const item _Noescape, parse_buffer * const input_buffer);
 static cJSON_bool print_object(const cJSON * const item, printbuffer *_Exclusive const output_buffer);
 
 /* Utility to jump whitespace and cr/lf */
@@ -1497,7 +1497,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_PrintPreallocated(cJSON *item, char *_Nullable __
 }
 
 /* Parser core - when encountering text, process appropriately. */
-static cJSON_bool parse_value(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_value(cJSON *_Exclusive const item _Noescape, parse_buffer * const input_buffer)
 {
     if ((input_buffer == NULL) || (input_buffer->content == NULL))
     {
@@ -1628,7 +1628,7 @@ static cJSON_bool print_value(const cJSON * const item, printbuffer *_Exclusive 
 }
 
 /* Build an array from input text. */
-static cJSON_bool parse_array(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_array(cJSON *_Exclusive const item _Noescape, parse_buffer * const input_buffer)
 {
     cJSON *_Nullable current_item = NULL;
 
@@ -1779,7 +1779,7 @@ static cJSON_bool print_array(const cJSON * const item, printbuffer *_Exclusive 
 }
 
 /* Build an object from the text. */
-static cJSON_bool parse_object(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_object(cJSON *_Exclusive const item _Noescape, parse_buffer * const input_buffer)
 {
     cJSON *_Nullable current_item = NULL;
 

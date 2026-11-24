@@ -15,6 +15,8 @@ void *_Nullable malloc(size_t n) __attribute__((ownership_returns(malloc)));
 void *_Nullable calloc(size_t c, size_t n) __attribute__((ownership_returns(malloc)));
 void free(void *_Nullable p) __attribute__((ownership_takes(malloc, 1)));
 
+void *memcpy(void *__sized_by(n) d, const void *__sized_by(n) s, size_t n);
+
 struct _View tok { const char *__counted_by(n) text; size_t n; };
 
 _Returns_owned struct tok *_Owned _Nullable lex(const char *__counted_by(1) in _Lifetimebound) {
@@ -33,6 +35,17 @@ size_t count(const char *__counted_by(len) in, size_t len) {
   for (size_t i = 0; i < len; i++) s += toks[i].n;
   free(toks);
   return s;
+}
+size_t whole_views(const char *__counted_by(1) in) {
+  struct tok *_Owned _Nullable t = calloc(1, sizeof *t);
+  if (!t) return 0;
+  struct tok v = {in, 1}, w = {0, 0};
+  t[0] = v;
+  *t = v;
+  memcpy(&w, &v, sizeof v);
+  size_t r = t[0].n + w.n;
+  free(t);
+  return r;
 }
 char read_then_free(void) {
   char *_Nullable buf = malloc(1);
@@ -68,4 +81,39 @@ void through_alias(const char *__counted_by(1) in) {
   q[0].text = in; q[0].n = 1; // expected-error {{writing a borrow into a '_View' through a pointer}}
   free(t);
 }
+char whole_copy(void) {
+  char *_Nullable buf = malloc(4); // expected-error {{does not live long enough}}
+  if (!buf) return 0;
+  struct tok *_Owned _Nullable t = calloc(1, sizeof *t);
+  if (!t) { free(buf); return 0; }
+  struct tok v = {buf, 1}; // expected-note 0+ {{aliases}}
+  t[0] = v;                // expected-note 0+ {{aliases}}
+  free(buf);               // expected-note {{freed here}}
+  char c = t[0].text[0];   // expected-note {{later used here}}
+  free(t);
+  return c;
+}
+void copy_param(struct tok *_Exclusive out, const char *__counted_by(1) in) {
+  struct tok v = {in, 1};
+  *out = v;
+  out[0] = v;
+}
+void copy_alias(const char *__counted_by(1) in) {
+  struct tok *_Owned _Nullable t = calloc(1, sizeof *t);
+  if (!t) return;
+  struct tok *q = t;
+  struct tok v = {in, 1};
+  q[0] = v; // expected-error {{writing a borrow into a '_View' through a pointer}}
+  memcpy(t, &v, sizeof v); // expected-error {{copying bytes into '_View' structs}}
+  free(t);
+}
+void copy_moved_param(struct tok *out, struct tok *other, struct tok v) {
+  out = other;
+  *out = v; // expected-error {{writing a borrow into a '_View' through a pointer}}
+}
+struct _View arr { const char *_Nullable p[2]; };
+void elem(struct arr *_Exclusive a, const char *in) {
+  a->p[1] = in; // expected-error {{writing a borrow into a '_View' through a pointer}}
+}
+struct _View outer { struct tok *_Owned _Nullable toks; }; // expected-error {{field 'toks' points to '_View' structs}}
 #endif

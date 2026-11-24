@@ -43,5 +43,5 @@ void views(struct span *sp, const int *__counted_by(4) a) {
   v.n = 4;
   v.p = a;
   sp->n = 0;
-  sp->p = a; // expected-error {{writing a borrow into a '_View' through a pointer can outlive what it points to, because the view's own lifetime is unknown here; write the field of a local view by name ('v.p = ...')}}
+  sp->p = a; // expected-error {{writing a borrow into a '_View' through a pointer can outlive what it points to, because the view's own lifetime is unknown here; write to a local view by name}}
 }

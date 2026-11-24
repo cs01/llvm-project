@@ -872,6 +872,12 @@ public:
 
   void reportNoescapeViolation(const ParmVarDecl *ParmWithNoescape,
                                const VarDecl *EscapeGlobal) override {
+    if (isa<ParmVarDecl>(EscapeGlobal)) {
+      if (S.getLangOpts().SafeC)
+        S.SafeCDiag(ParmWithNoescape->getBeginLoc(), "noescape-stored")
+            << ParmWithNoescape << EscapeGlobal;
+      return;
+    }
     // Don't enable this via -Weverything - see rdar://190623069.
     if (!IsDiagEnabledExcludingWeverything(
             diag::warn_lifetime_safety_noescape_escapes,

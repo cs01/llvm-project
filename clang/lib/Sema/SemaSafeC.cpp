@@ -294,7 +294,12 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "a borrow of %0 is stored where %1 points, which the caller can still "
      "read after %0 is gone; store something the caller lends or owns "
      "(a field of %1, or another parameter's data), or return the value "
-     "instead"},
+     "instead; if a call here received it along with %1 and does not keep it, "
+     "mark that function's parameter '_Noescape'"},
+    {"noescape-stored", false,
+     "%0 is '_Noescape', so callers count on it not being kept, but it is "
+     "stored where %1 points; drop '_Noescape' from %0, and callers will keep "
+     "what it borrows alive as long as they use %1"},
     {"param-escape-ends", true, "it ends here"},
     {"compound-literal-store", false,
      "this compound literal's storage ends with the block it is written in, "
@@ -322,13 +327,17 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"view-write-through-pointer", false,
      "writing a borrow into a '_View' through a pointer can outlive "
      "what it points to, because the view's own lifetime is unknown here; "
-     "write the field of a local view by name ('v.%0 = ...'), or keep the "
-     "views in memory a local '_Owned' pointer holds ('struct %1 *_Owned "
-     "v = calloc(n, sizeof *v)'), whose borrows are tracked"},
+     "write to a local view by name ('v = ...' or a field of 'v'), or write "
+     "through the local '_Owned' pointer that holds the views ('struct %0 "
+     "*_Owned v = calloc(n, sizeof *v)'), whose borrows are tracked"},
+    {"view-memcpy", false,
+     "copying bytes into '_View' structs through a pointer hides which "
+     "borrows they hold; assign each one through the local '_Owned' pointer "
+     "that holds them ('v[i] = other')"},
     {"view-pointer-storage", false,
      "%select{global|field}0 %1 points to '_View' structs, whose borrows are "
-     "tracked only while a local or parameter holds them; keep the pointer in "
-     "a local, or make the enclosing struct a '_View' too"},
+     "tracked only while a local or parameter holds the pointer; keep it in a "
+     "local and pass it as its own parameter"},
 };
 } // namespace
 
@@ -501,8 +510,13 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
   };
   if (auto *RD = dyn_cast<RecordDecl>(D)) {
     checkTaggedUnions(S, RD);
-    if (hasSafeCAnnotation(RD, "safec_view"))
+    if (hasSafeCAnnotation(RD, "safec_view")) {
+      // The inner views' borrows would be tracked by neither struct.
+      for (const FieldDecl *FD : RD->fields())
+        if (pointsToView(FD->getType()))
+          S.SafeCDiag(FD->getLocation(), "view-pointer-storage") << 1 << FD;
       return;
+    }
     for (const FieldDecl *FD : RD->fields()) {
       if (holdsBorrow(FD->getType()) && !Kinded(FD))
         S.SafeCDiag(FD->getLocation(), "storage-borrow") << 0 << FD;
@@ -726,6 +740,33 @@ static bool isExclusiveReborrowCall(ASTContext &Ctx, const Expr *E,
   return false;
 }
 
+/// Whether Body assigns to VD, steps it, or takes its address.
+static bool mayBeReassigned(const VarDecl *VD, const Stmt *Body) {
+  if (!Body)
+    return true;
+  struct Finder : RecursiveASTVisitor<Finder> {
+    const VarDecl *VD;
+    bool Found = false;
+    bool names(const Expr *E) {
+      const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+      return DRE && DRE->getDecl() == VD;
+    }
+    bool VisitBinaryOperator(BinaryOperator *BO) {
+      Found |= BO->isAssignmentOp() && names(BO->getLHS());
+      return !Found;
+    }
+    bool VisitUnaryOperator(UnaryOperator *UO) {
+      Found |= (UO->isIncrementDecrementOp() ||
+                UO->getOpcode() == UO_AddrOf) &&
+               names(UO->getSubExpr());
+      return !Found;
+    }
+  } F;
+  F.VD = VD;
+  F.TraverseStmt(const_cast<Stmt *>(Body));
+  return F.Found;
+}
+
 /// A plain local is an owner, as `let x = Box::new(..)` is in Rust, when every
 /// value stored in it is owned (an allocation, an owned return, a take, or
 /// null) and its address is never taken (so nothing else can store to it).
@@ -913,14 +954,22 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   /// that owns the views: the analysis adds x's loans to that local. Any
   /// other pointer may lead to views that outlive x.
   void checkViewWriteThroughPointer(const BinaryOperator *BO) {
-    const auto *Field = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens());
-    if (!Field || !holdsBorrow(Field->getType()))
+    const Expr *LHS = BO->getLHS()->IgnoreParens();
+    if (!holdsBorrow(LHS->getType()) && !isViewType(LHS->getType()))
       return;
-    const Expr *Part = Field;
-    for (const MemberExpr *ME;
-         (ME = dyn_cast<MemberExpr>(Part->IgnoreParens())) && !ME->isArrow() &&
-         isViewType(ME->getBase()->getType());)
-      Part = ME->getBase()->IgnoreParens();
+    // Out to the view the write lands in: `(*v).in.p`, `v->arr[i]`.
+    const Expr *Part = LHS;
+    for (;;) {
+      const auto *ME = dyn_cast<MemberExpr>(Part);
+      const auto *ASE = dyn_cast<ArraySubscriptExpr>(Part);
+      if (ME && !ME->isArrow() && isViewType(ME->getBase()->getType()))
+        Part = ME->getBase()->IgnoreParens();
+      else if (ASE &&
+               ASE->getBase()->IgnoreParenImpCasts()->getType()->isArrayType())
+        Part = ASE->getBase()->IgnoreParenImpCasts();
+      else
+        break;
+    }
     const Expr *Ptr = nullptr;
     QualType View;
     if (const auto *ME = dyn_cast<MemberExpr>(Part);
@@ -946,9 +995,17 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
           VD && VD->isLocalVarDecl() && !VD->isStaticLocal() &&
           safeCPointerKind(VD->getType()) == "owned")
         return;
+    // `*out = v` through a parameter: the caller takes what out points to as
+    // borrowing every other argument (safeCFlowThroughOutArgs), and a borrow
+    // of a local is an escape. A parameter that may have been pointed
+    // elsewhere could lead to other views.
+    if (isViewType(LHS->getType()))
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(Ptr->IgnoreParenImpCasts()))
+        if (const auto *PVD = dyn_cast<ParmVarDecl>(DRE->getDecl());
+            PVD && !mayBeReassigned(PVD, Body))
+          return;
     const RecordDecl *RD = View->getAsRecordDecl();
     S.SafeCDiag(BO->getOperatorLoc(), "view-write-through-pointer")
-        << Field->getMemberDecl()->getName()
         << (RD ? RD->getName() : StringRef("view"));
   }
 
@@ -1262,6 +1319,22 @@ public:
 
   bool VisitCallExpr(CallExpr *Call) {
     checkCallAliasing(Call);
+    if (const FunctionDecl *F = Call->getDirectCallee();
+        F && F->isExternC() && F->getIdentifier() && Call->getNumArgs() >= 2) {
+      StringRef N = F->getName();
+      N.consume_front("__builtin_");
+      N.consume_front("__");
+      N.consume_back("_chk");
+      if (N == "memcpy" || N == "memmove" || N == "mempcpy") {
+        const Expr *Dst =
+            lifetimes::safeCPeel(Call->getArg(0))->IgnoreParenCasts();
+        const auto *AO = dyn_cast<UnaryOperator>(Dst);
+        bool LocalView = AO && AO->getOpcode() == UO_AddrOf &&
+                         isTrackedLocal(AO->getSubExpr());
+        if (!LocalView && pointsToView(Dst->getType()))
+          S.SafeCDiag(Dst->getExprLoc(), "view-memcpy");
+      }
+    }
     if (const FunctionDecl *F = Call->getDirectCallee();
         F && F->isExternC() && F->getIdentifier() &&
         F->getName() == "signal" && Call->getNumArgs() == 2)

@@ -596,6 +596,76 @@ static bool safeCIsAlloca(const CallExpr *CE) {
   return ID == Builtin::BIalloca || ID == Builtin::BI__builtin_alloca;
 }
 
+// Safe C: a callee may store any borrow it is given where another argument
+// points (`*out = in`); no annotation says it does not. So after the call,
+// what each such argument reaches may borrow what the other arguments do.
+void FactsGenerator::safeCFlowThroughOutArgs(const CallExpr *CE) {
+  QualType Callee = CE->getCallee()->getType();
+  if (const auto *PT = Callee->getAs<PointerType>())
+    Callee = PT->getPointeeType();
+  const auto *Proto = Callee->getAs<FunctionProtoType>();
+  if (!Proto)
+    return;
+  const FunctionDecl *FD = CE->getDirectCallee();
+  // Its argument is moved into the thread; the id written is no borrow.
+  if (FD && FD->isExternC() && FD->getIdentifier() &&
+      FD->getName() == "pthread_create")
+    return;
+  unsigned N = std::min(CE->getNumArgs(), Proto->getNumParams());
+  auto HoldsBorrow = [](QualType T) {
+    while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
+      T = AT->getElementType();
+    return isSafeCViewType(T) ||
+           (T->isPointerType() && !T->isFunctionPointerType() &&
+            safeCPointerKind(T).empty());
+  };
+  auto IsNoEscape = [&](unsigned I) {
+    return Proto->getParamType(I)->isPointerType() &&
+           (Proto->getExtParameterInfo(I).isNoEscape() ||
+            (FD && I < FD->getNumParams() &&
+             FD->getParamDecl(I)->hasAttr<NoEscapeAttr>()));
+  };
+  auto IsSource = [&](unsigned I) {
+    QualType T = Proto->getParamType(I);
+    if (isSafeCViewType(T))
+      return true;
+    StringRef Kind = safeCPointerKind(T);
+    return T->isPointerType() && !T->isFunctionPointerType() &&
+           Kind != "owned" && Kind != "static";
+  };
+  for (unsigned J = 0; J != N; ++J) {
+    QualType T = Proto->getParamType(J);
+    if (!T->isPointerType())
+      continue;
+    QualType Slot = T->getPointeeType();
+    if (Slot.isConstQualified() || !HoldsBorrow(Slot))
+      continue;
+    const VarDecl *Root = safeCRootVar(CE->getArg(J));
+    if (!Root)
+      continue;
+    const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
+    for (unsigned I = 0; I != N; ++I) {
+      if (I == J || !IsSource(I))
+        continue;
+      OriginList *Src = getOriginsList(*CE->getArg(I));
+      // The pointer itself is not kept; what it points to may be copied out.
+      if (Src && IsNoEscape(I))
+        Src = Src->peelOuterOrigin();
+      for (; Src; Src = Src->peelOuterOrigin())
+        for (const VarDecl *VD : {Root, Resolved}) {
+          if (VD)
+            for (OriginList *Dst = getOriginsList(*VD); Dst;
+                 Dst = Dst->peelOuterOrigin())
+              CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+                  Dst->getOuterOriginID(), Src->getOuterOriginID(),
+                  /*Kill=*/false));
+          if (Root == Resolved)
+            break;
+        }
+    }
+  }
+}
+
 void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
   // Safe C: alloca's block lives in this frame; it dies at every return
   // (the expiry is issued in VisitReturnStmt).
@@ -698,6 +768,8 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
     }
   }
   handleFunctionCall(CE);
+  if (AC.getASTContext().getLangOpts().SafeC)
+    safeCFlowThroughOutArgs(CE);
   if (!safeCOwnershipOn(AC.getASTContext()))
     return;
   // M5: pthread_create moves its argument into the new thread; the spawning
@@ -1088,8 +1160,26 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
       Through = ME->getBase();
     // `*out = &local` (or a local array) is already an error in Sema.
     const Expr *R = RHSExpr->IgnoreParenCasts();
+    const Expr *Place = nullptr;
     if (const auto *UO = dyn_cast<UnaryOperator>(R);
-        (UO && UO->getOpcode() == UO_AddrOf) || R->getType()->isArrayType())
+        UO && UO->getOpcode() == UO_AddrOf)
+      Place = UO->getSubExpr()->IgnoreParens();
+    else if (R->getType()->isArrayType())
+      Place = R;
+    // (But `&p->f` is whatever p borrows, so it flows.)
+    while (Place) {
+      if (const auto *ME = dyn_cast<MemberExpr>(Place); ME && !ME->isArrow())
+        Place = ME->getBase()->IgnoreParens();
+      else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(Place);
+               ASE && ASE->getBase()
+                          ->IgnoreParenImpCasts()
+                          ->getType()
+                          ->isArrayType())
+        Place = ASE->getBase()->IgnoreParenImpCasts();
+      else
+        break;
+    }
+    if (Place && isa<DeclRefExpr>(Place))
       Through = nullptr;
     if (Through)
       if (const auto *DRE = dyn_cast<DeclRefExpr>(safeCPeel(Through)))

@@ -155,6 +155,11 @@ public:
           NoescapeWarningsMap.try_emplace(PVD, FieldEsc->getFieldDecl());
         if (auto *GlobalEsc = dyn_cast<GlobalEscapeFact>(OEF))
           NoescapeWarningsMap.try_emplace(PVD, GlobalEsc->getGlobal());
+        // `*out = in`: callers rely on noescape to keep in's borrows out of
+        // what out points to.
+        if (auto *ParamEsc = dyn_cast<ParamEscapeFact>(OEF);
+            ParamEsc && ParamEsc->getParam() != PVD)
+          NoescapeWarningsMap.try_emplace(PVD, ParamEsc->getParam());
         return;
       }
       // Skip annotation suggestion for moved loans, as ownership transfer
