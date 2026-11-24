@@ -178,7 +178,7 @@ when the field is taken, replaced, or the struct is lent to a function that may 
 
 ```c
 struct node *first = l->head;
-// void clear(struct list *_Excl l);
+// void clear(struct list *_Exclusive l);
 clear(l);    // note: the borrow ends here
 first->v;    // error: this pointer is
              // borrowed from 'l->head'

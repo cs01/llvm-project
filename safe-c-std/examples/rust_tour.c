@@ -36,7 +36,7 @@ struct list {
 };
 
 // fn push(&mut self, v: i32)
-static bool push(struct list *_Excl l, int v) {
+static bool push(struct list *_Exclusive l, int v) {
   struct node *_Nullable n = calloc(1, sizeof(struct node));
   if (!n)
     return false;
@@ -47,7 +47,7 @@ static bool push(struct list *_Excl l, int v) {
 }
 
 // impl Drop for List
-static void free_list(struct list *_Excl l) {
+static void free_list(struct list *_Exclusive l) {
   struct node *_Nullable n = _Take(l->head);
   while (n) {
     struct node *_Nullable next = _Take(n->next);
@@ -67,7 +67,7 @@ static i64_result sum_line(str line) {
 
 // Vec<i32>: a VEC type stamped out once, with its Drop.
 typedef VEC(int) int_vec;
-static void int_vec_free(int_vec *_Excl v) { vec_free(v); }
+static void int_vec_free(int_vec *_Exclusive v) { vec_free(v); }
 
 int main(void) {
   struct shape shapes[2] = {{.kind = CIRCLE, .radius = 1.0},

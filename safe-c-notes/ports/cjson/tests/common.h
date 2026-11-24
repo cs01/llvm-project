@@ -25,8 +25,8 @@
 
 #include "../cJSON.c"
 
-void reset(cJSON *_Excl item);
-void reset(cJSON *_Excl item) {
+void reset(cJSON *_Exclusive item);
+void reset(cJSON *_Exclusive item) {
     cJSON_Delete(_Take(item->child));
     if (!(item->type & cJSON_IsReference))
     {

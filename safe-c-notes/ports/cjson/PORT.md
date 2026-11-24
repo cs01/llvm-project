@@ -22,7 +22,7 @@ unity.c, the test harness, is compiled as plain C.
   - 5 terminator conversions (`__unsafe_null_terminated_from_indexable` after
     writing the NUL, and `cJSON_Minify`, which rewrites the terminator through a
     view). Making these checkable is the open "keep the scan bound" item.
-- Ownership: 7 annotated lines (`__safec_takes`): the `free_fn`, `deallocate` and
+- Ownership: 7 annotated lines (`_Takes`): the `free_fn`, `deallocate` and
   `reallocate` hook fields, and `cJSON_Delete`, `cJSON_free`,
   `cJSON_ReplaceItemViaPointer` and `reallocate_bytes`, each found by the compiler
   ("frees its parameter, but callers are not told"). Using a tree after
@@ -47,10 +47,10 @@ without the flag, Apple clang, `gcc` (Apple clang on this Mac, no real gcc
 installed) and Apple clang with ASan and UBSan.
 
 Cost: cJSON.c +502/-509 lines, cJSON.h +51/-47, tests +25/-21. Kinds used in
-cJSON.c and cJSON.h: 51 `_Owned`, 85 `_Excl`, 7
+cJSON.c and cJSON.h: 51 `_Owned`, 85 `_Exclusive`, 7
 `_Unchecked`, 1 `_View` (the parse buffer), 22 `_Take`,
 38 `_Lifetimebound`, 38 `_Returns_owned`. Tests: 2
-`_Static`, 2 `_Excl`, 6 `_Take`.
+`_Static`, 2 `_Exclusive`, 6 `_Take`.
 
 Design:
 - `next` and `child` own; `prev` is `_Unchecked` (the first child's prev
@@ -88,9 +88,9 @@ Status (2026-11-23): fixed in the compiler: 1 (soundness), 2 (crash), 3, 5, 6 (c
 roots), 7, 8, 9 (`ensure` now needs and has `_Lifetimebound`). Open: 4 (ownership that
 depends on a flag or on success) and the small ones in 10.
 
-1. Soundness: an `_Excl` parameter accepts a shared borrow, so a callee
+1. Soundness: an `_Exclusive` parameter accepts a shared borrow, so a callee
    can free fields under a `const` pointer whose caller still holds borrows.
-   `void clear(N *_Excl n) { free(_Take(n->child)); }`
+   `void clear(N *_Exclusive n) { free(_Take(n->child)); }`
    `void g(const N *a) { N *c = a->child; if (c) clear(c); }  /* accepted */`
 2. Crash: `_Take(p->f)` where `p` is a local pointer or array (not a
    parameter) asserts in CodeGen (EmitScalarExpr) when passed to a hook.
@@ -105,18 +105,18 @@ depends on a flag or on success) and the small ones in 10.
    otherwise (cJSON_IsReference, cJSON_StringIsConst, printbuffer.noalloc),
    and functions that take an item only on success (AddItemToArray, realloc on
    failure). Rust would use Cow/enum and `Result<(), Box<T>>`. 5 sites.
-   `int add(L *_Excl l, N *item);  /* moves item only if it returns 1 */`
+   `int add(L *_Exclusive l, N *item);  /* moves item only if it returns 1 */`
 5. `realloc`, or any function that both takes and returns ownership, rejects
    an owned local or parameter as "freeing a pointer that is still stored in
    memory reached through a pointer".
    `_Returns_owned void *r(void *_Nullable _Owned p, size_t n)`
    `{ return realloc(p, n); }  /* error */`
-6. No exclusive cursor: `slot = &(*slot)->next` on an `_Excl` local is
+6. No exclusive cursor: `slot = &(*slot)->next` on an `_Exclusive` local is
    rejected (treated like reassigning a parameter), so a singly linked list
    cannot be walked and edited safely; detach/insert/replace fall back to
    prev in `__unsafe`. Comparing an unchecked pointer (`item == p`) also needs
    `__unsafe`, though it reads no memory.
-   `N *_Owned _Nullable *_Excl slot = &a->child;`
+   `N *_Owned _Nullable *_Exclusive slot = &a->child;`
    `while (*slot) slot = &(*slot)->next;  /* 2 errors */`
 7. A walk that returns a borrow, `c = c->next; return c;`, is reported as
    returning stack memory; the same walk through a lifetimebound helper is

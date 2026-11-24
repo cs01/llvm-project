@@ -11,7 +11,7 @@ void free(void *_Nullable __unsafe_indexable);
 int strncmp(const char *__unsafe_indexable, const char *__unsafe_indexable, size_t);
 char *strncpy_like(char *_Nullable __unsafe_indexable dst, const char *__null_terminated src, size_t n);
 
-__safec_takes(1) void f(char *__counted_by(n) buf, size_t n, char *__unsafe_indexable raw) {
+_Takes(1) void f(char *__counted_by(n) buf, size_t n, char *__unsafe_indexable raw) {
   strncpy_like(buf, "abc", n); // expected-error {{passing 'char *__single __counted_by(n)' (aka 'char *__single') to 'strncpy_like' drops its bounds}}
   strncpy_like(0, "abc", n);
   strncpy_like(raw, "abc", n);

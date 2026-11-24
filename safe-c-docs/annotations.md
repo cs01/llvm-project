@@ -17,11 +17,11 @@ safe choice. You annotate only where a pointer does more:
 | `__sized_by(n)` | points to `n` bytes | `&[u8]` | `void fill(void *__sized_by(n) dst, size_t n);` | Apple |
 | `__ended_by(end)` | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`) | `int scan(const char *__ended_by(end) p, const char *end);` | Apple |
 | `__null_terminated` | a string ending in 0 (string literals and libc strings are already) | `&CStr` | `size_t my_strlen(const char *__null_terminated s);` | Apple |
-| `__safec_takes(i)` | old form of `_Owned` on a parameter, by index; the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move) | `__safec_takes(1) void json_free(struct json *item);` (prefer `_Owned` on the parameter) | Safe C (Clang's `ownership_takes`) |
+| `_Takes(i)` | old form of `_Owned` on a parameter, by index; the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move) | `_Takes(1) void json_free(struct json *item);` (prefer `_Owned` on the parameter) | Safe C (Clang's `ownership_takes`) |
 | `_Owned` | on a parameter: the function takes ownership (frees it, or keeps it to free later); the caller may not use it afterwards | taking a `Box<T>` by value (a move) | `void json_delete(struct json *_Owned item);` | Safe C |
 | `T *_Owned` (field, global) | this pointer is responsible for freeing its target; it is moved, never copied | `Box<T>` | `struct node { int v; struct node *_Owned _Nullable next; };` | Safe C |
-| `_Take(place)` | moves an owned pointer out of a field or global, leaving null | `Option::take` | `struct node *_Nullable pop(struct node *_Excl n) { return _Take(n->next); }` | Safe C |
-| `T *_Excl` | an exclusive borrow: the function may take, free or replace owned fields through it | `&mut T` | `void clear(struct node *_Excl n);` | Safe C |
+| `_Take(place)` | moves an owned pointer out of a field or global, leaving null | `Option::take` | `struct node *_Nullable pop(struct node *_Exclusive n) { return _Take(n->next); }` | Safe C |
+| `T *_Exclusive` | an exclusive borrow: the function may take, free or replace owned fields through it | `&mut T` | `void clear(struct node *_Exclusive n);` | Safe C |
 | `T *_Static` | points only at string literals, globals or functions | `&'static T` | `struct op { const char *_Static name; int code; };` | Safe C |
 | `T *_Unchecked` | may point anywhere; its value is used only inside `__unsafe` | `*const T` (a raw pointer) | `struct node2 { struct node2 *_Unchecked _Nullable prev; };` | Safe C |
 | `struct _View` | a struct holding borrows; lives only in locals and parameters | a struct with a lifetime, `struct S<'a>` | `struct _View span { const int *__counted_by(n) p; int n; };` | Safe C |
@@ -37,7 +37,7 @@ safe choice. You annotate only where a pointer does more:
 | `#pragma clang safe_c legacy` | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C | first line of a header not yet ported | Safe C |
 
 The Rust column is the closest equivalent, not an exact one. A plain pointer may write the
-data it points to, but cannot free or replace what that data owns; that takes `_Excl`
+data it points to, but cannot free or replace what that data owns; that takes `_Exclusive`
 (Rust's `&mut T`), and lending one ends the caller's other borrows of it. Locals need no
 kind: one that only ever holds owned values is an owner, as `let x = Box::new(..)` is.
 Rust's rule that two plain pointers may not both write the same data at once is not

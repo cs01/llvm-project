@@ -187,7 +187,7 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"ownership-through-borrow", false,
      "%select{taking from|replacing}0 an owned field through '%1' changes "
      "what its owner holds while callers may still be using it; declare '%1' "
-     "'_Excl' (an exclusive borrow, like Rust's '&mut')%select{, or "
+     "'_Exclusive' (an exclusive borrow, like Rust's '&mut')%select{, or "
      "'_Owned' if this function owns it|}2"},
     {"excl-reassigned", false,
      "%0 is an exclusive borrow of the caller's object, which the caller "
@@ -203,9 +203,9 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "points to; mark the parameter '_Lifetimebound' so callers keep "
      "it alive, or return an owned copy"},
     {"excl-arg-borrowed", false,
-     "%0 is a shared borrow, but this parameter is '_Excl': the callee may "
+     "%0 is a shared borrow, but this parameter is '_Exclusive': the callee may "
      "free or replace what it owns while the owner still uses it; pass the "
-     "owner, or declare %0 '_Owned' (if it owns the object) or '_Excl'"},
+     "owner, or declare %0 '_Owned' (if it owns the object) or '_Exclusive'"},
     {"outparam-local-type", true,
      "the callee stores a pointer without bounds into %0, but a local "
      "pointer carries them by default; declare it as '%1;'"},
@@ -677,7 +677,7 @@ static const ValueDecl *exclusiveArgBlocker(ASTContext &Ctx, const Expr *E,
 static bool isInferredExclusiveLocal(ASTContext &Ctx, const VarDecl *VD,
                                      const Stmt *Body);
 
-/// A call that returns an exclusive reborrow: some `_Excl _Lifetimebound`
+/// A call that returns an exclusive reborrow: some `_Exclusive _Lifetimebound`
 /// parameter gets an argument that is itself exclusive (Rust's `&mut` in,
 /// `&mut` out).
 static bool isExclusiveReborrowCall(ASTContext &Ctx, const Expr *E,

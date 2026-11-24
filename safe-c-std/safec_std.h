@@ -112,7 +112,7 @@ static inline str string_view(const string *s _Lifetimebound) {
 }
 
 /* Makes room for n more bytes; returns false if out of memory. */
-static inline bool string_reserve(string *_Excl s, size_t n) {
+static inline bool string_reserve(string *_Exclusive s, size_t n) {
   if (s->cap - s->len >= n)
     return true;
   size_t cap = s->cap ? s->cap : 16;
@@ -128,7 +128,7 @@ static inline bool string_reserve(string *_Excl s, size_t n) {
   return true;
 }
 
-static inline bool string_push(string *_Excl s, str more) {
+static inline bool string_push(string *_Exclusive s, str more) {
   if (!string_reserve(s, more.len))
     return false;
   if (!s->p)
@@ -139,7 +139,7 @@ static inline bool string_push(string *_Excl s, str more) {
   return true;
 }
 
-static inline void string_free(string *_Excl s) {
+static inline void string_free(string *_Exclusive s) {
   free(_Take(s->p));
   s->len = 0;
 }
@@ -225,7 +225,7 @@ static inline i64_result str_to_i64(str s) {
 /* ---- io ------------------------------------------------------------------ */
 
 /* A path as a terminated string, for the C library. */
-static inline bool string_terminate_(string *_Excl s) {
+static inline bool string_terminate_(string *_Exclusive s) {
   if (!string_push(s, S("\0")))
     return false;
   s->len--; /* the terminator is not part of the text */
@@ -233,7 +233,7 @@ static inline bool string_terminate_(string *_Excl s) {
 }
 
 /* Reads the whole file into *out (appending). Returns false on error. */
-static inline bool read_file(str path, string *_Excl out) {
+static inline bool read_file(str path, string *_Exclusive out) {
   string name _Drop(string_free) = {0, 0, 0};
   if (!string_push(&name, path) || !string_terminate_(&name) || !name.p)
     return false;
@@ -275,7 +275,7 @@ typedef struct lines_ {
   string line;
 } lines;
 
-static inline bool lines_open(str path, lines *_Excl it) {
+static inline bool lines_open(str path, lines *_Exclusive it) {
   string name _Drop(string_free) = {0, 0, 0};
   if (!string_push(&name, path) || !string_terminate_(&name) || !name.p)
     return false;
@@ -285,7 +285,7 @@ static inline bool lines_open(str path, lines *_Excl it) {
 }
 
 /* Reads the next line; false at the end of the file. */
-static inline bool lines_next(lines *_Excl it) {
+static inline bool lines_next(lines *_Exclusive it) {
   if (!it->f)
     return false;
   it->line.len = 0;
@@ -308,7 +308,7 @@ static inline str lines_line(const lines *it _Lifetimebound) {
   return string_view(&it->line);
 }
 
-static inline void lines_close(lines *_Excl it) {
+static inline void lines_close(lines *_Exclusive it) {
   FILE *_Nullable f = _Take(it->f);
   if (f)
     fclose(f);

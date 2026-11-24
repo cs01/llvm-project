@@ -63,10 +63,10 @@ Leaks are allowed. Memory safety here does not include leak freedom.
 
 | M2 feature | Model |
 |---|---|
-| owned `T *__safec_owned` | `VTy.own s`, `FTy.own s` |
+| owned `T *_Owned` | `VTy.own s`, `FTy.own s` |
 | borrow `T *` | `VTy.ref s`; `FTy.ref s` exists only for counterexamples |
-| exclusive `T *__safec_excl` | `VTy.excl s`: a parameter, or a stack local |
-| unchecked `T *__safec_unchecked` | `VTy.unc s`, `FTy.unc s`; `ucast`, `pstore` |
+| exclusive `T *_Exclusive` | `VTy.excl s`: a parameter, or a stack local |
+| unchecked `T *_Unchecked` | `VTy.unc s`, `FTy.unc s`; `ucast`, `pstore` |
 | stack local whose address is taken | `scope x s n body`: `x` is `excl`, its block dies at the end |
 | struct assignment `*x = *y` | `copy x y` |
 | globals | one struct `G`: main holds it as a stack local, every function that touches a global takes it as an exclusive parameter |
@@ -162,7 +162,7 @@ and no other argument of the same call reaches it.
    C pop, `n = head; head = n->next; free(n);`, is rejected: it copies an owned
    field without nulling it (`idiom1_c_pop_rejected`). Write it as a take.
 2. Doubly linked list: indices into one owned array (`idiom2_indices`), or a
-   back pointer that is `__safec_unchecked` and dereferenced in `__unsafe`.
+   back pointer that is `_Unchecked` and dereferenced in `__unsafe`.
 3. Growable array: hold an index across the push and borrow again after
    (`idiom3_index`). Holding a pointer across it is rejected.
 4. Arena: many borrows of one owner; reset (`realloc` to 0) ends them all
@@ -233,7 +233,7 @@ the list is freed.
 ## Rules clang must enforce (M2 implementation spec)
 
 Each item is one compiler check. "Owner" means an `_Owned` local; "exclusive
-variable" means a `__safec_excl` parameter or an address-taken stack local.
+variable" means a `_Exclusive` parameter or an address-taken stack local.
 The flow state per function is the set of live variables and, for each
 borrow, its root: an owner, an exclusive variable, a borrowed parameter, or
 `G` (the globals).
@@ -262,7 +262,7 @@ borrow, its root: an owner, an exclusive variable, a borrowed parameter, or
    parameter still holding the pointer it received.
 8. **Calls**, checked in this order:
    1. an argument for an `_Owned` parameter must be a live owner; it is moved;
-   2. an argument for a `__safec_excl` parameter must be a live owner or
+   2. an argument for a `_Exclusive` parameter must be a live owner or
       exclusive variable (`&*owner`, `&stack_local`, a caller's exclusive
       parameter); it is lent, and every loan of it ends at the call;
    3. a variable may appear at most once among the owned and exclusive
@@ -279,13 +279,13 @@ borrow, its root: an owner, an exclusive variable, a borrowed parameter, or
    A borrow return without `lifetimebound` is an error, so a borrow rooted at
    a local can never be returned.
 10. **Fields and globals hold no borrows.** A struct field or global of plain
-    pointer type is an error unless the struct is `__safec_view`. Fields and
-    globals are integers, `_Owned` or `__safec_unchecked` pointers.
+    pointer type is an error unless the struct is `_View`. Fields and
+    globals are integers, `_Owned` or `_Unchecked` pointers.
 11. **Views** live only in locals and by-value parameters, never in the heap,
     a global, or a non-view struct. Each view field is a separate borrow with
     its own root. A borrow may be written into a view field only by naming a
     local view (`v.f = r`), never through a pointer to a view.
-12. **Unchecked pointers.** Any pointer converts to `__safec_unchecked` (a
+12. **Unchecked pointers.** Any pointer converts to `_Unchecked` (a
     copy, not a move) and may be stored in unchecked fields and globals.
     Outside `__unsafe` an unchecked pointer is never dereferenced, indexed,
     borrowed from, freed, or converted back to a borrow or owner.

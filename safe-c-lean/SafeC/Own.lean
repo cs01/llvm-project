@@ -17,18 +17,18 @@ OwnHoles.lean can show what goes wrong when the checker allows them
 inductive FTy where
   | int
   | own (s : Nat)
-  /-- `struct s *__safec_unchecked`: any pointer, never dereferenced in safe code. -/
+  /-- `struct s *_Unchecked`: any pointer, never dereferenced in safe code. -/
   | unc (s : Nat)
   /-- A plain (borrow) pointer field. Rejected by `Rules.noRefFields`. -/
   | ref (s : Nat)
   deriving DecidableEq, Repr
 
 /-- Variable types. `own s` is `_Owned struct s *` (nullable), `ref s` is a
-plain `struct s *`: a borrow. `excl s` is `struct s *__safec_excl`: an
+plain `struct s *`: a borrow. `excl s` is `struct s *_Exclusive`: an
 exclusive borrow, which heads its region like an owner (fields may be taken
 and put through it) but is never freed, moved or reassigned. Exclusive
 parameters and stack locals (`scope`) have this type. `unc s` is
-`struct s *__safec_unchecked`. -/
+`struct s *_Unchecked`. -/
 inductive VTy where
   | int
   | own (s : Nat)
@@ -146,7 +146,7 @@ inductive Stmt where
   | loop (c : Expr) (body : Stmt)
   /-- `x = f(args)`. -/
   | call (x : Nat) (f : Nat) (args : List Nat)
-  /-- `x = (T *__safec_unchecked)y`: copies any pointer into an unchecked one. -/
+  /-- `x = (T *_Unchecked)y`: copies any pointer into an unchecked one. -/
   | ucast (x y : Nat)
   /-- `y[i].f = z` into a non-owning pointer field (unchecked; a borrow field
   only when `noRefFields` is off). `z` is copied, not moved. -/

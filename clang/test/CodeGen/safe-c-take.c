@@ -25,13 +25,13 @@ int *_Nullable take_local(void) {
   struct counted *_Nullable p = pick();
   if (!p)
     return 0;
-  return __safec_take(p->data);
+  return _Take(p->data);
 }
 // CHECK-LABEL: define {{.*}} @take_local(
 // CHECK: store ptr null
 // CHECK: store i64 0
-int *_Nullable take_elem(struct counted *_Excl __counted_by(2) a) {
-  return __safec_take(a[1].data);
+int *_Nullable take_elem(struct counted *_Exclusive __counted_by(2) a) {
+  return _Take(a[1].data);
 }
 // CHECK-LABEL: define {{.*}} @take_elem(
 // CHECK: store ptr null

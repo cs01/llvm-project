@@ -21,7 +21,7 @@ _Returns_owned struct json *_Nullable parse(void) {
   return j;
 }
 
-__safec_takes(1) void json_delete(struct json *_Nullable j) { free(j); }
+_Takes(1) void json_delete(struct json *_Nullable j) { free(j); }
 
 int use(void) {
   struct json *_Nullable t = parse(); // expected-error {{object allocated by 'parse' does not live long enough}}

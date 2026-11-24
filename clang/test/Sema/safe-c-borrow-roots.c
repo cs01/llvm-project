@@ -23,7 +23,7 @@ const struct L *_Nullable last(const struct L *l _Lifetimebound) {
   return c;
 }
 
-int through_cursor(struct L *_Excl l) {
+int through_cursor(struct L *_Exclusive l) {
   struct L *c = l;
   struct L *_Nullable r = c->next; // expected-error {{this pointer is borrowed from 'c->next'}}
   free(_Take(l->next)); // expected-note {{the borrow ends here}}
@@ -40,9 +40,9 @@ void grow_local(void) {
 }
 
 // Lending a reborrow exclusively reborrows it again: it stays usable.
-void clear(struct L *_Excl l);
-struct L *_Nullable add(struct L *_Excl parent _Lifetimebound);
-int lend_reborrow(struct L *_Excl root) {
+void clear(struct L *_Exclusive l);
+struct L *_Nullable add(struct L *_Exclusive parent _Lifetimebound);
+int lend_reborrow(struct L *_Exclusive root) {
   struct L *_Nullable kid = add(root);
   if (!kid)
     return 0;

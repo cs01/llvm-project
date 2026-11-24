@@ -13463,7 +13463,7 @@ def warn_safe_c_takes_lost : Warning<
   "%0 frees its parameter %1, but %2 does not say so, so calls through %2 "
   "would keep using freed memory; declare %2 with "
   "'__attribute__((ownership_takes(malloc, %1)))' (safec.h: "
-  "'__safec_takes(%1)')">,
+  "'_Takes(%1)')">,
   InGroup<SafeCOwnership>, DefaultError;
 def warn_safe_c_stack_escape : Warning<
   "storing the address of local %0 through a pointer or in a global lets it "

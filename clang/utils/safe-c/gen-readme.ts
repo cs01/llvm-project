@@ -31,7 +31,7 @@ function annotations(): string {
     ...rows,
     "",
     "The Rust column is the closest equivalent, not an exact one. A plain pointer may write the",
-    "data it points to, but cannot free or replace what that data owns; that takes `_Excl`",
+    "data it points to, but cannot free or replace what that data owns; that takes `_Exclusive`",
     "(Rust's `&mut T`), and lending one ends the caller's other borrows of it. Locals need no",
     "kind: one that only ever holds owned values is an owner, as `let x = Box::new(..)` is.",
     "Rust's rule that two plain pointers may not both write the same data at once is not",

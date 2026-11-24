@@ -19,7 +19,7 @@ Safe C, Apple clang and ASan, and every error is copied from the compiler.
 | `Option<&T>` | `T *_Nullable`, checked before use |
 | `&[T]`, `&str` | `__counted_by(n)`, `SLICE(T)`, `str` |
 | `Box<T>` | `T *_Owned` |
-| `&mut T` | `T *_Excl` |
+| `&mut T` | `T *_Exclusive` |
 | `'a` on a return | `_Lifetimebound` on the parameter |
 | `&'static T` | `T *_Static` |
 | `Option::take` | `_Take(place)` |
@@ -87,7 +87,7 @@ struct node {
 };
 
 // fn push(&mut self, v: i32)
-bool push(struct list *_Excl l, int v) {
+bool push(struct list *_Exclusive l, int v) {
   struct node *n = calloc(1, sizeof *n);
   if (!n)
     return false;
@@ -102,7 +102,7 @@ The borrow checker's favorite error, in C:
 
 ```c
 struct node *first = l->head;
-free_list(l);      // takes l as _Excl
+free_list(l);      // takes l as _Exclusive
 return first->v;
 ```
 ```

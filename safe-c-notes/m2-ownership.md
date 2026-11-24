@@ -14,7 +14,7 @@ compilers.
 |---|---|---|---|
 | owned | `T *_Owned` | the one pointer responsible for freeing; copying it moves it | `Box<T>` |
 | borrow | plain `T *` | uses memory someone else owns, for a bounded time | `&T` / `&mut T` |
-| exclusive borrow | `T *_Excl` | a borrow through which ownership may change (free, realloc, owned-field writes) | `&mut T` |
+| exclusive borrow | `T *_Exclusive` | a borrow through which ownership may change (free, realloc, owned-field writes) | `&mut T` |
 | unchecked | `T *_Unchecked` | may be stored anywhere; dereferencing it needs `__unsafe` | `*const T` |
 
 **Kinds are types** (decided by claude, 2026-11-23): `[[clang::annotate_type("safec_owned")]]`

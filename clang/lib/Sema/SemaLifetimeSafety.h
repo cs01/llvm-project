@@ -266,7 +266,7 @@ public:
       return;
     // Safe C (M2): a borrow read out of an owned field, ended by taking,
     // replacing or lending the place it came from.
-    // Safe C (M2): an exclusive reborrow (a call with an `_Excl
+    // Safe C (M2): an exclusive reborrow (a call with an `_Exclusive
     // _Lifetimebound` argument), ended by lending that argument again.
     if (S.getLangOpts().SafeC)
       if (const auto *Call = dyn_cast<CallExpr>(IssueExpr->IgnoreParens()))

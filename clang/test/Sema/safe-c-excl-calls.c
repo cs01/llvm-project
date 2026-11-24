@@ -13,14 +13,14 @@ void free(void *_Nullable);
 struct node { int v; struct node *_Owned _Nullable next; };
 struct list { struct node *_Owned _Nullable head; int n; };
 
-void clear(struct list *_Excl l) { free(_Take(l->head)); }
-void move_head(struct list *_Excl dst, struct list *_Excl src) {
+void clear(struct list *_Exclusive l) { free(_Take(l->head)); }
+void move_head(struct list *_Exclusive dst, struct list *_Exclusive src) {
   dst->head = _Take(src->head);
 }
-int peek(struct list *_Excl l, const struct node *_Nullable n);
+int peek(struct list *_Exclusive l, const struct node *_Nullable n);
 void drop(struct list *_Owned _Nullable l);
 
-void calls(struct list *_Excl a, struct list *_Excl b, struct list *other) {
+void calls(struct list *_Exclusive a, struct list *_Exclusive b, struct list *other) {
   move_head(a, b);
   move_head(a, a); // expected-error {{'a' is lent exclusively to this call, so no other argument may reach it (the callee could free or replace what that argument points to); pass it once, or finish with the other use before the call}} expected-error {{'a' is lent exclusively}}
   (void)peek(a, a->head); // expected-error {{'a' is lent exclusively to this call}}
@@ -28,13 +28,13 @@ void calls(struct list *_Excl a, struct list *_Excl b, struct list *other) {
   (void)other;
 }
 
-void reassign(struct list *_Excl l, struct list *_Excl m) {
+void reassign(struct list *_Exclusive l, struct list *_Exclusive m) {
   l = m; // expected-error {{'l' is an exclusive borrow of the caller's object, which the caller still owns after the call; assigning a new pointer to it would leave the caller with the wrong object; use a local variable instead}}
 }
-void give_away(struct list *_Excl m) {
+void give_away(struct list *_Exclusive m) {
   drop(m); // expected-error {{'m' is an exclusive borrow of the caller's object, which the caller still owns after the call; giving it away would leave the caller with the wrong object}}
 }
-void free_excl(struct list *_Excl l) {
+void free_excl(struct list *_Exclusive l) {
   free(l); // expected-error {{'l' is an exclusive borrow}}
 }
 
@@ -43,5 +43,5 @@ void free_excl(struct list *_Excl l) {
 // (its pointers are _Static or _Unchecked) may also be passed shared, as
 // lz4 passes its context as both the state and the dictionary.
 struct counters { int a, b; const char *_Static name; };
-void add(struct counters *_Excl into, const struct counters *from);
-void self_add(struct counters *_Excl c) { add(c, c); }
+void add(struct counters *_Exclusive into, const struct counters *from);
+void self_add(struct counters *_Exclusive c) { add(c, c); }

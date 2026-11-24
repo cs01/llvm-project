@@ -51,7 +51,7 @@ The same code compiles as plain C on any compiler: the annotations come from one
    | `_Nullable` | the pointer may be null |
    | `__counted_by(n)` | the pointer has a length, `n` |
    | `_Owned` | whoever holds it must free it |
-   | `_Excl` | the function changes what it points to |
+   | `_Exclusive` | the function changes what it points to |
 
 4. **Not ready to fix a spot yet?** Put `#pragma clang safe_c legacy` at the top of a
    header to trust it as is, or wrap the code in `__unsafe { }`. Both are easy to find

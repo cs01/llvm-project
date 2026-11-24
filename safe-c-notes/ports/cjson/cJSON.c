@@ -179,8 +179,8 @@ static int case_insensitive_strcmp(const char *_Nullable __null_terminated strin
 typedef struct internal_hooks
 {
     void *_Nullable __sized_by_or_null(size) (CJSON_CDECL *allocate)(size_t size);
-    void (CJSON_CDECL *deallocate)(void *_Nullable __unsafe_indexable pointer) __safec_takes(1);
-    void *_Nullable __sized_by_or_null(size) (CJSON_CDECL *_Nullable reallocate)(void *_Nullable __unsafe_indexable pointer, size_t size) __safec_takes(1);
+    void (CJSON_CDECL *deallocate)(void *_Nullable __unsafe_indexable pointer) _Takes(1);
+    void *_Nullable __sized_by_or_null(size) (CJSON_CDECL *_Nullable reallocate)(void *_Nullable __unsafe_indexable pointer, size_t size) _Takes(1);
 } internal_hooks;
 
 /* Wrappers rather than the libc functions themselves: MSVC cannot take the
@@ -315,7 +315,7 @@ CJSON_PUBLIC(void) cJSON_Delete(cJSON *_Nullable _Owned item)
    that appending stays O(1) as in upstream cJSON. */
 
 /* Appends item to parent's children and returns it, now borrowed from parent. */
-static cJSON *_Nullable append_child(cJSON *_Excl parent _Lifetimebound, cJSON *_Owned item)
+static cJSON *_Nullable append_child(cJSON *_Exclusive parent _Lifetimebound, cJSON *_Owned item)
 {
     cJSON *_Nullable head = parent->child;
     if (head == NULL)
@@ -336,7 +336,7 @@ static cJSON *_Nullable append_child(cJSON *_Excl parent _Lifetimebound, cJSON *
 }
 
 /* Moves a parsed string into the key, for parse_object. */
-static void key_from_valuestring(cJSON *_Excl item)
+static void key_from_valuestring(cJSON *_Exclusive item)
 {
     item->string = _Take(item->valuestring);
 }
@@ -371,7 +371,7 @@ typedef struct _View
 #define buffer_at_offset(buffer) ((buffer)->content + (buffer)->offset)
 
 /* Parse the input text to generate a number, and populate the result into item. */
-static cJSON_bool parse_number(cJSON *_Excl const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_number(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
 {
     double number = 0;
     /* strtod stores a pointer into its NUL-terminated input; it is only compared */
@@ -500,7 +500,7 @@ CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
 }
 
 /* Note: when passing a NULL valuestring, cJSON_SetValuestring treats this as an error and return NULL */
-CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *_Excl object _Lifetimebound, const char *valuestring _Noescape)
+CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *_Exclusive object _Lifetimebound, const char *valuestring _Noescape)
 {
     char *_Nullable _Owned __null_terminated copy = NULL;
     const char *source = NULL;
@@ -567,7 +567,7 @@ typedef struct
    is freed if that fails. It takes p rather than the owned pointer because
    Safe C rejects an owned local passed to a function that both takes and
    returns ownership. */
-static _Returns_owned unsigned char *_Nullable __counted_by_or_null(size) reallocate_buffer(printbuffer *_Excl p, size_t size)
+static _Returns_owned unsigned char *_Nullable __counted_by_or_null(size) reallocate_buffer(printbuffer *_Exclusive p, size_t size)
 {
     unsigned char *_Nullable _Owned pointer = _Take(p->buffer);
     p->buffer = NULL;
@@ -591,7 +591,7 @@ static _Returns_owned unsigned char *_Nullable __counted_by_or_null(size) reallo
 }
 
 /* realloc printbuffer if necessary to have at least "needed" bytes more */
-static unsigned char *_Nullable __bidi_indexable ensure(printbuffer *_Excl const p _Lifetimebound, size_t needed)
+static unsigned char *_Nullable __bidi_indexable ensure(printbuffer *_Exclusive const p _Lifetimebound, size_t needed)
 {
     unsigned char *_Nullable _Owned newbuffer = NULL;
     unsigned char *_Nullable oldbuffer = NULL;
@@ -706,7 +706,7 @@ static cJSON_bool compare_double(double a, double b)
 }
 
 /* Render the number nicely from the given item into a string. */
-static cJSON_bool print_number(const cJSON * const item, printbuffer *_Excl const output_buffer)
+static cJSON_bool print_number(const cJSON * const item, printbuffer *_Exclusive const output_buffer)
 {
     unsigned char *output_pointer = NULL;
     double d = item->valuedouble;
@@ -934,7 +934,7 @@ fail:
 }
 
 /* Parse the input text into an unescaped cinput, and populate item. */
-static cJSON_bool parse_string(cJSON *_Excl const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_string(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
 {
     const unsigned char *input_pointer = buffer_at_offset(input_buffer) + 1;
     const unsigned char *input_end = buffer_at_offset(input_buffer) + 1;
@@ -1065,7 +1065,7 @@ fail:
 }
 
 /* Render the cstring provided to an escaped version that can be printed. */
-static cJSON_bool print_string_ptr(const char *_Nullable __null_terminated const string, printbuffer *_Excl const output_buffer)
+static cJSON_bool print_string_ptr(const char *_Nullable __null_terminated const string, printbuffer *_Exclusive const output_buffer)
 {
     const unsigned char *input = NULL;
     const unsigned char *input_pointer = NULL;
@@ -1194,18 +1194,18 @@ static cJSON_bool print_string_ptr(const char *_Nullable __null_terminated const
 }
 
 /* Invoke print_string_ptr (which is useful) on an item. */
-static cJSON_bool print_string(const cJSON * const item, printbuffer *_Excl const p)
+static cJSON_bool print_string(const cJSON * const item, printbuffer *_Exclusive const p)
 {
     return print_string_ptr(item->valuestring, p);
 }
 
 /* Predeclare these prototypes. */
-static cJSON_bool parse_value(cJSON *_Excl const item, parse_buffer * const input_buffer);
-static cJSON_bool print_value(const cJSON * const item, printbuffer *_Excl const output_buffer);
-static cJSON_bool parse_array(cJSON *_Excl const item, parse_buffer * const input_buffer);
-static cJSON_bool print_array(const cJSON * const item, printbuffer *_Excl const output_buffer);
-static cJSON_bool parse_object(cJSON *_Excl const item, parse_buffer * const input_buffer);
-static cJSON_bool print_object(const cJSON * const item, printbuffer *_Excl const output_buffer);
+static cJSON_bool parse_value(cJSON *_Exclusive const item, parse_buffer * const input_buffer);
+static cJSON_bool print_value(const cJSON * const item, printbuffer *_Exclusive const output_buffer);
+static cJSON_bool parse_array(cJSON *_Exclusive const item, parse_buffer * const input_buffer);
+static cJSON_bool print_array(const cJSON * const item, printbuffer *_Exclusive const output_buffer);
+static cJSON_bool parse_object(cJSON *_Exclusive const item, parse_buffer * const input_buffer);
+static cJSON_bool print_object(const cJSON * const item, printbuffer *_Exclusive const output_buffer);
 
 /* Utility to jump whitespace and cr/lf */
 static parse_buffer *_Nullable buffer_skip_whitespace(parse_buffer * const buffer _Lifetimebound)
@@ -1497,7 +1497,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_PrintPreallocated(cJSON *item, char *_Nullable __
 }
 
 /* Parser core - when encountering text, process appropriately. */
-static cJSON_bool parse_value(cJSON *_Excl const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_value(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
 {
     if ((input_buffer == NULL) || (input_buffer->content == NULL))
     {
@@ -1552,7 +1552,7 @@ static cJSON_bool parse_value(cJSON *_Excl const item, parse_buffer * const inpu
 }
 
 /* Render a value to text. */
-static cJSON_bool print_value(const cJSON * const item, printbuffer *_Excl const output_buffer)
+static cJSON_bool print_value(const cJSON * const item, printbuffer *_Exclusive const output_buffer)
 {
     unsigned char *output = NULL;
 
@@ -1628,7 +1628,7 @@ static cJSON_bool print_value(const cJSON * const item, printbuffer *_Excl const
 }
 
 /* Build an array from input text. */
-static cJSON_bool parse_array(cJSON *_Excl const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_array(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
 {
     cJSON *_Nullable current_item = NULL;
 
@@ -1712,7 +1712,7 @@ fail:
 }
 
 /* Render an array to text */
-static cJSON_bool print_array(const cJSON * const item, printbuffer *_Excl const output_buffer)
+static cJSON_bool print_array(const cJSON * const item, printbuffer *_Exclusive const output_buffer)
 {
     unsigned char *output_pointer = NULL;
     size_t length = 0;
@@ -1779,7 +1779,7 @@ static cJSON_bool print_array(const cJSON * const item, printbuffer *_Excl const
 }
 
 /* Build an object from the text. */
-static cJSON_bool parse_object(cJSON *_Excl const item, parse_buffer * const input_buffer)
+static cJSON_bool parse_object(cJSON *_Exclusive const item, parse_buffer * const input_buffer)
 {
     cJSON *_Nullable current_item = NULL;
 
@@ -1885,7 +1885,7 @@ fail:
 }
 
 /* Render an object to text. */
-static cJSON_bool print_object(const cJSON * const item, printbuffer *_Excl const output_buffer)
+static cJSON_bool print_object(const cJSON * const item, printbuffer *_Exclusive const output_buffer)
 {
     unsigned char *output_pointer = NULL;
     size_t length = 0;
@@ -2167,7 +2167,7 @@ _Returns_owned static cJSON *_Nullable create_reference(const cJSON *_Nullable i
     return reference;
 }
 
-static cJSON_bool add_item_to_array(cJSON *_Nullable _Excl array, cJSON *_Nullable item)
+static cJSON_bool add_item_to_array(cJSON *_Nullable _Exclusive array, cJSON *_Nullable item)
 {
     if ((item == NULL) || (array == NULL) || (array == item))
     {
@@ -2180,13 +2180,13 @@ static cJSON_bool add_item_to_array(cJSON *_Nullable _Excl array, cJSON *_Nullab
 }
 
 /* Add item to array/object. */
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToArray(cJSON *_Excl array, cJSON *item)
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToArray(cJSON *_Exclusive array, cJSON *item)
 {
     return add_item_to_array(array, item);
 }
 
 /* Gives item its key and appends it to object; returns item, now borrowed from object. */
-static cJSON *_Nullable attach_to_object(cJSON *_Excl const object _Lifetimebound, char *_Owned __null_terminated key, cJSON *_Owned item, const internal_hooks * const hooks, const cJSON_bool constant_key)
+static cJSON *_Nullable attach_to_object(cJSON *_Exclusive const object _Lifetimebound, char *_Owned __null_terminated key, cJSON *_Owned item, const internal_hooks * const hooks, const cJSON_bool constant_key)
 {
     if (!(item->type & cJSON_StringIsConst))
     {
@@ -2213,7 +2213,7 @@ _Returns_owned static char *_Nullable __null_terminated make_key(const char *__n
     return cJSON_strdup(string, hooks);
 }
 
-static cJSON_bool add_item_to_object(cJSON *_Nullable _Excl const object, const char *_Nullable const string, cJSON *_Nullable const item, const internal_hooks * const hooks, const cJSON_bool constant_key)
+static cJSON_bool add_item_to_object(cJSON *_Nullable _Exclusive const object, const char *_Nullable const string, cJSON *_Nullable const item, const internal_hooks * const hooks, const cJSON_bool constant_key)
 {
     char *_Nullable _Owned __null_terminated new_key = NULL;
 
@@ -2234,7 +2234,7 @@ static cJSON_bool add_item_to_object(cJSON *_Nullable _Excl const object, const 
 }
 
 /* For the cJSON_Add*ToObject helpers: adds a new item, or frees it on failure. */
-static cJSON *_Nullable add_new_to_object(cJSON *_Nullable _Excl const object _Lifetimebound, const char *_Nullable const name, cJSON *_Nullable _Owned item)
+static cJSON *_Nullable add_new_to_object(cJSON *_Nullable _Exclusive const object _Lifetimebound, const char *_Nullable const name, cJSON *_Nullable _Owned item)
 {
     char *_Nullable _Owned __null_terminated key = NULL;
 
@@ -2257,18 +2257,18 @@ static cJSON *_Nullable add_new_to_object(cJSON *_Nullable _Excl const object _L
     return attach_to_object(object, key, item, &global_hooks, false);
 }
 
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObject(cJSON *_Excl object, const char *string, cJSON *item)
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObject(cJSON *_Exclusive object, const char *string, cJSON *item)
 {
     return add_item_to_object(object, string, item, &global_hooks, false);
 }
 
 /* Add an item to an object with constant string as key */
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObjectCS(cJSON *_Excl object, const char *string, cJSON *item)
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObjectCS(cJSON *_Exclusive object, const char *string, cJSON *item)
 {
     return add_item_to_object(object, string, item, &global_hooks, true);
 }
 
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToArray(cJSON *_Excl array, cJSON *item)
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToArray(cJSON *_Exclusive array, cJSON *item)
 {
     cJSON *_Nullable _Owned reference = NULL;
     if (array == NULL)
@@ -2285,7 +2285,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToArray(cJSON *_Excl array, cJSON
     return true;
 }
 
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToObject(cJSON *_Excl object, const char *string, cJSON *item)
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToObject(cJSON *_Exclusive object, const char *string, cJSON *item)
 {
     char *_Nullable _Owned __null_terminated key = NULL;
     cJSON *_Nullable _Owned reference = NULL;
@@ -2309,47 +2309,47 @@ CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToObject(cJSON *_Excl object, con
     return true;
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddNullToObject(cJSON *_Excl const object _Lifetimebound, const char * const name)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddNullToObject(cJSON *_Exclusive const object _Lifetimebound, const char * const name)
 {
     return add_new_to_object(object, name, cJSON_CreateNull());
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddTrueToObject(cJSON *_Excl const object _Lifetimebound, const char * const name)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddTrueToObject(cJSON *_Exclusive const object _Lifetimebound, const char * const name)
 {
     return add_new_to_object(object, name, cJSON_CreateTrue());
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddFalseToObject(cJSON *_Excl const object _Lifetimebound, const char * const name)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddFalseToObject(cJSON *_Exclusive const object _Lifetimebound, const char * const name)
 {
     return add_new_to_object(object, name, cJSON_CreateFalse());
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddBoolToObject(cJSON *_Excl const object _Lifetimebound, const char * const name, const cJSON_bool boolean)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddBoolToObject(cJSON *_Exclusive const object _Lifetimebound, const char * const name, const cJSON_bool boolean)
 {
     return add_new_to_object(object, name, cJSON_CreateBool(boolean));
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddNumberToObject(cJSON *_Excl const object _Lifetimebound, const char * const name, const double number)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddNumberToObject(cJSON *_Exclusive const object _Lifetimebound, const char * const name, const double number)
 {
     return add_new_to_object(object, name, cJSON_CreateNumber(number));
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddStringToObject(cJSON *_Excl const object _Lifetimebound, const char * const name, const char * const string)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddStringToObject(cJSON *_Exclusive const object _Lifetimebound, const char * const name, const char * const string)
 {
     return add_new_to_object(object, name, cJSON_CreateString(string));
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddRawToObject(cJSON *_Excl const object _Lifetimebound, const char * const name, const char * const raw)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddRawToObject(cJSON *_Exclusive const object _Lifetimebound, const char * const name, const char * const raw)
 {
     return add_new_to_object(object, name, cJSON_CreateRaw(raw));
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddObjectToObject(cJSON *_Excl const object _Lifetimebound, const char * const name)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddObjectToObject(cJSON *_Exclusive const object _Lifetimebound, const char * const name)
 {
     return add_new_to_object(object, name, cJSON_CreateObject());
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddArrayToObject(cJSON *_Excl const object _Lifetimebound, const char * const name)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddArrayToObject(cJSON *_Exclusive const object _Lifetimebound, const char * const name)
 {
     return add_new_to_object(object, name, cJSON_CreateArray());
 }
@@ -2358,7 +2358,7 @@ CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddArrayToObject(cJSON *_Excl const object 
    upstream cJSON (and Rust's LinkedList, which does the same in unsafe).
    item names a child of parent only by identity; it is _Unchecked so a
    caller may pass a borrow of parent next to parent itself. */
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemViaPointer(cJSON *_Excl parent, cJSON *_Unchecked const item)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemViaPointer(cJSON *_Exclusive parent, cJSON *_Unchecked const item)
 {
     if (parent == NULL)
     {
@@ -2403,7 +2403,7 @@ CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemViaPointer(cJSON *_Excl parent, c
     }
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromArray(cJSON *_Excl array, int which)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromArray(cJSON *_Exclusive array, int which)
 {
     if (which < 0)
     {
@@ -2413,33 +2413,33 @@ CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromArray(cJSON *_Excl array, int
     return cJSON_DetachItemViaPointer(array, get_array_item(array, (size_t)which));
 }
 
-CJSON_PUBLIC(void) cJSON_DeleteItemFromArray(cJSON *_Excl array, int which)
+CJSON_PUBLIC(void) cJSON_DeleteItemFromArray(cJSON *_Exclusive array, int which)
 {
     cJSON_Delete(cJSON_DetachItemFromArray(array, which));
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromObject(cJSON *_Excl object, const char *string)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromObject(cJSON *_Exclusive object, const char *string)
 {
     return cJSON_DetachItemViaPointer(object, cJSON_GetObjectItem(object, string));
 }
 
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromObjectCaseSensitive(cJSON *_Excl object, const char *string)
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromObjectCaseSensitive(cJSON *_Exclusive object, const char *string)
 {
     return cJSON_DetachItemViaPointer(object, cJSON_GetObjectItemCaseSensitive(object, string));
 }
 
-CJSON_PUBLIC(void) cJSON_DeleteItemFromObject(cJSON *_Excl object, const char *string)
+CJSON_PUBLIC(void) cJSON_DeleteItemFromObject(cJSON *_Exclusive object, const char *string)
 {
     cJSON_Delete(cJSON_DetachItemFromObject(object, string));
 }
 
-CJSON_PUBLIC(void) cJSON_DeleteItemFromObjectCaseSensitive(cJSON *_Excl object, const char *string)
+CJSON_PUBLIC(void) cJSON_DeleteItemFromObjectCaseSensitive(cJSON *_Exclusive object, const char *string)
 {
     cJSON_Delete(cJSON_DetachItemFromObjectCaseSensitive(object, string));
 }
 
 /* Replace array/object items with new ones. */
-CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON *_Excl array, int which, cJSON *newitem)
+CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON *_Exclusive array, int which, cJSON *newitem)
 {
     cJSON *_Nullable after_inserted = NULL;
 
@@ -2480,7 +2480,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON *_Excl array, int which, 
     return true;
 }
 
-CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON *_Excl const parent, cJSON *_Unchecked const item, cJSON * replacement)
+CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON *_Exclusive const parent, cJSON *_Unchecked const item, cJSON * replacement)
 {
     if ((parent == NULL) || (parent->child == NULL) || (replacement == NULL))
     {
@@ -2538,7 +2538,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON *_Excl const parent, 
     return true;
 }
 
-CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInArray(cJSON *_Excl array, int which, cJSON *newitem)
+CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInArray(cJSON *_Exclusive array, int which, cJSON *newitem)
 {
     if (which < 0)
     {
@@ -2548,7 +2548,7 @@ CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInArray(cJSON *_Excl array, int which,
     return cJSON_ReplaceItemViaPointer(array, get_array_item(array, (size_t)which), newitem);
 }
 
-static cJSON_bool replace_item_in_object(cJSON *_Nullable _Excl object, const char *_Nullable string, cJSON *_Nullable _Excl replacement, cJSON_bool case_sensitive)
+static cJSON_bool replace_item_in_object(cJSON *_Nullable _Exclusive object, const char *_Nullable string, cJSON *_Nullable _Exclusive replacement, cJSON_bool case_sensitive)
 {
     if ((replacement == NULL) || (string == NULL))
     {
@@ -2576,12 +2576,12 @@ static cJSON_bool replace_item_in_object(cJSON *_Nullable _Excl object, const ch
     return cJSON_ReplaceItemViaPointer(object, get_object_item(object, string, case_sensitive), replacement);
 }
 
-CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObject(cJSON *_Excl object, const char *string, cJSON *_Excl newitem)
+CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObject(cJSON *_Exclusive object, const char *string, cJSON *_Exclusive newitem)
 {
     return replace_item_in_object(object, string, newitem, false);
 }
 
-CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObjectCaseSensitive(cJSON *_Excl object, const char *string, cJSON *_Excl newitem)
+CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObjectCaseSensitive(cJSON *_Exclusive object, const char *string, cJSON *_Exclusive newitem)
 {
     return replace_item_in_object(object, string, newitem, true);
 }

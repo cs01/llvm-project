@@ -26,11 +26,11 @@
    @annotation `__sized_by(n)` | Apple | points to `n` bytes | `&[u8]` | `void fill(void *__sized_by(n) dst, size_t n);`
    @annotation `__ended_by(end)` | Apple | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`) | `int scan(const char *__ended_by(end) p, const char *end);`
    @annotation `__null_terminated` | Apple | a string ending in 0 (string literals and libc strings are already) | `&CStr` | `size_t my_strlen(const char *__null_terminated s);`
-   @annotation `__safec_takes(i)` | Safe C (Clang's `ownership_takes`) | old form of `_Owned` on a parameter, by index; the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move) | `__safec_takes(1) void json_free(struct json *item);` (prefer `_Owned` on the parameter)
+   @annotation `_Takes(i)` | Safe C (Clang's `ownership_takes`) | old form of `_Owned` on a parameter, by index; the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move) | `_Takes(1) void json_free(struct json *item);` (prefer `_Owned` on the parameter)
    @annotation `_Owned` | Safe C | on a parameter: the function takes ownership (frees it, or keeps it to free later); the caller may not use it afterwards | taking a `Box<T>` by value (a move) | `void json_delete(struct json *_Owned item);`
    @annotation `T *_Owned` (field, global) | Safe C | this pointer is responsible for freeing its target; it is moved, never copied | `Box<T>` | `struct node { int v; struct node *_Owned _Nullable next; };`
-   @annotation `_Take(place)` | Safe C | moves an owned pointer out of a field or global, leaving null | `Option::take` | `struct node *_Nullable pop(struct node *_Excl n) { return _Take(n->next); }`
-   @annotation `T *_Excl` | Safe C | an exclusive borrow: the function may take, free or replace owned fields through it | `&mut T` | `void clear(struct node *_Excl n);`
+   @annotation `_Take(place)` | Safe C | moves an owned pointer out of a field or global, leaving null | `Option::take` | `struct node *_Nullable pop(struct node *_Exclusive n) { return _Take(n->next); }`
+   @annotation `T *_Exclusive` | Safe C | an exclusive borrow: the function may take, free or replace owned fields through it | `&mut T` | `void clear(struct node *_Exclusive n);`
    @annotation `T *_Static` | Safe C | points only at string literals, globals or functions | `&'static T` | `struct op { const char *_Static name; int code; };`
    @annotation `T *_Unchecked` | Safe C | may point anywhere; its value is used only inside `__unsafe` | `*const T` (a raw pointer) | `struct node2 { struct node2 *_Unchecked _Nullable prev; };`
    @annotation `struct _View` | Safe C | a struct holding borrows; lives only in locals and parameters | a struct with a lifetime, `struct S<'a>` | `struct _View span { const int *__counted_by(n) p; int n; };`
@@ -160,73 +160,73 @@ char *getenv(const char *__null_terminated);
 #endif
 
 /* Nullability qualifiers are Clang keywords; other compilers do not have them. */
-/* Ownership at interfaces, read by Clang's lifetime analysis. __safec_takes(N):
+/* Ownership at interfaces, read by Clang's lifetime analysis. _Takes(N):
    the function frees (or keeps) its Nth parameter, so the caller must not use
-   it afterwards. __safec_returns_owned: the result is new memory the caller
-   must free. __safec_lifetimebound on a parameter: the result points into it.
-   __safec_noescape on a parameter: the function does not keep the pointer
+   it afterwards. _Returns_owned: the result is new memory the caller
+   must free. _Lifetimebound on a parameter: the result points into it.
+   _Noescape on a parameter: the function does not keep the pointer
    (lets a buffer be passed where a terminated string is expected).
    Safe C checks each against the function body. */
 #if defined(__clang__)
-#define __safec_takes(N) __attribute__((ownership_takes(malloc, N)))
-#define __safec_returns_owned __attribute__((ownership_returns(malloc)))
-#define __safec_lifetimebound __attribute__((lifetimebound))
-#define __safec_noescape __attribute__((noescape))
+#define _Takes(N) __attribute__((ownership_takes(malloc, N)))
+#define _Returns_owned __attribute__((ownership_returns(malloc)))
+#define _Lifetimebound __attribute__((lifetimebound))
+#define _Noescape __attribute__((noescape))
 /* Pointer kinds go right after the '*' they describe, so a pointer to
-   owned pointers is 'char *__safec_owned *__safec_owned items'.
+   owned pointers is 'char *_Owned *_Owned items'.
    On a parameter, owned means the function takes ownership: Sema turns it
    into ownership_takes at the parameter's index, so no index can drift. */
 #if defined(__SAFE_C__)
-#define __safec_owned [[clang::annotate_type("safec_owned")]]
+#define _Owned [[clang::annotate_type("safec_owned")]]
 #else /* plain clang: [[]] after _Nullable would not parse */
-#define __safec_owned
+#define _Owned
 #endif
 /* On a field or global: points only at static data (string literals,
    globals, functions), like Rust's &'static. */
 #if defined(__SAFE_C__)
-#define __safec_static [[clang::annotate_type("safec_static")]]
+#define _Static [[clang::annotate_type("safec_static")]]
 #else /* plain clang: [[]] after _Nullable would not parse */
-#define __safec_static
+#define _Static
 #endif
 /* On a field or global: may point anywhere; dereferencing needs __unsafe. */
 #if defined(__SAFE_C__)
-#define __safec_unchecked [[clang::annotate_type("safec_unchecked")]]
+#define _Unchecked [[clang::annotate_type("safec_unchecked")]]
 #else /* plain clang: [[]] after _Nullable would not parse */
-#define __safec_unchecked
+#define _Unchecked
 #endif
 /* On a parameter: an exclusive borrow, through which the function may take,
    free or replace owned fields (Rust's &mut). The caller's borrows of the
    argument end at the call. */
 #if defined(__SAFE_C__)
-#define __safec_excl [[clang::annotate_type("safec_excl")]]
+#define _Exclusive [[clang::annotate_type("safec_excl")]]
 #else
-#define __safec_excl
+#define _Exclusive
 #endif
 /* On a struct: holds borrows, so it lives only in locals and parameters. */
-#define __safec_view __attribute__((annotate("safec_view")))
+#define _View __attribute__((annotate("safec_view")))
 /* On a global: shared without a lock because it is written only before any
    thread starts; every write must be inside __unsafe. Rust's static mut. */
-#define __safec_unsynchronized __attribute__((annotate("safec_unsynchronized")))
+#define _Unsynchronized __attribute__((annotate("safec_unsynchronized")))
 /* Move an owned pointer out of a field or global, leaving null (and a zero
-   count): free(__safec_take(n->next)). Like Rust's Option::take. */
+   count): free(_Take(n->next)). Like Rust's Option::take. */
 #if defined(__SAFE_C__)
-#define __safec_take(lv) __builtin_safec_take(lv)
+#define _Take(lv) __builtin_safec_take(lv)
 #else /* clang without Safe C has no builtin; lv is evaluated twice */
-#define __safec_take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })
+#define _Take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })
 #endif
 #else
-#define __safec_takes(N)
-#define __safec_returns_owned
-#define __safec_lifetimebound
-#define __safec_noescape
-#define __safec_owned
-#define __safec_static
-#define __safec_unchecked
-#define __safec_view
-#define __safec_unsynchronized
-#define __safec_excl
+#define _Takes(N)
+#define _Returns_owned
+#define _Lifetimebound
+#define _Noescape
+#define _Owned
+#define _Static
+#define _Unchecked
+#define _View
+#define _Unsynchronized
+#define _Exclusive
 /* Evaluates lv twice; fine for the plain lvalues take is used on. */
-#define __safec_take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })
+#define _Take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })
 #endif
 
 #if !defined(__clang__)
@@ -235,18 +235,6 @@ char *getenv(const char *__null_terminated);
 #define _Null_unspecified
 #endif
 
-/* Short spellings, in the style of _Nullable (names of this form belong to
-   the implementation, which this header is). The long __safec_ forms stay. */
-#define _Owned __safec_owned
-#define _Excl __safec_excl
-#define _Static __safec_static
-#define _Unchecked __safec_unchecked
-#define _View __safec_view
-#define _Unsynchronized __safec_unsynchronized
-#define _Take(lv) __safec_take(lv)
-#define _Returns_owned __safec_returns_owned
-#define _Lifetimebound __safec_lifetimebound
-#define _Noescape __safec_noescape
 
 /* Tagged unions, like Rust's enums with data:
      struct shape {

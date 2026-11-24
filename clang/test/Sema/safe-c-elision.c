@@ -20,7 +20,7 @@ _Returns_owned struct node *_Nullable make(const struct node *like) {
 }
 int *_Nullable pick(int *a, int *b) { (void)b; return a; } // expected-error {{'pick' returns a pointer borrowed from 'a'}} expected-note {{param returned here}} off-error {{'pick' returns a pointer borrowed from 'a'}} off-note {{param returned here}}
 
-int use(struct node *_Excl h) {
+int use(struct node *_Exclusive h) {
   struct node *_Nullable d = next(h); // expected-error {{'next' returns a borrow of 'h'}}
   free(_Take(h->next));               // expected-note {{the borrow ends here}}
   return d ? d->v : 0;                // expected-note {{later used here}}

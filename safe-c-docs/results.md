@@ -82,7 +82,7 @@ it took. The same source builds with Safe C, Apple clang and gcc.
 
 Both ports found bugs in their test code (unchecked `malloc`, a buffer length that did
 not match its buffer) and drove compiler fixes. Porting cJSON to the ownership rules took
-51 `_Owned`, 85 `_Excl` and 22 `_Take`, raised its `__unsafe` count from 9 to 12 (4 of
+51 `_Owned`, 85 `_Exclusive` and 22 `_Take`, raised its `__unsafe` count from 9 to 12 (4 of
 them for the doubly linked list's back pointer, which Rust cannot check either), and
 found a soundness hole and a crash in the compiler, both fixed.
 

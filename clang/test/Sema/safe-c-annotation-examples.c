@@ -16,11 +16,11 @@ struct buf { char *_Owned _Nullable __counted_by_or_null(len) data; size_t len; 
 void fill(void *__sized_by(n) dst, size_t n);
 int scan(const char *__ended_by(end) p, const char *end);
 size_t my_strlen(const char *__null_terminated s);
-__safec_takes(1) void json_free(struct json *item);
+_Takes(1) void json_free(struct json *item);
 void json_delete(struct json *_Owned item);
 struct node { int v; struct node *_Owned _Nullable next; };
-struct node *_Nullable pop(struct node *_Excl n) { return _Take(n->next); }
-void clear(struct node *_Excl n);
+struct node *_Nullable pop(struct node *_Exclusive n) { return _Take(n->next); }
+void clear(struct node *_Exclusive n);
 struct op { const char *_Static name; int code; };
 struct node2 { struct node2 *_Unchecked _Nullable prev; };
 struct _View span { const int *__counted_by(n) p; int n; };

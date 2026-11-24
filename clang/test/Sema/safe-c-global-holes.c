@@ -2,7 +2,7 @@
 //  01 a getter returning (a borrow of) an owned global gives a borrow of the
 //     globals, which ends when they change; functions returning new memory
 //     (_Returns_owned) are not getters
-//  11 lending &g to an _Excl parameter ends borrows of globals, as
+//  11 lending &g to an _Exclusive parameter ends borrows of globals, as
 //     _Take(g) does
 // RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
@@ -17,7 +17,7 @@ static int *_Owned _Nullable g;
 static int count;
 int *_Nullable get(void) { int *_Nullable r = g; return r; }
 _Returns_owned int *_Nullable make(void) { count++; return malloc(4); }
-void reset(int *_Owned _Nullable *_Excl slot) { free(_Take(*slot)); }
+void reset(int *_Owned _Nullable *_Exclusive slot) { free(_Take(*slot)); }
 
 int getter(void) {
   int *_Nullable q = get(); // expected-error {{does not live long enough}}
@@ -39,17 +39,17 @@ int fresh(void) {
   return v;
 }
 
-// Fuzzer round 3: an _Excl local pointing at a global is a second name for
+// Fuzzer round 3: an _Exclusive local pointing at a global is a second name for
 // it, and a lifetimebound getter of a global borrows the globals.
 struct S2 { int *_Owned _Nullable p; };
 static struct S2 G2;
 struct _View V2 { int *_Nullable p; };
 struct V2 view2(struct S2 *s _Lifetimebound) { struct V2 v = {s->p}; return v; }
-void sfree2(struct S2 *_Excl s) { free(_Take(s->p)); }
+void sfree2(struct S2 *_Exclusive s) { free(_Take(s->p)); }
 
 int excl_alias_global(void) {
   int *_Nullable q = G2.p; // expected-error {{this pointer is borrowed from 'G2.p'}}
-  struct S2 *_Excl x = &G2;
+  struct S2 *_Exclusive x = &G2;
   free(_Take(x->p));       // expected-note {{the borrow ends here}}
   return q ? *q : 0;       // expected-note {{later used here}}
 }

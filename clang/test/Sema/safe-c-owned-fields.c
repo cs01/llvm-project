@@ -16,14 +16,14 @@ struct node { int v; struct node *_Nullable _Owned next; };
 struct list { struct node *_Nullable _Owned head; size_t len; };
 struct node *_Nullable _Owned spare;
 
-void push(struct list *_Excl l, struct node *_Nullable _Owned n) {
+void push(struct list *_Exclusive l, struct node *_Nullable _Owned n) {
   if (!n)
     return;
   n->next = _Take(l->head);
   l->head = n;
 }
 
-void bad_stores(struct list *_Excl l, struct node *borrowed) {
+void bad_stores(struct list *_Exclusive l, struct node *borrowed) {
   struct node *_Nullable fresh = malloc(sizeof(struct node));
   l->head = fresh;
   l->head = borrowed; // expected-error {{'head' is '_Owned', so it must be given a pointer it may free: a new allocation, an owned local (which is then moved), or '_Take(...)' of another owned field; this value is borrowed, so its owner would free it too}}
@@ -33,7 +33,7 @@ void bad_stores(struct list *_Excl l, struct node *borrowed) {
   spare = _Take(l->head);
 }
 
-void frees(struct list *_Excl l) {
+void frees(struct list *_Exclusive l) {
   free(l->head); // expected-error {{freeing a pointer that is still stored in 'head' leaves it dangling; move it out first, as in 'free(_Take(n->next))', where the place is '_Owned'}}
   free(spare);   // expected-error {{freeing a pointer that is still stored in 'spare'}}
   free(_Take(l->head));
@@ -53,7 +53,7 @@ void copies(struct list *a) {
 }
 
 struct counted { int *_Nullable _Owned __counted_by(n) data; size_t n; };
-void counted_take(struct counted *_Excl c) { free(_Take(c->data)); }
+void counted_take(struct counted *_Exclusive c) { free(_Take(c->data)); }
 
 struct nn { int *_Owned p; };
 void take_nonnull(struct nn *x) {
@@ -75,8 +75,8 @@ void arrays(void) {
 void destroy(int *_Nullable *pp) {
   free(*pp); // expected-error {{freeing a pointer that is still stored in memory reached through a pointer}}
 }
-void destroy_owned(int *_Owned _Nullable *_Excl pp) { free(_Take(*pp)); }
-void destroy_borrowed(int *_Nullable *_Excl pp) {
+void destroy_owned(int *_Owned _Nullable *_Exclusive pp) { free(_Take(*pp)); }
+void destroy_borrowed(int *_Nullable *_Exclusive pp) {
   free(_Take(*pp)); // expected-error {{memory reached through a pointer is borrowed, so its owner will free what it points to too; declare it '_Owned' if this code is responsible for freeing it}}
 }
 
@@ -85,7 +85,7 @@ void destroy_borrowed(int *_Nullable *_Excl pp) {
 typedef struct FILE_ FILE;
 FILE *_Nullable fopen(const char *path, const char *mode);
 struct reader { FILE *_Owned _Nullable f; struct list items; };
-void open_reader(struct reader *_Excl r) {
+void open_reader(struct reader *_Exclusive r) {
   r->f = fopen("x", "r");
   r->items = (struct list){0, 0};
 }

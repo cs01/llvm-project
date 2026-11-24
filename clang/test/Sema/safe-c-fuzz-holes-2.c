@@ -1,5 +1,5 @@
 // Fuzzing holes 09, 16 and 18 (2026-11-23):
-//  09 an indirect call through a pointer whose parameter is _Excl ends the
+//  09 an indirect call through a pointer whose parameter is _Exclusive ends the
 //     caller's borrows, as a direct call does
 //  16 `*&q = v` is an assignment to q (the loan is kept)
 //  18 a copy of a _Drop_free pointer dies when the variable's cleanup frees
@@ -13,10 +13,10 @@ typedef __SIZE_TYPE__ size_t;
 void *_Nullable malloc(size_t);
 void free(void *_Nullable);
 struct S { int *_Owned _Nullable p; };
-void sfree(struct S *_Excl s) { free(_Take(s->p)); }
+void sfree(struct S *_Exclusive s) { free(_Take(s->p)); }
 
 int h09(void) {
-  void (*fn)(struct S *_Excl) = sfree;
+  void (*fn)(struct S *_Exclusive) = sfree;
   struct S s = {0};
   s.p = malloc(4);
   int *_Nullable q = s.p; // expected-error {{this pointer is borrowed from 's.p'}}

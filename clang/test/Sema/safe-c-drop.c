@@ -12,7 +12,7 @@ typedef __SIZE_TYPE__ size_t;
 void *_Nullable malloc(size_t);
 void free(void *_Nullable);
 struct buf { char *_Owned _Nullable __counted_by_or_null(cap) p; size_t cap; };
-void buf_free(struct buf *_Excl b) { free(_Take(b->p)); }
+void buf_free(struct buf *_Exclusive b) { free(_Take(b->p)); }
 void keep(int *_Nullable _Owned p);
 
 void scoped(void) {

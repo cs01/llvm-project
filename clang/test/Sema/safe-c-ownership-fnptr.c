@@ -11,11 +11,11 @@ void *_Nullable malloc(size_t) __attribute__((alloc_size(1)));
 void free(void *_Nullable);
 
 struct hooks {
-  void (*dealloc)(void *_Nullable) __safec_takes(1);
+  void (*dealloc)(void *_Nullable) _Takes(1);
   void (*log)(void *_Nullable);
 };
 
-__safec_takes(1) void my_free(void *_Nullable p) { free(p); }
+_Takes(1) void my_free(void *_Nullable p) { free(p); }
 void my_log(void *_Nullable p) { (void)p; }
 
 struct hooks good = {my_free, my_log};

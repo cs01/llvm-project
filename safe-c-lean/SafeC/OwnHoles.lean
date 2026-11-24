@@ -113,7 +113,7 @@ theorem need_retBound :
 
 struct 3: `{ int v; T *p; }` with a borrow field (rejected under `noRefFields`).
 struct 4: `{ _Owned T *d; int n; }`, the growable vector of p04 and the `struct B`
-of q02. struct 5: `{ T *__safec_unchecked g; }`.
+of q02. struct 5: `{ T *_Unchecked g; }`.
 
 Globals are one struct `G` held by `main` as a stack local and passed to every
 function that touches a global as an exclusive parameter (see OWNERSHIP.md). -/
@@ -156,7 +156,7 @@ theorem need_noRefFields_stack :
     ok { Rules.full with noRefFields := false } PFill cFillD cFill = true ∧
     dstack (run PFill cFill) = true ∧ PFill.ok Rules.full = false := by decide
 
-/-- q01 with the global made `__safec_unchecked`: storing is fine, the
+/-- q01 with the global made `_Unchecked`: storing is fine, the
 dereference is what needs `__unsafe`. -/
 def stashU : Fn := ⟨[0, 1], [(0, .excl 5), (1, .ref 1), (2, .int)],
   seqs [pstore 0 (lit 0) 0 1, set 2 (lit 0)], 2, none⟩

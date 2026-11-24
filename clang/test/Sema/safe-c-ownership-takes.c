@@ -16,14 +16,14 @@ void node_free(struct node *_Nullable n) {
   free(n); // expected-error {{'node_free' frees its parameter 'n', but callers are not told and may use it afterwards; mark the parameter '_Owned'}}
 }
 
-__safec_takes(1) void node_free_ok(struct node *_Nullable n) { free(n); }
+_Takes(1) void node_free_ok(struct node *_Nullable n) { free(n); }
 
 void wrapper(struct node *_Nullable a, struct node *_Nullable b) {
   node_free_ok(b); // expected-error {{'wrapper' frees its parameter 'b'}}
   (void)a;
 }
 
-__safec_takes(2) void wrapper_ok(struct node *_Nullable a,
+_Takes(2) void wrapper_ok(struct node *_Nullable a,
                                  struct node *_Nullable b) {
   node_free_ok(b);
   (void)a;

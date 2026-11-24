@@ -1,5 +1,5 @@
 // -mllvm -safe-c-excl-default (off by default, being measured): a plain
-// pointer-to-non-const parameter is _Excl, as `&mut T` is in Rust, and a
+// pointer-to-non-const parameter is _Exclusive, as `&mut T` is in Rust, and a
 // `const T *` one is a shared borrow. Lending to it ends the caller's
 // borrows of the argument; two arguments may not reach the same data. The
 // control run leaves the flag off: there `reset` may not free through a plain
