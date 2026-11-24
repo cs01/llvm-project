@@ -71,7 +71,7 @@ int fnptr(void (*f)(int *_Nullable __single *out, int *in)) {
 int field(struct own *_Exclusive s) {
   int *_Nullable __single o = 0;
   set_field(&o, s);  // expected-error {{does not live long enough}}
-  free(_Take(s->p)); // expected-note {{}}
+  free(_Take(s->p)); // expected-note {{destroyed here}}
   return o ? *o : 0; // expected-note {{later used here}}
 }
 void set_global(int *_Nullable __single *out) { *out = g.p; } // expected-error {{this borrows memory a global owns, and storing it where 'out' points}}

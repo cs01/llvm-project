@@ -226,6 +226,13 @@ public:
           L->getIssueExpr() && SemaHelper)
         SemaHelper->reportGlobalBorrowStored(L->getIssueExpr(),
                                              ParamEsc->getParam());
+      // Returned: callers that see the body treat the result as such a borrow
+      // (safeCReturnsGlobalBorrow); callers in other files cannot.
+      if (const auto *Fn = dyn_cast<FunctionDecl>(FD);
+          Fn && isa<ReturnEscapeFact>(OEF) && Fn->isExternallyVisible() &&
+          L->getAccessPath().getAsValueDecl() == FD && L->getIssueExpr() &&
+          SemaHelper)
+        SemaHelper->reportGlobalBorrowStored(L->getIssueExpr(), nullptr);
       const PlaceholderBase *PB = L->getAccessPath().getAsPlaceholderBase();
       if (!PB)
         continue;

@@ -15,7 +15,7 @@ void *_Nullable malloc(size_t);
 void free(void *_Nullable);
 static int *_Owned _Nullable g;
 static int count;
-int *_Nullable get(void) { int *_Nullable r = g; return r; }
+static int *_Nullable get(void) { int *_Nullable r = g; return r; }
 _Returns_owned int *_Nullable make(void) { count++; return malloc(4); }
 void reset(int *_Owned _Nullable *_Exclusive slot) { free(_Take(*slot)); }
 

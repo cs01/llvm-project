@@ -838,9 +838,13 @@ public:
           << FieldDesc << FD->getSourceRange();
   }
 
+  llvm::SmallPtrSet<const Expr *, 4> GlobalReturns;
   void reportGlobalBorrowStored(const Expr *IssueExpr,
                                 const ParmVarDecl *Param) override {
-    S.SafeCDiag(IssueExpr->getExprLoc(), "global-borrow-stored") << Param;
+    if (Param)
+      S.SafeCDiag(IssueExpr->getExprLoc(), "global-borrow-stored") << Param;
+    else if (GlobalReturns.insert(IssueExpr).second)
+      S.SafeCDiag(IssueExpr->getExprLoc(), "global-borrow-returned");
   }
 
   void reportNoescapeViolation(const ParmVarDecl *ParmWithNoescape,

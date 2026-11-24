@@ -300,6 +300,11 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "this borrows memory a global owns, and storing it where %0 points hides "
      "that from the caller, who could use it after the global frees it; take "
      "the object that owns it as a parameter instead of reading the global"},
+    {"global-borrow-returned", false,
+     "this returns a borrow of memory a global owns, and callers in other "
+     "files cannot see that, so they could use it after the global frees it; "
+     "take the object that owns it as a parameter, return a copy "
+     "('_Returns_owned'), or make the function 'static'"},
     {"noescape-stored", false,
      "%0 is '_Noescape', so callers count on it not being kept, but it is "
      "stored where %1 points; drop '_Noescape' from %0, and callers will keep "
