@@ -28,6 +28,7 @@ Safe C, Apple clang and ASan, and every error is copied from the compiler.
 | exhaustive `match` | `switch` on the tag |
 | `Result<T, E>`, `?` | `RESULT(...)`, `TRY(...)` |
 | `Vec<T>`, `String` | `VEC(T)`, `string` |
+| `Mutex<T>` | `_Guarded_by(lock)` on the data |
 | `unsafe { }` | `__unsafe { }` |
 
 ## Enums with data, and match
@@ -211,7 +212,9 @@ builds; division by zero traps.
   borrow, no named lifetimes. Some things Rust accepts need restructuring or
   `__unsafe`, like a doubly linked list's back pointer (which Rust cannot
   check either).
-- **Not done yet:** data races (Send/Sync). Plain pointers may both write the
-  same data, which only matters across threads.
+- **Threads, partly done.** A thread takes ownership of its argument
+  (Rust's `Send` on `spawn`), and data marked `_Guarded_by(lock)` is only
+  touched with the lock held. Not yet: requiring every mutable global to be
+  guarded, atomic or thread-local (Rust's `Sync` on statics).
 - **Early.** Two real libraries are ported (jsmn, cJSON), and lz4 is in
   progress. Results and open issues are in [results](results.md).

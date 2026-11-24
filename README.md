@@ -48,8 +48,8 @@ The same code compiles as plain C on any compiler: the annotations come from one
 | Uninitialized reads | done |
 | Integer UB | done |
 | Type confusion | done, except unions holding pointers (next) |
-| Use after free | on by default; tested on two ported libraries |
-| Data races | planned |
+| Use after free | on by default; a fuzzing pass found holes, being fixed |
+| Data races | in progress: a thread owns its argument; locked data is checked; globals next |
 
 "Done" means checked at compile time or trapped, and passing NIST's Juliet suite. Two
 small libraries are ported so far; larger ones are the real test.

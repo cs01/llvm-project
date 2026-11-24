@@ -74,5 +74,9 @@ them for the doubly linked list's back pointer, which Rust cannot check either),
 found a soundness hole and a crash in the compiler, both fixed.
 
 **Status.** Early, and moving fast. Ownership is on by default; data races (M5) are
-the last open class. Open items, and everything found and fixed so far, are tracked in
+in progress. A fuzzing pass (random programs compiled under Safe C and, unchecked,
+under AddressSanitizer) found 18 ways to get a memory error past the rules; the four
+in tagged unions are fixed, the rest (views, borrows through getters and aliases,
+`_Drop` copies) are being fixed, each with a test, and the fuzzer is rerun as the
+gate. Open items, and everything found and fixed so far, are tracked in
 [safe-c-notes/review-2026-11-23.md](../safe-c-notes/review-2026-11-23.md).
