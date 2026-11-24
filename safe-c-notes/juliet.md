@@ -191,3 +191,14 @@ iterations, so a second pass would free twice), and `free(data); sink(data)` whe
 sink ignores its argument (passing a freed pointer is itself undefined in C). The 12
 missed bads in 415 free through calls the analysis cannot see (function pointers, data
 stored in globals or structs between source and sink).
+
+## Ported run (2026-11-24)
+
+`juliet-port5-2026-11-24.json`: the suite after `clang/utils/safe-c/juliet-port.ts`
+(written to `~/git/ref/juliet-port5`), compiler frozen at build.snap3. 6501 of 11522
+cases strict; compile-time classes 608/608, run-time 5274/5274 reached; no compiler
+crashes, no fixed version trapping. Two CWE 121 records timed out under load (5 s
+limit, now 20 s): CWE 121 was re-run alone and its records replace the full run's;
+fixed-input results otherwise identical. Regenerate the tree with
+`bun clang/utils/safe-c/juliet-port.ts ~/git/ref/juliet <out>` and point
+`JULIET_ROOT` at it.

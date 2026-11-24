@@ -85,11 +85,11 @@ each with a known memory bug. A normal C compiler builds all of them without a w
 Safe C:
 
 <!-- generated:summary -->
-- **Null, double free, use after free: 494 of 494 caught at compile time.** Same as Rust.
-- **Out of bounds, divide by zero: 100.0% stopped at the bad access** (1804 of 1804), where Rust would panic.
+- **Null, double free, use after free: 608 of 608 caught at compile time.** Same as Rust.
+- **Out of bounds, divide by zero: 100.0% stopped at the bad access** (5274 of 5274), where Rust would panic.
 
-Counted only when Safe C gives a compile error or traps at the bug; on the 2804 cases
-whose fixed version builds as written. [Full table](safe-c-docs/results.md).
+Counted only when Safe C gives a compile error or traps at the bug; on the 6501 cases
+whose fixed version builds after porting. [Full table and the port](safe-c-docs/results.md).
 <!-- end generated:summary -->
 
 Ports: [jsmn](safe-c-notes/ports/jsmn/PORT.md) and [cJSON](safe-c-notes/ports/cjson/PORT.md)

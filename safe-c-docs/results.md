@@ -16,35 +16,48 @@ count as caught: only a compiler error or a compiler-inserted trap does. Harness
 | CWE | Rust catches it at | Cases | Safe C at compile time | Safe C at run time (trap) | Missed, fixed input | Missed, needs other input |
 |---|---|---|---|---|---|---|
 | 476 NULL dereference | compile time | 80 | 80 (100.0%) | 0 (0.0%) | 0 | 0 |
-| 690 unchecked return value | compile time | 234 | 234 (100.0%) | 0 (0.0%) | 0 | 0 |
-| 415 double free | compile time | 108 | 108 (100.0%) | 0 (0.0%) | 0 | 0 |
+| 690 unchecked return value | compile time | 342 | 342 (100.0%) | 0 (0.0%) | 0 | 0 |
+| 415 double free | compile time | 114 | 114 (100.0%) | 0 (0.0%) | 0 | 0 |
 | 416 use after free | compile time | 72 | 72 (100.0%) | 0 (0.0%) | 0 | 0 |
-| 121 stack buffer overflow | run time | 510 | 0 (0.0%) | 479 (93.9%) | 0 | 31 |
-| 122 heap buffer overflow | run time | 600 | 0 (0.0%) | 470 (78.3%) | 84* | 46 |
-| 124 buffer underwrite | run time | 248 | 0 (0.0%) | 221 (89.1%) | 0 | 27 |
-| 126 buffer over-read | run time | 320 | 0 (0.0%) | 229 (71.6%) | 68* | 23 |
-| 127 buffer under-read | run time | 248 | 0 (0.0%) | 219 (88.3%) | 0 | 29 |
-| 369 divide by zero | run time | 384 | 0 (0.0%) | 186 (48.4%) | 31* | 167 |
+| 121 stack buffer overflow | run time | 2507 | 0 (0.0%) | 2429 (96.8%) | 0 | 78 |
+| 122 heap buffer overflow | run time | 1088 | 0 (0.0%) | 946 (86.9%) | 90* | 52 |
+| 124 buffer underwrite | run time | 694 | 0 (0.0%) | 653 (94.0%) | 0 | 41 |
+| 126 buffer over-read | run time | 538 | 0 (0.0%) | 403 (74.9%) | 102* | 33 |
+| 127 buffer under-read | run time | 694 | 0 (0.0%) | 661 (95.2%) | 0 | 33 |
+| 369 divide by zero | run time | 372 | 0 (0.0%) | 182 (48.9%) | 30* | 160 |
 
-\* CWE 122: the 84 fixed-input misses are overflow only on 32-bit targets.
-\* CWE 126: the 68 fixed-input misses are missing-terminator cases (CWE 170) that cannot over-read under Safe C: local arrays are zero-filled, so the copy stays terminated inside the buffer (Rust requires the same initialization).
-\* CWE 369: the 31 fixed-input misses are floating-point division, which is defined (infinity) in C and Rust.
+\* CWE 122: the 90 fixed-input misses are overflow only on 32-bit targets.
+\* CWE 126: the 102 fixed-input misses are missing-terminator cases (CWE 170) that cannot over-read under Safe C: local arrays are zero-filled, so the copy stays terminated inside the buffer (Rust requires the same initialization).
+\* CWE 369: the 30 fixed-input misses are floating-point division, which is defined (infinity) in C and Rust.
 
-**Bugs Rust rejects at compile time** (null, unchecked returns, double free, use after free): Safe C rejects 100.0% of them at compile time (494 of 494).
+**Bugs Rust rejects at compile time** (null, unchecked returns, double free, use after free): Safe C rejects 100.0% of them at compile time (608 of 608).
 
-**Bugs Rust catches at run time** (bounds, division by zero, where Rust panics): of the 1804 whose bug happens with the harness's input, Safe C traps on 1804 (100.0%); the other 0 get past it. 323 more need an input the harness does not give (a random value, a socket, a file), so a Rust program would not panic on them in this run either, and 183 are not bugs on this target (marked *).
+**Bugs Rust catches at run time** (bounds, division by zero, where Rust panics): of the 5274 whose bug happens with the harness's input, Safe C traps on 5274 (100.0%); the other 0 get past it. 397 more need an input the harness does not give (a random value, a socket, a file), so a Rust program would not panic on them in this run either, and 222 are not bugs on this target (marked *).
 
-Cases are `strict`: only those whose fixed `good()` version compiles and runs under Safe C, 2804 of 11522. The rest are rejected as written, mostly because Juliet keeps raw pointers in struct fields and possibly-null values where Safe C wants them annotated: that is annotation work, not a bug found. Generated from the saved runs in `safe-c-notes/` by `clang/utils/safe-c/gen-readme.ts`.
+Cases are `strict`: only those whose fixed `good()` version compiles and runs under Safe C after porting (below), 6501 of 11522. Of the rest, 1152 read a variable that is set only under a condition known at run time, which Rust rejects too (definite initialization); the others still need porting work. Generated from `safe-c-notes/juliet-port5-2026-11-24.json` by `clang/utils/safe-c/gen-readme.ts`.
 <!-- end generated:juliet -->
 
-**Why not 100%.** The 102 run-time misses are two gaps, both being fixed:
-`wcscat` and the other wide-character string functions carry no bounds
-annotations in the SDK, so Safe C does not check them yet (`strcpy` and `strcat`
-are already unavailable); and a buffer without a terminator passed to a trusted,
-unannotated function taking `const char *` (Juliet's own `printLine`) is read
-past its end inside that function. The compile-time classes are at 100%. Details
-and the harness's own fixes are in
-[safe-c-notes/juliet.md](../safe-c-notes/juliet.md).
+**How the suite was ported.** Juliet is written for plain C, so most fixed `good()`
+versions are rejected as written. [`juliet-port.ts`](../clang/utils/safe-c/juliet-port.ts)
+writes a ported copy (the original stays untouched), making the changes a person
+porting the code would make. None removes a bug, and each was checked on cases where
+the fixed version must run clean and the buggy one must still be caught:
+
+- A pointer that starts as, or is set to, `NULL` is marked `_Nullable`.
+- `strcpy`, `strcat`, `strncpy`, `strncat` and their wide versions become checked
+  copies that trap on overflow ([`juliet_port.h`](../clang/utils/safe-c/juliet_port.h)).
+  `strlcpy` would truncate, hiding the bug, so it is not used.
+- A buffer passed to a helper, returned from one, or carried in a struct or union field
+  carries its bounds (`__bidi_indexable`), as a Rust slice does.
+- The unions and structs Juliet uses only to carry data between functions are `_View`.
+- `charVoid`'s fields, which hold a string literal, are typed as static text instead of
+  `void *`.
+
+**One re-run.** In the full run two CWE 121 cases timed out under load (5 s per
+program then; now 20 s), one counted as missed and one as a false positive. CWE 121
+was re-run on its own with the same compiler and ported tree: both pass (the bad
+version traps, the fixed one runs), and every other fixed-input case came out the
+same. Its records replace the full run's.
 
 **How Rust would compare** (by reasoning, not measured; we know of no Juliet run in safe
 Rust): null, use after free, uninitialized reads and data races are compile errors in

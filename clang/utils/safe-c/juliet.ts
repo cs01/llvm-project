@@ -97,7 +97,7 @@ async function runExe(exe: string, cwd: string, cwe: string) {
   // 124/127 (underwrite/underread) need a negative index: their bad paths check
   // only the upper bound.
   const input = (cwe === "369" ? "0\n" : cwe === "124" || cwe === "127" ? "-1\n" : "100\n").repeat(64);
-  const r = await sh([ exe ], {cwd, timeoutMs : 5000, input});
+  const r = await sh([ exe ], {cwd, timeoutMs : 20000, input});
   return { signal: r.timedOut ? "TIMEOUT" : r.signal, code: r.code };
 }
 

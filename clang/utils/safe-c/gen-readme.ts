@@ -41,8 +41,8 @@ function annotations(): string {
 
 // The saved run the docs report, and whether it is of the suite as written or
 // after clang/utils/safe-c/juliet-port.ts (listed in results.md).
-const RUN_FILE = "juliet-m5-2026-11-23.json";
-const PORTED = false;
+const RUN_FILE = "juliet-port5-2026-11-24.json";
+const PORTED = true;
 
 // How Rust catches each bug class, and which saved run holds Safe C's result.
 type Row = { cwe: string; title: string; rust: "compile time" | "run time"; file: string; fixedMissNote?: string; excuse?: (r: any) => boolean };
@@ -75,11 +75,13 @@ function inputDriven(files: string[]): boolean {
 }
 
 let lastTotals: any;
+// One decimal, rounded down, so a single miss never reads as 100.0%.
+const pctOf = (x: number, n: number) => `${(Math.floor((1000 * x) / n) / 10).toFixed(1)}%`;
 function summary(): string {
   if (!lastTotals) juliet();
   const { ct, rt } = lastTotals;
   const reached = rt.n - rt.inputMiss - rt.excused;
-  const pct = (((rt.c + rt.r) / reached) * 100).toFixed(1);
+  const pct = pctOf(rt.c + rt.r, reached).slice(0, -1);
   return [
     `- **Null, double free, use after free: ${ct.c} of ${ct.n} caught at compile time.** Same as Rust.`,
     `- **Out of bounds, divide by zero: ${pct}% stopped at the bad access** (${rt.c + rt.r} of ${reached}), where Rust would panic.`,
@@ -109,7 +111,7 @@ function juliet(): string {
     const missed = recs.filter((r: any) => r.bad !== "rejected" && r.bad !== "trapped");
     const fixedMiss = missed.filter((r: any) => !inputDriven(r.files)).length;
     const inputMiss = missed.length - fixedMiss;
-    const pct = (x: number) => (n ? `${x} (${((100 * x) / n).toFixed(1)}%)` : "0");
+    const pct = (x: number) => (n ? `${x} (${pctOf(x, n)})` : "0");
     const excused = row.excuse
       ? missed.filter((r: any) => !inputDriven(r.files) && row.excuse!(r)).length
       : row.fixedMissNote ? fixedMiss : 0;
@@ -129,7 +131,7 @@ function juliet(): string {
   const cwes = new Set(rowsCfg.map((r) => r.cwe));
   const excludedUninit = runRows.filter((r: any) => cwes.has(r.cwe) && r.good === "false-positive" &&
     /error: variable .* (may be uninitialized|is used uninitialized)/.test(r.goodErr ?? "")).length;
-  const p = (x: number, n: number) => `${((100 * x) / n).toFixed(1)}%`;
+  const p = pctOf;
   return [
     ...lines,
     "",
