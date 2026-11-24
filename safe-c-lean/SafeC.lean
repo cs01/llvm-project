@@ -5,3 +5,6 @@ import SafeC.Holes
 import SafeC.Own
 import SafeC.OwnHoles
 import SafeC.OwnSound
+import SafeC.Tag
+import SafeC.TagSound
+import SafeC.TagHoles
