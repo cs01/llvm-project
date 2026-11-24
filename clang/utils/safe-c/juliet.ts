@@ -10,7 +10,7 @@ const extra = (opt("flags", "") as string).split(/\s+/).filter(Boolean);
 // sysflags (e.g. -isysroot) apply to every compile and link; flags only to test-case sources,
 // so the support files build like an unannotated system library would.
 const sys = (opt("sysflags", "") as string).split(/\s+/).filter(Boolean);
-// Compiler for the plain reference builds (see build()).
+// Compiler for --asan and for the linked-in helpers.
 const baselineCc = (opt("baseline-cc", "/usr/bin/clang") as string);
 const cwes = (opt("cwe", "476,121,122,416,415,457,190,124,126,127,690") as string).split(",").map(s => s.trim());
 const doRun = args.includes("--run");
@@ -76,24 +76,17 @@ const firstError = (s: string) => {
           lines.find(l => /ld:/.test(l)) ?? lines[0] ?? "").trim().slice(0, 300);
 };
 
-// plain = true builds without the flags under test (and with the baseline
-// compiler), to tell a compiler-inserted trap from one the platform raises on
-// its own (macOS malloc traps on double free, for example).
-async function build(c: Case, variant: "bad" | "good", dir: string, support: string[], plain = false) {
+async function build(c: Case, variant: "bad" | "good", dir: string, support: string[]) {
   const def = variant === "bad" ? "-DOMITGOOD" : "-DOMITBAD";
   const objs: string[] = [];
-  const compiler = plain ? baselineCc : cc!;
-  // The baseline leaves libc's _FORTIFY_SOURCE off, as -fsafe-c does: a
-  // fortify trap in the baseline is not a platform trap Safe C would share.
-  const flags = plain ? ["-I", SUP, "-DINCLUDEMAIN", "-D_FORTIFY_SOURCE=0", ...sys] : base;
   for (const [i, f] of c.files.entries()) {
-    const o = join(dir, `${plain ? "plain-" : ""}${variant}${i}.o`);
-    const r = await sh([compiler, ...flags, def, "-I", dirname(f), "-c", f, "-o", o]);
+    const o = join(dir, `${variant}${i}.o`);
+    const r = await sh([cc!, ...base, def, "-I", dirname(f), "-c", f, "-o", o]);
     if (r.code !== 0) return { stage: "compile" as const, err: firstError(r.err) };
     objs.push(o);
   }
-  const exe = join(dir, (plain ? "plain-" : "") + variant);
-  const r = await sh([compiler, ...sys, ...objs, ...support, "-lm", "-lpthread", "-o", exe]);
+  const exe = join(dir, variant);
+  const r = await sh([cc!, ...sys, ...objs, ...support, "-lm", "-lpthread", "-o", exe]);
   if (r.code !== 0) return { stage: "link" as const, err: firstError(r.err) };
   return { stage: "ok" as const, exe, err: "" };
 }
@@ -121,7 +114,7 @@ function inputsFor(c: Case): Input[] {
 
 async function runExe(exe: string, cwd: string, input: Input) {
   const r = await sh([ exe ], {cwd, timeoutMs : 20000, input: input.stdin, env: input.env});
-  return { signal: r.timedOut ? "TIMEOUT" : r.signal, code: r.code };
+  return { signal: r.timedOut ? "TIMEOUT" : r.signal, code: r.code, ownTrap: r.err.includes("JULIET-TRAP: program") };
 }
 
 // --asan: build only bad() with the baseline compiler under ASan and UBSan and
@@ -158,7 +151,7 @@ async function doCase(c: Case, ioObj: string, thrObj: string) {
   const dir = join(BUILD, `${c.cwe}_${c.key}`.replace(/[^\w.-]/g, "_"));
   mkdirSync(dir, { recursive: true });
   const needThr = c.files.some(f => /std_thread|stdThread/.test(readFileSync(f, "latin1")));
-  const support = needThr ? [ioObj, randObj, thrObj] : [ioObj, randObj];
+  const support = needThr ? [ioObj, ...helpers, thrObj] : [ioObj, ...helpers];
   if (asanMode) { const r = await asanCase(c, dir, support); rmSync(dir, { recursive: true, force: true }); return r; }
   const res: any = { cwe: c.cwe, case: c.key, files: c.files.map(f => basename(f)) };
   const b = await build(c, "bad", dir, support);
@@ -168,7 +161,6 @@ async function doCase(c: Case, ioObj: string, thrObj: string) {
   else {
     // bad() is caught if any of the case's inputs makes it trap; each input is
     // a separate run, as a fuzzer would try them.
-    let plain: Awaited<ReturnType<typeof build>> | undefined;
     for (const [i, input] of inputsFor(c).entries()) {
       const r = await runExe(b.exe!, dir, input);
       // Only compiler-inserted traps count (brk -> SIGTRAP, ud2 -> SIGILL). A SIGSEGV or
@@ -177,11 +169,9 @@ async function doCase(c: Case, ioObj: string, thrObj: string) {
         if (!res.bad) { res.bad = "missed"; res.badExit = r.signal ?? r.code; }
         continue;
       }
-      // A trap the plain build also hits on the same input is the platform's, not ours.
-      plain ??= await build(c, "bad", dir, support, true);
-      if (plain.stage === "ok" && (await runExe(plain.exe!, dir, input)).signal === r.signal) {
-        res.bad = "missed"; res.badExit = "platform " + r.signal; continue;
-      }
+      // A trap inside a system library is the platform's, not a compiler check
+      // (juliet_trap.c reports which; no report counts as the platform's).
+      if (!r.ownTrap) { if (!res.bad) { res.bad = "missed"; res.badExit = "platform " + r.signal; } continue; }
       res.bad = "trapped"; res.badSignal = r.signal; delete res.badExit;
       if (i > 0) res.badInput = i;
       break;
@@ -202,7 +192,7 @@ async function doCase(c: Case, ioObj: string, thrObj: string) {
   return res;
 }
 
-const randObj = join(BUILD, "juliet_rand.o");
+const helpers = asanMode ? [join(BUILD, "juliet_rand.o")] : [join(BUILD, "juliet_rand.o"), join(BUILD, "juliet_trap.o")];
 let all = collect();
 const counts: Record<string, number> = {};
 for (const c of all) counts[c.cwe] = (counts[c.cwe] ?? 0) + 1;
@@ -224,9 +214,9 @@ for (const [s, o] of [["io.c", ioObj], ["std_thread.c", thrObj]]) {
                               : [cc!, ...supBase, "-c", join(SUP, s), "-o", o]);
   if (r.code !== 0) { console.error("support build failed:", r.err); process.exit(1); }
 }
-{
-  const r = await sh([baselineCc, "-w", ...sys, ...(asanMode ? asanFlags : []), "-c", join(import.meta.dir, "juliet_rand.c"), "-o", randObj]);
-  if (r.code !== 0) { console.error("rand build failed:", r.err); process.exit(1); }
+for (const o of helpers) {
+  const r = await sh([baselineCc, "-w", ...sys, ...(asanMode ? asanFlags : []), "-c", join(import.meta.dir, basename(o, ".o") + ".c"), "-o", o]);
+  if (r.code !== 0) { console.error("helper build failed:", r.err); process.exit(1); }
 }
 const results: any[] = []; let next = 0;
 await Promise.all(Array.from({ length: jobs }, async () => {
