@@ -100,25 +100,18 @@ CJSON_PUBLIC(const char *_Nullable __unsafe_indexable) cJSON_GetErrorPtr(void)
     __unsafe { return (const char*) (global_error.json + global_error.position); }
 }
 
-/* Field getters. Walks and getters return through these, because:
-   GAP: without -safe-c-ownership, lifetimebound on a function that returns a
-   field of its parameter is "could not verify", and an __unsafe block does not
-   lift that, so each is an __unsafe function (with the flag they need none, and
-   -Wunused-unsafe says so).
-   GAP: with the flag, a walk that returns `c = c->next` is reported as
-   returning stack memory, but the same walk through next_sibling is accepted. */
-/* unsafe: only returns a field of item, which is what lifetimebound states */
-__unsafe static char *_Nullable __null_terminated valuestring_of(const cJSON *item _Lifetimebound)
+/* Field getters: each returns a borrow of a field of item. */
+static char *_Nullable __null_terminated valuestring_of(const cJSON *item _Lifetimebound)
 {
     return item->valuestring;
 }
 /* unsafe: as above */
-__unsafe static cJSON *_Nullable first_child(const cJSON *item _Lifetimebound)
+static cJSON *_Nullable first_child(const cJSON *item _Lifetimebound)
 {
     return item->child;
 }
 /* unsafe: as above */
-__unsafe static cJSON *_Nullable next_sibling(const cJSON *item _Lifetimebound)
+static cJSON *_Nullable next_sibling(const cJSON *item _Lifetimebound)
 {
     return item->next;
 }
@@ -202,8 +195,7 @@ static void CJSON_CDECL internal_free(void *_Nullable _Owned __unsafe_indexable 
 }
 static _Returns_owned void *_Nullable __sized_by_or_null(size) CJSON_CDECL internal_realloc(void *_Nullable _Owned __unsafe_indexable pointer, size_t size)
 {
-    /* GAP: realloc of an owned parameter is reported as freeing a pointer still stored in memory */
-    __unsafe { return realloc(pointer, size); }
+    return realloc(pointer, size);
 }
 
 /* The allocator hooks are plain function pointers, so Safe C cannot know that
@@ -592,8 +584,7 @@ static _Returns_owned unsigned char *_Nullable __counted_by_or_null(size) reallo
         return NULL;
     }
     /* unsafe: a user-supplied hook is trusted to keep the bytes it moves (the old block held bytes, so the type is unchanged),
-       and realloc keeps the old block when it fails, a conditional move no kind can say.
-       GAP: realloc(owned) is also reported as freeing a pointer still stored in memory. */
+       and realloc keeps the old block when it fails, a conditional move no kind can say. */
     __unsafe
     {
         unsigned char *_Nullable memory = (unsigned char *)p->hooks.reallocate(pointer, size);

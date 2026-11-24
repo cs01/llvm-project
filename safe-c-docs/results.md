@@ -66,9 +66,11 @@ it took. The same source builds with Safe C, Apple clang and gcc.
 | [cJSON](../safe-c-notes/ports/cjson/PORT.md) (JSON parser and printer) | 3,512 | about 500 lines: mostly `_Nullable` and bounds annotations, plus 26 `_Returns_owned`, 7 takes-ownership and 5 `lifetimebound`; `sprintf`/`strcpy` to bounded forms | 9 in the library (allocator hooks, string terminators, const casts) | 18/18 |
 
 Both ports found bugs in their test code (unchecked `malloc`, a buffer length that did
-not match its buffer) and drove compiler fixes; cJSON's list of 13 Safe C gaps (things
-it rejects or makes hard that are safe) is the usability to-do list.
+not match its buffer) and drove compiler fixes. Porting cJSON to the ownership rules took
+51 `_Owned`, 85 `_Excl` and 22 `_Take`, raised its `__unsafe` count from 9 to 12 (4 of
+them for the doubly linked list's back pointer, which Rust cannot check either), and
+found a soundness hole and a crash in the compiler, both fixed.
 
-**Status.** Early, and moving fast. The compiler side of ownership and data races is
-next. Open items, and everything found and fixed so far, are tracked in
+**Status.** Early, and moving fast. Ownership is on by default; data races (M5) are
+the last open class. Open items, and everything found and fixed so far, are tracked in
 [safe-c-notes/review-2026-11-23.md](../safe-c-notes/review-2026-11-23.md).

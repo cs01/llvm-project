@@ -71,6 +71,13 @@ free(p);   // note: freed here
 *p = 1;    // note: later used here
 ```
 
-This works for local variables and through calls annotated `_Owned` or
-`__safec_takes`. Through struct fields, arrays and globals it is not caught yet (see the
-status table).
+Through struct fields too. A pointer read out of an owned field is a borrow, and it ends
+when the field is taken, replaced, or the struct is lent to a function that may change it:
+
+```c
+struct node *first = l->head;
+// void clear(struct list *_Excl l);
+clear(l);    // note: the borrow ends here
+first->v;    // error: this pointer is
+             // borrowed from 'l->head'
+```

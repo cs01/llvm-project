@@ -30,9 +30,12 @@ function annotations(): string {
     "| *(nothing)* | non-null, exactly one element | `&T` | `void reset(struct conn *c);` | Safe C default |",
     ...rows,
     "",
-    "The Rust column is the closest equivalent, not an exact one: a plain Safe C pointer can be",
-    "written through (like `&mut T`), and Rust's one-writer-at-a-time rule is not enforced yet;",
-    "exclusive borrows (`&mut T` proper) come with static ownership (M2).",
+    "The Rust column is the closest equivalent, not an exact one. A plain pointer may write the",
+    "data it points to, but cannot free or replace what that data owns; that takes `_Excl`",
+    "(Rust's `&mut T`), and lending one ends the caller's other borrows of it. Locals need no",
+    "kind: one that only ever holds owned values is an owner, as `let x = Box::new(..)` is.",
+    "Rust's rule that two plain pointers may not both write the same data at once is not",
+    "enforced (it matters for threads, M5).",
   ].join("\n");
 }
 

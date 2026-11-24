@@ -76,13 +76,17 @@ Design:
   misuse such as adding an item to itself) became `__unsafe` functions. M2
   rejects that misuse at compile time.
 
-`__unsafe` sites in cJSON.c: 9 before, 19 after. New: 3 field getters (gap 3),
-`internal_realloc` (gap 5), `append_child`, detach, insert and replace (prev
+`__unsafe` sites in cJSON.c: 9 before, 19 after the port, 12 after the compiler fixes
+below (the 3 field getters and `internal_realloc` need none now). The rest: `append_child`, detach, insert and replace (prev
 surgery, gap 6), PrintPreallocated (gap 4), GetErrorPtr (unchecked global). The
 2 const-cast helpers became `adopt_item`/`adopt_string` (gaps 4, 8), and
 `reallocate_bytes` became `reallocate_buffer`.
 
 ### M2 compiler gaps, by how much fixing them would help
+
+Status (2026-11-23): fixed in the compiler: 1 (soundness), 2 (crash), 3, 5, 6 (cursor
+roots), 7, 8, 9 (`ensure` now needs and has `_Lifetimebound`). Open: 4 (ownership that
+depends on a flag or on success) and the small ones in 10.
 
 1. Soundness: an `_Excl` parameter accepts a shared borrow, so a callee
    can free fields under a `const` pointer whose caller still holds borrows.
