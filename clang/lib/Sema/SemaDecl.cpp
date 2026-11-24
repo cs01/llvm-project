@@ -17943,6 +17943,10 @@ static bool isSafeCFreshAllocation(
   const FunctionDecl *FD = CE ? CE->getDirectCallee() : nullptr;
   if (!FD)
     return false;
+  // alloca's block is the caller's stack, not memory to hand out.
+  if (FD->getBuiltinID() == Builtin::BIalloca ||
+      FD->getBuiltinID() == Builtin::BI__builtin_alloca)
+    return false;
   if (FD->hasAttr<AllocSizeAttr>() ||
       llvm::any_of(FD->specific_attrs<OwnershipAttr>(),
                    [](const OwnershipAttr *A) { return A->isReturns(); }))
@@ -19624,6 +19628,14 @@ void Sema::AddKnownFunctionAttributes(FunctionDecl *FD) {
     case Builtin::BImalloc:
       FD->addAttr(AllocSizeAttr::CreateImplicit(Context, ParamIdx(1, FD),
                                                 ParamIdx(), FD->getLocation()));
+      break;
+    case Builtin::BIalloca:
+    case Builtin::BI__builtin_alloca:
+      // Bounds safety: alloca(n) returns n bytes, so its result carries
+      // those bounds instead of being an unchecked pointer.
+      if (getLangOpts().BoundsSafety && !FD->hasAttr<AllocSizeAttr>())
+        FD->addAttr(AllocSizeAttr::CreateImplicit(
+            Context, ParamIdx(1, FD), ParamIdx(), FD->getLocation()));
       break;
     default:
       break;

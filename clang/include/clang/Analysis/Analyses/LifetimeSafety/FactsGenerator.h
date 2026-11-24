@@ -200,6 +200,8 @@ private:
   /// storage is expired at every return (computed on first use).
   std::optional<llvm::SmallVector<const CompoundLiteralExpr *, 4>>
       SafeCUnanchoredLiterals;
+  /// Safe C: alloca calls in the body, whose blocks die at every return.
+  llvm::SmallVector<const CallExpr *, 2> SafeCAllocas;
   // Lifetime-extended temporaries, keyed by the variable they expire with.
   llvm::DenseMap<const ValueDecl *,
                  llvm::SmallVector<const MaterializeTemporaryExpr *, 1>>

@@ -561,7 +561,20 @@ void FactsGenerator::VisitMemberExpr(const MemberExpr *ME) {
   }
 }
 
+static bool safeCIsAlloca(const CallExpr *CE) {
+  unsigned ID = CE->getBuiltinCallee();
+  return ID == Builtin::BIalloca || ID == Builtin::BI__builtin_alloca;
+}
+
 void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
+  // Safe C: alloca's block lives in this frame; it dies at every return
+  // (the expiry is issued in VisitReturnStmt).
+  if (AC.getASTContext().getLangOpts().SafeC && safeCIsAlloca(CE))
+    if (OriginList *R = getOriginsList(*CE)) {
+      const Loan *L = FactMgr.getLoanMgr().createLoan(AccessPath(CE), CE);
+      CurrentBlockFacts.push_back(
+          FactMgr.createFact<IssueFact>(L->getID(), R->getOuterOriginID()));
+    }
   // Safe C: `memcpy(d, s, n)` copies the borrows *s holds into *d, as
   // `*d = *s` would. (The void* conversions hide the pointee level, so look
   // through them to the typed pointers.)
@@ -957,6 +970,12 @@ void FactsGenerator::VisitReturnStmt(const ReturnStmt *RS) {
         if (const auto *CLE = dyn_cast<CompoundLiteralExpr>(S);
             CLE && !CLE->isFileScope())
           All.push_back(CLE);
+        if (const auto *Call = dyn_cast<CallExpr>(S); Call && safeCIsAlloca(Call))
+          SafeCAllocas.push_back(Call);
+        // Bounds-safety wraps calls in opaque values, whose source is not a
+        // child.
+        if (const auto *OVE = dyn_cast<OpaqueValueExpr>(S))
+          Walk(OVE->getSourceExpr());
         for (const Stmt *C : S->children())
           Walk(C);
       };
@@ -968,6 +987,9 @@ void FactsGenerator::VisitReturnStmt(const ReturnStmt *RS) {
     for (const CompoundLiteralExpr *CLE : *SafeCUnanchoredLiterals)
       CurrentBlockFacts.push_back(
           FactMgr.createFact<ExpireFact>(AccessPath(CLE), RS->getEndLoc()));
+    for (const CallExpr *Call : SafeCAllocas)
+      CurrentBlockFacts.push_back(
+          FactMgr.createFact<ExpireFact>(AccessPath(Call), RS->getEndLoc()));
   }
   if (const Expr *RetExpr = RS->getRetValue()) {
     if (OriginList *List = getOriginsList(*RetExpr))
