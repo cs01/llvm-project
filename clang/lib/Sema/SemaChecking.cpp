@@ -5100,7 +5100,7 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
           "fclose", "popen", "pclose", "opendir", "closedir", "pthread_create",
           "pthread_join", "pthread_self", "pthread_equal", "time", "signal",
           "sigaction", "abort", "exit", "atexit", "setlocale", "strdup",
-          "strndup", "getline", "fgets", "fputs", "puts", "fputc", "fgetc",
+          "strndup", "fgets", "fputs", "puts", "fputc", "fgetc",
           "getc", "putc", "ungetc", "fread", "fwrite", "fflush", "feof",
           "ferror", "clearerr", "fseek", "ftell", "rewind", "fileno", "remove",
           "rename", "tmpfile", "system", "getenv", "strerror", "modf", "frexp",
@@ -5108,7 +5108,7 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
       static const llvm::StringSet<> Never = {
           "setvbuf", "setbuf", "setbuffer", "setlinebuf", "setenv", "putenv",
           "unsetenv", "munmap", "mmap", "strtok", "strtok_r", "strsep",
-          "strfmon", "strfmon_l", "poll", "getdelim", "vsprintf"};
+          "strfmon", "strfmon_l", "poll", "getline", "getdelim", "vsprintf"};
       bool Bad = Never.contains(FD->getName());
       if (!Bad && !Checked.contains(FD->getName()))
         for (unsigned I = 0, N = std::min(FD->getNumParams(),

@@ -7157,11 +7157,15 @@ class SafeCStringConversions
     : public analyze_format_string::FormatStringHandler {
 public:
   SafeCPrecisions &Out;
+  bool PercentN = false;
   explicit SafeCStringConversions(SafeCPrecisions &Out)
       : Out(Out) {}
   bool HandlePrintfSpecifier(const analyze_printf::PrintfSpecifier &FS,
                              const char *, unsigned,
                              const TargetInfo &) override {
+    if (FS.getConversionSpecifier().getKind() ==
+        analyze_format_string::ConversionSpecifier::nArg)
+      PercentN = true;
     if (FS.getConversionSpecifier().getKind() ==
             analyze_format_string::ConversionSpecifier::sArg) {
       using analyze_format_string::OptionalAmount;
@@ -7200,6 +7204,8 @@ static unsigned safeCPrintfStringArgs(Sema &S, const FunctionDecl *FD,
     analyze_format_string::ParsePrintfString(
         H, Fmt.data(), Fmt.data() + Fmt.size(), S.getLangOpts(),
         S.Context.getTargetInfo(), T == FormatStringType::FreeBSDKPrintf);
+    if (H.PercentN)
+      S.SafeCDiag(Args[FmtIdx - 1]->getExprLoc(), "printf-n");
     return Out.empty() ? 0 : First - 1;
   }
   return 0;

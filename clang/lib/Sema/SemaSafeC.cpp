@@ -377,6 +377,13 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "after this the tag %0 says one member is live while the union still "
      "holds another's bytes; assign a constant tag, and make the very next "
      "statement write the member it selects, in the same object"},
+    {"printf-n", false,
+     "'%%n' stores through a pointer nothing checks; use the value 'printf' "
+     "returns"},
+    {"valist", false,
+     "nothing checks these arguments against the format; write one function "
+     "marked 'format(printf, ...)' that passes its own format and '...' on "
+     "once, between 'va_start' and 'va_end'"},
     {"partial-pointer", false,
      "%0 holds pointers, so it is copied or cleared only whole: the size must "
      "be 'n * sizeof' of it"},
@@ -793,7 +800,14 @@ static bool isStaticObject(ASTContext &Ctx, const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (isa<StringLiteral, CompoundLiteralExpr>(E))
     return isa<StringLiteral>(E) ||
-           cast<CompoundLiteralExpr>(E)->isFileScope();
+           // (Mutable, it is a shared global without a name.)
+           (cast<CompoundLiteralExpr>(E)->isFileScope() &&
+            (E->getType().isConstQualified() ||
+             (E->getType()->isArrayType() &&
+              E->getType()
+                  ->getAsArrayTypeUnsafe()
+                  ->getElementType()
+                  .isConstQualified())));
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
     if (isa<FunctionDecl>(DRE->getDecl()))
       return true;
@@ -1474,6 +1488,58 @@ public:
     return true;
   }
 
+  /// v*printf takes its arguments on trust: allowed only to forward a checked
+  /// function's own, once.
+  void checkVaList(const CallExpr *Call, const FunctionDecl *F) {
+    const auto *FA = F->getAttr<FormatAttr>();
+    if (!FA || FA->getFirstArg() != 0 || !F->getIdentifier() ||
+        !S.getSourceManager().isInSystemHeader(F->getLocation()))
+      return;
+    bool Takes = false;
+    for (const ParmVarDecl *P : F->parameters())
+      Takes |= S.Context.hasSameUnqualifiedType(
+                   P->getType(), S.Context.getBuiltinVaListType()) ||
+               P->getType().getAsString().find("va_list") != std::string::npos;
+    if (!Takes)
+      return;
+    const FunctionDecl *Cur = S.getCurFunctionDecl();
+    const auto *Own = Cur ? Cur->getAttr<FormatAttr>() : nullptr;
+    const auto *DRE =
+        FA->getFormatIdx() <= int(Call->getNumArgs())
+            ? dyn_cast<DeclRefExpr>(lifetimes::safeCPeel(
+                  Call->getArg(FA->getFormatIdx() - 1)))
+            : nullptr;
+    bool Ok = Own && Own->getFirstArg() > 0 && DRE &&
+              isa<ParmVarDecl>(DRE->getDecl()) &&
+              int(cast<ParmVarDecl>(DRE->getDecl())->getFunctionScopeIndex()) ==
+                  Own->getFormatIdx() - 1;
+    struct Scan : RecursiveASTVisitor<Scan> {
+      Sema *S;
+      SourceLocation At;
+      unsigned Uses = 0;
+      bool Loop = false, Ended = false;
+      bool VisitCallExpr(CallExpr *C) {
+        const FunctionDecl *FD = C->getDirectCallee();
+        if (FD && FD->getIdentifier() &&
+            (FD->getName().contains("va_end") ||
+             FD->getName().contains("va_copy")))
+          Ended |= S->getSourceManager().isBeforeInTranslationUnit(
+              C->getExprLoc(), At);
+        if (const auto *A = FD ? FD->getAttr<FormatAttr>() : nullptr)
+          Uses += A->getFirstArg() == 0;
+        return true;
+      }
+      bool VisitForStmt(ForStmt *) { return Loop = true; }
+      bool VisitWhileStmt(WhileStmt *) { return Loop = true; }
+      bool VisitDoStmt(DoStmt *) { return Loop = true; }
+      bool VisitGotoStmt(GotoStmt *) { return Loop = true; }
+    } Sc;
+    Sc.S = &S;
+    Sc.At = Call->getExprLoc();
+    Sc.TraverseStmt(const_cast<Stmt *>(Body));
+    if (!Ok || Sc.Loop || Sc.Ended || Sc.Uses != 1)
+      S.SafeCDiag(Call->getExprLoc(), "valist");
+  }
   bool VisitAtomicExpr(AtomicExpr *E) {
     if (E->getOpAsString().starts_with("__atomic_") ||
         E->getOpAsString().starts_with("__scoped_"))
@@ -1668,7 +1734,7 @@ public:
   }
   bool VisitCastExpr(CastExpr *C) {
     if (QualType From = C->getSubExpr()->getType();
-        C->getCastKind() == CK_BitCast && From->isPointerType() &&
+        From->isPointerType() &&
         From->getPointeeType()->isAtomicType() &&
         C->getType()->isPointerType() &&
         !C->getType()->getPointeeType()->isAtomicType() &&
@@ -2019,6 +2085,8 @@ public:
         S.SafeCDiag(E->getExprLoc(), "borrow-slot-value");
     }
     checkGlobalLent(Call);
+    if (const FunctionDecl *F = Call->getDirectCallee())
+      checkVaList(Call, F);
     // `_Take(id(&s)->p)`, `del(id(&s))`: whose borrows end?
     if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
         Call->getNumArgs() == 1 && callInPlace(Call->getArg(0)))
@@ -2671,7 +2739,35 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
       Base->printPretty(OA, nullptr, S->getPrintingPolicy());
       Tag->getBase()->IgnoreParenImpCasts()->printPretty(
           OB, nullptr, S->getPrintingPolicy());
-      return A == B && !Base->HasSideEffects(S->Context);
+      if (A != B || Base->HasSideEffects(S->Context))
+        return false;
+      // Nothing may look at the object between the two.
+      struct Calls : RecursiveASTVisitor<Calls> {
+        bool Any = false;
+        bool VisitCallExpr(CallExpr *C) {
+          for (const Expr *Arg : C->arguments())
+            Any |= Arg->getType()->isAnyPointerType() ||
+                   Arg->getType()->isRecordType();
+          return true;
+        }
+      } Cs;
+      Cs.TraverseStmt(const_cast<Expr *>(W->getRHS()));
+      const VarDecl *Root = lifetimes::safeCRootVar(Base);
+      if (!Cs.Any)
+        return true;
+      // (A local the call is not given a pointer to is out of its reach.)
+      struct Names : RecursiveASTVisitor<Names> {
+        const VarDecl *VD;
+        bool Any = false;
+        bool VisitDeclRefExpr(DeclRefExpr *D) {
+          Any |= D->getDecl() == VD;
+          return true;
+        }
+      } Ns;
+      Ns.VD = Root;
+      Ns.TraverseStmt(const_cast<Expr *>(W->getRHS()));
+      return Root && Root->isLocalVarDecl() && Root->getType()->isRecordType() &&
+             !Ns.Any;
     }
     bool VisitCompoundStmt(CompoundStmt *CS) {
       for (auto I = CS->body_begin(), E = CS->body_end(); I != E; ++I) {

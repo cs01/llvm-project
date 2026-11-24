@@ -1,9 +1,10 @@
 // Blind attack, owners, tags, builtins and races (2026-11-24).
 // REQUIRES: system-darwin
-// RUN: %clang -fsafe-c -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -ferror-limit=0 -fsyntax-only -Xclang -verify %s
 // RUN: %clang -fsafe-c -DRUN -O1 %s -o %t && not --crash %t
 #include <safec.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,5 +65,39 @@ void bytes(struct s *x, const char *m) {
   char *t = strrchr("abc", 'b'); // expected-error {{drops the 'const'}}
   const char *__null_terminated _Nullable ok = strchr(m, 'b');
   (void)t; (void)ok;
+}
+static int *_Static const shared = &(int){3}; // expected-error 0+ {{}}
+static const struct { int *_Static p; } holder = {&(int){3}}; // expected-error 0+ {{}}
+void n_conv(void) {
+  char c;
+  printf("%n", (int *)&c); // expected-error {{stores through a pointer nothing checks}} expected-error 0+ {{}} expected-note 0+ {{}} expected-warning 0+ {{}}
+}
+int forged(int n, ...) {
+  va_list a;
+  va_start(a, n);
+  char b[20];
+  vsnprintf(b, 20, "%s", a); // expected-error {{nothing checks these arguments against the format}}
+  va_end(a);
+  return 0;
+}
+__attribute__((format(printf, 1, 2))) int after_end(const char *m, ...) {
+  va_list a;
+  va_start(a, m);
+  va_end(a);
+  return vprintf(m, a); // expected-error {{nothing checks these arguments against the format}}
+}
+__attribute__((format(printf, 1, 2))) int forward(const char *m, ...) {
+  va_list a;
+  va_start(a, m);
+  int r = vprintf(m, a);
+  va_end(a);
+  return r;
+}
+void look(struct t *t);
+long peek(struct t *t);
+void between(void) {
+  struct t t = {.k = 1, .p = "x"};
+  t.k = 0; // expected-error {{after this the tag 'k'}}
+  t.l = peek(&t); // expected-error {{needs the tag}}
 }
 #endif
