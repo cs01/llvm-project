@@ -716,9 +716,10 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
     AccessPath Path = safeCRootInterior(FactMgr.getLoanMgr(), *Resolved);
     CurrentBlockFacts.push_back(
         FactMgr.createFact<ExpireFact>(Path, CE->getBeginLoc()));
-    // Lending a borrow local (`r` rooted at `x`) reborrows it: r stays
-    // usable afterwards, every other borrow of x ends (Rust's `&mut *r`).
-    if (Resolved != Root && isa<DeclRefExpr>(safeCPeel(Place)))
+    // Lending a borrow local (`r` rooted at `x`), or a part of what it
+    // reaches (`r->table`), reborrows it: r stays usable afterwards, every
+    // other borrow of x ends (Rust's `&mut *r`, `&mut r.table`).
+    if (Resolved != Root)
       if (OriginList *L = getOriginsList(*Root)) {
         const Loan *Fresh = FactMgr.getLoanMgr().createLoan(Path, Place);
         CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(

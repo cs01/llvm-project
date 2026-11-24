@@ -37,3 +37,11 @@ void give_away(struct list *_Excl m) {
 void free_excl(struct list *_Excl l) {
   free(l); // expected-error {{'l' is an exclusive borrow}}
 }
+
+// The same object lent exclusively and passed again is rejected only when
+// the callee could free something through it: a struct with no owners
+// (its pointers are _Static or _Unchecked) may also be passed shared, as
+// lz4 passes its context as both the state and the dictionary.
+struct counters { int a, b; const char *_Static name; };
+void add(struct counters *_Excl into, const struct counters *from);
+void self_add(struct counters *_Excl c) { add(c, c); }

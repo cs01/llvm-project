@@ -1057,6 +1057,37 @@ public:
     return true;
   }
 
+  /// Whether data reached through \p T can be freed: it holds an owner,
+  /// directly or in a member. Other pointer members are _Static or
+  /// _Unchecked (fields hold no borrows), so replacing them cannot dangle.
+  static bool reachesOwner(QualType T, unsigned Depth = 0) {
+    if (Depth > 8)
+      return true;
+    // Pointer kinds are type attributes: read them before any desugaring.
+    if (T->isPointerType())
+      return safeCPointerKind(T) == "owned";
+    if (const ArrayType *AT = T->getAsArrayTypeUnsafe())
+      return reachesOwner(AT->getElementType(), Depth + 1);
+    if (const RecordDecl *RD = T->getAsRecordDecl()) {
+      const RecordDecl *Def = RD->getDefinition();
+      if (!Def)
+        return true; // opaque: assume it can
+      for (const FieldDecl *FD : Def->fields())
+        if (reachesOwner(FD->getType(), Depth + 1))
+          return true;
+    }
+    return false;
+  }
+  /// A call lending argument I may free or replace what other arguments
+  /// reach: it is given away, or it is lent exclusively and what it points
+  /// to holds an owner.
+  static bool lentCanFree(const FunctionDecl *F, unsigned I) {
+    QualType PT = F->getParamDecl(I)->getType();
+    if (lifetimes::safeCParamKind(PT) != "excl")
+      return true;
+    return reachesOwner(PT->getPointeeType());
+  }
+
   void checkCallAliasing(CallExpr *Call) {
     const FunctionDecl *F = Call->getDirectCallee();
     if (!F)
@@ -1086,7 +1117,8 @@ public:
     for (auto [Root, LentAt] : Lent)
       for (unsigned J = 0, NA = Call->getNumArgs(); J != NA; ++J)
         if (J != LentAt && Call->getArg(J)->getType()->isPointerType() &&
-            lifetimes::safeCRootVar(Call->getArg(J)) == Root)
+            lifetimes::safeCRootVar(Call->getArg(J)) == Root &&
+            lentCanFree(F, LentAt))
           S.SafeCDiag(Call->getArg(J)->getExprLoc(), "excl-aliased-arg")
               << Root;
   }
