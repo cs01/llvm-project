@@ -28,7 +28,7 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static const char *json = "{\n\
+static const char *_Static json = "{\n\
 \t\"name\":\t\"Awesome 4K\",\n\
 \t\"resolutions\":\t[{\n\
 \t\t\t\"width\":\t1280,\n\
@@ -234,7 +234,7 @@ static void create_monitor_with_helpers_should_create_a_monitor(void)
 
 static void supports_full_hd_should_check_for_full_hd_support(void)
 {
-    static const char *monitor_without_hd = "{\n\
+    static const char *_Static monitor_without_hd = "{\n\
 \t\t\"name\": \"lame monitor\",\n\
 \t\t\"resolutions\":\t[{\n\
 \t\t\t\"width\":\t640,\n\

@@ -24,7 +24,7 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static void assert_print_string(const char *expected __safec_noescape, const char *_Nullable input __safec_noescape)
+static void assert_print_string(const char *expected _Noescape, const char *_Nullable input _Noescape)
 {
     unsigned char printed[1024];
     printbuffer buffer = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };

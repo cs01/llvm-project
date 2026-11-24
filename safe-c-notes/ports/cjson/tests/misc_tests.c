@@ -29,7 +29,8 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static void cjson_array_foreach_should_loop_over_arrays(void)
+/* unsafe: builds a list in stack arrays, which owned fields may not hold; the list is never freed */
+__unsafe static void cjson_array_foreach_should_loop_over_arrays(void)
 {
     cJSON array[1];
     cJSON elements[10];
@@ -260,7 +261,8 @@ static void cjson_set_number_value_should_set_numbers(void)
     TEST_ASSERT_EQUAL_DOUBLE(-1 + (double)INT_MIN, number->valuedouble);
 }
 
-static void cjson_detach_item_via_pointer_should_detach_items(void)
+/* unsafe: white-box list surgery on stack items, as above */
+__unsafe static void cjson_detach_item_via_pointer_should_detach_items(void)
 {
     cJSON list[4];
     cJSON parent[1];
@@ -300,7 +302,8 @@ static void cjson_detach_item_via_pointer_should_detach_items(void)
     TEST_ASSERT_NULL_MESSAGE(parent->child, "Child of the parent wasn't set to NULL.");
 }
 
-static void cjson_detach_item_via_pointer_should_return_null_if_item_prev_is_null(void)
+/* unsafe: as above */
+__unsafe static void cjson_detach_item_via_pointer_should_return_null_if_item_prev_is_null(void)
 {
     cJSON list[2];
     cJSON parent[1];
@@ -315,7 +318,8 @@ static void cjson_detach_item_via_pointer_should_return_null_if_item_prev_is_nul
     TEST_ASSERT_TRUE_MESSAGE(cJSON_DetachItemViaPointer(parent, &(list[0])) == &(list[0]), "Failed to detach in the middle.");
 }
 
-static void cjson_replace_item_via_pointer_should_replace_items(void)
+/* unsafe: as above */
+__unsafe static void cjson_replace_item_via_pointer_should_replace_items(void)
 {
     cJSON replacements[3];
     cJSON *beginning = NULL;
@@ -383,7 +387,8 @@ static void cjson_replace_item_in_object_should_preserve_name(void)
     cJSON_Delete(replacement);
 }
 
-static void cjson_functions_should_not_crash_with_null_pointers(void)
+/* unsafe: deliberate misuse (an item passed as both the container and the item, a corrupted list) to test the run-time guards; M2 rejects these calls at compile time */
+__unsafe static void cjson_functions_should_not_crash_with_null_pointers(void)
 {
     char buffer[10];
     cJSON *item = cJSON_CreateString("item");
@@ -639,7 +644,8 @@ static void cjson_create_array_reference_should_create_an_array_reference(void)
     cJSON_Delete(number_reference);
 }
 
-static void cjson_add_item_to_object_or_array_should_not_add_itself(void)
+/* unsafe: deliberate misuse (adding an item to itself), which M2 rejects at compile time */
+__unsafe static void cjson_add_item_to_object_or_array_should_not_add_itself(void)
 {
     cJSON *object = cJSON_CreateObject();
     cJSON *array = cJSON_CreateArray();
@@ -655,7 +661,8 @@ static void cjson_add_item_to_object_or_array_should_not_add_itself(void)
     cJSON_Delete(array);
 }
 
-static void cjson_add_item_to_object_should_not_use_after_free_when_string_is_aliased(void)
+/* unsafe: deliberate misuse (a key aliased with a string the test frees), which M2 rejects at compile time */
+__unsafe static void cjson_add_item_to_object_should_not_use_after_free_when_string_is_aliased(void)
 {
     cJSON *object = cJSON_CreateObject();
     cJSON *number = cJSON_CreateNumber(42);

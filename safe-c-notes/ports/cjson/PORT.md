@@ -39,6 +39,96 @@ a tree of nullable pointers, owns strings, and allocates through hooks. About
 60% of the annotations are `_Nullable`, which mostly records what the code
 already handled.
 
+## M2 ownership (2026-11-23)
+
+cJSON.c compiles with 0 errors under `-mllvm -safe-c-ownership` (26 before
+annotating, 112 once the fields were). 18/18 tests pass under Safe C with and
+without the flag, Apple clang, `gcc` (Apple clang on this Mac, no real gcc
+installed) and Apple clang with ASan and UBSan.
+
+Cost: cJSON.c +502/-509 lines, cJSON.h +51/-47, tests +25/-21. Kinds used in
+cJSON.c and cJSON.h: 51 `_Owned`, 85 `_Excl`, 7
+`_Unchecked`, 1 `_View` (the parse buffer), 22 `_Take`,
+38 `_Lifetimebound`, 38 `_Returns_owned`. Tests: 2
+`_Static`, 2 `_Excl`, 6 `_Take`.
+
+Design:
+- `next` and `child` own; `prev` is `_Unchecked` (the first child's prev
+  is the tail). All prev surgery is in `append_child` (O(1) append, used by the
+  parser, the array builders, Duplicate and AddItem*) and in the detach, insert
+  and replace functions, each one `__unsafe` block, as Rust's LinkedList does.
+- `valuestring` and `string` own. Reference items and constant keys store
+  borrowed pointers into them through `adopt_item`/`adopt_string`; cJSON_Delete
+  forgets them (`_Take` without free) when the flag says so.
+- The public AddItem*/InsertItem/ReplaceItem functions keep a plain `item`
+  parameter: they take the item only when they succeed, and the tests rely on
+  that. `adopt_item` makes it owned after the last failure point. The
+  `cJSON_Add*ToObject` helpers return a borrow of `object` (lifetimebound),
+  not owned memory as the old annotation claimed.
+- `item` in DetachItemViaPointer/ReplaceItemViaPointer is `_Unchecked`:
+  it names a child by identity, so callers may pass a borrow of `parent`.
+- `reallocate_buffer` works like reallocf (frees on failure) and takes the
+  printbuffer, not the pointer. PrintPreallocated puts the caller's buffer in
+  the owned field and takes it back unfreed.
+- The global error pointer is unchecked: it points into the caller's input
+  after the parse returns.
+- Tests: 7 white-box test functions (lists built in stack arrays, deliberate
+  misuse such as adding an item to itself) became `__unsafe` functions. M2
+  rejects that misuse at compile time.
+
+`__unsafe` sites in cJSON.c: 9 before, 19 after. New: 3 field getters (gap 3),
+`internal_realloc` (gap 5), `append_child`, detach, insert and replace (prev
+surgery, gap 6), PrintPreallocated (gap 4), GetErrorPtr (unchecked global). The
+2 const-cast helpers became `adopt_item`/`adopt_string` (gaps 4, 8), and
+`reallocate_bytes` became `reallocate_buffer`.
+
+### M2 compiler gaps, by how much fixing them would help
+
+1. Soundness: an `_Excl` parameter accepts a shared borrow, so a callee
+   can free fields under a `const` pointer whose caller still holds borrows.
+   `void clear(N *_Excl n) { free(_Take(n->child)); }`
+   `void g(const N *a) { N *c = a->child; if (c) clear(c); }  /* accepted */`
+2. Crash: `_Take(p->f)` where `p` is a local pointer or array (not a
+   parameter) asserts in CodeGen (EmitScalarExpr) when passed to a hook.
+   `struct B b = {0}; struct B *p = &b;`
+   `h->dealloc(_Take(p->buf));  /* buf owned, counted_by_or_null */`
+   Workaround: `b[0].buf`.
+3. Control mode: without `-safe-c-ownership`, `lifetimebound` on a function
+   returning a field of its parameter is "could not verify", and an `__unsafe`
+   block does not lift it. With the flag it is accepted. 3 `__unsafe` getters.
+   `N *_Nullable next_of(const N *n _Lifetimebound) { return n->next; }`
+4. Conditional ownership has no spelling: fields owned unless a flag says
+   otherwise (cJSON_IsReference, cJSON_StringIsConst, printbuffer.noalloc),
+   and functions that take an item only on success (AddItemToArray, realloc on
+   failure). Rust would use Cow/enum and `Result<(), Box<T>>`. 5 sites.
+   `int add(L *_Excl l, N *item);  /* moves item only if it returns 1 */`
+5. `realloc`, or any function that both takes and returns ownership, rejects
+   an owned local or parameter as "freeing a pointer that is still stored in
+   memory reached through a pointer".
+   `_Returns_owned void *r(void *_Nullable _Owned p, size_t n)`
+   `{ return realloc(p, n); }  /* error */`
+6. No exclusive cursor: `slot = &(*slot)->next` on an `_Excl` local is
+   rejected (treated like reassigning a parameter), so a singly linked list
+   cannot be walked and edited safely; detach/insert/replace fall back to
+   prev in `__unsafe`. Comparing an unchecked pointer (`item == p`) also needs
+   `__unsafe`, though it reads no memory.
+   `N *_Owned _Nullable *_Excl slot = &a->child;`
+   `while (*slot) slot = &(*slot)->next;  /* 2 errors */`
+7. A walk that returns a borrow, `c = c->next; return c;`, is reported as
+   returning stack memory; the same walk through a lifetimebound helper is
+   accepted (`next_sibling`).
+   `N *_Nullable c = a->child; while (c && i-- > 0) c = c->next; return c;`
+8. The borrow-return rule ("returns a pointer borrowed from 'item'") is not
+   lifted by an `__unsafe` block, only by an `__unsafe` function.
+   `_Returns_owned N *own(const N *p) { __unsafe { return (N *)p; } }`
+9. Possible hole: `ensure()` returns `p->buffer + p->offset`, a borrow of an
+   owned field, with no lifetimebound and no error; adding lifetimebound gives
+   "could not verify".
+10. Small: `c ? owned : owned` is not owned; `_Take` of a counted
+    field does not count as assigning it, so the count update needs
+    `p->buffer = NULL` too; returning an owned local needs an explicit
+    `_Returns_owned`.
+
 ## Bugs found (tests, not the library)
 
 - `tests/print_number.c:39`: the buffer points at a 26-byte array while its

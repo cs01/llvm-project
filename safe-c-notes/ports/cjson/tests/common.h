@@ -25,26 +25,23 @@
 
 #include "../cJSON.c"
 
-void reset(cJSON *item);
-void reset(cJSON *item) {
-    if ((item != NULL) && (item->child != NULL))
+void reset(cJSON *_Excl item);
+void reset(cJSON *_Excl item) {
+    cJSON_Delete(_Take(item->child));
+    if (!(item->type & cJSON_IsReference))
     {
-        cJSON_Delete(item->child);
+        global_hooks.deallocate(_Take(item->valuestring));
     }
-    if ((item->valuestring != NULL) && !(item->type & cJSON_IsReference))
+    if (!(item->type & cJSON_StringIsConst))
     {
-        global_hooks.deallocate(item->valuestring);
-    }
-    if ((item->string != NULL) && !(item->type & cJSON_StringIsConst))
-    {
-        global_hooks.deallocate(item->string);
+        global_hooks.deallocate(_Take(item->string));
     }
 
     memset(item, 0, sizeof(cJSON));
 }
 
-char *_Nullable __null_terminated read_file(const char *filename __safec_noescape);
-char *_Nullable __null_terminated read_file(const char *filename __safec_noescape) {
+char *_Nullable __null_terminated read_file(const char *filename _Noescape);
+char *_Nullable __null_terminated read_file(const char *filename _Noescape) {
     FILE *_Nullable file = NULL;
     long length = 0;
     char *content = NULL;

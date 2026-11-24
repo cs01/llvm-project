@@ -104,23 +104,25 @@ then using the CJSON_API_VISIBILITY flag to "export" the same symbols the way CJ
 typedef struct cJSON
 {
     /* next/prev allow you to walk array/object chains. Alternatively, use GetArraySize/GetArrayItem/GetObjectItem */
-    struct cJSON *_Nullable next;
-    struct cJSON *_Nullable prev;
+    /* next and child own the items they point to. prev is a back pointer (the
+       first child's prev is the last child), so nothing tracks its target. */
+    struct cJSON *_Nullable _Owned next;
+    struct cJSON *_Nullable _Unchecked prev;
     /* An array or object item will have a child pointer pointing to a chain of the items in the array/object. */
-    struct cJSON *_Nullable child;
+    struct cJSON *_Nullable _Owned child;
 
     /* The type of the item, as above. */
     int type;
 
     /* The item's string, if type==cJSON_String  and type == cJSON_Raw */
-    char *_Nullable __null_terminated valuestring;
+    char *_Nullable _Owned __null_terminated valuestring;
     /* writing to valueint is DEPRECATED, use cJSON_SetNumberValue instead */
     int valueint;
     /* The item's number, if type==cJSON_Number */
     double valuedouble;
 
     /* The item's name string, if this item is the child of, or is in the list of subitems of an object. */
-    char *_Nullable __null_terminated string;
+    char *_Nullable _Owned __null_terminated string;
 } cJSON;
 
 typedef struct cJSON_Hooks
@@ -153,12 +155,12 @@ CJSON_PUBLIC(void) cJSON_InitHooks(cJSON_Hooks *_Nullable hooks);
 
 /* Memory Management: the caller is always responsible to free the results from all variants of cJSON_Parse (with cJSON_Delete) and cJSON_Print (with stdlib free, cJSON_Hooks.free_fn, or cJSON_free as appropriate). The exception is cJSON_PrintPreallocated, where the caller has full responsibility of the buffer. */
 /* Supply a block of JSON, and this returns a cJSON object you can interrogate. */
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_Parse(const char *_Nullable value);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithLength(const char *_Nullable __counted_by_or_null(buffer_length) value, size_t buffer_length);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_Parse(const char *_Nullable value);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithLength(const char *_Nullable __counted_by_or_null(buffer_length) value, size_t buffer_length);
 /* ParseWithOpts allows you to require (and check) that the JSON is null terminated, and to retrieve the pointer to the final byte parsed. */
 /* If you supply a ptr in return_parse_end and parsing fails, then return_parse_end will contain a pointer to the error so will match cJSON_GetErrorPtr(). */
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithOpts(const char *_Nullable value, const char *_Nullable __unsafe_indexable *_Nullable return_parse_end, cJSON_bool require_null_terminated);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithLengthOpts(const char *_Nullable __counted_by_or_null(buffer_length) value, size_t buffer_length, const char *_Nullable __unsafe_indexable *_Nullable return_parse_end, cJSON_bool require_null_terminated);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithOpts(const char *_Nullable value, const char *_Nullable __unsafe_indexable *_Nullable return_parse_end, cJSON_bool require_null_terminated);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithLengthOpts(const char *_Nullable __counted_by_or_null(buffer_length) value, size_t buffer_length, const char *_Nullable __unsafe_indexable *_Nullable return_parse_end, cJSON_bool require_null_terminated);
 
 /* Render a cJSON entity to text for transfer/storage. */
 CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_Print(const cJSON *_Nullable item);
@@ -170,21 +172,21 @@ CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_PrintBuffered(const cJSON 
 /* NOTE: cJSON is not always 100% accurate in estimating how much memory it will use, so to be safe allocate 5 bytes more than you actually need */
 CJSON_PUBLIC(cJSON_bool) cJSON_PrintPreallocated(cJSON *_Nullable item, char *_Nullable __counted_by_or_null(length) buffer, const int length, const cJSON_bool format);
 /* Delete a cJSON entity and all subentities. */
-CJSON_PUBLIC(void) cJSON_Delete(cJSON *_Nullable item) __safec_takes(1);
+CJSON_PUBLIC(void) cJSON_Delete(cJSON *_Nullable _Owned item);
 
 /* Returns the number of items in an array (or object). */
 CJSON_PUBLIC(int) cJSON_GetArraySize(const cJSON *_Nullable array);
 /* Retrieve item number "index" from array "array". Returns NULL if unsuccessful. */
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_GetArrayItem(const cJSON *_Nullable array, int index);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_GetArrayItem(const cJSON *_Nullable array _Lifetimebound, int index);
 /* Get item "string" from object. Case insensitive. */
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_GetObjectItem(const cJSON *_Nullable const object, const char *_Nullable const string);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_GetObjectItemCaseSensitive(const cJSON *_Nullable const object, const char *_Nullable const string);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_GetObjectItem(const cJSON *_Nullable const object _Lifetimebound, const char *_Nullable const string);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_GetObjectItemCaseSensitive(const cJSON *_Nullable const object _Lifetimebound, const char *_Nullable const string);
 CJSON_PUBLIC(cJSON_bool) cJSON_HasObjectItem(const cJSON *_Nullable object, const char *_Nullable string);
 /* For analysing failed parses. This returns a pointer to the parse error. You'll probably need to look a few chars back to make sense of it. Defined when cJSON_Parse() returns 0. 0 when cJSON_Parse() succeeds. */
 CJSON_PUBLIC(const char *_Nullable __unsafe_indexable) cJSON_GetErrorPtr(void);
 
 /* Check item type and return its value */
-CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_GetStringValue(const cJSON *_Nullable const item);
+CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_GetStringValue(const cJSON *_Nullable const item _Lifetimebound);
 CJSON_PUBLIC(double) cJSON_GetNumberValue(const cJSON *_Nullable const item);
 
 /* These functions check the type of an item */
@@ -200,61 +202,63 @@ CJSON_PUBLIC(cJSON_bool) cJSON_IsObject(const cJSON *_Nullable const item);
 CJSON_PUBLIC(cJSON_bool) cJSON_IsRaw(const cJSON *_Nullable const item);
 
 /* These calls create a cJSON item of the appropriate type. */
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateNull(void);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateTrue(void);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateFalse(void);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateBool(cJSON_bool boolean);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateNumber(double num);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateString(const char *_Nullable string __safec_noescape);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateNull(void);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateTrue(void);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateFalse(void);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateBool(cJSON_bool boolean);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateNumber(double num);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateString(const char *_Nullable string _Noescape);
 /* raw json */
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateRaw(const char *_Nullable raw);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateArray(void);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateObject(void);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateRaw(const char *_Nullable raw);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateArray(void);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateObject(void);
 
 /* Create a string where valuestring references a string so
  * it will not be freed by cJSON_Delete */
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateStringReference(const char *_Nullable string);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateStringReference(const char *_Nullable string);
 /* Create an object/array that only references it's elements so
  * they will not be freed by cJSON_Delete */
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateObjectReference(const cJSON *_Nullable child);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateArrayReference(const cJSON *_Nullable child);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateObjectReference(const cJSON *_Nullable child);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateArrayReference(const cJSON *_Nullable child);
 
 /* These utilities create an Array of count items.
  * The parameter count cannot be greater than the number of elements in the number array, otherwise array access will be out of bounds.*/
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateIntArray(const int *_Nullable __counted_by_or_null(count) numbers, int count);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateFloatArray(const float *_Nullable __counted_by_or_null(count) numbers, int count);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateDoubleArray(const double *_Nullable __counted_by_or_null(count) numbers, int count);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateStringArray(const char *_Nullable const *_Nullable __counted_by_or_null(count) strings, int count);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateIntArray(const int *_Nullable __counted_by_or_null(count) numbers, int count);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateFloatArray(const float *_Nullable __counted_by_or_null(count) numbers, int count);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateDoubleArray(const double *_Nullable __counted_by_or_null(count) numbers, int count);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_CreateStringArray(const char *_Nullable const *_Nullable __counted_by_or_null(count) strings, int count);
 
 /* Append item to the specified array/object. */
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToArray(cJSON *_Nullable array, cJSON *_Nullable item);
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObject(cJSON *_Nullable object, const char *_Nullable string, cJSON *_Nullable item);
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToArray(cJSON *_Nullable _Excl array, cJSON *_Nullable item);
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObject(cJSON *_Nullable _Excl object, const char *_Nullable string, cJSON *_Nullable item);
 /* Use this when string is definitely const (i.e. a literal, or as good as), and will definitely survive the cJSON object.
  * WARNING: When this function was used, make sure to always check that (item->type & cJSON_StringIsConst) is zero before
  * writing to `item->string` */
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObjectCS(cJSON *_Nullable object, const char *_Nullable string, cJSON *_Nullable item);
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObjectCS(cJSON *_Nullable _Excl object, const char *_Nullable string, cJSON *_Nullable item);
 /* Append reference to item to the specified array/object. Use this when you want to add an existing cJSON to a new cJSON, but don't want to corrupt your existing cJSON. */
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToArray(cJSON *_Nullable array, cJSON *_Nullable item);
-CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToObject(cJSON *_Nullable object, const char *_Nullable string, cJSON *_Nullable item);
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToArray(cJSON *_Nullable _Excl array, cJSON *_Nullable item);
+CJSON_PUBLIC(cJSON_bool) cJSON_AddItemReferenceToObject(cJSON *_Nullable _Excl object, const char *_Nullable string, cJSON *_Nullable item);
 
 /* Remove/Detach items from Arrays/Objects. */
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemViaPointer(cJSON *_Nullable parent, cJSON *_Nullable const item __safec_lifetimebound);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromArray(cJSON *_Nullable array, int which);
-CJSON_PUBLIC(void) cJSON_DeleteItemFromArray(cJSON *_Nullable array, int which);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromObject(cJSON *_Nullable object, const char *_Nullable string);
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromObjectCaseSensitive(cJSON *_Nullable object, const char *_Nullable string);
-CJSON_PUBLIC(void) cJSON_DeleteItemFromObject(cJSON *_Nullable object, const char *_Nullable string);
-CJSON_PUBLIC(void) cJSON_DeleteItemFromObjectCaseSensitive(cJSON *_Nullable object, const char *_Nullable string);
+/* item only names which child to detach (it is compared, never dereferenced
+   outside __unsafe), so it may be a borrow of parent. */
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemViaPointer(cJSON *_Nullable _Excl parent, cJSON *_Nullable _Unchecked const item);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromArray(cJSON *_Nullable _Excl array, int which);
+CJSON_PUBLIC(void) cJSON_DeleteItemFromArray(cJSON *_Nullable _Excl array, int which);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromObject(cJSON *_Nullable _Excl object, const char *_Nullable string);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_DetachItemFromObjectCaseSensitive(cJSON *_Nullable _Excl object, const char *_Nullable string);
+CJSON_PUBLIC(void) cJSON_DeleteItemFromObject(cJSON *_Nullable _Excl object, const char *_Nullable string);
+CJSON_PUBLIC(void) cJSON_DeleteItemFromObjectCaseSensitive(cJSON *_Nullable _Excl object, const char *_Nullable string);
 
 /* Update array items. */
-CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON *_Nullable array, int which, cJSON *_Nullable newitem); /* Shifts pre-existing items to the right. */
-CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON *_Nullable const parent, cJSON *_Nullable const item, cJSON *_Nullable replacement) __safec_takes(2);
-CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInArray(cJSON *_Nullable array, int which, cJSON *_Nullable newitem);
-CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObject(cJSON *_Nullable object,const char *_Nullable string,cJSON *_Nullable newitem);
-CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObjectCaseSensitive(cJSON *_Nullable object,const char *_Nullable string,cJSON *_Nullable newitem);
+CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON *_Nullable _Excl array, int which, cJSON *_Nullable newitem); /* Shifts pre-existing items to the right. */
+CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON *_Nullable _Excl const parent, cJSON *_Nullable _Unchecked const item, cJSON *_Nullable replacement);
+CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInArray(cJSON *_Nullable _Excl array, int which, cJSON *_Nullable newitem);
+CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObject(cJSON *_Nullable _Excl object,const char *_Nullable string,cJSON *_Nullable _Excl newitem);
+CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInObjectCaseSensitive(cJSON *_Nullable _Excl object,const char *_Nullable string,cJSON *_Nullable _Excl newitem);
 
 /* Duplicate a cJSON item */
-CJSON_PUBLIC(cJSON *_Nullable) cJSON_Duplicate(const cJSON *_Nullable item, cJSON_bool recurse);
+_Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_Duplicate(const cJSON *_Nullable item, cJSON_bool recurse);
 /* Duplicate will create a new, identical cJSON item to the one you pass, in new memory that will
  * need to be released. With recurse!=0, it will duplicate any children connected to the item.
  * The item->next and ->prev pointers are always zero on return from Duplicate. */
@@ -265,19 +269,19 @@ CJSON_PUBLIC(cJSON_bool) cJSON_Compare(const cJSON *_Nullable const a, const cJS
 /* Minify a strings, remove blank characters(such as ' ', '\t', '\r', '\n') from strings.
  * The input pointer json cannot point to a read-only address area, such as a string constant, 
  * but should point to a readable and writable address area. */
-CJSON_PUBLIC(void) cJSON_Minify(char *_Nullable __null_terminated json __safec_noescape);
+CJSON_PUBLIC(void) cJSON_Minify(char *_Nullable __null_terminated json _Noescape);
 
 /* Helper functions for creating and adding items to an object at the same time.
  * They return the added item or NULL on failure. */
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddNullToObject(cJSON *_Nullable const object, const char * _Nullable const name);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddTrueToObject(cJSON *_Nullable const object, const char * _Nullable const name);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddFalseToObject(cJSON *_Nullable const object, const char * _Nullable const name);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddBoolToObject(cJSON *_Nullable const object, const char * _Nullable const name, const cJSON_bool boolean);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddNumberToObject(cJSON *_Nullable const object, const char * _Nullable const name, const double number);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddStringToObject(cJSON *_Nullable const object, const char * _Nullable const name, const char *_Nullable const string);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddRawToObject(cJSON *_Nullable const object, const char * _Nullable const name, const char *_Nullable const raw);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddObjectToObject(cJSON *_Nullable const object, const char * _Nullable const name);
-__safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddArrayToObject(cJSON *_Nullable const object, const char * _Nullable const name);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddNullToObject(cJSON *_Nullable _Excl const object _Lifetimebound, const char * _Nullable const name);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddTrueToObject(cJSON *_Nullable _Excl const object _Lifetimebound, const char * _Nullable const name);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddFalseToObject(cJSON *_Nullable _Excl const object _Lifetimebound, const char * _Nullable const name);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddBoolToObject(cJSON *_Nullable _Excl const object _Lifetimebound, const char * _Nullable const name, const cJSON_bool boolean);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddNumberToObject(cJSON *_Nullable _Excl const object _Lifetimebound, const char * _Nullable const name, const double number);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddStringToObject(cJSON *_Nullable _Excl const object _Lifetimebound, const char * _Nullable const name, const char *_Nullable const string);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddRawToObject(cJSON *_Nullable _Excl const object _Lifetimebound, const char * _Nullable const name, const char *_Nullable const raw);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddObjectToObject(cJSON *_Nullable _Excl const object _Lifetimebound, const char * _Nullable const name);
+CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddArrayToObject(cJSON *_Nullable _Excl const object _Lifetimebound, const char * _Nullable const name);
 
 /* When assigning an integer value, it needs to be propagated to valuedouble too. */
 #define cJSON_SetIntValue(object, number) ((object) ? (object)->valueint = (object)->valuedouble = (number) : (number))
@@ -285,7 +289,7 @@ __safec_returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_AddArrayToObject(cJSO
 CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *_Nullable object, double number);
 #define cJSON_SetNumberValue(object, number) ((object != NULL) ? cJSON_SetNumberHelper(object, (double)number) : (number))
 /* Change the valuestring of a cJSON_String object, only takes effect when type of object is cJSON_String */
-CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *_Nullable object, const char *_Nullable valuestring __safec_noescape);
+CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *_Nullable _Excl object _Lifetimebound, const char *_Nullable valuestring _Noescape);
 
 /* If the object is not a boolean type this does nothing and returns cJSON_Invalid else it returns the new type*/
 #define cJSON_SetBoolValue(object, boolValue) ( \
@@ -299,7 +303,7 @@ CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_SetValuestring(cJSON *_Nul
 
 /* malloc/free objects using the malloc/free functions that have been set with cJSON_InitHooks */
 CJSON_PUBLIC(void *_Nullable __sized_by_or_null(size)) cJSON_malloc(size_t size);
-CJSON_PUBLIC(void) cJSON_free(void *_Nullable object) __safec_takes(1);
+CJSON_PUBLIC(void) cJSON_free(void *_Nullable _Owned object);
 
 #ifdef __cplusplus
 }
