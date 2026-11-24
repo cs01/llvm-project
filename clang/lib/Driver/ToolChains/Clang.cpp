@@ -8556,6 +8556,12 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
     llvm::sys::path::append(SafeCHeader, "include", "safec.h");
     CmdArgs.push_back("-include");
     CmdArgs.push_back(Args.MakeArgString(SafeCHeader));
+    // libc's _FORTIFY_SOURCE macros replace memcpy and friends with
+    // __builtin___*_chk calls, which skip the bounds-annotated prototypes:
+    // Safe C's own check would never run, only libc's (when fortify is on).
+    // Safe C checks every such call itself, so turn fortify off.
+    CmdArgs.push_back("-U_FORTIFY_SOURCE");
+    CmdArgs.push_back("-D_FORTIFY_SOURCE=0");
     // Integer UB the way Rust release builds handle it: signed overflow wraps
     // (defined, nearly free); division by zero, INT_MIN / -1 (the only
     // signed-integer-overflow check left under -fwrapv) and oversized shift
