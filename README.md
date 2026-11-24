@@ -4,10 +4,9 @@
 
 A fork of Clang with one flag, `-fsafe-c`:
 
+- Explicit boundaries around unsafe code.
 - Clang's newest safety features (bounds checking, null and lifetime analysis), all on.
 - Rust's ownership and borrowing rules, tagged unions and thread rules, added.
-- Safety errors cannot be lowered with `-W` flags or pragmas. The ways out are explicit:
-  `__unsafe`, headers marked legacy, and directories passed with `-isystem`.
 
 **The goal:** code outside `__unsafe` is memory safe, as in Rust. It is not there yet:
 the known gaps are listed under [Status](#status).

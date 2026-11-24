@@ -219,6 +219,18 @@ class Loan {
   /// The expression that creates the loan, e.g., &x. Optional for placeholder
   /// loans.
   const Expr *IssueExpr;
+  /// Safe C: one loan stands for every block an allocation site returns, so
+  /// in a loop this iteration's block and the last one's would be one object
+  /// (freeing the old one would end the new one). When set, issuing this
+  /// loan first renames it to EarlierIterations in every origin that still
+  /// holds it: all blocks from earlier iterations share that loan, which
+  /// stays conservative for them, and the new block is tracked on its own.
+  /// Its path is the site's interior, so a free of an earlier block (matched
+  /// by path prefix) does not reach the new one.
+  const Loan *EarlierIterations = nullptr;
+  /// This loan is another's EarlierIterations: origins get it by renaming,
+  /// never from an IssueFact.
+  bool IsEarlierIterations = false;
 
 public:
   Loan(LoanID ID, AccessPath Path, const Expr *IssueExpr = nullptr)
@@ -227,6 +239,12 @@ public:
   LoanID getID() const { return ID; }
   const AccessPath &getAccessPath() const { return Path; }
   const Expr *getIssueExpr() const { return IssueExpr; }
+  const Loan *getEarlierIterations() const { return EarlierIterations; }
+  void setEarlierIterations(Loan *L) {
+    L->IsEarlierIterations = true;
+    EarlierIterations = L;
+  }
+  bool isEarlierIterations() const { return IsEarlierIterations; }
 
   void dump(llvm::raw_ostream &OS) const;
 };

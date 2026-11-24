@@ -1186,6 +1186,14 @@ private:
         return getDiagSubjectDescription(VD);
 
     if (const auto *CE = dyn_cast<CallExpr>(E)) {
+      if (CE->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
+          CE->getNumArgs() == 1) {
+        std::string Src;
+        llvm::raw_string_ostream OS(Src);
+        CE->getArg(0)->IgnoreParenImpCasts()->printPretty(
+            OS, nullptr, S.getPrintingPolicy());
+        return "object taken from '" + Src + "'";
+      }
       const auto *FD = CE->getDirectCallee();
       if (!FD)
         return "result of call";

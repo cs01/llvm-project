@@ -130,9 +130,17 @@ static const Loan *createLoan(FactManager &FactMgr, const CXXNewExpr *NE) {
 /// \param CE The CallExpr that represents the allocation
 /// \return The new Loan on success, nullptr otherwise
 static const Loan *createNewAllocLoan(FactManager &FactMgr,
-                                      const CallExpr *CE) {
+                                      const CallExpr *CE,
+                                      bool PerIteration = false) {
   AccessPath Path(CE);
-  return FactMgr.getLoanMgr().createLoan(Path, CE);
+  Loan *L = FactMgr.getLoanMgr().createLoan(Path, CE);
+  // Earlier iterations' blocks get the interior path: freeing one of them
+  // (which invalidates by path prefix) does not end this iteration's block,
+  // while freeing or expiring this one still covers them.
+  if (PerIteration)
+    L->setEarlierIterations(FactMgr.getLoanMgr().createLoan(
+        AccessPath(Path, PathElement::getInterior()), CE));
+  return L;
 }
 
 // Safe C (M2): a pointer read out of an owned field is a borrow rooted at the
@@ -742,8 +750,16 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
     if (OriginList *Dst = getOriginsList(*CE))
       if (OriginList *Src = getOriginsList(*CE->getArg(0)))
         if (OriginList *Val = Src->peelOuterOrigin()) {
+          // An owned field or a global holds no loan of its block (only
+          // locals and allocation results do), so the taken value could
+          // carry none and a second free of it went unseen. Give it a fresh
+          // owner loan, as an allocation result has, next to the place's.
+          // (Issuing replaces an origin's loans, so it comes first.)
+          const Loan *L = createNewAllocLoan(FactMgr, CE, /*PerIteration=*/true);
+          CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
+              L->getID(), Dst->getOuterOriginID()));
           CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-              Dst->getOuterOriginID(), Val->getOuterOriginID(), /*Kill=*/true));
+              Dst->getOuterOriginID(), Val->getOuterOriginID(), /*Kill=*/false));
           // The place is null afterwards: it holds nothing.
           CurrentBlockFacts.push_back(
               FactMgr.createFact<KillOriginFact>(Val->getOuterOriginID()));
@@ -2011,7 +2027,8 @@ void FactsGenerator::handleAllocatingCall(const Expr *Call,
   OriginList *CallList = getOriginsList(*Call);
   if (!CallList)
     return;
-  const Loan *L = createNewAllocLoan(FactMgr, CE);
+  const Loan *L = createNewAllocLoan(
+      FactMgr, CE, /*PerIteration=*/AC.getASTContext().getLangOpts().SafeC);
   CurrentBlockFacts.push_back(
       FactMgr.createFact<IssueFact>(L->getID(), CallList->getOuterOriginID()));
 }
