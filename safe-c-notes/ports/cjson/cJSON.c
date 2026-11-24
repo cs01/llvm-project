@@ -606,7 +606,7 @@ static _Returns_owned unsigned char *_Nullable __counted_by_or_null(size) reallo
 }
 
 /* realloc printbuffer if necessary to have at least "needed" bytes more */
-static unsigned char *_Nullable __bidi_indexable ensure(printbuffer *_Excl const p, size_t needed)
+static unsigned char *_Nullable __bidi_indexable ensure(printbuffer *_Excl const p _Lifetimebound, size_t needed)
 {
     unsigned char *_Nullable _Owned newbuffer = NULL;
     unsigned char *_Nullable oldbuffer = NULL;
