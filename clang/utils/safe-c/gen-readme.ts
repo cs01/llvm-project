@@ -88,7 +88,7 @@ function summary(): string {
     `On ${PORTED ? "a ported copy of " : ""}NIST's Juliet suite, ${n(ct.n + rt.n)} of ${n(ct.all + rt.all)} cases in 10 bug classes${porting}:`,
     ``,
     `- **Null, double free, use after free: ${n(ct.c)} of ${n(ct.n)} rejected at compile time.** Rust also rejects these at compile time.`,
-    `- **Out of bounds, divide by zero: ${n(caught)} of ${n(rt.n)} stopped at the bad access**${missText}. The other ${n(rt.n - caught - missed)}: ${n(rt.inputMiss)} need an input the harness does not give (a random value, a file, a socket), and ${n(rt.excused)} are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated).`,
+    `- **Out of bounds, divide by zero: ${n(caught)} of ${n(rt.n)} stopped at the bad access**${missText} (being rechecked: for 3,221 of them the harness could not rule out a trap raised by the platform). The other ${n(rt.n - caught - missed)}: ${n(rt.inputMiss)} need an input the harness does not give (a random value, a file, a socket), and ${n(rt.excused)} are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated).`,
     ``,
     `A case counts only when Safe C gives a compile error or traps at the bug. [Full table, the port and the exclusions](safe-c-docs/results.md).`,
   ].join("\n");

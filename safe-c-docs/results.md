@@ -97,6 +97,7 @@ found a soundness hole and a crash in the compiler, both fixed.
 
 **Status.** Early. Ownership is on by default; data races are partly checked. A fuzzing
 pass (random programs compiled under Safe C and, unchecked, under AddressSanitizer) found
-18 ways to get a memory error past the rules; all 18 are fixed, each with a test, and the
-fuzzer is rerun on every compiler change as the gate. Open items, and everything found and fixed so far, are tracked in
+18 ways to get a memory error past the rules; all 18 are fixed, each with a test. It does
+not generate everything: on 2026-11-24 a Lean model of out arguments led to 53 accepted
+programs with real use-after-free bugs (13 causes), which are open. Open items, and everything found and fixed so far, are tracked in
 [safe-c-notes/review-2026-11-23.md](../safe-c-notes/review-2026-11-23.md).

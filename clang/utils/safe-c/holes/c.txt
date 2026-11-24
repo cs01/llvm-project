@@ -1,0 +1,117 @@
+//// c01
+static void f(int *N *a, int *N *c, struct own *_Exclusive s){ *a=s->p; int *N l=*c; *a=0; free(_Take(s->p)); if(l) *l=1; }
+int main(void){ struct own s={malloc(4)}; int *N o=0; f(&o,&o,&s); return 0;}
+//// c02
+static void f(int *N *a, int *N *c, struct own *_Exclusive s){ *a=s->p; *c=0; *a=*c; free(_Take(s->p)); *a=0;}
+int main(void){ struct own s={malloc(4)}; int *N o=0; f(&o,&o,&s); return o?*o:0;}
+//// c03
+static void f(int *N *a, int *N *c, struct own *_Exclusive s){ *c=s->p; *a=*c; *c=0; free(_Take(s->p)); if(*a) **a=2; *a=0; }
+int main(void){ struct own s={malloc(4)}; int *N o=0, *N o2=0; f(&o,&o2,&s); return 0;}
+//// c04
+static _Thread_local struct own g;
+static void f(int *N *q){ free(_Take(g.p)); if(*q) **q=2; }
+int main(void){ g.p=malloc(4); int *N q=g.p; f(&q); return 0;}
+//// c05
+static _Thread_local struct own g;
+static void f(struct own *s){ int *N l=s->p; free(_Take(g.p)); if(l) *l=1; }
+int main(void){ g.p=malloc(4); f(&g); return 0;}
+//// c06
+static _Thread_local struct own g;
+static void drop(void){ free(_Take(g.p)); }
+static void f(struct own *s){ int *N l=s->p; drop(); if(l) *l=1; }
+int main(void){ g.p=malloc(4); f(&g); return 0;}
+//// c07
+static _Thread_local struct own g;
+static void f(struct box v){ free(_Take(g.p)); if(v.p) *v.p=1; }
+int main(void){ g.p=malloc(4); struct box v={g.p}; f(v); return 0;}
+//// c08
+static _Thread_local struct own g;
+static void f(struct box *t){ free(_Take(g.p)); if(t->p) *t->p=1; }
+int main(void){ g.p=malloc(4); int *N b=0; struct box *_Owned _Nullable t=calloc(1,sizeof *t); if(!t) return 0; t[0].p=g.p; f(t); free(t); return 0;}
+//// c09
+static void f(struct box *t, struct own *_Exclusive s){ free(_Take(s->p)); if(t->p) *t->p=1; }
+int main(void){ struct own s={malloc(4)}; struct box *_Owned _Nullable t=calloc(1,sizeof *t); if(!t) return 0; t[0].p=s.p; f(t,&s); free(t); return 0;}
+//// c10
+static void f(struct box *t, struct own *_Exclusive s){ free(_Take(s->p)); if(t->p) *t->p=1; }
+int main(void){ struct own s={malloc(4)}; struct box t={s.p}; f(&t,&s); return 0;}
+//// c11
+static _Thread_local struct own g;
+static void drop(void){ free(_Take(g.p)); }
+int main(void){ g.p=malloc(4); struct box *_Owned _Nullable t=calloc(1,sizeof *t); if(!t) return 0; t[0].p=g.p; drop(); int r=t[0].p?*t[0].p:0; free(t); return r;}
+//// c12
+static void f(struct own *a, struct own *_Exclusive s){ int *N l=a->p; free(_Take(s->p)); if(l) *l=1; }
+int main(void){ struct own s={malloc(4)}; struct own *a=&s; f(a,&s); return 0;}
+//// c13
+struct _View V {struct own *s;};
+static void f(struct V v, struct own *_Exclusive s){ int *N l=v.s->p; free(_Take(s->p)); if(l) *l=1; }
+int main(void){ struct own s={malloc(4)}; struct V v={&s}; f(v,&s); return 0;}
+//// c14
+static void f(struct own *a, int *N *o, struct own *_Exclusive s){ *o=a->p; free(_Take(s->p)); if(*o) **o=1; *o=0; }
+int main(void){ struct own s={malloc(4)}; struct own *a=&s; struct own *a2=a; int *N o=0; f(a2,&o,&s); return 0;}
+//// c15
+static struct own *__single ido(struct own *s _Lifetimebound){return s;}
+static void f(struct own *a, struct own *_Exclusive s){ int *N l=a->p; free(_Take(s->p)); if(l) *l=1; }
+int main(void){ struct own s={malloc(4)}; f(ido(&s),&s); return 0;}
+//// c16
+static int *_Nullable get(struct own *s _Lifetimebound){return s->p;}
+static void f(int *_Nullable in, struct own *_Exclusive s){ free(_Take(s->p)); if(in) *in=1; }
+int main(void){ struct own s={malloc(4)}; f(get(&s),&s); return 0;}
+//// c17
+static void f(int *N *__single o, int *in){ *o=in; }
+int main(void){ B struct box v={0}; f(&v.p,b); free(b); return v.p?*v.p:0; }
+//// c18
+int main(void){ B struct box *_Owned _Nullable t=calloc(1,sizeof *t); if(!t){free(b);return 0;} set(&t[0].p,b); free(b); int r=t[0].p?*t[0].p:0; free(t); return r; }
+//// c19
+static void ff(struct box *_Owned t, int *in){ struct box v={in}; *t=v; free(t);}
+int main(void){ return 0; }
+//// c20
+static void f(struct box *_Exclusive out, struct box *_Exclusive in){ struct box tmp=*out; *out=*in; *in=tmp; }
+int main(void){ B struct box v={b},w={0}; f(&w,&v); free(b); return w.p?*w.p:0; }
+//// c21
+static void f(struct box *out, int *in){ set(&out->p, in); }
+int main(void){ B struct box v={0}; f(&v,b); free(b); return v.p?*v.p:0; }
+//// c22
+static void f(struct box *out, int *in _Noescape){ set(&out->p, in); }
+int main(void){ B struct box v={0}; f(&v,b); free(b); return v.p?*v.p:0; }
+//// c23
+static void f(struct box *out){ int x=3; set(&out->p, &x); }
+int main(void){ struct box v={0}; f(&v); return v.p?*v.p:0; }
+//// c24
+static _Thread_local struct own g;
+static void f(struct box *out){ if(g.p) set(&out->p, g.p); }
+int main(void){ g.p=malloc(4); struct box v={0}; f(&v); free(_Take(g.p)); return v.p?*v.p:0; }
+//// c25
+static void f(int *N *out, struct own *_Exclusive s){ set(out, &gi); if(s->p) set(out,s->p); free(_Take(s->p)); }
+int main(void){ struct own s={malloc(4)}; int *N o=0; f(&o,&s); return o?*o:0; }
+//// c26
+static void f(int *N *out, struct own *_Exclusive s){ int *N *__single q=out; *q=s->p; free(_Take(s->p)); }
+int main(void){ struct own s={malloc(4)}; int *N o=0; f(&o,&s); return o?*o:0; }
+//// c27
+static void f(struct box *out, struct own *_Exclusive s){ struct box *q=out; struct box v={s->p}; setbox(q,v); free(_Take(s->p)); }
+int main(void){ struct own s={malloc(4)}; struct box o={0}; f(&o,&s); return o.p?*o.p:0; }
+//// c28
+static void f(int *N *out, int *N *out2, struct own *_Exclusive s){ if(s->p) set(gi?out:out2, s->p); free(_Take(s->p)); }
+int main(void){ struct own s={malloc(4)}; int *N o=0, *N o2=0; f(&o,&o2,&s); return o2?*o2:0; }
+//// c29
+static void f(int *_Nullable out[2], int *in){ out[1]=in; }
+int main(void){ B int *_Nullable o[2]={0,0}; f(o,b); free(b); return o[1]?*o[1]:0; }
+//// c30
+static int *_Nullable f(int *N *out, int *in){ *out=in; return 0; }
+int main(void){ B int *N o=0; int *N r=f(&o,b); (void)r; free(b); return o?*o:0; }
+//// c31
+static void f(int *N *out, int *in, ...){ *out=in; }
+int main(void){ B int *N o=0; f(&o,b,1); RET }
+//// c32
+int main(void){ B struct box *_Owned _Nullable t=calloc(2,sizeof *t); if(!t){free(b);return 0;} struct box *q=&t[1]; t[1].p=b; free(b); int r=q->p?*q->p:0; free(t); return r; }
+//// c33
+static int rd(struct box *q){ return q->p?*q->p:0; }
+int main(void){ B struct box *_Owned _Nullable t=calloc(2,sizeof *t); if(!t){free(b);return 0;} struct box *q=&t[0]; t[0].p=b; free(b); int r=rd(q); free(t); return r; }
+//// c34
+static void f(struct box *t, int *N *o){ *o=t->p; }
+int main(void){ B int *N o=0; struct box v={0}; struct box *q=&v; v.p=b; f(q,&o); free(b); return o?*o:0; }
+//// c35
+int main(void){ B int *N o=0; struct box v={0}; struct box *q=&v; v.p=b; free(b); return q->p?*q->p:0; }
+//// c36
+int main(void){ B int *N o=0; int *N *__single q=&o; o=b; free(b); return *q?**q:0; }
+//// c37
+int main(void){ B struct box v={0}; set(&(gi?&v:&v)->p,b); free(b); return v.p?*v.p:0; }

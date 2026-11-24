@@ -70,11 +70,11 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 | Uninitialized reads | locals must be set before use; heap memory is zero-filled (except the bytes `realloc` adds) |
 | Integer UB | division by zero and oversized shifts trap; signed overflow wraps (as in Rust release builds) |
 | Type confusion | unions holding pointers must be tagged unions, and every read checks the tag. Open: raw bytes copied in through a `void *` variable, `va_arg` of a struct holding pointers |
-| Use after free, double free | on by default; the 18 escapes a fuzzer found are fixed. Open: a null check can survive a call that clears the pointer through a global |
+| Use after free, double free | on by default, **not sound yet**: the common forms are caught, but pointers to borrows (`int **p = &q; *p = b;`) and arguments that alias are not fully tracked. 53 accepted programs with real bugs, 13 causes, are [listed](safe-c-notes/review-2026-11-23.md) and being fixed. A null check can also survive a call that clears the pointer through a global |
 | Data races | a thread owns its argument; locked data, mutable globals and signal handlers are checked. Not yet: a counted pointer and its count under one lock, shared owners (`Arc`) |
 
-**Maturity.** Early. Tested on macOS (arm64) against Apple's SDK; Linux is being brought
-up in CI. Ported so far: jsmn, cJSON, lz4. The design is proven sound in Lean for small
+**Maturity.** Early. Tested on macOS (arm64) against Apple's SDK. Linux builds but is not usable yet
+(glibc's headers have no annotations). Ported so far: jsmn, cJSON, lz4, inih. The design is proven sound in Lean for small
 models of each rule set, not for Clang itself (see [results](safe-c-docs/results.md)).
 Every open item: [open issues](safe-c-notes/review-2026-11-23.md).
 
@@ -92,7 +92,7 @@ not counted.
 On a ported copy of NIST's Juliet suite, 6,773 of 11,522 cases in 10 bug classes (those whose fixed version builds after porting):
 
 - **Null, double free, use after free: 608 of 608 rejected at compile time.** Rust also rejects these at compile time.
-- **Out of bounds, divide by zero: 5,545 of 6,165 stopped at the bad access**. The other 620: 394 need an input the harness does not give (a random value, a file, a socket), and 226 are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated).
+- **Out of bounds, divide by zero: 5,545 of 6,165 stopped at the bad access** (being rechecked: for 3,221 of them the harness could not rule out a trap raised by the platform). The other 620: 394 need an input the harness does not give (a random value, a file, a socket), and 226 are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated).
 
 A case counts only when Safe C gives a compile error or traps at the bug. [Full table, the port and the exclusions](safe-c-docs/results.md).
 <!-- end generated:summary -->
