@@ -25,8 +25,22 @@ function port(text: string): string {
       if (!nulled.has(name) || /\b(return|goto|case)\b/.test(ty)) return m;
       stats.nullable++; return `${ind}${ty.trimEnd()} _Nullable ${name};`;
     });
+  // (c) Flow variants 34 and 67 pass the data through a union or struct
+  // that lives only in locals and parameters: a borrow carrier, which Safe
+  // C spells _View (Rust: a struct with a lifetime).
+  text = text.replace(/typedef union\s*\n\{/g, () => { stats.views = (stats.views ?? 0) + 1; return "typedef union _View\n{"; });
+  text = text.replace(/typedef struct (\w*_structType)\b/g, (_m, name) => { stats.views = (stats.views ?? 0) + 1; return `typedef struct _View ${name}`; });
+  // (d) charVoid keeps a string literal in void * fields and casts it back
+  // to print it: give the fields their real type (static text). The bug,
+  // writing past charFirst into those fields, is unchanged.
+  if (text.includes("voidSecond")) {
+    stats.statics = (stats.statics ?? 0) + 1;
+    text = text.replace(/^(\s+)void \* (voidSecond|voidThird);/gm, "$1const char *_Static $2;");
+    text = text.replace(/(voidSecond\s*=\s*)\(void \*\)/g, "$1");
+    text = text.replace(/\(char \*\)(structCharVoid(?:\.|->)voidSecond)/g, "$1");
+  }
   // (b) strcpy/strcat/wcscpy/wcscat: checked copies that trap (juliet_port.h).
-  if (/\b(strcpy|strcat|wcscpy|wcscat)\s*\(/.test(text)) {
+  if (/\b(strcpy|strcat|wcscpy|wcscat|strncat|wcsncat)\s*\(/.test(text)) {
     stats.strfns++;
     text = text.replace(/#include "std_testcase.h"\n/, '#include "std_testcase.h"\n#include "juliet_port.h"\n');
   }
