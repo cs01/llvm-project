@@ -60,8 +60,8 @@ Details: [how each is closed](safe-c-docs/protection.md).
 
 <!-- generated:summary -->
 On NIST's Juliet suite, bugs Rust rejects at compile time (null, double free, use after
-free): 723 of 735 rejected at compile time. Bugs Rust catches at run time (bounds,
-division by zero): 983 of 983 trapped, counting cases whose bug the test input reaches.
+free): 498 of 498 rejected at compile time. Bugs Rust catches at run time (bounds,
+division by zero): 1915 of 2017 trapped, counting cases whose bug the test input reaches.
 <!-- end generated:summary -->
 
 Ports: [jsmn](safe-c-notes/ports/jsmn/PORT.md) and [cJSON](safe-c-notes/ports/cjson/PORT.md)
