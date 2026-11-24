@@ -296,6 +296,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "(a field of %1, or another parameter's data), or return the value "
      "instead; if a call here received it along with %1 and does not keep it, "
      "mark that function's parameter '_Noescape'"},
+    {"global-borrow-stored", false,
+     "this borrows memory a global owns, and storing it where %0 points hides "
+     "that from the caller, who could use it after the global frees it; take "
+     "the object that owns it as a parameter instead of reading the global"},
     {"noescape-stored", false,
      "%0 is '_Noescape', so callers count on it not being kept, but it is "
      "stored where %1 points; drop '_Noescape' from %0, and callers will keep "

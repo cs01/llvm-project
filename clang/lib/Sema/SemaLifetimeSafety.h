@@ -838,6 +838,11 @@ public:
           << FieldDesc << FD->getSourceRange();
   }
 
+  void reportGlobalBorrowStored(const Expr *IssueExpr,
+                                const ParmVarDecl *Param) override {
+    S.SafeCDiag(IssueExpr->getExprLoc(), "global-borrow-stored") << Param;
+  }
+
   void reportNoescapeViolation(const ParmVarDecl *ParmWithNoescape,
                                const Expr *EscapeExpr) override {
     // Don't enable this via -Weverything - see rdar://190623069.

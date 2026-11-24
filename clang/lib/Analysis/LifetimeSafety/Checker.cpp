@@ -219,6 +219,13 @@ public:
     auto MovedAtEscape = MovedLoans.getMovedLoans(OEF);
     for (LoanID LID : EscapedLoans) {
       const Loan *L = FactMgr.getLoanMgr().getLoan(LID);
+      // Safe C: the function's own declaration stands for its globals. A
+      // caller cannot see that `*out = g.p` borrows one.
+      if (const auto *ParamEsc = dyn_cast<ParamEscapeFact>(OEF);
+          ParamEsc && L->getAccessPath().getAsValueDecl() == FD &&
+          L->getIssueExpr() && SemaHelper)
+        SemaHelper->reportGlobalBorrowStored(L->getIssueExpr(),
+                                             ParamEsc->getParam());
       const PlaceholderBase *PB = L->getAccessPath().getAsPlaceholderBase();
       if (!PB)
         continue;

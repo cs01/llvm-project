@@ -109,6 +109,11 @@ public:
                                    const Expr *InvalidationExpr,
                                    SourceLocation ExpiryLoc) {}
 
+  /// Safe C: a borrow of a global's owned target is stored where \p Param
+  /// points, where callers cannot see it end.
+  virtual void reportGlobalBorrowStored(const Expr *IssueExpr,
+                                        const ParmVarDecl *Param) {}
+
   virtual void reportDanglingGlobal(const Expr *IssueExpr,
                                     const VarDecl *DanglingGlobal,
                                     const Expr *MovedExpr,

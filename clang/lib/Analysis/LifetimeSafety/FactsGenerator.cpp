@@ -12,6 +12,7 @@
 
 #include "clang/AST/Decl.h"
 #include "clang/AST/ParentMap.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/Expr.h"
@@ -633,35 +634,62 @@ void FactsGenerator::safeCFlowThroughOutArgs(const CallExpr *CE) {
     return T->isPointerType() && !T->isFunctionPointerType() &&
            Kind != "owned" && Kind != "static";
   };
-  for (unsigned J = 0; J != N; ++J) {
-    QualType T = Proto->getParamType(J);
-    if (!T->isPointerType())
-      continue;
-    QualType Slot = T->getPointeeType();
-    if (Slot.isConstQualified() || !HoldsBorrow(Slot))
-      continue;
-    const VarDecl *Root = safeCRootVar(CE->getArg(J));
-    if (!Root)
-      continue;
-    const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
-    for (unsigned I = 0; I != N; ++I) {
-      if (I == J || !IsSource(I))
+  // Every level of every variable an out argument may reach.
+  auto Outs = [&](unsigned Except) {
+    llvm::SmallVector<OriginID> Result;
+    for (unsigned J = 0; J != N; ++J) {
+      QualType T = Proto->getParamType(J);
+      if (J == Except || !T->isPointerType())
         continue;
-      OriginList *Src = getOriginsList(*CE->getArg(I));
-      // The pointer itself is not kept; what it points to may be copied out.
-      if (Src && IsNoEscape(I))
-        Src = Src->peelOuterOrigin();
-      for (; Src; Src = Src->peelOuterOrigin())
-        for (const VarDecl *VD : {Root, Resolved}) {
-          if (VD)
-            for (OriginList *Dst = getOriginsList(*VD); Dst;
-                 Dst = Dst->peelOuterOrigin())
-              CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-                  Dst->getOuterOriginID(), Src->getOuterOriginID(),
-                  /*Kill=*/false));
-          if (Root == Resolved)
-            break;
-        }
+      QualType Slot = T->getPointeeType();
+      if (Slot.isConstQualified() || !HoldsBorrow(Slot))
+        continue;
+      const VarDecl *Root = safeCRootVar(CE->getArg(J));
+      if (!Root)
+        continue;
+      const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
+      for (const VarDecl *VD : {Root, Resolved})
+        for (OriginList *Dst = VD ? getOriginsList(*VD) : nullptr; Dst;
+             Dst = Dst->peelOuterOrigin())
+          Result.push_back(Dst->getOuterOriginID());
+    }
+    return Result;
+  };
+  auto Flow = [&](OriginID From, llvm::ArrayRef<OriginID> To) {
+    for (OriginID ID : To)
+      CurrentBlockFacts.push_back(
+          FactMgr.createFact<OriginFlowFact>(ID, From, /*Kill=*/false));
+  };
+  for (unsigned I = 0; I != N; ++I) {
+    if (!IsSource(I))
+      continue;
+    llvm::SmallVector<OriginID> To = Outs(I);
+    OriginList *Src = getOriginsList(*CE->getArg(I));
+    if (To.empty() || !Src)
+      continue;
+    OriginList *First = Src;
+    // The pointer itself is not kept; what it points to may be copied out.
+    if (IsNoEscape(I))
+      Src = Src->peelOuterOrigin();
+    for (; Src; Src = Src->peelOuterOrigin())
+      Flow(Src->getOuterOriginID(), To);
+    // `*out = s->owned` is a borrow rooted at what s names, ended by the next
+    // take or exclusive lend of it. (The argument's own origin is used up by
+    // the call, so it can carry the loan.)
+    if (IsNoEscape(I) || !safeCOwnershipOn(AC.getASTContext()))
+      continue;
+    if (const VarDecl *Root = safeCRootOrGlobal(CE->getArg(I))) {
+      Root = safeCResolveRoot(Root, AC.getBody(), 0);
+      bool Global = Root->hasGlobalStorage();
+      if (Global && !isa<FunctionDecl>(AC.getDecl()))
+        continue;
+      const Loan *L = FactMgr.getLoanMgr().createLoan(
+          Global ? safeCGlobalsInterior(AC.getDecl())
+                 : safeCRootInterior(FactMgr.getLoanMgr(), *Root),
+          CE->getArg(I));
+      CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
+          L->getID(), First->getOuterOriginID()));
+      Flow(First->getOuterOriginID(), To);
     }
   }
 }
@@ -768,8 +796,11 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
     }
   }
   handleFunctionCall(CE);
-  if (AC.getASTContext().getLangOpts().SafeC)
-    safeCFlowThroughOutArgs(CE);
+  // Last: the borrows stored are taken after the call has ended the old ones.
+  llvm::scope_exit OutArgs([&] {
+    if (AC.getASTContext().getLangOpts().SafeC)
+      safeCFlowThroughOutArgs(CE);
+  });
   if (!safeCOwnershipOn(AC.getASTContext()))
     return;
   // M5: pthread_create moves its argument into the new thread; the spawning
