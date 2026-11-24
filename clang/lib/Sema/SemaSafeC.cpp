@@ -242,6 +242,12 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 can write past the end of its destination, which nothing checks; "
      "use the size-bounded form, as in 'wcslcat(dst, src, N)' with N the "
      "destination's length in wide characters"},
+    {"signal-handler-global", false,
+     "%0 is a signal handler, so it can run in the middle of any code, "
+     "including code that is using %1; a handler may only touch globals "
+     "that are '_Atomic', 'volatile sig_atomic_t' or 'const' (set a flag "
+     "here and do the work in the main loop)"},
+    {"signal-handler-global-use", true, "%0 is used here"},
     {"spawn-borrow", false,
      "the new thread may outlive what this pointer borrows (the spawning "
      "function can return or free it first); give the thread memory it owns "
@@ -816,6 +822,7 @@ public:
       : S(S), Body(Body) {}
 
   bool VisitBinaryOperator(BinaryOperator *BO) {
+    checkSigactionStore(BO);
     if (BO->getOpcode() == BO_Assign && !isTrackedLocal(BO->getLHS()) &&
         BO->getLHS()->getType()->isPointerType() &&
         safeCPointerKind(BO->getLHS()->getType()) != "owned") {
@@ -988,8 +995,80 @@ public:
               << Root;
   }
 
+  /// M5: a global a signal handler may not touch (C11 7.14.1.1p5 allows
+  /// only lock-free atomics and volatile sig_atomic_t), searched through
+  /// the handler's calls to functions with bodies. Sets \p Use.
+  static const VarDecl *signalUnsafeGlobal(const FunctionDecl *FD,
+                                           const DeclRefExpr *&Use,
+                                           unsigned Depth) {
+    const FunctionDecl *Def = nullptr;
+    if (Depth > 6 || !FD->hasBody(Def) || !Def)
+      return nullptr;
+    struct Finder : RecursiveASTVisitor<Finder> {
+      unsigned Depth;
+      const VarDecl *Found = nullptr;
+      const DeclRefExpr *Use = nullptr;
+      bool VisitDeclRefExpr(DeclRefExpr *DRE) {
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+            VD && VD->hasGlobalStorage() && !VD->isStaticLocal()) {
+          QualType T = VD->getType();
+          bool OK = T.isConstQualified() || T->isAtomicType() ||
+                    (T.isVolatileQualified() && T->isIntegerType()) ||
+                    VD->getTLSKind() != VarDecl::TLS_None;
+          if (!OK) {
+            Found = VD;
+            Use = DRE;
+            return false;
+          }
+        }
+        if (const auto *Callee = dyn_cast<FunctionDecl>(DRE->getDecl())) {
+          const DeclRefExpr *Inner = nullptr;
+          if (const VarDecl *G = signalUnsafeGlobal(Callee, Inner, Depth + 1)) {
+            Found = G;
+            Use = Inner;
+            return false;
+          }
+        }
+        return true;
+      }
+    } F;
+    F.Depth = Depth;
+    F.TraverseStmt(Def->getBody());
+    Use = F.Use;
+    return F.Found;
+  }
+
+  void checkSignalHandler(const Expr *Handler) {
+    const auto *DRE = dyn_cast<DeclRefExpr>(Handler->IgnoreParenCasts());
+    const auto *FD = DRE ? dyn_cast<FunctionDecl>(DRE->getDecl()) : nullptr;
+    if (!FD)
+      return;
+    const DeclRefExpr *Use = nullptr;
+    if (const VarDecl *G = signalUnsafeGlobal(FD, Use, 0)) {
+      S.SafeCDiag(Handler->getExprLoc(), "signal-handler-global") << FD << G;
+      if (Use)
+        S.SafeCDiag(Use->getExprLoc(), "signal-handler-global-use") << G;
+    }
+  }
+
+  void checkSigactionStore(BinaryOperator *BO) {
+    // sigaction's handler fields.
+    if (BO->getOpcode() == BO_Assign)
+      if (const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens()))
+        if (const auto *FDecl = dyn_cast<FieldDecl>(ME->getMemberDecl());
+            FDecl && FDecl->getIdentifier() &&
+            (FDecl->getName() == "sa_handler" ||
+             FDecl->getName() == "sa_sigaction" ||
+             FDecl->getName() == "__sa_handler"))
+          checkSignalHandler(BO->getRHS());
+  }
+
   bool VisitCallExpr(CallExpr *Call) {
     checkCallAliasing(Call);
+    if (const FunctionDecl *F = Call->getDirectCallee();
+        F && F->isExternC() && F->getIdentifier() &&
+        F->getName() == "signal" && Call->getNumArgs() == 2)
+      checkSignalHandler(Call->getArg(1));
     // M5 rule 1: a thread's argument is moved into it (Rust's 'static +
     // Send bound on spawn): an owner, static data, or null.
     if (const FunctionDecl *F = Call->getDirectCallee();
