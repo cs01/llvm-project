@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "CheckExprLifetime.h"
+#include "SafeCState.h"
 #include "clang/AST/APValue.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTDiagnostic.h"
@@ -3729,6 +3730,10 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     break;
   case Builtin::BI__builtin_function_start:
     if (BuiltinFunctionStart(*this, TheCall))
+      return ExprError();
+    break;
+  case Builtin::BI__builtin_safec_take:
+    if (checkSafeCTakeBuiltin(*this, TheCall))
       return ExprError();
     break;
   case Builtin::BI__builtin_is_aligned:

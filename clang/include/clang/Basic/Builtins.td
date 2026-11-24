@@ -4985,6 +4985,13 @@ def BuiltinAddressof : Builtin {
   let Prototype = "void*(void&)";
 }
 
+// Safe C: move an owned pointer out of a field or global, leaving null.
+def BuiltinSafeCTake : Builtin {
+  let Spellings = ["__builtin_safec_take"];
+  let Attributes = [NoThrow, CustomTypeChecking];
+  let Prototype = "void*(...)";
+}
+
 def BuiltinFunctionStart : Builtin {
   let Spellings = ["__builtin_function_start"];
   let Attributes = [NoThrow, Const, CustomTypeChecking, Constexpr];

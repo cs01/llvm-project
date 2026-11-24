@@ -18031,23 +18031,6 @@ static void checkSafeCAllocatorBody(Sema &S, const FunctionDecl *FD,
             << FD << V->getSourceRange();
 }
 
-/// Safe C: whether \p FD takes ownership of (frees) parameter \p Idx
-/// (0-based), as the C library's free and realloc do.
-static bool safeCTakesParam(const Decl *D, unsigned Idx) {
-  if (const auto *FD = dyn_cast<FunctionDecl>(D))
-    if (FD->isExternC() && FD->getIdentifier() && Idx == 0 &&
-        llvm::is_contained({"free", "realloc", "reallocf", "fclose", "pclose",
-                            "closedir"},
-                           FD->getName()))
-      return true;
-  for (const auto *OA : D->specific_attrs<OwnershipAttr>())
-    if (OA->isTakes())
-      for (const ParamIdx &P : OA->args())
-        if (P.getASTIndex() == Idx)
-          return true;
-  return false;
-}
-
 /// Safe C: a function that frees a parameter may be stored only into a
 /// function pointer whose declaration says so; calls through any other pointer
 /// would keep using the freed memory unseen. (The other way round is safe: a

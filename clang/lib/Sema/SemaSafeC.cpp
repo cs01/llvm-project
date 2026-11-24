@@ -18,6 +18,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Basic/Builtins.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/SourceManager.h"
@@ -143,6 +144,25 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%select{global|field}0 %1 holds a '__safec_view' struct, whose borrows "
      "are tracked only in locals and parameters; make it a local, or pass it "
      "as a parameter"},
+    {"take-operand", false,
+     "'__safec_take' moves a pointer out of a field or global and leaves "
+     "null behind, so it needs a pointer that can be assigned, such as "
+     "'__safec_take(n->next)'"},
+    {"take-nonnull", false,
+     "'__safec_take' leaves null behind, so '%0' must be declared "
+     "'_Nullable'"},
+    {"owned-store", false,
+     "%0 is '__safec_owned', so it must be given a pointer it may free: a "
+     "new allocation, an owned local (which is then moved), or "
+     "'__safec_take(...)' of another owned field; this value is borrowed, so "
+     "its owner would free it too"},
+    {"free-in-place", false,
+     "freeing a pointer that is still stored in %0 leaves %0 dangling; move "
+     "it out first, as in 'free(__safec_take(n->next))'"},
+    {"owning-struct-copy", false,
+     "copying %0 duplicates its owned field %1, and both copies would free "
+     "it; pass a pointer to it instead, or move the field out with "
+     "'__safec_take'"},
     {"view-write-through-pointer", false,
      "writing a borrow into a '__safec_view' through a pointer can outlive "
      "what it points to, because the view's own lifetime is unknown here; "
@@ -302,6 +322,64 @@ static bool isStaticObject(ASTContext &Ctx, const Expr *E) {
   return false;
 }
 
+/// An __safec_owned field, global or local, or a parameter the function
+/// takes ownership of.
+static bool isOwnedStorage(const ValueDecl *D) {
+  if (hasSafeCAnnotation(D, "safec_owned"))
+    return true;
+  if (const auto *P = dyn_cast<ParmVarDecl>(D))
+    if (const auto *F = dyn_cast<FunctionDecl>(P->getDeclContext()))
+      return safeCTakesParam(F, P->getFunctionScopeIndex());
+  return false;
+}
+
+/// The first owned field of \p T, looking into nested structs and arrays.
+static const FieldDecl *ownedFieldOf(QualType T) {
+  while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
+    T = AT->getElementType();
+  const RecordDecl *RD = T->getAsRecordDecl();
+  if (!RD || !RD->getDefinition())
+    return nullptr;
+  for (const FieldDecl *FD : RD->getDefinition()->fields()) {
+    if (hasSafeCAnnotation(FD, "safec_owned"))
+      return FD;
+    if (const FieldDecl *Inner = ownedFieldOf(FD->getType()))
+      return Inner;
+  }
+  return nullptr;
+}
+
+/// E gives up a pointer the receiver may free: null, a new allocation, a
+/// take, or a local or owned parameter (the flow layer checks it owns).
+static bool isOwnedSource(ASTContext &Ctx, const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
+    return true;
+  if (const auto *CE = dyn_cast<CStyleCastExpr>(E))
+    return isOwnedSource(Ctx, CE->getSubExpr());
+  if (const auto *Call = dyn_cast<CallExpr>(E)) {
+    if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take)
+      return true;
+    const FunctionDecl *F = Call->getDirectCallee();
+    if (!F)
+      return false;
+    for (const auto *OA : F->specific_attrs<OwnershipAttr>())
+      if (OA->isReturns())
+        return true;
+    return F->getIdentifier() &&
+           llvm::is_contained({"malloc", "calloc", "realloc", "reallocf",
+                               "strdup", "strndup", "aligned_alloc"},
+                              F->getName());
+  }
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    if (const auto *P = dyn_cast<ParmVarDecl>(DRE->getDecl()))
+      return isOwnedStorage(P);
+    const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+    return VD && VD->isLocalVarDecl() && !VD->isStaticLocal();
+  }
+  return false;
+}
+
 namespace {
 class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   Sema &S;
@@ -319,7 +397,13 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
       S.SafeCDiag(Src->getExprLoc(), "static-store") << Dst;
     if (hasSafeCAnnotation(Dst, "safec_unchecked"))
       allowRead(Src);
+    if (Dst->getType()->isPointerType() && isOwnedStorage(Dst) &&
+        !isa<ParmVarDecl>(Dst) && !isOwnedSource(S.Context, Src))
+      S.SafeCDiag(Src->getExprLoc(), "owned-store") << Dst;
   }
+
+  // Struct copies that are moves: returning a local.
+  llvm::SmallPtrSet<const Expr *, 4> AllowedStructCopies;
 
 public:
   explicit PointerKindChecker(Sema &S) : S(S) {}
@@ -370,9 +454,49 @@ public:
     return true;
   }
 
+  bool VisitCStyleCastExpr(CStyleCastExpr *CE) {
+    // (void)s discards the value; nothing is copied.
+    if (CE->getCastKind() == CK_ToVoid)
+      AllowedStructCopies.insert(CE->getSubExpr()->IgnoreParens());
+    return true;
+  }
+
+  bool VisitReturnStmt(ReturnStmt *RS) {
+    if (const Expr *V = RS->getRetValue())
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(V->IgnoreParenImpCasts()))
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+            VD && VD->isLocalVarDecl() && !VD->isStaticLocal())
+          AllowedStructCopies.insert(V->IgnoreParens());
+    return true;
+  }
+
+  bool VisitCallExpr(CallExpr *Call) {
+    const Decl *Callee = Call->getCalleeDecl();
+    if (!Callee)
+      return true;
+    for (unsigned I = 0, N = Call->getNumArgs(); I != N; ++I) {
+      if (!safeCTakesParam(Callee, I))
+        continue;
+      const Expr *A = Call->getArg(I)->IgnoreParenImpCasts();
+      const ValueDecl *D = namedStorage(A);
+      bool InPlace = isa<MemberExpr>(A) ||
+                     (D && isa<VarDecl>(D) &&
+                      cast<VarDecl>(D)->hasGlobalStorage());
+      if (InPlace && D)
+        S.SafeCDiag(A->getExprLoc(), "free-in-place") << D;
+    }
+    return true;
+  }
+
   bool VisitImplicitCastExpr(ImplicitCastExpr *ICE) {
     if (ICE->getCastKind() != CK_LValueToRValue)
       return true;
+    if (ICE->getType()->isRecordType() && !AllowedStructCopies.count(ICE))
+      if (const FieldDecl *Owned = ownedFieldOf(ICE->getType())) {
+        S.SafeCDiag(ICE->getExprLoc(), "owning-struct-copy")
+            << ICE->getType() << Owned;
+        return true;
+      }
     const ValueDecl *D = namedStorage(ICE->getSubExpr());
     if (D && hasSafeCAnnotation(D, "safec_unchecked") &&
         !AllowedUncheckedReads.count(ICE))
@@ -390,4 +514,47 @@ void clang::checkSafeCPointerKindsIn(Sema &S, Stmt *Body) {
 void clang::checkSafeCPointerKindsIn(Sema &S, Decl *GlobalVar) {
   if (GlobalVar && safeCOwnershipEnabled(S))
     PointerKindChecker(S).TraverseDecl(GlobalVar);
+}
+
+/// Safe C: whether \p FD takes ownership of (frees) parameter \p Idx
+/// (0-based), as the C library's free and realloc do.
+bool clang::safeCTakesParam(const Decl *D, unsigned Idx) {
+  if (const auto *FD = dyn_cast<FunctionDecl>(D))
+    if (FD->isExternC() && FD->getIdentifier() && Idx == 0 &&
+        llvm::is_contained({"free", "realloc", "reallocf", "fclose", "pclose",
+                            "closedir"},
+                           FD->getName()))
+      return true;
+  for (const auto *OA : D->specific_attrs<OwnershipAttr>())
+    if (OA->isTakes())
+      for (const ParamIdx &P : OA->args())
+        if (P.getASTIndex() == Idx)
+          return true;
+  return false;
+}
+
+
+bool clang::checkSafeCTakeBuiltin(Sema &S, CallExpr *TheCall) {
+  if (S.checkArgCount(TheCall, 1))
+    return true;
+  Expr *Arg = TheCall->getArg(0);
+  QualType T = Arg->getType();
+  if (!T->isPointerType() ||
+      Arg->isModifiableLvalue(S.Context) != Expr::MLV_Valid) {
+    S.SafeCDiag(Arg->getExprLoc(), "take-operand");
+    return true;
+  }
+  // Taking leaves null behind, so the place must allow it.
+  if (T->getNullability() != NullabilityKind::Nullable &&
+      S.getLangOpts().NullabilitySafety) {
+    const ValueDecl *D = namedStorage(Arg);
+    S.SafeCDiag(Arg->getExprLoc(), "take-nonnull") << (D ? D->getName() : "");
+    return true;
+  }
+  // The result is a plain pointer: a count field belongs to the struct, so
+  // it cannot travel with the value.
+  if (const auto *CAT = T->getAs<CountAttributedType>())
+    T = CAT->desugar();
+  TheCall->setType(T.getUnqualifiedType());
+  return false;
 }

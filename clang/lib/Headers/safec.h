@@ -170,6 +170,9 @@ char *getenv(const char *__null_terminated);
 #define __safec_unchecked __attribute__((annotate("safec_unchecked")))
 /* On a struct: holds borrows, so it lives only in locals and parameters. */
 #define __safec_view __attribute__((annotate("safec_view")))
+/* Move an owned pointer out of a field or global, leaving null (and a zero
+   count): free(__safec_take(n->next)). Like Rust's Option::take. */
+#define __safec_take(lv) __builtin_safec_take(lv)
 #else
 #define __safec_takes(N)
 #define __safec_returns_owned
@@ -179,6 +182,8 @@ char *getenv(const char *__null_terminated);
 #define __safec_static
 #define __safec_unchecked
 #define __safec_view
+/* Evaluates lv twice; fine for the plain lvalues take is used on. */
+#define __safec_take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })
 #endif
 
 #if !defined(__clang__)

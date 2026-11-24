@@ -2841,6 +2841,7 @@ llvm::Value *CodeGenFunction::EmitAnnotationCall(llvm::Function *AnnotationFn,
 void CodeGenFunction::EmitVarAnnotations(const VarDecl *D, llvm::Value *V) {
   assert(D->hasAttr<AnnotateAttr>() && "no annotate attribute");
   for (const auto *I : D->specific_attrs<AnnotateAttr>())
+    if (!I->getAnnotation().starts_with("safec_")) // Safe C kinds: Sema only
     EmitAnnotationCall(CGM.getIntrinsic(llvm::Intrinsic::var_annotation,
                                         {V->getType(), CGM.ConstGlobalsPtrTy}),
                        V, I->getAnnotation(), D->getLocation(), I);
@@ -2859,6 +2860,8 @@ Address CodeGenFunction::EmitFieldAnnotations(const FieldDecl *D,
                                        {IntrinTy, CGM.ConstGlobalsPtrTy});
 
   for (const auto *I : D->specific_attrs<AnnotateAttr>()) {
+    if (I->getAnnotation().starts_with("safec_")) // Safe C kinds: Sema only
+      continue;
     // FIXME Always emit the cast inst so we can differentiate between
     // annotation on the first field of a struct and annotation on the struct
     // itself.

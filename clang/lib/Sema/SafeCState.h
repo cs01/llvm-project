@@ -20,9 +20,18 @@
 
 namespace clang {
 
+class CallExpr;
 class Decl;
 class Sema;
 class Stmt;
+
+/// Whether \p D takes ownership of (frees) parameter \p Idx (0-based), as
+/// free and realloc do, or as ownership_takes says.
+bool safeCTakesParam(const Decl *D, unsigned Idx);
+
+/// Sema for __builtin_safec_take(lvalue): moves an owned pointer out of a
+/// field or global, leaving null (and a zero count). Returns true on error.
+bool checkSafeCTakeBuiltin(Sema &S, CallExpr *TheCall);
 
 /// M2 ownership checks, staged behind -mllvm -safe-c-ownership until the
 /// ports are annotated for them.

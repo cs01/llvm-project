@@ -6032,6 +6032,31 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
   case Builtin::BI__addressof:
   case Builtin::BI__builtin_addressof:
     return RValue::get(EmitLValue(E->getArg(0)).getPointer(*this));
+  case Builtin::BI__builtin_safec_take: {
+    // Load the pointer, then leave null behind (and a zero count, so the
+    // struct's bounds stay true).
+    // The struct's base is evaluated once, even with side effects.
+    const Expr *Arg = E->getArg(0)->IgnoreParens();
+    const auto *ME = dyn_cast<MemberExpr>(Arg);
+    const auto *Field = ME ? dyn_cast<FieldDecl>(ME->getMemberDecl()) : nullptr;
+    std::optional<LValue> Base;
+    if (Field)
+      Base = ME->isArrow()
+                 ? MakeNaturalAlignAddrLValue(
+                       EmitScalarExpr(ME->getBase()),
+                       ME->getBase()->getType()->getPointeeType())
+                 : EmitLValue(ME->getBase());
+    LValue LV = Base ? EmitLValueForField(*Base, Field) : EmitLValue(Arg);
+    llvm::Value *V = EmitLoadOfScalar(LV, E->getExprLoc());
+    EmitStoreOfScalar(llvm::Constant::getNullValue(V->getType()), LV);
+    if (const auto *CAT = Arg->getType()->getAs<CountAttributedType>(); CAT && Base)
+      for (const TypeCoupledDeclRefInfo &DI : CAT->getCoupledDecls())
+        if (auto *Count = dyn_cast<FieldDecl>(DI.getDecl()))
+          EmitStoreOfScalar(
+              llvm::Constant::getNullValue(ConvertType(Count->getType())),
+              EmitLValueForField(*Base, Count));
+    return RValue::get(V);
+  }
   case Builtin::BI__builtin_function_start:
     return RValue::get(CGM.GetFunctionStart(
         E->getArg(0)->getAsBuiltinConstantDeclRef(CGM.getContext())));

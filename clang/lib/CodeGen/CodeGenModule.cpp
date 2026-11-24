@@ -4575,7 +4575,10 @@ void CodeGenModule::AddGlobalAnnotations(const ValueDecl *D,
   assert(D->hasAttr<AnnotateAttr>() && "no annotate attribute");
   // Get the struct elements for these annotations.
   for (const auto *I : D->specific_attrs<AnnotateAttr>())
-    Annotations.push_back(EmitAnnotateAttr(GV, I, D->getLocation()));
+    // Safe C's pointer kinds (safec.h) are checked by Sema; nothing reads
+    // them after that.
+    if (!I->getAnnotation().starts_with("safec_"))
+      Annotations.push_back(EmitAnnotateAttr(GV, I, D->getLocation()));
 }
 
 bool CodeGenModule::isInNoSanitizeList(SanitizerMask Kind, llvm::Function *Fn,
