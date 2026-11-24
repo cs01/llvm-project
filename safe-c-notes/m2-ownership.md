@@ -17,6 +17,12 @@ compilers.
 | exclusive borrow | `T *__safec_excl` | a borrow through which ownership may change (free, realloc, owned-field writes) | `&mut T` |
 | unchecked | `T *__safec_unchecked` | may be stored anywhere; dereferencing it needs `__unsafe` | `*const T` |
 
+**Kinds are types** (decided by claude, 2026-11-23): `[[clang::annotate_type("safec_owned")]]`
+through `safec.h`, written right after the `*` it describes, so an inner pointer can have
+one: `char *__safec_owned *__safec_owned items` is a vector of owned strings. A fifth kind,
+`__safec_static` (Rust `&'static`), holds only string literals, globals and functions, so
+string tables need no `__unsafe`. Heap memory may hold only kinded pointers.
+
 ## Where each kind may live
 
 - **Locals:** any kind.
