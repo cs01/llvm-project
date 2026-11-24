@@ -62,7 +62,10 @@ const sh = async (cmd: string[], o: { cwd?: string; timeoutMs?: number; input?: 
 
 // No -w here: it would also silence warnings the flags promote with -Werror, and
 // a gate that cannot see compile-time rejections reports 0% forever.
-const base = ["-I", SUP, "-DINCLUDEMAIN", ...sys, ...extra];
+// The support headers (std_testcase.h, io) are harness code, not the code
+// under test: include them as system headers so Safe C trusts them, as a
+// ported project would mark an unported header legacy.
+const base = ["-isystem", SUP, "-DINCLUDEMAIN", ...sys, ...extra];
 const supBase = ["-w", "-I", SUP, ...sys];
 const firstError = (s: string) => (s.split("\n").find(l => /error|undefined|ld:/.test(l)) ?? s.split("\n")[0] ?? "").trim().slice(0, 300);
 
