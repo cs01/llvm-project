@@ -36,8 +36,8 @@ void moved(void) {
 } // expected-note {{later used by the cleanup function of 'p' at scope exit}} off-note {{later used by the cleanup function of 'p' at scope exit}}
 
 _Returns_owned int *_Nullable returned(void) {
-  int *_Nullable p _Drop_free = malloc(sizeof(int));
-  return p; // expected-error {{'p' is freed automatically}}
+  int *_Nullable p _Drop_free = malloc(sizeof(int)); // expected-note {{allocated into a '_Drop' variable here}} off-note {{allocated into a '_Drop' variable here}}
+  return p; // expected-error {{'p' is freed automatically}} expected-error {{this memory was freed when the '_Drop' variable holding it went out of scope}} off-error {{this memory was freed when the '_Drop' variable holding it went out of scope}}
 }
 _Returns_owned int *_Nullable returned_ok(void) {
   int *_Nullable p _Drop_free = malloc(sizeof(int));

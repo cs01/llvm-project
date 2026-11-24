@@ -582,7 +582,19 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
 
   // An argument lent to an exclusive parameter may have its owned fields
   // taken or replaced by the callee; one given away to an owned parameter
-  // is gone. Either way, borrows rooted at it end.
+  // is gone. Either way, borrows rooted at it end. Through a function
+  // pointer the kinds come from its type, as a direct call's from the decl.
+  if (!CE->getDirectCallee())
+    if (const auto *FPT = CE->getCallee()
+                              ->getType()
+                              ->getPointeeType()
+                              ->getAs<FunctionProtoType>())
+      for (unsigned I = 0, N = std::min(CE->getNumArgs(), FPT->getNumParams());
+           I != N; ++I) {
+        StringRef K = safeCPointerKind(FPT->getParamType(I));
+        if (K == "excl" || K == "owned")
+          EndBorrowsThrough(CE->getArg(I));
+      }
   if (const FunctionDecl *FD = CE->getDirectCallee()) {
     unsigned N = std::min(CE->getNumArgs(), FD->getNumParams());
     for (unsigned I = 0; I != N; ++I) {
@@ -793,6 +805,16 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
                                       const Expr *LHSExpr,
                                       const Expr *RHSExpr) {
   LHSExpr = ignoreParensAndImpCasts(LHSExpr);
+  // `*&q = v` assigns q.
+  while (const auto *Deref = dyn_cast<UnaryOperator>(LHSExpr)) {
+    const auto *Addr =
+        Deref->getOpcode() == UO_Deref
+            ? dyn_cast<UnaryOperator>(ignoreParensAndImpCasts(Deref->getSubExpr()))
+            : nullptr;
+    if (!Addr || Addr->getOpcode() != UO_AddrOf)
+      break;
+    LHSExpr = ignoreParensAndImpCasts(Addr->getSubExpr());
+  }
   // Safe C: `s.p = x` on a view adds x's loans to the view (the view keeps
   // borrows of every field; Sema allows such writes only by name).
   if (const auto *ME = dyn_cast<MemberExpr>(LHSExpr);
@@ -1294,6 +1316,20 @@ void FactsGenerator::handleLifetimeEnds(const CFGLifetimeEnds &LifetimeEnds) {
                              HasCleanup ? UseKind::Cleanup
                                         : UseKind::Destructor),
           List));
+  // Safe C: _Drop_free's cleanup frees what the pointer holds, so copies of
+  // it made in the scope die here too. (The invalidation is reported at the
+  // variable's initializer, which names what was freed.)
+  if (HasCleanup && AC.getASTContext().getLangOpts().SafeC &&
+      LifetimeEndsVD->getType()->isPointerType() && LifetimeEndsVD->getInit())
+    if (const FunctionDecl *CF =
+            LifetimeEndsVD->getAttr<CleanupAttr>()->getFunctionDecl();
+        CF && llvm::any_of(CF->specific_attrs<AnnotateAttr>(),
+                           [](const AnnotateAttr *A) {
+                             return A->getAnnotation() == "safec_cleanup";
+                           }))
+      if (OriginList *List = getOriginsList(*LifetimeEndsVD))
+        CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
+            List->getOuterOriginID(), LifetimeEndsVD->getInit()));
   // Expire the origin when its variable's lifetime ends to ensure liveness
   // doesn't persist through loop back-edges.
   std::optional<OriginID> ExpiredOID;

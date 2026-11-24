@@ -262,6 +262,13 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"union-init-mismatch", false,
      "this initializer sets the tag to %0 but fills %1, which is not live "
      "for that tag; initialize the member the tag names"},
+    {"used-after-drop", false,
+     "this memory was freed when the '_Drop' variable holding it went out "
+     "of scope; keep the variable alive as long as the copy, or move the "
+     "pointer out of it with '_Take' to keep the memory"},
+    {"dropped-here", true,
+     "allocated into a '_Drop' variable here, which frees it at the end of "
+     "its scope"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "

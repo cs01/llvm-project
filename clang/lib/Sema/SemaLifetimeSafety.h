@@ -996,6 +996,14 @@ private:
           S.SafeCDiag(CE->getExprLoc(), "spawned-here");
           return;
         }
+    // Safe C: the only other invalidation in C is a _Drop_free cleanup,
+    // reported at the variable's initializer.
+    if (S.getLangOpts().SafeC && InvalidationExpr &&
+        !isFreeingExpr(InvalidationExpr)) {
+      S.SafeCDiag(Use.getLoc(), "used-after-drop");
+      S.SafeCDiag(InvalidationExpr->getExprLoc(), "dropped-here");
+      return;
+    }
     auto WarnDiag =
         getInvalidationWarnDiag(isFreeingExpr(InvalidationExpr), Use.getKind());
     // Don't enable this via -Weverything - see rdar://190623069.
