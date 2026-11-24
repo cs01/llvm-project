@@ -1,0 +1,97 @@
+# Safe C: build the compiler on Linux and macOS, run its tests, and package a
+# prebuilt compiler (clang plus its headers, safec.h among them). Pushing a tag
+# safe-c-v* also attaches the packages to a GitHub release.
+name: Safe C
+
+on:
+  push:
+    branches: [safe-c]
+    tags: ['safe-c-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: linux-x86_64
+          - os: macos-14
+            name: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build cmake ccache
+
+      - name: Install tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja ccache
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: safe-c-${{ matrix.name }}
+          max-size: 2G
+
+      - name: Configure
+        run: |
+          cmake -G Ninja -S llvm -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DLLVM_ENABLE_PROJECTS=clang \
+            -DLLVM_TARGETS_TO_BUILD="X86;AArch64" \
+            -DLLVM_ENABLE_ASSERTIONS=ON \
+            -DLLVM_OPTIMIZED_TABLEGEN=ON \
+            -DLLVM_INCLUDE_TESTS=ON
+
+      - name: Build
+        run: ninja -C build clang FileCheck count not split-file llvm-config
+
+      - name: Safe C tests (lit)
+        run: |
+          shopt -s nullglob
+          build/bin/llvm-lit -sv clang/test/*/safe-c-* clang/test/Sema/LifetimeSafety
+
+      - name: Standard library tests
+        run: |
+          SYSROOT=""
+          if [ "$RUNNER_OS" = "macOS" ]; then SYSROOT="-isysroot $(xcrun --show-sdk-path)"; fi
+          build/bin/clang -fsafe-c $SYSROOT -O1 safe-c-std/tests/basic.c -o basic
+          ./basic
+          build/bin/clang -fsafe-c $SYSROOT -O1 safe-c-std/examples/rust_tour.c -o tour
+          ./tour
+
+      - name: Package
+        run: |
+          D=safe-c-${{ matrix.name }}
+          mkdir -p $D/bin $D/lib
+          cp -L build/bin/clang $D/bin/clang
+          ln -s clang $D/bin/clang-safe-c
+          cp -R build/lib/clang $D/lib/
+          cp README.md $D/
+          tar czf $D.tar.gz $D
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: safe-c-${{ matrix.name }}
+          path: safe-c-${{ matrix.name }}.tar.gz
+
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/safe-c-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --prerelease --title "Safe C $GITHUB_REF_NAME" \
+              --notes "Prebuilt Safe C compiler (preview). Unpack and run bin/clang -fsafe-c."
+          gh release upload "$GITHUB_REF_NAME" safe-c-${{ matrix.name }}.tar.gz --clobber
