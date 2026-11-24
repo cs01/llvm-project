@@ -2453,9 +2453,15 @@ bool diagnoseRecordInitsImpl(
   llvm::SmallVector<NullState, 2> InitIsNull(IL->getNumInits(), NS_Unknown);
   unsigned InitIndex = 0;
   for (auto FD : RD->fields()) {
-    assert(InitIndex < IL->getNumInits());
+    // Unnamed bit-fields have no initializer slot.
+    if (FD->isUnnamedBitField())
+      continue;
+    if (InitIndex >= IL->getNumInits())
+      break;
     unsigned CurrInitIndex = InitIndex;
     Expr *Init = IL->getInit(InitIndex++);
+    if (!Init)
+      continue;
     if (auto SubIL = dyn_cast<InitListExpr>(Init)) {
       HadError |= diagnoseRecordInitsImpl(SemaRef, SubIL, NeedPreCheck,
                                           DiagnoseAssignments,
