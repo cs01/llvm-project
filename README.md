@@ -86,9 +86,9 @@ Safe C:
 
 <!-- generated:summary -->
 - **Null, double free, use after free: 608 of 608 caught at compile time.** Same as Rust.
-- **Out of bounds, divide by zero: 100.0% stopped at the bad access** (5274 of 5274), where Rust would panic.
+- **Out of bounds, divide by zero: 100.0% stopped at the bad access** (5545 of 5545), where Rust would panic.
 
-Counted only when Safe C gives a compile error or traps at the bug; on the 6501 cases
+Counted only when Safe C gives a compile error or traps at the bug; on the 6773 cases
 whose fixed version builds after porting. [Full table and the port](safe-c-docs/results.md).
 <!-- end generated:summary -->
 
