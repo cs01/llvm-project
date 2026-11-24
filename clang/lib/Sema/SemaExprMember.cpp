@@ -1889,8 +1889,14 @@ Sema::BuildFieldReferenceExpr(Expr *BaseExpr, bool IsArrow,
                               const DeclarationNameInfo &MemberNameInfo) {
   // Safe C: a union whose members differ in type lets one member's bytes be
   // read as another's; if the member read holds pointers, that forges one.
+  // A tagged union (_Tagged_by) is exempt: each access is checked against
+  // its tag instead (SemaSafeC.cpp, checkSafeCTaggedAccess).
   if (getLangOpts().SafeC && !getLangOpts().CPlusPlus &&
       Field->getParent()->isUnion() &&
+      !llvm::any_of(Field->getParent()->specific_attrs<AnnotateAttr>(),
+                    [](const AnnotateAttr *A) {
+                      return A->getAnnotation() == "safec_tagged_by";
+                    }) &&
       !safeCIsPointerFree(Context, Field->getType())) {
     for (const FieldDecl *Other : Field->getParent()->fields())
       if (!Context.hasSameType(Other->getType(), Field->getType())) {

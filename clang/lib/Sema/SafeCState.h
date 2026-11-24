@@ -61,6 +61,11 @@ void checkSafeCPointerStorage(Sema &S, Decl *D);
 void checkSafeCPointerKindsIn(Sema &S, Stmt *Body);
 void checkSafeCPointerKindsIn(Sema &S, Decl *GlobalVar);
 
+/// M4 step 2: a member of a tagged union is read or written only where the
+/// tag is known to name it (after `if (s->kind == V)`, in `case V:`, or after
+/// `s->kind = V`).
+void checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body);
+
 class SafeCState {
 public:
   /// An `__unsafe` region (a statement or function carrying

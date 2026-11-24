@@ -18737,6 +18737,9 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   if (getLangOpts().SafeC && FD && Body &&
       !SourceMgr.isInSystemHeader(FD->getLocation()))
     checkSafeCPointerKindsIn(*this, Body);
+  if (getLangOpts().SafeC && FD && Body &&
+      !SourceMgr.isInSystemHeader(FD->getLocation()))
+    checkSafeCTaggedAccess(*this, FD, Body);
 
   if (FSI->UsesFPIntrin && FD && !FD->hasAttr<StrictFPAttr>())
     FD->addAttr(StrictFPAttr::CreateImplicit(Context));

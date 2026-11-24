@@ -18,6 +18,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Analysis/CFG.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/Basic/Builtins.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -227,6 +228,11 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"switch-not-exhaustive", false,
      "this switch on '%0' does not handle %1, a tag value of the union it "
      "describes; add 'case %1:' (or 'default:')"},
+    {"union-member-unchecked", false,
+     "%select{reading|writing}0 %1 needs the tag '%2' known to be %3 here, "
+     "or the union's bytes could be another member's; check it first (as in "
+     "'if (x.%2 == %3)' or 'case %3:')%select{|, or set it ('x.%2 = %3;') "
+     "before writing}0"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
@@ -328,9 +334,8 @@ static const AnnotateAttr *getSafeCAnnotation(const Decl *D, StringRef Name) {
   return nullptr;
 }
 
-/// The tag field name of a tagged union type, or "".
-static StringRef taggedByName(QualType T) {
-  const RecordDecl *U = T->getAsRecordDecl();
+/// The tag field name of a tagged union, or "".
+static StringRef taggedByName(const RecordDecl *U) {
   if (!U || !U->isUnion())
     return "";
   const AnnotateAttr *A = getSafeCAnnotation(U, "safec_tagged_by");
@@ -340,6 +345,9 @@ static StringRef taggedByName(QualType T) {
           dyn_cast<StringLiteral>(A->args_begin()[0]->IgnoreParenImpCasts()))
     return SL->getString();
   return "";
+}
+static StringRef taggedByName(QualType T) {
+  return taggedByName(T->getAsRecordDecl());
 }
 
 /// The tag values of each member of tagged union \p U, as written in _When.
@@ -1001,4 +1009,330 @@ bool clang::checkSafeCTakeBuiltin(Sema &S, CallExpr *TheCall) {
     T = CAT->desugar();
   TheCall->setType(T.getUnqualifiedType());
   return false;
+}
+
+namespace {
+/// A tag place, as a root variable and the fields leading to the tag.
+struct TagPath {
+  const ValueDecl *Root = nullptr;
+  llvm::SmallVector<const FieldDecl *, 3> Fields;
+  bool operator==(const TagPath &O) const {
+    return Root == O.Root && Fields == O.Fields;
+  }
+};
+
+/// The path of a struct expression (`s`, `*p`, `p->a`, `v.b.c`), or none.
+static std::optional<TagPath> structPath(const Expr *E) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+    return TagPath{DRE->getDecl(), {}};
+  if (const auto *UO = dyn_cast<UnaryOperator>(E);
+      UO && UO->getOpcode() == UO_Deref)
+    return structPath(UO->getSubExpr());
+  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    std::optional<TagPath> P = structPath(ME->getBase());
+    const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl());
+    if (!P || !F)
+      return std::nullopt;
+    P->Fields.push_back(F);
+    return P;
+  }
+  return std::nullopt;
+}
+
+/// The values a tag may hold on every path here (a case list can give
+/// several, as `case RECT: case SQUARE:` does).
+using TagValues = llvm::SmallVector<llvm::APSInt, 2>;
+using TagFacts = llvm::SmallVector<std::pair<TagPath, TagValues>, 4>;
+
+static const TagValues *lookupFact(const TagFacts &F, const TagPath &P) {
+  for (const auto &[K, V] : F)
+    if (K == P)
+      return &V;
+  return nullptr;
+}
+static void setFact(TagFacts &F, const TagPath &P,
+                    std::optional<llvm::APSInt> V) {
+  llvm::erase_if(F, [&](const auto &KV) { return KV.first == P; });
+  if (V)
+    F.push_back({P, TagValues{*V}});
+}
+static bool hasValue(const TagValues &Vs, const llvm::APSInt &V) {
+  return llvm::any_of(Vs, [&](const llvm::APSInt &W) {
+    return llvm::APSInt::isSameValue(W, V);
+  });
+}
+static void killRoot(TagFacts &F, const ValueDecl *Root) {
+  llvm::erase_if(F, [&](const auto &KV) { return KV.first.Root == Root; });
+}
+
+/// A tag field: an integer field whose struct has a union tagged by it.
+static bool isTagField(const FieldDecl *F) {
+  for (const FieldDecl *Sib : F->getParent()->fields())
+    if (taggedByName(Sib->getType()) == F->getName())
+      return true;
+  return false;
+}
+
+/// For `x.tag == C` (either order, or !=): the tag path, constant, and
+/// whether the comparison is ==.
+static bool matchTagTest(const ASTContext &Ctx, const Expr *Cond, TagPath &P,
+                         llvm::APSInt &V, bool &Eq) {
+  Cond = Cond->IgnoreParenImpCasts();
+  if (const auto *UO = dyn_cast<UnaryOperator>(Cond);
+      UO && UO->getOpcode() == UO_LNot) {
+    if (!matchTagTest(Ctx, UO->getSubExpr(), P, V, Eq))
+      return false;
+    Eq = !Eq;
+    return true;
+  }
+  const auto *BO = dyn_cast<BinaryOperator>(Cond);
+  if (!BO || !BO->isEqualityOp())
+    return false;
+  for (auto [A, B] : {std::pair(BO->getLHS(), BO->getRHS()),
+                      std::pair(BO->getRHS(), BO->getLHS())}) {
+    const auto *ME = dyn_cast<MemberExpr>(A->IgnoreParenImpCasts());
+    const auto *F = ME ? dyn_cast<FieldDecl>(ME->getMemberDecl()) : nullptr;
+    std::optional<llvm::APSInt> C = B->getIntegerConstantExpr(Ctx);
+    if (!F || !C || !isTagField(F))
+      continue;
+    std::optional<TagPath> Path = structPath(A);
+    if (!Path)
+      continue;
+    P = *Path;
+    V = *C;
+    Eq = BO->getOpcode() == BO_EQ;
+    return true;
+  }
+  return false;
+}
+
+/// Updates facts for one statement (assignments to tags, kills).
+static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F) {
+  // `struct S s = {TAG, ...}`: an initializer sets each tag it names.
+  if (const auto *DS = dyn_cast<DeclStmt>(St)) {
+    for (const Decl *D : DS->decls())
+      if (const auto *VD = dyn_cast<VarDecl>(D)) {
+        killRoot(F, VD);
+        const auto *ILE =
+            VD->getInit()
+                ? dyn_cast<InitListExpr>(VD->getInit()->IgnoreParenImpCasts())
+                : nullptr;
+        const RecordDecl *RD = VD->getType()->getAsRecordDecl();
+        if (!ILE || !RD)
+          continue;
+        if (const InitListExpr *Sem = ILE->getSemanticForm())
+          ILE = Sem;
+        unsigned I = 0;
+        for (const FieldDecl *Fld : RD->fields()) {
+          if (Fld->isUnnamedBitField())
+            continue;
+          if (I >= ILE->getNumInits())
+            break;
+          const Expr *Init = ILE->getInit(I++);
+          if (Init && isTagField(Fld))
+            setFact(F, TagPath{VD, {Fld}}, Init->getIntegerConstantExpr(Ctx));
+        }
+      }
+    return;
+  }
+  if (const auto *BO = dyn_cast<BinaryOperator>(St); BO && BO->isAssignmentOp()) {
+    const Expr *L = BO->getLHS()->IgnoreParenImpCasts();
+    if (const auto *ME = dyn_cast<MemberExpr>(L))
+      if (const auto *Fld = dyn_cast<FieldDecl>(ME->getMemberDecl());
+          Fld && isTagField(Fld))
+        if (std::optional<TagPath> P = structPath(L)) {
+          setFact(F, *P,
+                  BO->getOpcode() == BO_Assign
+                      ? BO->getRHS()->getIntegerConstantExpr(Ctx)
+                      : std::nullopt);
+          return;
+        }
+    // Reassigning a variable, or a struct holding a tag, forgets its tags.
+    if (std::optional<TagPath> P = structPath(L))
+      if (P->Fields.empty() || L->getType()->isRecordType())
+        killRoot(F, P->Root);
+    return;
+  }
+  if (const auto *UO = dyn_cast<UnaryOperator>(St);
+      UO && UO->isIncrementDecrementOp())
+    if (std::optional<TagPath> P = structPath(UO->getSubExpr()))
+      setFact(F, *P, std::nullopt);
+  // A call given a pointer to a modifiable object may change its tag.
+  if (const auto *Call = dyn_cast<CallExpr>(St))
+    for (const Expr *A : Call->arguments()) {
+      QualType T = A->getType();
+      if (!T->isPointerType() || T->getPointeeType().isConstQualified())
+        continue;
+      if (const VarDecl *Root = lifetimes::safeCRootVar(A))
+        killRoot(F, Root);
+    }
+}
+
+/// Facts on the edge from block B to successor index I (true = 0, false = 1
+/// for an if; case labels for a switch).
+static TagFacts edgeFacts(const ASTContext &Ctx, const CFGBlock &B,
+                          unsigned I, const CFGBlock *Succ, TagFacts F) {
+  const Stmt *Term = B.getTerminatorStmt();
+  if (const Expr *Cond = B.getLastCondition(); Cond && !isa<SwitchStmt>(Term)) {
+    TagPath P;
+    llvm::APSInt V;
+    bool Eq;
+    if (matchTagTest(Ctx, Cond, P, V, Eq) && ((I == 0) == Eq))
+      setFact(F, P, V);
+  }
+  if (const auto *SS = dyn_cast_or_null<SwitchStmt>(Term); SS && Succ)
+    if (const auto *CS = dyn_cast_or_null<CaseStmt>(Succ->getLabel()))
+      if (const auto *ME =
+              dyn_cast<MemberExpr>(SS->getCond()->IgnoreParenImpCasts()))
+        if (const auto *Fld = dyn_cast<FieldDecl>(ME->getMemberDecl());
+            Fld && isTagField(Fld) && !CS->getRHS())
+          if (std::optional<TagPath> P = structPath(ME))
+            if (std::optional<llvm::APSInt> V =
+                    CS->getLHS()->getIntegerConstantExpr(Ctx))
+              setFact(F, *P, *V);
+  return F;
+}
+
+/// At a join: a tag stays known if both paths know it; it may then hold the
+/// values either path allows.
+static TagFacts meet(const TagFacts &A, const TagFacts &B) {
+  TagFacts R;
+  for (const auto &[K, V] : A)
+    if (const TagValues *W = lookupFact(B, K)) {
+      TagValues U = V;
+      for (const llvm::APSInt &X : *W)
+        if (!hasValue(U, X))
+          U.push_back(X);
+      R.push_back({K, U});
+    }
+  return R;
+}
+static bool sameFacts(const TagFacts &A, const TagFacts &B) {
+  if (A.size() != B.size())
+    return false;
+  for (const auto &[K, V] : A) {
+    const TagValues *W = lookupFact(B, K);
+    if (!W || W->size() != V.size())
+      return false;
+  }
+  return true;
+}
+} // namespace
+
+void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
+  if (!Fn || !Body || !safeCOwnershipEnabled(S))
+    return;
+  // Quick exit: no member of a tagged union is named in this body.
+  struct Finder : RecursiveASTVisitor<Finder> {
+    bool Any = false;
+    bool VisitMemberExpr(MemberExpr *ME) {
+      if (const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl()))
+        if (const RecordDecl *P = F->getParent(); P && P->isUnion() &&
+            getSafeCAnnotation(P, "safec_tagged_by"))
+          Any = true;
+      return !Any;
+    }
+  } Find;
+  Find.TraverseStmt(Body);
+  if (!Find.Any)
+    return;
+
+  CFG::BuildOptions Opts;
+  Opts.setAllAlwaysAdd(); // every member access is its own element
+  std::unique_ptr<CFG> G = CFG::buildCFG(Fn, Body, &S.Context, Opts);
+  if (!G)
+    return;
+  ASTContext &Ctx = S.Context;
+  // In[b]: facts at block entry; Done marks blocks with a computed In.
+  llvm::DenseMap<const CFGBlock *, TagFacts> In;
+  llvm::DenseSet<const CFGBlock *> Done;
+  llvm::SmallVector<const CFGBlock *, 16> Work;
+  Done.insert(&G->getEntry());
+  Work.push_back(&G->getEntry());
+  auto Run = [&](const CFGBlock &B, TagFacts F, bool Report) {
+    for (const CFGElement &E : B) {
+      std::optional<CFGStmt> CS = E.getAs<CFGStmt>();
+      if (!CS)
+        continue;
+      const Stmt *St = CS->getStmt();
+      if (Report)
+        if (const auto *ME = dyn_cast<MemberExpr>(St)) {
+          const auto *M = dyn_cast<FieldDecl>(ME->getMemberDecl());
+          const RecordDecl *U = M ? M->getParent() : nullptr;
+          StringRef Tag = taggedByName(U);
+          // The union is reached through its field in the tagged struct.
+          const auto *UnionME =
+              Tag.empty() ? nullptr
+                          : dyn_cast<MemberExpr>(ME->getBase()->IgnoreParenImpCasts());
+          if (UnionME)
+            if (std::optional<TagPath> P = structPath(UnionME->getBase())) {
+              const FieldDecl *TagF = nullptr;
+              const RecordDecl *Outer =
+                  cast<FieldDecl>(UnionME->getMemberDecl())->getParent();
+              for (const FieldDecl *Sib : Outer->fields())
+                if (Sib->getName() == Tag)
+                  TagF = Sib;
+              if (TagF) {
+                P->Fields.push_back(TagF);
+                const TagValues *Known = lookupFact(F, *P);
+                // Fine when every value the tag may hold names this member.
+                TagValues Mine;
+                std::string Want;
+                whenValues(Ctx, U, [&](const FieldDecl *Mem, llvm::APSInt V,
+                                       SourceLocation) {
+                  if (Mem != M)
+                    return;
+                  Mine.push_back(V);
+                  if (Want.empty()) {
+                    Want = toString(V, 10);
+                    if (const auto *ET = TagF->getType()->getAs<EnumType>())
+                      for (const EnumConstantDecl *EC :
+                           ET->getOriginalDecl()->getDefinitionOrSelf()->enumerators())
+                        if (llvm::APSInt::isSameValue(EC->getInitVal(), V))
+                          Want = EC->getName().str();
+                  }
+                });
+                bool Ok = Known && llvm::all_of(*Known, [&](const llvm::APSInt &V) {
+                  return hasValue(Mine, V);
+                });
+                if (!Ok && !Want.empty()) {
+                  bool IsWrite = false; // set by the enclosing assignment
+                  S.SafeCDiag(ME->getMemberLoc(), "union-member-unchecked")
+                      << (IsWrite ? 1 : 0) << M << Tag << Want;
+                }
+              }
+            }
+        }
+      transfer(Ctx, St, F);
+    }
+    return F;
+  };
+  // Forward dataflow to a fixed point, then one reporting pass.
+  unsigned Steps = 0;
+  while (!Work.empty() && ++Steps < 10000) {
+    const CFGBlock *B = Work.pop_back_val();
+    TagFacts Out = Run(*B, In[B], /*Report=*/false);
+    unsigned I = 0;
+    for (const CFGBlock::AdjacentBlock &A : B->succs()) {
+      const CFGBlock *Succ = A.getReachableBlock();
+      unsigned Idx = I++;
+      if (!Succ)
+        continue;
+      TagFacts EF = edgeFacts(Ctx, *B, Idx, Succ, Out);
+      if (Done.insert(Succ).second) {
+        In[Succ] = EF;
+        Work.push_back(Succ);
+        continue;
+      }
+      TagFacts M = meet(In[Succ], EF);
+      if (!sameFacts(M, In[Succ])) {
+        In[Succ] = M;
+        Work.push_back(Succ);
+      }
+    }
+  }
+  for (const CFGBlock *B : *G)
+    if (Done.count(B))
+      Run(*B, In[B], /*Report=*/true);
 }
