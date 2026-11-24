@@ -515,9 +515,14 @@ static void cjson_set_valuestring_should_return_null_if_strings_overlap(void)
     TEST_ASSERT_NOT_NULL(str);
     str += 1;
     /* The string passed to strcpy overlap which is not allowed.*/
+    /* unsafe: deliberate misuse. str points into obj's own valuestring, which
+       SetValuestring may free; Safe C rejects this at compile time, and the
+       test checks cJSON's run-time overlap check. */
+    __unsafe {
     str2 = cJSON_SetValuestring(obj, str);
     /* If it overlaps, the string will be messed up.*/
     TEST_ASSERT_TRUE(strcmp(str, "bcde") == 0);
+    }
     TEST_ASSERT_NULL(str2);
     cJSON_Delete(obj);
 }

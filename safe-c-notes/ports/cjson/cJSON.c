@@ -1285,7 +1285,7 @@ CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithOpts(const char *value, const char
 CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithLengthOpts(const char *_Nullable __counted_by_or_null(buffer_length) value, size_t buffer_length, const char *_Nullable __unsafe_indexable *_Nullable return_parse_end, cJSON_bool require_null_terminated)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
-    cJSON *item = NULL;
+    cJSON *_Nullable _Owned item = NULL;
 
     /* reset error position */
     global_error.json = NULL;
@@ -1686,21 +1686,23 @@ static cJSON_bool parse_array(cJSON *_Excl const item, parse_buffer * const inpu
             goto fail; /* allocation failure */
         }
 
-        /* attach next item to the list, which item holds from now on */
+
+        /* parse next value */
+        input_buffer->offset++;
+        buffer_skip_whitespace(input_buffer);
+        if (!parse_value(new_item, input_buffer))
+        {
+            cJSON_Delete(new_item);
+            goto fail; /* failed to parse value */
+        }
+        buffer_skip_whitespace(input_buffer);
+
+        /* parsed while this code still owned it; the list holds it from now on */
         current_item = append_child(item, new_item);
         if (current_item == NULL)
         {
             goto fail;
         }
-
-        /* parse next value */
-        input_buffer->offset++;
-        buffer_skip_whitespace(input_buffer);
-        if (!parse_value(current_item, input_buffer))
-        {
-            goto fail; /* failed to parse value */
-        }
-        buffer_skip_whitespace(input_buffer);
     }
     while (can_access_at_index(input_buffer, 0) && (buffer_at_offset(input_buffer)[0] == ','));
 
@@ -1833,43 +1835,48 @@ static cJSON_bool parse_object(cJSON *_Excl const item, parse_buffer * const inp
             goto fail; /* allocation failure */
         }
 
-        /* attach next item to the list, which item holds from now on */
-        current_item = append_child(item, new_item);
-        if (current_item == NULL)
-        {
-            goto fail;
-        }
 
         if (cannot_access_at_index(input_buffer, 1))
         {
+            cJSON_Delete(new_item);
             goto fail; /* nothing comes after the comma */
         }
 
         /* parse the name of the child */
         input_buffer->offset++;
         buffer_skip_whitespace(input_buffer);
-        if (!parse_string(current_item, input_buffer))
+        if (!parse_string(new_item, input_buffer))
         {
+            cJSON_Delete(new_item);
             goto fail; /* failed to parse name */
         }
         buffer_skip_whitespace(input_buffer);
 
         /* swap valuestring and string, because we parsed the name */
-        key_from_valuestring(current_item);
+        key_from_valuestring(new_item);
 
         if (cannot_access_at_index(input_buffer, 0) || (buffer_at_offset(input_buffer)[0] != ':'))
         {
+            cJSON_Delete(new_item);
             goto fail; /* invalid object */
         }
 
         /* parse the value */
         input_buffer->offset++;
         buffer_skip_whitespace(input_buffer);
-        if (!parse_value(current_item, input_buffer))
+        if (!parse_value(new_item, input_buffer))
         {
+            cJSON_Delete(new_item);
             goto fail; /* failed to parse value */
         }
         buffer_skip_whitespace(input_buffer);
+
+        /* parsed while this code still owned it; the list holds it from now on */
+        current_item = append_child(item, new_item);
+        if (current_item == NULL)
+        {
+            goto fail;
+        }
     }
     while (can_access_at_index(input_buffer, 0) && (buffer_at_offset(input_buffer)[0] == ','));
 
