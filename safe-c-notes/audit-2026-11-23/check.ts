@@ -12,6 +12,9 @@ const args = process.argv.slice(2);
 const opt = (n: string) => { const i = args.indexOf("--" + n); return i < 0 ? undefined : args[i + 1]; };
 const cc = opt("cc") ?? join(dir, "../../build.noindex/bin/clang");
 const only = opt("only");
+// --ownership: also enforce the M2 rules, staged behind this flag until the
+// ports are annotated for them.
+const extra = args.includes("--ownership") ? ["-mllvm", "-safe-c-ownership"] : [];
 const sdk = spawnSync("xcrun", ["--show-sdk-path"]).stdout.toString().trim();
 const tmp = process.env.TMPDIR ?? "/tmp";
 
@@ -39,13 +42,13 @@ for (const f of readdirSync(dir).filter((f) => f.endsWith(".c")).sort()) {
   if (skip[name]) { results.push({ name, status: "skipped", how: skip[name] }); continue; }
   const files = (groups[name] ?? [f]).map((g) => join(dir, g));
   if (codeChecks[name]) {
-    const asm = spawnSync(cc, ["-fsafe-c", "-O1", "-isysroot", sdk, ...files, "-S", "-o", "-"]);
+    const asm = spawnSync(cc, ["-fsafe-c", ...extra, "-O1", "-isysroot", sdk, ...files, "-S", "-o", "-"]);
     const ok = codeChecks[name].test(asm.stdout.toString());
     results.push({ name, status: ok ? "closed" : "open", how: ok ? "probes in code" : "no probes in code" });
     continue;
   }
   const exe = join(tmp, `audit-${name}`);
-  const c = spawnSync(cc, ["-fsafe-c", "-O1", "-isysroot", sdk, ...files, "-o", exe, "-lpthread"]);
+  const c = spawnSync(cc, ["-fsafe-c", ...extra, "-O1", "-isysroot", sdk, ...files, "-o", exe, "-lpthread"]);
   if (c.status !== 0) {
     const err = c.stderr.toString().split("\n").find((l) => l.includes("error:")) ?? "";
     results.push({ name, status: "closed", how: "rejected: " + err.replace(/^.*error: /, "").slice(0, 90) });
