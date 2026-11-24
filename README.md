@@ -46,10 +46,13 @@ The same code compiles as plain C on any compiler: the annotations come from one
 | Out of bounds | done |
 | Null dereference | done |
 | Uninitialized reads | done |
-| Type confusion | done |
 | Integer UB | done |
-| Use after free | locals and annotated calls; struct fields next |
+| Type confusion | done, except unions holding pointers (next) |
+| Use after free | rules written, behind a flag until real code passes |
 | Data races | planned |
+
+"Done" means checked at compile time or trapped, and passing NIST's Juliet suite. Two
+small libraries are ported so far; larger ones are the real test.
 
 Details: [how each is closed](safe-c-docs/protection.md).
 
