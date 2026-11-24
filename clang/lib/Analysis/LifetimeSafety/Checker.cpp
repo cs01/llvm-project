@@ -153,6 +153,13 @@ public:
           ParamEsc && ParamEsc->getParam() != PVD && SemaHelper &&
           safeCParamDeclKind(PVD) == "owned")
         SemaHelper->reportOwnedParamStored(PVD, ParamEsc->getParam());
+      // An owned parameter returned as owned is moved, not borrowed.
+      if (const auto *Fn = dyn_cast<FunctionDecl>(PVD->getDeclContext());
+          Fn && isa<ReturnEscapeFact>(OEF) &&
+          safeCParamDeclKind(PVD) == "owned" &&
+          llvm::any_of(Fn->specific_attrs<OwnershipAttr>(),
+                       [](const OwnershipAttr *A) { return A->isReturns(); }))
+        return;
       // NoEscape param should not escape. (A promise on any declaration
       // binds: callers may have seen only that one.)
       auto Promised = [&] {

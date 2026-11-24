@@ -1222,6 +1222,14 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
                                       const Expr *LHSExpr,
                                       const Expr *RHSExpr) {
   LHSExpr = ignoreParensAndImpCasts(LHSExpr);
+  // Safe C: giving a pointer to an owner uses it: it must still be valid
+  // (`free(d); s.p = d;` would hand out freed memory).
+  if (safeCOwnershipOn(AC.getASTContext()) &&
+      LHSExpr->getType()->isPointerType() &&
+      safeCPointerKind(LHSExpr->getType()) == "owned" &&
+      !isa<MemberExpr>(safeCPeel(RHSExpr)->IgnoreParenCasts()))
+    if (OriginList *L = getOriginsList(*RHSExpr))
+      CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(*RHSExpr, L));
   // `*&q = v` assigns q.
   while (const auto *Deref = dyn_cast<UnaryOperator>(LHSExpr)) {
     const auto *Addr =
@@ -1568,6 +1576,16 @@ void FactsGenerator::VisitCompoundLiteralExpr(const CompoundLiteralExpr *CLE) {
 }
 
 void FactsGenerator::VisitInitListExpr(const InitListExpr *ILE) {
+  // Safe C: giving a pointer to an owned field uses it, as an assignment does.
+  if (safeCOwnershipOn(AC.getASTContext())) {
+    const InitListExpr *Sem =
+        ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
+    for (const Expr *Init : (Sem ? Sem : ILE)->inits())
+      if (Init && Init->getType()->isPointerType() &&
+          safeCPointerKind(Init->getType()) == "owned")
+        if (OriginList *L = getOriginsList(*Init))
+          CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(*Init, L));
+  }
   if (!hasOrigins(ILE))
     return;
   // Safe C: a view's origin holds the loans of every pointer it is built from.
