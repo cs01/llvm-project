@@ -18,6 +18,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Analysis/Analyses/MemberAccessPath.h"
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/Basic/Builtins.h"
@@ -1012,32 +1013,22 @@ bool clang::checkSafeCTakeBuiltin(Sema &S, CallExpr *TheCall) {
 }
 
 namespace {
-/// A tag place, as a root variable and the fields leading to the tag.
-struct TagPath {
-  const ValueDecl *Root = nullptr;
-  llvm::SmallVector<const FieldDecl *, 3> Fields;
-  bool operator==(const TagPath &O) const {
-    return Root == O.Root && Fields == O.Fields;
-  }
-};
+/// A tag place: the shared member path type (also used by the nullability
+/// analysis), so tag and null facts are keyed the same way.
+using TagPath = MemberAccessPath;
 
-/// The path of a struct expression (`s`, `*p`, `p->a`, `v.b.c`), or none.
+/// The path of a struct expression: a variable itself (no fields), or a
+/// member chain (`p->a`, `(*p).a`, `v.b.c`).
 static std::optional<TagPath> structPath(const Expr *E) {
-  E = E->IgnoreParenImpCasts();
-  if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
-    return TagPath{DRE->getDecl(), {}};
-  if (const auto *UO = dyn_cast<UnaryOperator>(E);
+  if (const auto *DRE =
+          dyn_cast<DeclRefExpr>(ignoreBoundsSafetyWrappers(E)))
+    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
+      return TagPath{VD, {}};
+  if (const auto *UO =
+          dyn_cast<UnaryOperator>(ignoreBoundsSafetyWrappers(E));
       UO && UO->getOpcode() == UO_Deref)
     return structPath(UO->getSubExpr());
-  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
-    std::optional<TagPath> P = structPath(ME->getBase());
-    const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl());
-    if (!P || !F)
-      return std::nullopt;
-    P->Fields.push_back(F);
-    return P;
-  }
-  return std::nullopt;
+  return decomposeMemberAccess(E);
 }
 
 /// The values a tag may hold on every path here (a case list can give

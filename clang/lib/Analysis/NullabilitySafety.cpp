@@ -49,6 +49,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Analysis/Analyses/NullabilitySafety.h"
+#include "clang/Analysis/Analyses/MemberAccessPath.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
@@ -117,127 +118,32 @@ namespace {
 /// A chain of field accesses from a root variable, such as var.field,
 /// var->inner->field, or this->a.b. Root is nullptr when the path starts at
 /// this.
-struct MemberAccessPath {
-  const VarDecl *Root = nullptr;
-  llvm::SmallVector<const FieldDecl *, 2> Fields;
-
-  const FieldDecl *leafField() const {
-    assert(!Fields.empty() && "leafField() on empty path");
-    return Fields.back();
-  }
-
-  bool operator==(const MemberAccessPath &O) const {
-    return Root == O.Root && Fields == O.Fields;
-  }
-  // DenseMap::operator== on MemberAliases compares values with !=.
-  bool operator!=(const MemberAccessPath &O) const { return !(*this == O); }
-};
-
 } // end anonymous namespace
-
-// DenseMapInfo needs only a hash and an equality predicate; DenseMap has no
-// sentinel keys.
-template <> struct llvm::DenseMapInfo<MemberAccessPath> {
-  static unsigned getHashValue(const MemberAccessPath &P) {
-    unsigned H = DenseMapInfo<const VarDecl *>::getHashValue(P.Root);
-    for (const auto *FD : P.Fields)
-      H = llvm::hash_combine(H,
-                             DenseMapInfo<const FieldDecl *>::getHashValue(FD));
-    return H;
-  }
-  static bool isEqual(const MemberAccessPath &L, const MemberAccessPath &R) {
-    return L == R;
-  }
-};
 
 static bool isSmartPointerObject(const Expr *Obj);
 static const VarDecl *resolveSmartPtrReference(const VarDecl *VD);
-
-/// Look through the nodes -fbounds-safety wraps around an access (opaque
-/// values, bounds checks, materialized count operands, pointer promotion):
-/// none of them changes the pointer value, so b->p inside them is still the
-/// path b->p.
-static const Expr *ignoreBoundsSafetyWrappers(const Expr *E) {
-  while (true) {
-    E = E->IgnoreParenImpCasts();
-    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
-      if (!OVE->getSourceExpr())
-        return E;
-      E = OVE->getSourceExpr();
-    } else if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E)) {
-      E = MSE->getWrappedExpr();
-    } else if (const auto *BCE = dyn_cast<BoundsCheckExpr>(E)) {
-      E = BCE->getGuardedExpr();
-    } else if (const auto *PPE =
-                   dyn_cast<BoundsSafetyPointerPromotionExpr>(E)) {
-      E = PPE->getPointer();
-    } else {
-      return E;
-    }
-  }
-}
 
 /// Walk a MemberExpr chain to its root, collecting FieldDecls along the way.
 /// A std smart pointer's operator-> or operator* continues the chain at the
 /// smart pointer, as -> does at a raw pointer, so sp->child and (*sp).child
 /// are paths rooted at sp. Returns nullopt if the root is not a VarDecl (via
 /// DeclRefExpr) or CXXThisExpr. Root is nullptr for this-> access paths.
-static std::optional<MemberAccessPath> decomposeMemberAccess(const Expr *E) {
-  llvm::SmallVector<const FieldDecl *, 2> Fields;
-  E = ignoreBoundsSafetyWrappers(E);
-
-  while (true) {
-    if (const auto *ME = dyn_cast<MemberExpr>(E)) {
-      if (const auto *FD = dyn_cast<FieldDecl>(ME->getMemberDecl()))
-        Fields.push_back(FD);
-      else
-        return std::nullopt;
-      E = ignoreBoundsSafetyWrappers(ME->getBase());
-      continue;
-    }
-    const auto *OCE = dyn_cast<CXXOperatorCallExpr>(E);
-    if (!Fields.empty() && OCE && OCE->getNumArgs() == 1 &&
-        (OCE->getOperator() == OO_Arrow || OCE->getOperator() == OO_Star) &&
-        isSmartPointerObject(OCE->getArg(0))) {
-      E = OCE->getArg(0)->IgnoreParenImpCasts();
-      continue;
-    }
-    break;
-  }
-
-  if (Fields.empty())
-    return std::nullopt;
-
-  std::reverse(Fields.begin(), Fields.end());
-
-  MemberAccessPath Path;
-  Path.Fields = std::move(Fields);
-
-  if (isa<CXXThisExpr>(E)) {
-    Path.Root = nullptr;
-  } else if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
-    // A local smart pointer reference roots its paths at its referent, as
-    // PtrRef::fromExpr does for the reference itself.
-    if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl()))
-      Path.Root = resolveSmartPtrReference(VD);
-    else
-      return std::nullopt;
-  } else {
-    return std::nullopt;
-  }
-
-  return Path;
+static std::optional<MemberAccessPath> decomposeAccess(const Expr *E) {
+  return clang::decomposeMemberAccess(
+      E,
+      [](const Expr *X) -> const Expr * {
+        const auto *OCE = dyn_cast<CXXOperatorCallExpr>(X);
+        if (OCE && OCE->getNumArgs() == 1 &&
+            (OCE->getOperator() == OO_Arrow || OCE->getOperator() == OO_Star) &&
+            isSmartPointerObject(OCE->getArg(0)))
+          return OCE->getArg(0)->IgnoreParenImpCasts();
+        return nullptr;
+      },
+      // A local smart pointer reference roots its paths at its referent, as
+      // PtrRef::fromExpr does for the reference itself.
+      [](const VarDecl *VD) { return resolveSmartPtrReference(VD); });
 }
 
-/// Whether Path starts with Prefix: same root, and Path's fields begin with
-/// Prefix's.
-static bool pathHasPrefix(const MemberAccessPath &Path,
-                          const MemberAccessPath &Prefix) {
-  return Path.Root == Prefix.Root &&
-         Path.Fields.size() >= Prefix.Fields.size() &&
-         std::equal(Prefix.Fields.begin(), Prefix.Fields.end(),
-                    Path.Fields.begin());
-}
 
 //===----------------------------------------------------------------------===//
 // Lattice
@@ -293,7 +199,7 @@ struct PtrRef {
         return PtrRef{resolveSmartPtrReference(VD), std::nullopt};
       return std::nullopt;
     }
-    if (auto P = decomposeMemberAccess(E))
+    if (auto P = decomposeAccess(E))
       return PtrRef{nullptr, std::move(P)};
     return std::nullopt;
   }
@@ -1873,7 +1779,7 @@ public:
     checkStoreIntoSlot(BO, LHS);
     handleStoreThroughPointer(LHS);
 
-    if (auto LhsPath = decomposeMemberAccess(LHS))
+    if (auto LhsPath = decomposeAccess(LHS))
       handleMemberAssign(BO, *LhsPath);
 
     if (const auto *DRE = dyn_cast<DeclRefExpr>(LHS))
@@ -1901,7 +1807,7 @@ public:
             State.BoolGuards.erase(PtrRef::var(VD));
           }
         }
-      } else if (auto Path = decomposeMemberAccess(SubExpr)) {
+      } else if (auto Path = decomposeAccess(SubExpr)) {
         if (Path->leafField()->getType()->isIntegerType())
           State.BoolGuards.erase(PtrRef{nullptr, std::move(*Path)});
       }
@@ -2733,7 +2639,7 @@ private:
         } else if (CopyIsNullable) {
           State.markNullable(*Lhs);
         }
-      } else if (auto StructPath = decomposeMemberAccess(LhsArg)) {
+      } else if (auto StructPath = decomposeAccess(LhsArg)) {
         // Non-smart-pointer struct member assignment (e.g. o.inner = fresh):
         // invalidate any narrowed paths nested under the LHS.
         invalidateMembersWithPrefix(*StructPath);
@@ -3201,7 +3107,7 @@ private:
         return;
     }
 
-    if (auto Path = decomposeMemberAccess(Origin)) {
+    if (auto Path = decomposeAccess(Origin)) {
       if (isMemberNarrowed(*Path))
         return;
     }
@@ -3318,7 +3224,7 @@ private:
   /// by the caller's isExprNarrowedNonnull/isExprNullable checks.
   void trackMemberCopy(const VarDecl *VD, const Expr *Init) {
     Init = lookThroughPtrToPtrCasts(Init->IgnoreParenImpCasts());
-    auto Path = decomposeMemberAccess(Init);
+    auto Path = decomposeAccess(Init);
     if (!Path || !Path->leafField()->getType()->isPointerType())
       return;
     // p = p->next: the path is rooted at the variable being overwritten,
@@ -3731,7 +3637,7 @@ private:
   void checkMemberExprDeref(const Expr *DerefExpr, const MemberExpr *ME) {
     // For sp->raw the smart pointer was checked when sp->raw itself was
     // visited; here the dereferenced pointer is the raw field.
-    if (auto Path = decomposeMemberAccess(ME)) {
+    if (auto Path = decomposeAccess(ME)) {
       if (State.NullableMembers.contains(*Path)) {
         reportDeref(DerefExpr, ME->getType());
       } else if (!isMemberNarrowed(*Path)) {

@@ -113,3 +113,11 @@ long use_res_bad(struct res r) {
     return r.err; // expected-error {{reading 'err' needs the tag 'ok' known to be false here}}
   return 0;
 }
+
+// `(*s).kind` and `s->kind` are the same path (shared with the nullability
+// analysis's paths).
+double deref_form(const struct shape *s) {
+  if ((*s).kind == RECT)
+    return s->width;
+  return 0;
+}
