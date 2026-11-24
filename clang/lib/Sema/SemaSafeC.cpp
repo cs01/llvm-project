@@ -124,64 +124,68 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 returns memory it allocated, but callers are not told, so a use "
      "after they free it goes unchecked; declare it "
      "'__attribute__((ownership_returns(malloc)))' (safec.h: "
-     "'__safec_returns_owned')"},
+     "'_Returns_owned')"},
+    {"frees-param", false,
+     "%0 frees its parameter %1, but callers are not told and may use it "
+     "afterwards; mark the parameter '_Owned' (it then takes ownership, like "
+     "a Rust 'Box<T>' parameter)"},
     {"storage-borrow", false,
      "%select{field|global}0 %1 holds a pointer nothing tracks, so it can "
-     "outlive what it points to; declare it '__safec_owned' if it is "
-     "responsible for freeing its target, or '__safec_static' if it only "
+     "outlive what it points to; declare it '_Owned' if it is "
+     "responsible for freeing its target, or '_Static' if it only "
      "points at string literals, globals or functions%select{, or mark the "
-     "struct '__safec_view' if it lives only in locals and parameters|}0"},
+     "struct '_View' if it lives only in locals and parameters|}0"},
     {"static-store", false,
-     "%0 is '__safec_static', so it may point only at string literals, "
+     "%0 is '_Static', so it may point only at string literals, "
      "globals or functions, which are never freed; this value may point at "
-     "memory that is; make %0 '__safec_owned' if it is responsible for "
+     "memory that is; make %0 '_Owned' if it is responsible for "
      "freeing what it points to"},
     {"unchecked-read", false,
-     "%0 is '__safec_unchecked': nothing tracks whether its target is still "
+     "%0 is '_Unchecked': nothing tracks whether its target is still "
      "alive, so its value can be used only inside '__unsafe' (or copied into "
-     "another '__safec_unchecked'); if this struct owns the target, make %0 "
-     "'__safec_owned' instead"},
+     "another '_Unchecked'); if this struct owns the target, make %0 "
+     "'_Owned' instead"},
     {"view-storage", false,
-     "%select{global|field}0 %1 holds a '__safec_view' struct, whose borrows "
+     "%select{global|field}0 %1 holds a '_View' struct, whose borrows "
      "are tracked only in locals and parameters; make it a local, or pass it "
      "as a parameter"},
     {"take-operand", false,
-     "'__safec_take' moves a pointer out of a field or global and leaves "
+     "'_Take' moves a pointer out of a field or global and leaves "
      "null behind, so it needs a pointer that can be assigned, such as "
-     "'__safec_take(n->next)'"},
+     "'_Take(n->next)'"},
     {"take-nonnull", false,
-     "'__safec_take' leaves null behind, so '%0' must be declared "
+     "'_Take' leaves null behind, so '%0' must be declared "
      "'_Nullable'"},
     {"owned-store", false,
-     "%0 is '__safec_owned', so it must be given a pointer it may free: a "
+     "%0 is '_Owned', so it must be given a pointer it may free: a "
      "new allocation, an owned local (which is then moved), or "
-     "'__safec_take(...)' of another owned field; this value is borrowed, so "
+     "'_Take(...)' of another owned field; this value is borrowed, so "
      "its owner would free it too"},
     {"free-in-place", false,
      "freeing a pointer that is still stored in %0 leaves it dangling; move "
-     "it out first, as in 'free(__safec_take(n->next))', where the place is "
-     "'__safec_owned'"},
+     "it out first, as in 'free(_Take(n->next))', where the place is "
+     "'_Owned'"},
     {"free-borrowed-take", false,
      "%0 is borrowed, so its owner will free what it points to too; declare "
-     "it '__safec_owned' if this code is responsible for freeing it"},
+     "it '_Owned' if this code is responsible for freeing it"},
     {"alloc-untracked", false,
      "a new allocation stored in %0 is not tracked, so nothing stops a use "
-     "after it is freed; declare the place '__safec_owned' (for an array: "
-     "'T *__safec_owned a[N]'), or keep the pointer in a local variable"},
+     "after it is freed; declare the place '_Owned' (for an array: "
+     "'T *_Owned a[N]'), or keep the pointer in a local variable"},
     {"owning-struct-copy", false,
      "copying %0 duplicates its owned field %1, and both copies would free "
      "it; pass a pointer to it instead, or move the field out with "
-     "'__safec_take'"},
+     "'_Take'"},
     {"heap-slot-borrow", false,
      "this heap memory holds pointers of type %0, which nothing tracks, so "
      "they can outlive what they point to; give the inner pointer a kind, as "
-     "in 'T *__safec_owned *' if the memory owns what they point to, or "
-     "'T *__safec_static *'"},
+     "in 'T *_Owned *' if the memory owns what they point to, or "
+     "'T *_Static *'"},
     {"ownership-through-borrow", false,
      "%select{taking from|replacing}0 an owned field through '%1' changes "
      "what its owner holds while callers may still be using it; declare '%1' "
-     "'__safec_excl' (an exclusive borrow, like Rust's '&mut')%select{, or "
-     "'__safec_owned' if this function owns it|}2"},
+     "'_Excl' (an exclusive borrow, like Rust's '&mut')%select{, or "
+     "'_Owned' if this function owns it|}2"},
     {"excl-reassigned", false,
      "%0 is an exclusive borrow of the caller's object, which the caller "
      "still owns after the call; %select{assigning a new pointer to it|"
@@ -193,7 +197,7 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "pass it once, or finish with the other use before the call"},
     {"return-needs-lifetimebound", false,
      "%0 returns a pointer borrowed from %1, so it is valid only as long as what %1 "
-     "points to; mark the parameter '__safec_lifetimebound' so callers keep "
+     "points to; mark the parameter '_Lifetimebound' so callers keep "
      "it alive, or return an owned copy"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
@@ -202,7 +206,7 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "first"},
     {"field-borrow-ended-here", true, "the borrow ends here"},
     {"view-write-through-pointer", false,
-     "writing a borrow into a '__safec_view' through a pointer can outlive "
+     "writing a borrow into a '_View' through a pointer can outlive "
      "what it points to, because the view's own lifetime is unknown here; "
      "write the field of a local view by name ('v.%0 = ...')"},
 };
@@ -329,7 +333,7 @@ static const ValueDecl *namedStorage(const Expr *E) {
 }
 
 /// E's value is the address of static data: a string literal, a global or
-/// part of one, a function, null, or another __safec_static.
+/// part of one, a function, null, or another _Static.
 static bool isStaticAddress(ASTContext &Ctx, const Expr *E) {
   E = E->IgnoreParens();
   if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
@@ -379,7 +383,7 @@ static bool isStaticObject(ASTContext &Ctx, const Expr *E) {
   return false;
 }
 
-/// An __safec_owned field, global or local, or a parameter the function
+/// An _Owned field, global or local, or a parameter the function
 /// takes ownership of.
 static bool isOwnedStorage(const ValueDecl *D) {
   if (hasKind(D, "owned"))
@@ -559,9 +563,14 @@ public:
     for (const FieldDecl *FD : RD->fields()) {
       if (I >= ILE->getNumInits())
         break;
+      // Unnamed bit-fields get no initializer slot.
+      if (FD->isUnnamedBitField())
+        continue;
       if (RD->isUnion() && ILE->getInitializedFieldInUnion() != FD)
         continue;
-      checkStore(FD, ILE->getInit(I++), ILE->getBeginLoc());
+      // A slot can be empty (filled implicitly).
+      if (const Expr *Init = ILE->getInit(I++))
+        checkStore(FD, Init, ILE->getBeginLoc());
     }
     return true;
   }
