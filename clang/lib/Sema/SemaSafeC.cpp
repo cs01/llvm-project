@@ -1243,19 +1243,57 @@ static const TagValues *lookupFact(const TagFacts &F, const TagPath &P) {
 static void setFact(TagFacts &F, const TagPath &P,
                     std::optional<llvm::APSInt> V, bool Written = true) {
   llvm::erase_if(F, [&](const auto &KV) { return KV.first == P; });
-  if (V) {
-    TagValues Vs{*V};
+  if (V || !Written) {
+    // No value: the tag is unknown, but an unwritten member stays known.
+    TagValues Vs;
+    if (V)
+      Vs.push_back(*V);
     Vs.Written = Written;
     F.push_back({P, Vs});
   }
+}
+// A tag changed somewhere this analysis cannot see the member written: the
+// tag is unknown and the member must be written before it is read.
+static void unwriteIf(TagFacts &F,
+                      llvm::function_ref<bool(const TagPath &)> Pred) {
+  for (auto &KV : F)
+    if (Pred(KV.first)) {
+      KV.second.clear();
+      KV.second.Written = false;
+    }
 }
 static bool hasValue(const TagValues &Vs, const llvm::APSInt &V) {
   return llvm::any_of(Vs, [&](const llvm::APSInt &W) {
     return llvm::APSInt::isSameValue(W, V);
   });
 }
+// Forgetting a tag keeps one thing: that its member was not written since
+// the tag last changed. An empty value set is "tag unknown"; a later test
+// narrows it again but must not make the member look written (the union
+// still holds the old member's bytes).
+static void forgetFact(TagFacts &F, const TagPath &P) {
+  for (auto I = F.begin(); I != F.end(); ++I)
+    if (I->first == P) {
+      if (I->second.Written)
+        F.erase(I);
+      else
+        I->second.clear();
+      return;
+    }
+}
 static void killRoot(TagFacts &F, const ValueDecl *Root) {
-  llvm::erase_if(F, [&](const auto &KV) { return KV.first.Root == Root; });
+  llvm::SmallVector<TagPath, 2> Paths;
+  for (const auto &KV : F)
+    if (KV.first.Root == Root)
+      Paths.push_back(KV.first);
+  for (const TagPath &P : Paths)
+    forgetFact(F, P);
+}
+// A tag test narrows the values the tag may hold; whether the member was
+// written since the tag changed stays as it was.
+static void narrowFact(TagFacts &F, const TagPath &P, llvm::APSInt V) {
+  const TagValues *Old = lookupFact(F, P);
+  setFact(F, P, V, Old ? Old->Written : true);
 }
 
 /// A tag field: an integer field whose struct has a union tagged by it.
@@ -1360,9 +1398,9 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F,
         if (std::optional<TagPath> P = structPath(L)) {
           // The same tag of another struct may be this one under another
           // name (`q = &x; q->kind = ...`): forget those.
-          llvm::erase_if(F, [&](const auto &KV) {
-            return KV.first.Fields.back() == Fld && KV.first.Root != P->Root &&
-                   mayBeAliased(KV.first.Root, AddrTaken);
+          unwriteIf(F, [&](const TagPath &Q) {
+            return Q.Fields.back() == Fld && Q.Root != P->Root &&
+                   mayBeAliased(Q.Root, AddrTaken);
           });
           // The union still holds the old member's bytes until the newly
           // named member is written.
@@ -1375,9 +1413,7 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F,
         } else {
           // A tag written through a place the analysis cannot name (a[j].k):
           // it may be any struct's tag of this kind.
-          llvm::erase_if(F, [&](const auto &KV) {
-            return KV.first.Fields.back() == Fld;
-          });
+          unwriteIf(F, [&](const TagPath &Q) { return Q.Fields.back() == Fld; });
           return;
         }
     // Reassigning a variable, or a struct holding a tag, forgets its tags.
@@ -1389,7 +1425,7 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F,
   if (const auto *UO = dyn_cast<UnaryOperator>(St);
       UO && UO->isIncrementDecrementOp())
     if (std::optional<TagPath> P = structPath(UO->getSubExpr()))
-      setFact(F, *P, std::nullopt);
+      forgetFact(F, *P);
   // A call may change any tag it can reach: through a modifiable pointer
   // argument, or through globals (any function not known to touch none).
   if (const auto *Call = dyn_cast<CallExpr>(St)) {
@@ -1411,10 +1447,14 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F,
       if (const VarDecl *Root = lifetimes::safeCRootVar(A))
         killRoot(F, Root);
     }
-    if (Modifies)
-      llvm::erase_if(F, [&](const auto &KV) {
-        return mayBeAliased(KV.first.Root, AddrTaken);
-      });
+    if (Modifies) {
+      llvm::SmallVector<TagPath, 2> Paths;
+      for (const auto &KV : F)
+        if (mayBeAliased(KV.first.Root, AddrTaken))
+          Paths.push_back(KV.first);
+      for (const TagPath &P : Paths)
+        forgetFact(F, P);
+    }
   }
 }
 
@@ -1429,11 +1469,11 @@ static TagFacts edgeFacts(const ASTContext &Ctx, const CFGBlock &B,
     bool Eq;
     if (matchTagTest(Ctx, Cond, P, V, Eq)) {
       if ((I == 0) == Eq)
-        setFact(F, P, V);
+        narrowFact(F, P, V);
       else if (P.Fields.back()->getType()->isBooleanType())
         // A bool that is not one value is the other.
-        setFact(F, P, llvm::APSInt(llvm::APInt(V.getBitWidth(), V == 0),
-                                   V.isUnsigned()));
+        narrowFact(F, P, llvm::APSInt(llvm::APInt(V.getBitWidth(), V == 0),
+                                      V.isUnsigned()));
     }
   }
   if (const auto *SS = dyn_cast_or_null<SwitchStmt>(Term); SS && Succ)
@@ -1445,7 +1485,7 @@ static TagFacts edgeFacts(const ASTContext &Ctx, const CFGBlock &B,
           if (std::optional<TagPath> P = structPath(ME))
             if (std::optional<llvm::APSInt> V =
                     CS->getLHS()->getIntegerConstantExpr(Ctx))
-              setFact(F, *P, *V);
+              narrowFact(F, *P, *V);
   return F;
 }
 
@@ -1455,11 +1495,28 @@ static TagFacts meet(const TagFacts &A, const TagFacts &B) {
   TagFacts R;
   for (const auto &[K, V] : A)
     if (const TagValues *W = lookupFact(B, K)) {
-      TagValues U = V;
-      for (const llvm::APSInt &X : *W)
-        if (!hasValue(U, X))
-          U.push_back(X);
+      TagValues U;
+      // Unknown on either path (an empty set) stays unknown.
+      if (!V.empty() && !W->empty()) {
+        U = V;
+        for (const llvm::APSInt &X : *W)
+          if (!hasValue(U, X))
+            U.push_back(X);
+      }
       U.Written = V.Written && W->Written;
+      if (!U.empty() || !U.Written)
+        R.push_back({K, U});
+    } else if (!V.Written) {
+      // Known on one path only: the tag is unknown, but an unwritten member
+      // on that path must still be written before it is read.
+      TagValues U;
+      U.Written = false;
+      R.push_back({K, U});
+    }
+  for (const auto &[K, W] : B)
+    if (!lookupFact(A, K) && !W.Written) {
+      TagValues U;
+      U.Written = false;
       R.push_back({K, U});
     }
   return R;
@@ -1657,7 +1714,8 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
                           Want = EC->getName().str();
                   }
                 });
-                bool Ok = Known && llvm::all_of(*Known, [&](const llvm::APSInt &V) {
+                bool Ok = Known && !Known->empty() &&
+                          llvm::all_of(*Known, [&](const llvm::APSInt &V) {
                   return hasValue(Mine, V);
                 });
                 if (Ok && IsWrite)
