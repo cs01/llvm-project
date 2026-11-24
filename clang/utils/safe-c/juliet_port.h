@@ -3,46 +3,48 @@
  * safety (it cannot see the destination's size). These replacements copy
  * through bounds-checked pointers, so a copy past the end of the destination,
  * or a read past the end of the source, traps: the bug is still caught, not
- * hidden (strlcpy would truncate instead). */
+ * hidden (strlcpy would truncate instead). Parameters are _Nonnull, as the
+ * C library's are (C17 7.1.4): this header is included as a system header,
+ * where unannotated pointers would not be checked for null. */
 #ifndef JULIET_PORT_H
 #define JULIET_PORT_H
 #include <stddef.h>
 #include <wchar.h>
 
-static inline char *juliet_strcpy(char *__bidi_indexable d,
-                                  const char *__bidi_indexable s) {
+static inline char *juliet_strcpy(char *_Nonnull __bidi_indexable d,
+                                  const char *_Nonnull __bidi_indexable s) {
   for (size_t i = 0;; i++) {
     d[i] = s[i];
     if (!s[i])
       return d;
   }
 }
-static inline char *juliet_strcat(char *__bidi_indexable d,
-                                  const char *__bidi_indexable s) {
+static inline char *juliet_strcat(char *_Nonnull __bidi_indexable d,
+                                  const char *_Nonnull __bidi_indexable s) {
   size_t n = 0;
   while (d[n])
     n++;
   juliet_strcpy(d + n, s);
   return d;
 }
-static inline wchar_t *juliet_wcscpy(wchar_t *__bidi_indexable d,
-                                     const wchar_t *__bidi_indexable s) {
+static inline wchar_t *juliet_wcscpy(wchar_t *_Nonnull __bidi_indexable d,
+                                     const wchar_t *_Nonnull __bidi_indexable s) {
   for (size_t i = 0;; i++) {
     d[i] = s[i];
     if (!s[i])
       return d;
   }
 }
-static inline wchar_t *juliet_wcscat(wchar_t *__bidi_indexable d,
-                                     const wchar_t *__bidi_indexable s) {
+static inline wchar_t *juliet_wcscat(wchar_t *_Nonnull __bidi_indexable d,
+                                     const wchar_t *_Nonnull __bidi_indexable s) {
   size_t n = 0;
   while (d[n])
     n++;
   juliet_wcscpy(d + n, s);
   return d;
 }
-static inline char *juliet_strncat(char *__bidi_indexable d,
-                                   const char *__bidi_indexable s, size_t n) {
+static inline char *juliet_strncat(char *_Nonnull __bidi_indexable d,
+                                   const char *_Nonnull __bidi_indexable s, size_t n) {
   size_t e = 0;
   while (d[e])
     e++;
@@ -52,8 +54,8 @@ static inline char *juliet_strncat(char *__bidi_indexable d,
   d[e + i] = 0;
   return d;
 }
-static inline wchar_t *juliet_wcsncat(wchar_t *__bidi_indexable d,
-                                      const wchar_t *__bidi_indexable s,
+static inline wchar_t *juliet_wcsncat(wchar_t *_Nonnull __bidi_indexable d,
+                                      const wchar_t *_Nonnull __bidi_indexable s,
                                       size_t n) {
   size_t e = 0;
   while (d[e])
