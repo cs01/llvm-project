@@ -79,3 +79,13 @@ void destroy_owned(int *_Owned _Nullable *_Excl pp) { free(_Take(*pp)); }
 void destroy_borrowed(int *_Nullable *_Excl pp) {
   free(_Take(*pp)); // expected-error {{memory reached through a pointer is borrowed, so its owner will free what it points to too; declare it '_Owned' if this code is responsible for freeing it}}
 }
+
+// fopen's result is owned (fclose frees it), and a compound literal is a new
+// object, not a copy of an owning struct.
+typedef struct FILE_ FILE;
+FILE *_Nullable fopen(const char *path, const char *mode);
+struct reader { FILE *_Owned _Nullable f; struct list items; };
+void open_reader(struct reader *_Excl r) {
+  r->f = fopen("x", "r");
+  r->items = (struct list){0, 0};
+}

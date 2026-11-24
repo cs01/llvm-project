@@ -458,7 +458,9 @@ static bool isOwnedSource(ASTContext &Ctx, const Expr *E) {
         return true;
     return F->getIdentifier() &&
            llvm::is_contained({"malloc", "calloc", "realloc", "reallocf",
-                               "strdup", "strndup", "aligned_alloc"},
+                               "strdup", "strndup", "aligned_alloc", "fopen",
+                               "fdopen", "freopen", "tmpfile", "popen",
+                               "opendir", "fdopendir"},
                               F->getName());
   }
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
@@ -811,7 +813,9 @@ public:
   bool VisitImplicitCastExpr(ImplicitCastExpr *ICE) {
     if (ICE->getCastKind() != CK_LValueToRValue)
       return true;
-    if (ICE->getType()->isRecordType() && !AllowedStructCopies.count(ICE))
+    // A compound literal is a new object, not a copy of one.
+    if (ICE->getType()->isRecordType() && !AllowedStructCopies.count(ICE) &&
+        !isa<CompoundLiteralExpr>(ICE->getSubExpr()->IgnoreParens()))
       if (const FieldDecl *Owned = ownedFieldOf(ICE->getType())) {
         S.SafeCDiag(ICE->getExprLoc(), "owning-struct-copy")
             << ICE->getType() << Owned;

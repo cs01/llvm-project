@@ -4,7 +4,7 @@
 
 // RUN: %clang -### -fsafe-c -c %s 2>&1 | FileCheck %s --check-prefix=ON
 // ON: "-fbounds-safety"
-// ON: "-fsafe-c" "-include" "{{[^"]*}}include{{/|\\\\}}safec.h" "-ftrivial-auto-var-init=zero" "-fwrapv"
+// ON: "-fsafe-c" "-include" "{{[^"]*}}include{{/|\\\\}}safec.h" "-U_FORTIFY_SOURCE" "-D_FORTIFY_SOURCE=0" "-ftrivial-auto-var-init=zero" "-fwrapv"
 // ON-SAME: "-fstack-clash-protection"
 // ON: "-fnullability-safety"
 // ON: "-fnullability-default=nonnull"
