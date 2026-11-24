@@ -532,6 +532,14 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
   handleFunctionCall(CE);
   if (!safeCOwnershipOn(AC.getASTContext()))
     return;
+  // M5: pthread_create moves its argument into the new thread; the spawning
+  // code may not use what it handed over (that would race with the thread).
+  if (const FunctionDecl *FD = CE->getDirectCallee();
+      FD && FD->isExternC() && FD->getIdentifier() &&
+      FD->getName() == "pthread_create" && CE->getNumArgs() == 4)
+    if (OriginList *L = getOriginsList(*CE->getArg(3)))
+      CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
+          L->getOuterOriginID(), CE));
   auto EndBorrowsThrough = [&](const Expr *Place) {
     const VarDecl *Root = safeCRootVar(Place);
     if (!Root)

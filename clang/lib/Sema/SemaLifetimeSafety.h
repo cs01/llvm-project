@@ -980,6 +980,16 @@ private:
                                         ? InvalidationExpr->getExprLoc()
                                         : SourceLocation()))
       return;
+    // Safe C (M5): handed to a new thread, then used here: a race.
+    if (S.getLangOpts().SafeC && InvalidationExpr)
+      if (const auto *CE =
+              dyn_cast<CallExpr>(InvalidationExpr->IgnoreParenImpCasts()))
+        if (const FunctionDecl *FD = CE->getDirectCallee();
+            FD && FD->getIdentifier() && FD->getName() == "pthread_create") {
+          S.SafeCDiag(Use.getLoc(), "used-after-spawn");
+          S.SafeCDiag(CE->getExprLoc(), "spawned-here");
+          return;
+        }
     auto WarnDiag =
         getInvalidationWarnDiag(isFreeingExpr(InvalidationExpr), Use.getKind());
     // Don't enable this via -Weverything - see rdar://190623069.

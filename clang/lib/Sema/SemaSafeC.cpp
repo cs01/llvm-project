@@ -242,6 +242,15 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 can write past the end of its destination, which nothing checks; "
      "use the size-bounded form, as in 'wcslcat(dst, src, N)' with N the "
      "destination's length in wide characters"},
+    {"spawn-borrow", false,
+     "the new thread may outlive what this pointer borrows (the spawning "
+     "function can return or free it first); give the thread memory it owns "
+     "(a new allocation, moved in) or static data"},
+    {"used-after-spawn", false,
+     "this memory was handed to a new thread, which may be using it right "
+     "now; using it here too is a data race; give the thread its own copy, "
+     "or share it through a lock"},
+    {"spawned-here", true, "handed to the thread here"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
@@ -951,6 +960,19 @@ public:
 
   bool VisitCallExpr(CallExpr *Call) {
     checkCallAliasing(Call);
+    // M5 rule 1: a thread's argument is moved into it (Rust's 'static +
+    // Send bound on spawn): an owner, static data, or null.
+    if (const FunctionDecl *F = Call->getDirectCallee();
+        F && F->isExternC() && F->getIdentifier() &&
+        F->getName() == "pthread_create" && Call->getNumArgs() == 4) {
+      const Expr *Arg = Call->getArg(3);
+      const auto *ArgVar = dyn_cast_or_null<VarDecl>(namedStorage(Arg));
+      bool OwnerVar = ArgVar && (isOwnedStorage(ArgVar) ||
+                                 isInferredOwnerLocal(S.Context, ArgVar, Body));
+      if (!OwnerVar && !isOwnedSource(S.Context, Arg) &&
+          !isStaticAddress(S.Context, Arg))
+        S.SafeCDiag(Arg->getExprLoc(), "spawn-borrow");
+    }
     if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
         Call->getNumArgs() == 1)
       checkOwnershipRoot(S, Call->getArg(0), 0, Body);

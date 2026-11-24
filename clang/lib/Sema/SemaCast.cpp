@@ -4003,6 +4003,60 @@ static bool isSameTypeDeep(ASTContext &Ctx, QualType A, QualType B) {
   return true;
 }
 
+/// Safe C: whether a function of type Src may be called through type Dst
+/// when they differ only in sugar the call does not depend on: a __single
+/// pointer matches an unannotated one (same representation); nullability is
+/// checked by direction. A parameter must accept null unless Dst promises it
+/// never passes null; a return may be non-null where Dst allows either.
+static bool sameFunctionLoose(ASTContext &Ctx, QualType Src, QualType Dst);
+
+static bool samePointerLoose(ASTContext &Ctx, QualType S, QualType D,
+                             bool IsParam) {
+  const auto *SP = S->getAs<PointerType>(), *DP = D->getAs<PointerType>();
+  if (!SP || !DP)
+    return Ctx.hasSameUnqualifiedType(S, D);
+  auto Rep = [](const PointerType *P) {
+    BoundsSafetyPointerAttributes A = P->getPointerAttributes();
+    return A.isUnspecified() || A.isSingle();
+  };
+  if (!Rep(SP) || !Rep(DP)) {
+    if (SP->getPointerAttributes() != DP->getPointerAttributes())
+      return false;
+  }
+  auto SN = S->getNullability(), DN = D->getNullability();
+  // The function being converted is Safe C code, where a pointer without
+  // nullability is non-null.
+  bool SNull = SN && *SN != NullabilityKind::NonNull;
+  bool DNull = !DN || *DN != NullabilityKind::NonNull;
+  // A parameter: the caller (through Dst) may pass null unless it promises
+  // not to, so the callee (Src) must accept it. A return: the callee may
+  // return null only if the caller expects it.
+  if (IsParam ? (DNull && !SNull) : (SNull && DN && !DNull))
+    return false;
+  QualType SPt = SP->getPointeeType(), DPt = DP->getPointeeType();
+  if (SPt->isFunctionType() && DPt->isFunctionType())
+    return sameFunctionLoose(Ctx, SPt, DPt);
+  return Ctx.hasSameUnqualifiedType(Ctx.getCanonicalType(SPt.getUnqualifiedType()),
+                                    Ctx.getCanonicalType(DPt.getUnqualifiedType())) ||
+         isSameTypeDeep(Ctx, SPt, DPt);
+}
+
+static bool sameFunctionLoose(ASTContext &Ctx, QualType Src, QualType Dst) {
+  const auto *S = Src->getAs<FunctionProtoType>();
+  const auto *D = Dst->getAs<FunctionProtoType>();
+  if (!S || !D || S->getNumParams() != D->getNumParams() ||
+      S->isVariadic() != D->isVariadic())
+    return false;
+  if (!samePointerLoose(Ctx, S->getReturnType(), D->getReturnType(),
+                        /*IsParam=*/false))
+    return false;
+  for (unsigned I = 0, N = S->getNumParams(); I != N; ++I)
+    if (!samePointerLoose(Ctx, S->getParamType(I), D->getParamType(I),
+                          /*IsParam=*/true))
+      return false;
+  return true;
+}
+
 void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
                                            SourceLocation Loc,
                                            bool Synthesized) {
@@ -4024,7 +4078,9 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
   if (S->isFunctionType() || D->isFunctionType()) {
     // A call through a pointer of the wrong type passes arguments the callee
     // reads as something else.
-    if (isSameTypeDeep(Context, S, D))
+    if (isSameTypeDeep(Context, S, D) ||
+        (S->isFunctionType() && D->isFunctionType() &&
+         sameFunctionLoose(Context, S, D)))
       return;
   } else if (S->isVoidType()) {
     // A forged pointer is already reported as an escape.
