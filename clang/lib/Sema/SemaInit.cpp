@@ -8923,6 +8923,47 @@ ExprResult InitializationSequence::Perform(Sema &S,
       QualType SourceType = CurInit.get()->getType();
       Expr *Init = CurInit.get();
 
+      // Safe C: a trusted (system or legacy header) function taking an
+      // unannotated `const char *` and no length can only mean a terminated
+      // string, which it reads to the end. Give a buffer the same call-time
+      // check a terminated parameter gets (scan within its bounds, trap if no
+      // terminator), so the callee cannot read past it.
+      if (S.getLangOpts().SafeC && Entity.isParameterKind() &&
+          !Init->containsErrors())
+        if (const auto *PVD =
+                dyn_cast_or_null<ParmVarDecl>(Entity.getDecl());
+            PVD && S.SourceMgr.isInSystemHeader(PVD->getLocation())) {
+          const auto *Callee =
+              dyn_cast_or_null<FunctionDecl>(PVD->getDeclContext());
+          const auto *PT = Step->Type->getAs<PointerType>();
+          QualType Pointee = PT ? PT->getPointeeType() : QualType();
+          bool NoLength =
+              Callee && llvm::none_of(Callee->parameters(),
+                                      [](const ParmVarDecl *P) {
+                                        return P->getType()->isIntegerType();
+                                      });
+          if (PT && NoLength && Pointee.isConstQualified() &&
+              (Pointee->isCharType() || Pointee->isWideCharType()) &&
+              !Step->Type->isValueTerminatedType() &&
+              !Step->Type->isBoundsAttributedType()) {
+            ExprResult Src = S.DefaultFunctionArrayLvalueConversion(Init);
+            const auto *SrcPT = Src.isUsable()
+                                    ? Src.get()->getType()->getAs<PointerType>()
+                                    : nullptr;
+            if (SrcPT && (SrcPT->isIndexable() || SrcPT->isBidiIndexable())) {
+              SourceLocation Loc = Src.get()->getExprLoc();
+              ExprResult Conv = S.BuildTerminatedByFromIndexableExpr(
+                  IntegerLiteral::Create(S.Context, llvm::APInt(32, 0),
+                                         S.Context.IntTy, Loc),
+                  Src.get(), /*PointerToTerminatorExpr=*/nullptr, Loc, Loc);
+              if (Conv.isUsable()) {
+                Init = Conv.get();
+                CurInit = Conv;
+              }
+            }
+          }
+        }
+
       // Save off the initial CurInit in case we need to emit a diagnostic
       ExprResult InitialCurInit = Init;
       ExprResult Result = Init;
