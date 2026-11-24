@@ -42,7 +42,7 @@ static const char *_Static json = "{\n\
 \t\t}]\n\
 }";
 
-static char *_Nullable __null_terminated create_monitor(void)
+_Returns_owned static char *_Nullable __null_terminated create_monitor(void)
 {
     const unsigned int resolution_numbers[3][2] = {
         {1280, 720},
@@ -114,7 +114,7 @@ end:
     return string;
 }
 
-static char *_Nullable __null_terminated create_monitor_with_helpers(void)
+_Returns_owned static char *_Nullable __null_terminated create_monitor_with_helpers(void)
 {
     const unsigned int resolution_numbers[3][2] = {
         {1280, 720},

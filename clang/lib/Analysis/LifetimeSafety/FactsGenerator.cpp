@@ -1178,44 +1178,7 @@ void FactsGenerator::VisitReturnStmt(const ReturnStmt *RS) {
   // Safe C: compound literals not tied to a local die with the frame. (Those
   // initializing a local expire with it, at its lifetime end.)
   if (AC.getASTContext().getLangOpts().SafeC) {
-    if (!SafeCUnanchoredLiterals) {
-      SafeCUnanchoredLiterals.emplace();
-      llvm::SmallPtrSet<const CompoundLiteralExpr *, 8> Anchored;
-      llvm::SmallVector<const CompoundLiteralExpr *, 8> All;
-      std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
-        if (!S)
-          return;
-        if (const auto *DS = dyn_cast<DeclStmt>(S))
-          for (const Decl *D : DS->decls())
-            if (const auto *VD = dyn_cast<VarDecl>(D);
-                VD && VD->hasLocalStorage()) {
-              llvm::SmallVector<const CompoundLiteralExpr *, 2> In;
-              safeCLiteralsIn(VD->getInit(), In);
-              Anchored.insert(In.begin(), In.end());
-            }
-        if (const auto *CLE = dyn_cast<CompoundLiteralExpr>(S);
-            CLE && !CLE->isFileScope())
-          All.push_back(CLE);
-        if (const auto *Call = dyn_cast<CallExpr>(S); Call && safeCIsAlloca(Call))
-          SafeCAllocas.push_back(Call);
-        // Bounds-safety wraps calls in opaque values, whose source is not a
-        // child.
-        if (const auto *OVE = dyn_cast<OpaqueValueExpr>(S))
-          Walk(OVE->getSourceExpr());
-        for (const Stmt *C : S->children())
-          Walk(C);
-      };
-      Walk(AC.getBody());
-      for (const CompoundLiteralExpr *CLE : All)
-        if (!Anchored.contains(CLE))
-          SafeCUnanchoredLiterals->push_back(CLE);
-    }
-    for (const CompoundLiteralExpr *CLE : *SafeCUnanchoredLiterals)
-      CurrentBlockFacts.push_back(
-          FactMgr.createFact<ExpireFact>(AccessPath(CLE), RS->getEndLoc()));
-    for (const CallExpr *Call : SafeCAllocas)
-      CurrentBlockFacts.push_back(
-          FactMgr.createFact<ExpireFact>(AccessPath(Call), RS->getEndLoc()));
+    safeCExpireFrame(RS->getEndLoc());
   }
   if (const Expr *RetExpr = RS->getRetValue()) {
     if (OriginList *List = getOriginsList(*RetExpr))
@@ -1921,7 +1884,53 @@ void FactsGenerator::handleFullExprCleanup(
         AccessPath(MTE), FullExprCleanup.getCleanupLoc()));
 }
 
+// The frame's unnamed storage (alloca blocks, compound literals with no named
+// anchor) ends when the function does: at each return, and where control runs
+// off the end.
+void FactsGenerator::safeCExpireFrame(SourceLocation Loc) {
+  if (!SafeCUnanchoredLiterals) {
+    SafeCUnanchoredLiterals.emplace();
+    llvm::SmallPtrSet<const CompoundLiteralExpr *, 8> Anchored;
+    llvm::SmallVector<const CompoundLiteralExpr *, 8> All;
+    std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
+      if (!S)
+        return;
+      if (const auto *DS = dyn_cast<DeclStmt>(S))
+        for (const Decl *D : DS->decls())
+          if (const auto *VD = dyn_cast<VarDecl>(D);
+              VD && VD->hasLocalStorage()) {
+            llvm::SmallVector<const CompoundLiteralExpr *, 2> In;
+            safeCLiteralsIn(VD->getInit(), In);
+            Anchored.insert(In.begin(), In.end());
+          }
+      if (const auto *CLE = dyn_cast<CompoundLiteralExpr>(S);
+          CLE && !CLE->isFileScope())
+        All.push_back(CLE);
+      if (const auto *Call = dyn_cast<CallExpr>(S); Call && safeCIsAlloca(Call))
+        SafeCAllocas.push_back(Call);
+      // Bounds-safety wraps calls in opaque values, whose source is not a
+      // child.
+      if (const auto *OVE = dyn_cast<OpaqueValueExpr>(S))
+        Walk(OVE->getSourceExpr());
+      for (const Stmt *C : S->children())
+        Walk(C);
+    };
+    Walk(AC.getBody());
+    for (const CompoundLiteralExpr *CLE : All)
+      if (!Anchored.contains(CLE))
+        SafeCUnanchoredLiterals->push_back(CLE);
+  }
+  for (const CompoundLiteralExpr *CLE : *SafeCUnanchoredLiterals)
+    CurrentBlockFacts.push_back(
+        FactMgr.createFact<ExpireFact>(AccessPath(CLE), Loc));
+  for (const CallExpr *Call : SafeCAllocas)
+    CurrentBlockFacts.push_back(
+        FactMgr.createFact<ExpireFact>(AccessPath(Call), Loc));
+}
+
 void FactsGenerator::handleExitBlock() {
+  if (AC.getASTContext().getLangOpts().SafeC && AC.getBody())
+    safeCExpireFrame(AC.getBody()->getEndLoc());
   bool IsDestructor = isa_and_nonnull<CXXDestructorDecl>(AC.getDecl());
   for (const Origin &O : FactMgr.getOriginMgr().getOrigins())
     // Create FieldEscapeFacts for all field origins that remain live at exit.

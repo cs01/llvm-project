@@ -28,7 +28,8 @@ static void assert_print_string(const char *expected _Noescape, const char *_Nul
 {
     unsigned char printed[1024];
     printbuffer buffer = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
-    buffer.buffer = printed;
+    /* unsafe: a stack buffer in an owned field; nothing here frees it */
+    __unsafe { buffer.buffer = printed; }
     buffer.length = sizeof(printed);
     buffer.offset = 0;
     buffer.noalloc = true;

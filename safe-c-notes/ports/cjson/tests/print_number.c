@@ -31,7 +31,8 @@ static void assert_print_number(const char *expected, double input)
     cJSON item[1];
     printbuffer buffer = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
     /* the original pointed buffer at new_buffer but left length at 1024 */
-    buffer.buffer = new_buffer;
+    /* unsafe: a stack buffer in an owned field; nothing here frees it */
+    __unsafe { buffer.buffer = new_buffer; }
     buffer.length = sizeof(new_buffer);
     buffer.offset = 0;
     buffer.noalloc = true;

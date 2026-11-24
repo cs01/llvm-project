@@ -28,7 +28,7 @@ void free_local(void) {
 void drop(int *_Nullable p) __attribute__((ownership_takes(malloc, 1)));
 void free_local_via_owner(void) {
   int arr[4] = {0};
-  drop(arr); // expected-error {{attempt to call drop on non-heap object 'arr'}}
+  drop(arr); // expected-error {{attempt to call drop on non-heap object 'arr'}} expected-error {{this is freed or given away here}}
 }
 
 int closed_twice(void) {

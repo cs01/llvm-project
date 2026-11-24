@@ -28,7 +28,7 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static cJSON *_Nullable parse_file(const char *filename _Noescape)
+_Returns_owned static cJSON *_Nullable parse_file(const char *filename _Noescape)
 {
     cJSON *parsed = NULL;
     char *_Nullable __null_terminated content = read_file(filename);

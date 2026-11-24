@@ -40,8 +40,8 @@ void reset(cJSON *_Exclusive item) {
     memset(item, 0, sizeof(cJSON));
 }
 
-char *_Nullable __null_terminated read_file(const char *filename _Noescape);
-char *_Nullable __null_terminated read_file(const char *filename _Noescape) {
+_Returns_owned char *_Nullable __null_terminated read_file(const char *filename _Noescape);
+_Returns_owned char *_Nullable __null_terminated read_file(const char *filename _Noescape) {
     FILE *_Nullable file = NULL;
     long length = 0;
     char *content = NULL;

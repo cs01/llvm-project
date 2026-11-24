@@ -1362,7 +1362,7 @@ CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithLength(const char *_Nullable __cou
 
 #define cjson_min(a, b) (((a) < (b)) ? (a) : (b))
 
-static char *_Nullable __null_terminated print(const cJSON *_Nullable const item, cJSON_bool format, const internal_hooks * const hooks)
+_Returns_owned static char *_Nullable __null_terminated print(const cJSON *_Nullable const item, cJSON_bool format, const internal_hooks * const hooks)
 {
     static const size_t default_buffer_size = 256;
     printbuffer buffer[1];

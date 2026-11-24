@@ -10,7 +10,7 @@ T=$(mktemp -d); cd "$T" || exit 1
 for x in a b c; do
   awk -v pre="$H/pre.h" '/^\/\/\/\//{f=$2".c"; while((getline l < pre)>0) print l > f; close(pre); next}{print > f}' "$H/$x.txt"
 done
-cp "$H/dfree.c" "$H"/void/*.c .
+cp "$H/dfree.c" "$H"/void/*.c "$H"/frees/*.c .
 total=0; holes=0
 for f in *.c; do
   total=$((total + 1))

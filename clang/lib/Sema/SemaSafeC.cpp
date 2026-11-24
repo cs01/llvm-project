@@ -314,6 +314,13 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "overwritten (memcpy, memset, read), forging them; keep the pointer's "
      "own type, use 'const void *' if it is only read, or pass it "
      "directly in the call that needs 'void *'"},
+    {"give-not-owner", false,
+     "this is freed or given away here, so it must be a whole block this code "
+     "owns (a new allocation, an owned parameter, or '_Take' of an owned "
+     "field) on every path; it may not be an array, a borrow, or a pointer "
+     "into the middle of a block: keep the original pointer and give that "
+     "away"},
+    {"give-not-owner-here", true, "it may be this value instead"},
     {"owned-param-stored", false,
      "%0 is owned by this function, which frees it or gives it on, but a "
      "borrow of it is stored where %1 points, so the caller could use it "
@@ -879,6 +886,117 @@ static bool isInferredOwnerLocal(ASTContext &Ctx, const VarDecl *VD,
   return F.Ok;
 }
 
+/// Giving memory away (free, an owned parameter, field or return) needs a
+/// pointer to a whole block this code owns. Returns the expression that shows
+/// E may be something else (an array, a borrow, the middle of a block), or
+/// null. A local is followed through every value it is given.
+static const Expr *notAnOwner(ASTContext &Ctx, const Expr *E, const Stmt *Body,
+                              llvm::SmallPtrSetImpl<const VarDecl *> &Seen,
+                              bool Outer = true) {
+  const Expr *Whole = E;
+  E = lifetimes::safeCPeel(E);
+  if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
+    return nullptr;
+  if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E))
+    return notAnOwner(Ctx, MSE->getWrappedExpr(), Body, Seen, Outer);
+  if (const auto *PPE = dyn_cast<BoundsSafetyPointerPromotionExpr>(E))
+    return notAnOwner(Ctx, PPE->getPointer(), Body, Seen, Outer);
+  if (const auto *BCE = dyn_cast<BoundsCheckExpr>(E))
+    return notAnOwner(Ctx, BCE->getGuardedExpr(), Body, Seen, Outer);
+  if (const auto *CE = dyn_cast<CStyleCastExpr>(E))
+    return notAnOwner(Ctx, CE->getSubExpr(), Body, Seen, Outer);
+  if (const auto *CO = dyn_cast<ConditionalOperator>(E)) {
+    if (const Expr *B = notAnOwner(Ctx, CO->getTrueExpr(), Body, Seen, Outer))
+      return B;
+    return notAnOwner(Ctx, CO->getFalseExpr(), Body, Seen, Outer);
+  }
+  if (const auto *BO = dyn_cast<BinaryOperator>(E)) {
+    if (BO->getOpcode() == BO_Comma || BO->getOpcode() == BO_Assign)
+      return notAnOwner(Ctx, BO->getRHS(), Body, Seen, Outer);
+    return Whole;
+  }
+  if (const auto *Call = dyn_cast<CallExpr>(E)) {
+    // `_Take(local)` is what the local holds.
+    if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
+        Call->getNumArgs() == 1 &&
+        isTrackedLocal(Call->getArg(0)))
+      return notAnOwner(Ctx, Call->getArg(0), Body, Seen, Outer);
+    if (isOwnedSource(Ctx, E))
+      return nullptr;
+    // Taking from a place that is not an owner has its own message.
+    if (Outer && Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take)
+      return nullptr;
+    const Decl *D = Call->getCalleeDecl();
+    if (D)
+      for (const auto *OA : D->specific_attrs<OwnershipAttr>())
+        if (OA->isReturns())
+          return nullptr;
+    // `alloc_size` promises fresh memory too (checked against the body).
+    if (const FunctionDecl *F = Call->getDirectCallee();
+        F && F->hasAttr<AllocSizeAttr>() &&
+        F->getBuiltinID() != Builtin::BIalloca &&
+        F->getBuiltinID() != Builtin::BI__builtin_alloca)
+      return nullptr;
+    return Whole;
+  }
+  if (const auto *DRE = dyn_cast<DeclRefExpr>(E)) {
+    const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+    if (!VD || VD->getType()->isArrayType())
+      return Whole;
+    // A library's own handles (stdin).
+    if (VD->hasGlobalStorage())
+      return Ctx.getSourceManager().isInSystemHeader(VD->getLocation()) ||
+                     (Outer && isOwnedStorage(VD))
+                 ? nullptr
+                 : Whole;
+    if (!Seen.insert(VD).second)
+      return nullptr;
+    const bool Declared = isOwnedStorage(VD);
+    // (A parameter freed by name has its own message.)
+    if (isa<ParmVarDecl>(VD) && !Declared)
+      return Outer ? nullptr : Whole;
+    const Expr *Bad = nullptr;
+    if (const Expr *Init = VD->getInit(); Init && !isa<ParmVarDecl>(VD))
+      Bad = notAnOwner(Ctx, Init, Body, Seen, /*Outer=*/false);
+    struct Finder : RecursiveASTVisitor<Finder> {
+      ASTContext &Ctx;
+      const VarDecl *VD;
+      const Stmt *Body;
+      llvm::SmallPtrSetImpl<const VarDecl *> &Seen;
+      const Expr *Bad;
+      bool Declared;
+      bool names(const Expr *E) {
+        const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+        return DRE && DRE->getDecl() == VD;
+      }
+      bool VisitBinaryOperator(BinaryOperator *BO) {
+        if (!Bad && BO->isAssignmentOp() && names(BO->getLHS()))
+          Bad = BO->getOpcode() == BO_Assign
+                    ? notAnOwner(Ctx, BO->getRHS(), Body, Seen, false)
+                    : BO;
+        return !Bad;
+      }
+      bool VisitUnaryOperator(UnaryOperator *UO) {
+        // An owned local's address is lent as an owner's, so what is stored
+        // through it is one.
+        if (!Bad && names(UO->getSubExpr()) &&
+            (UO->isIncrementDecrementOp() ||
+             (UO->getOpcode() == UO_AddrOf && !Declared)))
+          Bad = UO;
+        return !Bad;
+      }
+    } F{{}, Ctx, VD, Body, Seen, Bad, Declared};
+    if (!Bad && Body)
+      F.TraverseStmt(const_cast<Stmt *>(Body));
+    return F.Bad;
+  }
+  // A field, element or *p: moved out with _Take (checked elsewhere), never
+  // by copying it into a local.
+  if (Outer)
+    return nullptr;
+  return Whole;
+}
+
 /// Rule 8.2: an argument lent exclusively must reach its object only through
 /// owners and exclusive borrows: an owned or exclusive variable, the address
 /// of a stack object, or an owned field reached from one of those. Returns
@@ -1082,9 +1200,24 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
         << (RD ? RD->getName() : StringRef("view"));
   }
 
+  void checkGive(const Expr *E) {
+    if (!E->getType()->isPointerType() || E->getType()->isFunctionPointerType())
+      return;
+    llvm::SmallPtrSet<const VarDecl *, 8> Seen;
+    const Expr *Bad = notAnOwner(S.Context, E, Body, Seen);
+    if (!Bad)
+      return;
+    S.SafeCDiag(E->getExprLoc(), "give-not-owner");
+    if (Bad->getExprLoc() != E->getExprLoc())
+      S.SafeCDiag(Bad->getExprLoc(), "give-not-owner-here");
+  }
+
   void checkStore(const ValueDecl *Dst, const Expr *Src, SourceLocation Loc) {
     if (!Dst)
       return;
+    if (Dst->getType()->isPointerType() && isOwnedStorage(Dst) &&
+        !isa<ParmVarDecl>(Dst) && isOwnedSource(S.Context, Src))
+      checkGive(Src);
     // A _Drop_free local is freed when its scope ends, so it may only hold
     // memory it owns (found by the Lean model of _Drop: `p = &local` or a
     // borrowed parameter made the cleanup free memory it did not own).
@@ -1361,6 +1494,11 @@ public:
 
   bool VisitReturnStmt(ReturnStmt *RS) {
     if (const Expr *V = RS->getRetValue())
+      if (const FunctionDecl *F = S.getCurFunctionDecl())
+        if (llvm::any_of(F->specific_attrs<OwnershipAttr>(),
+                         [](const OwnershipAttr *A) { return A->isReturns(); }))
+          checkGive(V);
+    if (const Expr *V = RS->getRetValue())
       if (const VarDecl *D = dropLocalNamed(V))
         S.SafeCDiag(V->getExprLoc(), "drop-moved-by-name") << D << D->getName();
     if (const Expr *V = RS->getRetValue())
@@ -1591,6 +1729,12 @@ public:
     if (!Callee)
       return true;
     for (unsigned I = 0, N = Call->getNumArgs(); I != N; ++I) {
+      bool Takes = safeCTakesParam(Callee, I);
+      if (const auto *F = dyn_cast<FunctionDecl>(Callee))
+        Takes |= I < F->getNumParams() &&
+                 lifetimes::safeCParamDeclKind(F->getParamDecl(I)) == "owned";
+      if (Takes)
+        checkGive(Call->getArg(I));
       if (!safeCTakesParam(Callee, I))
         continue;
       if (const VarDecl *D = dropLocalNamed(Call->getArg(I))) {

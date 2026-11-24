@@ -34,7 +34,8 @@ static void assert_print_value(const char * const input)
     cJSON item[1];
     printbuffer buffer = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
     parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
-    buffer.buffer = printed;
+    /* unsafe: a stack buffer in an owned field; nothing here frees it */
+    __unsafe { buffer.buffer = printed; }
     buffer.length = sizeof(printed);
     buffer.offset = 0;
     buffer.noalloc = true;

@@ -42,14 +42,16 @@ static void assert_print_array(const char * const expected, const char * const i
     parsebuffer.hooks = global_hooks;
 
     /* buffer for formatted printing */
-    formatted_buffer.buffer = printed_formatted;
+    /* unsafe: a stack buffer in an owned field; nothing here frees it */
+    __unsafe { formatted_buffer.buffer = printed_formatted; }
     formatted_buffer.length = sizeof(printed_formatted);
     formatted_buffer.offset = 0;
     formatted_buffer.noalloc = true;
     formatted_buffer.hooks = global_hooks;
 
     /* buffer for unformatted printing */
-    unformatted_buffer.buffer = printed_unformatted;
+    /* unsafe: a stack buffer in an owned field; nothing here frees it */
+    __unsafe { unformatted_buffer.buffer = printed_unformatted; }
     unformatted_buffer.length = sizeof(printed_unformatted);
     unformatted_buffer.offset = 0;
     unformatted_buffer.noalloc = true;

@@ -122,6 +122,7 @@ private:
 
   // Handles [[clang::lifetime_capture_by(X)]] annotations on a function call to
   // create flow facts from captured arguments to the capturer
+  void safeCExpireFrame(SourceLocation Loc);
   void safeCFlowThroughOutArgs(const CallExpr *CE);
   void handleLifetimeCaptureBy(const FunctionDecl *FD,
                                ArrayRef<const Expr *> Args);
