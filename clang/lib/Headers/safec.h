@@ -160,14 +160,28 @@ char *getenv(const char *__null_terminated);
 #define __safec_returns_owned __attribute__((ownership_returns(malloc)))
 #define __safec_lifetimebound __attribute__((lifetimebound))
 #define __safec_noescape __attribute__((noescape))
-/* On a parameter: the function takes ownership. Sema turns it into
-   ownership_takes at the parameter's index, so no index can drift. */
-#define __safec_owned __attribute__((annotate("safec_owned")))
+/* Pointer kinds go right after the '*' they describe, so a pointer to
+   owned pointers is 'char *__safec_owned *__safec_owned items'.
+   On a parameter, owned means the function takes ownership: Sema turns it
+   into ownership_takes at the parameter's index, so no index can drift. */
+#if defined(__SAFE_C__)
+#define __safec_owned [[clang::annotate_type("safec_owned")]]
+#else /* plain clang: [[]] after _Nullable would not parse */
+#define __safec_owned
+#endif
 /* On a field or global: points only at static data (string literals,
    globals, functions), like Rust's &'static. */
-#define __safec_static __attribute__((annotate("safec_static")))
+#if defined(__SAFE_C__)
+#define __safec_static [[clang::annotate_type("safec_static")]]
+#else /* plain clang: [[]] after _Nullable would not parse */
+#define __safec_static
+#endif
 /* On a field or global: may point anywhere; dereferencing needs __unsafe. */
-#define __safec_unchecked __attribute__((annotate("safec_unchecked")))
+#if defined(__SAFE_C__)
+#define __safec_unchecked [[clang::annotate_type("safec_unchecked")]]
+#else /* plain clang: [[]] after _Nullable would not parse */
+#define __safec_unchecked
+#endif
 /* On a struct: holds borrows, so it lives only in locals and parameters. */
 #define __safec_view __attribute__((annotate("safec_view")))
 /* Move an owned pointer out of a field or global, leaving null (and a zero

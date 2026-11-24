@@ -163,6 +163,11 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "copying %0 duplicates its owned field %1, and both copies would free "
      "it; pass a pointer to it instead, or move the field out with "
      "'__safec_take'"},
+    {"heap-slot-borrow", false,
+     "this heap memory holds pointers of type %0, which nothing tracks, so "
+     "they can outlive what they point to; give the inner pointer a kind, as "
+     "in 'T *__safec_owned *' if the memory owns what they point to, or "
+     "'T *__safec_static *'"},
     {"view-write-through-pointer", false,
      "writing a borrow into a '__safec_view' through a pointer can outlive "
      "what it points to, because the view's own lifetime is unknown here; "
@@ -208,6 +213,30 @@ bool clang::safeCOwnershipEnabled(const Sema &S) {
   return S.getLangOpts().SafeC && SafeCOwnership;
 }
 
+StringRef clang::safeCPointerKind(QualType T) {
+  while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
+    T = AT->getElementType();
+  // Walk this pointer's own sugar (typedefs, bounds and nullability
+  // attributes), never into its pointee.
+  for (const Type *Cur = T.getTypePtr();;) {
+    if (const auto *AT = dyn_cast<AttributedType>(Cur)) {
+      if (const auto *A = dyn_cast_or_null<AnnotateTypeAttr>(AT->getAttr()))
+        if (A->getAnnotation().starts_with("safec_"))
+          return A->getAnnotation().drop_front(6);
+      Cur = AT->getModifiedType().getTypePtr();
+      continue;
+    }
+    QualType Next = Cur->getLocallyUnqualifiedSingleStepDesugaredType();
+    if (Next.getTypePtr() == Cur)
+      return "";
+    Cur = Next.getTypePtr();
+  }
+}
+
+static bool hasKind(const ValueDecl *D, StringRef K) {
+  return safeCPointerKind(D->getType()) == K;
+}
+
 static bool hasSafeCAnnotation(const Decl *D, StringRef Name) {
   for (const auto *A : D->specific_attrs<AnnotateAttr>())
     if (A->getAnnotation() == Name)
@@ -223,6 +252,19 @@ static bool holdsBorrow(QualType T) {
   return T->isPointerType() && !T->isFunctionPointerType();
 }
 
+/// For a pointer to pointers that would live in the heap: the inner pointer
+/// type, if it has no kind (a borrow stored where nothing tracks it).
+static QualType plainPointerSlot(QualType PtrT) {
+  if (!PtrT->isPointerType())
+    return QualType();
+  QualType Inner = PtrT->getPointeeType();
+  while (const ArrayType *AT = Inner->getAsArrayTypeUnsafe())
+    Inner = AT->getElementType();
+  if (holdsBorrow(Inner) && safeCPointerKind(Inner).empty())
+    return Inner;
+  return QualType();
+}
+
 static bool isViewType(QualType T) {
   while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
     T = AT->getElementType();
@@ -234,10 +276,8 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
   if (!safeCOwnershipEnabled(S) ||
       S.getSourceManager().isInSystemHeader(D->getLocation()))
     return;
-  auto Kinded = [](const Decl *X) {
-    return hasSafeCAnnotation(X, "safec_owned") ||
-           hasSafeCAnnotation(X, "safec_static") ||
-           hasSafeCAnnotation(X, "safec_unchecked");
+  auto Kinded = [](const ValueDecl *X) {
+    return !safeCPointerKind(X->getType()).empty();
   };
   if (auto *RD = dyn_cast<RecordDecl>(D)) {
     if (hasSafeCAnnotation(RD, "safec_view"))
@@ -245,6 +285,11 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
     for (const FieldDecl *FD : RD->fields()) {
       if (holdsBorrow(FD->getType()) && !Kinded(FD))
         S.SafeCDiag(FD->getLocation(), "storage-borrow") << 0 << FD;
+      else if (QualType Slot = hasKind(FD, "owned")
+                                   ? plainPointerSlot(FD->getType())
+                                   : QualType();
+               !Slot.isNull())
+        S.SafeCDiag(FD->getLocation(), "heap-slot-borrow") << Slot;
       else if (isViewType(FD->getType()))
         S.SafeCDiag(FD->getLocation(), "view-storage") << 1 << FD;
     }
@@ -284,7 +329,7 @@ static bool isStaticAddress(ASTContext &Ctx, const Expr *E) {
       return true;
     if (CE->getCastKind() == CK_LValueToRValue) {
       const ValueDecl *D = namedStorage(CE->getSubExpr());
-      return D && hasSafeCAnnotation(D, "safec_static");
+      return D && hasKind(D, "static");
     }
     return isStaticAddress(Ctx, CE->getSubExpr());
   }
@@ -325,7 +370,7 @@ static bool isStaticObject(ASTContext &Ctx, const Expr *E) {
 /// An __safec_owned field, global or local, or a parameter the function
 /// takes ownership of.
 static bool isOwnedStorage(const ValueDecl *D) {
-  if (hasSafeCAnnotation(D, "safec_owned"))
+  if (hasKind(D, "owned"))
     return true;
   if (const auto *P = dyn_cast<ParmVarDecl>(D))
     if (const auto *F = dyn_cast<FunctionDecl>(P->getDeclContext()))
@@ -341,7 +386,7 @@ static const FieldDecl *ownedFieldOf(QualType T) {
   if (!RD || !RD->getDefinition())
     return nullptr;
   for (const FieldDecl *FD : RD->getDefinition()->fields()) {
-    if (hasSafeCAnnotation(FD, "safec_owned"))
+    if (hasKind(FD, "owned"))
       return FD;
     if (const FieldDecl *Inner = ownedFieldOf(FD->getType()))
       return Inner;
@@ -392,14 +437,19 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   void checkStore(const ValueDecl *Dst, const Expr *Src, SourceLocation Loc) {
     if (!Dst)
       return;
-    if (hasSafeCAnnotation(Dst, "safec_static") &&
+    if (hasKind(Dst, "static") &&
         !isStaticAddress(S.Context, Src))
       S.SafeCDiag(Src->getExprLoc(), "static-store") << Dst;
-    if (hasSafeCAnnotation(Dst, "safec_unchecked"))
+    if (hasKind(Dst, "unchecked"))
       allowRead(Src);
     if (Dst->getType()->isPointerType() && isOwnedStorage(Dst) &&
         !isa<ParmVarDecl>(Dst) && !isOwnedSource(S.Context, Src))
       S.SafeCDiag(Src->getExprLoc(), "owned-store") << Dst;
+    if (const auto *Call = dyn_cast<CallExpr>(Src->IgnoreParenCasts());
+        Call && isOwnedSource(S.Context, Call) &&
+        Call->getBuiltinCallee() != Builtin::BI__builtin_safec_take)
+      if (QualType Slot = plainPointerSlot(Dst->getType()); !Slot.isNull())
+        S.SafeCDiag(Src->getExprLoc(), "heap-slot-borrow") << Slot;
   }
 
   // Struct copies that are moves: returning a local.
@@ -498,7 +548,7 @@ public:
         return true;
       }
     const ValueDecl *D = namedStorage(ICE->getSubExpr());
-    if (D && hasSafeCAnnotation(D, "safec_unchecked") &&
+    if (D && hasKind(D, "unchecked") &&
         !AllowedUncheckedReads.count(ICE))
       S.SafeCDiag(ICE->getExprLoc(), "unchecked-read") << D;
     return true;

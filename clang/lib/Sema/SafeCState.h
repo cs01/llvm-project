@@ -20,7 +20,14 @@
 
 namespace clang {
 
+class ASTContext;
 class CallExpr;
+class QualType;
+
+/// The Safe C kind of a pointer type (from its [[clang::annotate_type]]
+/// sugar): "owned", "static", "unchecked", or "" for a plain borrow. Arrays
+/// give their elements' kind.
+llvm::StringRef safeCPointerKind(QualType T);
 class Decl;
 class Sema;
 class Stmt;

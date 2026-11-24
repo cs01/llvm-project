@@ -1017,6 +1017,10 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   if (LangOpts.PascalStrings)
     Builder.defineMacro("__PASCAL_STRINGS__");
 
+  // Safe C: lets safec.h spell its pointer kinds only where they are checked.
+  if (LangOpts.SafeC)
+    Builder.defineMacro("__SAFE_C__");
+
   if (LangOpts.Blocks) {
     Builder.defineMacro("__block", "__attribute__((__blocks__(byref)))");
     Builder.defineMacro("__BLOCKS__");

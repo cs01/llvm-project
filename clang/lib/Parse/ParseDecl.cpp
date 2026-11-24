@@ -6595,6 +6595,17 @@ void Parser::ParseTypeQualifierListOpt(
     unsigned DiagID = 0;
     SourceLocation Loc = Tok.getLocation();
 
+    // Safe C: a pointer kind ([[clang::annotate_type]], from safec.h) may
+    // follow other qualifiers, so `T *_Nullable __safec_owned` and
+    // `T *__safec_owned _Nullable` both work.
+    if (getLangOpts().SafeC && (AttrReqs & AR_CXX11AttributesParsed) &&
+        isAllowedCXX11AttributeSpecifier()) {
+      ParsedAttributes Attrs(AttrFactory);
+      ParseCXX11Attributes(Attrs);
+      DS.takeAttributesAppendingingFrom(Attrs);
+      continue;
+    }
+
     switch (Tok.getKind()) {
     case tok::code_completion:
       cutOffParsing();
