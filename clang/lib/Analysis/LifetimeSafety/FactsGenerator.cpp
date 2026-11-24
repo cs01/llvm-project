@@ -168,9 +168,11 @@ static const VarDecl *safeCValueRoot(const Expr *E, const Stmt *Body,
 /// local is its own root.
 static const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
                                        unsigned Depth) {
+  // Owners (and static or unchecked pointers) are their own roots; a plain
+  // or _Excl local borrows from where its values come from.
+  StringRef Kind = safeCPointerKind(VD->getType());
   if (!Body || Depth > 6 || isa<ParmVarDecl>(VD) || VD->hasGlobalStorage() ||
-      !VD->getType()->isPointerType() ||
-      !safeCPointerKind(VD->getType()).empty())
+      !VD->getType()->isPointerType() || (!Kind.empty() && Kind != "excl"))
     return VD;
   struct Finder : RecursiveASTVisitor<Finder> {
     const VarDecl *VD;
@@ -588,24 +590,30 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
       if (K == "excl" || K == "owned")
         EndBorrowsThrough(CE->getArg(I));
     }
-    // An `_Excl _Lifetimebound` parameter makes the result an exclusive
-    // reborrow rooted at that argument: it ends when the argument is lent
-    // or given away again (Rust's `&mut` reborrow).
+    // A `_Lifetimebound` parameter makes the result a borrow of its
+    // argument's root, so it ends when that root's owned fields change
+    // (a getter `get(&s)` of `s.p`, then `_Take(s.p)`) or the root is lent
+    // exclusively again (an `_Excl` reborrow). The result keeps what it
+    // already borrows: the new loan goes through the argument's own origin
+    // (consumed by now) and is added, not substituted.
     if (OriginList *Result = getOriginsList(*CE))
       for (unsigned I = 0; I != N; ++I) {
         const ParmVarDecl *P = FD->getParamDecl(I);
-        if (safeCPointerKind(P->getType()) != "excl" ||
-            !P->hasAttr<LifetimeBoundAttr>())
+        if (!P->hasAttr<LifetimeBoundAttr>())
           continue;
-        if (const VarDecl *Root = safeCRootVar(CE->getArg(I))) {
-          const Loan *L = FactMgr.getLoanMgr().createLoan(
-              safeCRootInterior(FactMgr.getLoanMgr(),
-                                *safeCResolveRoot(Root, AC.getBody(), 0)),
-              CE);
-          CurrentBlockFacts.push_back(
-              FactMgr.createFact<IssueFact>(L->getID(), Result->getOuterOriginID()));
-          break;
-        }
+        const VarDecl *Root = safeCRootVar(CE->getArg(I));
+        OriginList *ArgL = getOriginsList(*CE->getArg(I));
+        if (!Root || !ArgL)
+          continue;
+        const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
+        if (Resolved->hasGlobalStorage())
+          continue;
+        const Loan *L = FactMgr.getLoanMgr().createLoan(
+            safeCRootInterior(FactMgr.getLoanMgr(), *Resolved), CE);
+        CurrentBlockFacts.push_back(
+            FactMgr.createFact<IssueFact>(L->getID(), ArgL->getOuterOriginID()));
+        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+            Result->getOuterOriginID(), ArgL->getOuterOriginID(), /*Kill=*/false));
       }
   }
 }

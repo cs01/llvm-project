@@ -46,7 +46,7 @@ void reborrow(N *_Excl root) {
 }
 
 int reborrow_ended(N *_Excl root) {
-  N *_Nullable kid = add_child(root); // expected-error {{'add_child' returns an exclusive borrow of 'root', which ends when 'root' is lent or given away again, before this pointer's last use; call 'add_child' again after that point, or finish using the pointer first}}
+  N *_Nullable kid = add_child(root); // expected-error {{'add_child' returns a borrow of 'root', which ends (an owned field of it is taken or replaced, or it is lent exclusively or given away) before this pointer's last use; call 'add_child' again after that point, or finish using the pointer first}}
   clear(root); // expected-note {{the borrow ends here}}
   return kid ? kid->v : 0; // expected-note {{later used here}}
 }

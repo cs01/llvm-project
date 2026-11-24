@@ -269,9 +269,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "first"},
     {"field-borrow-ended-here", true, "the borrow ends here"},
     {"reborrow-ended", false,
-     "%0 returns an exclusive borrow of '%1', which ends when '%1' is lent "
-     "or given away again, before this pointer's last use; call %0 again "
-     "after that point, or finish using the pointer first"},
+     "%0 returns a borrow of '%1', which ends (an owned field of it is "
+     "taken or replaced, or it is lent exclusively or given away) before "
+     "this pointer's last use; call %0 again after that point, or finish "
+     "using the pointer first"},
     {"view-write-through-pointer", false,
      "writing a borrow into a '_View' through a pointer can outlive "
      "what it points to, because the view's own lifetime is unknown here; "

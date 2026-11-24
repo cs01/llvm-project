@@ -275,8 +275,7 @@ public:
                                             F->getNumParams());
                I != N; ++I) {
             const ParmVarDecl *P = F->getParamDecl(I);
-            if (lifetimes::safeCPointerKind(P->getType()) != "excl" ||
-                !P->hasAttr<LifetimeBoundAttr>())
+            if (!P->hasAttr<LifetimeBoundAttr>())
               continue;
             std::string Root =
                 Lexer::getSourceText(S.getSourceManager().getExpansionRange(
@@ -340,9 +339,16 @@ public:
     reportUseNote(Use);
   }
 
+  /// One stack-escape error per return: several loans of the same object
+  /// (its storage, and its interior through a lifetimebound call) escaping
+  /// at once are one problem.
+  llvm::SmallPtrSet<const Expr *, 4> ReportedReturns;
+
   void reportUseAfterReturn(const Expr *IssueExpr, const Expr *ReturnExpr,
                             const Expr *MovedExpr,
                             llvm::ArrayRef<const Expr *> ExprChain) override {
+    if (S.getLangOpts().SafeC && !ReportedReturns.insert(ReturnExpr).second)
+      return;
     unsigned DiagID = MovedExpr
                           ? diag::warn_lifetime_safety_return_stack_addr_moved
                           : diag::warn_lifetime_safety_return_stack_addr;
