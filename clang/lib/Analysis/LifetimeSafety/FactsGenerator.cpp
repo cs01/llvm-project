@@ -446,12 +446,33 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
   }
 
   // An argument lent to an exclusive parameter may have its owned fields
-  // taken or replaced by the callee.
-  if (const FunctionDecl *FD = CE->getDirectCallee())
-    for (unsigned I = 0, N = std::min(CE->getNumArgs(), FD->getNumParams());
-         I != N; ++I)
-      if (safeCPointerKind(FD->getParamDecl(I)->getType()) == "excl")
+  // taken or replaced by the callee; one given away to an owned parameter
+  // is gone. Either way, borrows rooted at it end.
+  if (const FunctionDecl *FD = CE->getDirectCallee()) {
+    unsigned N = std::min(CE->getNumArgs(), FD->getNumParams());
+    for (unsigned I = 0; I != N; ++I) {
+      StringRef K = safeCPointerKind(FD->getParamDecl(I)->getType());
+      if (K == "excl" || K == "owned")
         EndBorrowsThrough(CE->getArg(I));
+    }
+    // An `_Excl _Lifetimebound` parameter makes the result an exclusive
+    // reborrow rooted at that argument: it ends when the argument is lent
+    // or given away again (Rust's `&mut` reborrow).
+    if (OriginList *Result = getOriginsList(*CE))
+      for (unsigned I = 0; I != N; ++I) {
+        const ParmVarDecl *P = FD->getParamDecl(I);
+        if (safeCPointerKind(P->getType()) != "excl" ||
+            !P->hasAttr<LifetimeBoundAttr>())
+          continue;
+        if (const VarDecl *Root = safeCRootVar(CE->getArg(I))) {
+          const Loan *L = FactMgr.getLoanMgr().createLoan(
+              safeCRootInterior(FactMgr.getLoanMgr(), *Root), CE);
+          CurrentBlockFacts.push_back(
+              FactMgr.createFact<IssueFact>(L->getID(), Result->getOuterOriginID()));
+          break;
+        }
+      }
+  }
 }
 
 void FactsGenerator::VisitCXXNullPtrLiteralExpr(

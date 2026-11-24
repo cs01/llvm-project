@@ -265,6 +265,29 @@ public:
       return;
     // Safe C (M2): a borrow read out of an owned field, ended by taking,
     // replacing or lending the place it came from.
+    // Safe C (M2): an exclusive reborrow (a call with an `_Excl
+    // _Lifetimebound` argument), ended by lending that argument again.
+    if (S.getLangOpts().SafeC)
+      if (const auto *Call = dyn_cast<CallExpr>(IssueExpr->IgnoreParens()))
+        if (const FunctionDecl *F = Call->getDirectCallee())
+          for (unsigned I = 0, N = std::min(Call->getNumArgs(),
+                                            F->getNumParams());
+               I != N; ++I) {
+            const ParmVarDecl *P = F->getParamDecl(I);
+            if (lifetimes::safeCPointerKind(P->getType()) != "excl" ||
+                !P->hasAttr<LifetimeBoundAttr>())
+              continue;
+            std::string Root =
+                Lexer::getSourceText(S.getSourceManager().getExpansionRange(
+                                         Call->getArg(I)->getSourceRange()),
+                                     S.getSourceManager(), S.getLangOpts())
+                    .str();
+            S.SafeCDiag(IssueExpr->getExprLoc(), "reborrow-ended")
+                << F << Root << IssueExpr->getSourceRange();
+            S.SafeCDiag(FreeLoc, "field-borrow-ended-here");
+            reportUseNote(Use);
+            return;
+          }
     const auto *IssueDRE = dyn_cast<DeclRefExpr>(IssueExpr->IgnoreParens());
     const auto *IssueVar =
         IssueDRE ? dyn_cast<VarDecl>(IssueDRE->getDecl()) : nullptr;

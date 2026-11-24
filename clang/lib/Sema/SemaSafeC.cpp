@@ -26,6 +26,7 @@
 #include "clang/Sema/Sema.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/CommandLine.h"
+#include <functional>
 
 using namespace clang;
 
@@ -199,12 +200,20 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 returns a pointer borrowed from %1, so it is valid only as long as what %1 "
      "points to; mark the parameter '_Lifetimebound' so callers keep "
      "it alive, or return an owned copy"},
+    {"excl-arg-borrowed", false,
+     "%0 is a shared borrow, but this parameter is '_Excl': the callee may "
+     "free or replace what it owns while the owner still uses it; pass the "
+     "owner, or declare %0 '_Owned' (if it owns the object) or '_Excl'"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
      "use; read '%0' again after that point, or finish using the pointer "
      "first"},
     {"field-borrow-ended-here", true, "the borrow ends here"},
+    {"reborrow-ended", false,
+     "%0 returns an exclusive borrow of '%1', which ends when '%1' is lent "
+     "or given away again, before this pointer's last use; call %0 again "
+     "after that point, or finish using the pointer first"},
     {"view-write-through-pointer", false,
      "writing a borrow into a '_View' through a pointer can outlive "
      "what it points to, because the view's own lifetime is unknown here; "
@@ -475,6 +484,103 @@ static void checkOwnershipRoot(Sema &S, const Expr *Place, unsigned Op) {
       << Op << Root->getName() << (isa<ParmVarDecl>(Root) ? 1 : 0);
 }
 
+static const ValueDecl *exclusiveArgBlocker(ASTContext &Ctx, const Expr *E,
+                                            const Stmt *Body);
+
+/// A call that returns an exclusive reborrow: some `_Excl _Lifetimebound`
+/// parameter gets an argument that is itself exclusive (Rust's `&mut` in,
+/// `&mut` out).
+static bool isExclusiveReborrowCall(ASTContext &Ctx, const Expr *E,
+                                    const Stmt *Body, unsigned Depth) {
+  const auto *Call = dyn_cast<CallExpr>(E->IgnoreParenImpCasts());
+  const FunctionDecl *F = Call ? Call->getDirectCallee() : nullptr;
+  if (!F || Depth > 4)
+    return false;
+  for (unsigned I = 0, N = std::min(Call->getNumArgs(), F->getNumParams());
+       I != N; ++I) {
+    const ParmVarDecl *P = F->getParamDecl(I);
+    if (safeCPointerKind(P->getType()) == "excl" &&
+        P->hasAttr<LifetimeBoundAttr>() &&
+        !exclusiveArgBlocker(Ctx, Call->getArg(I), Body))
+      return true;
+  }
+  return false;
+}
+
+/// A plain local is an owner, as `let x = Box::new(..)` is in Rust, when every
+/// value stored in it is owned (an allocation, an owned return, a take, or
+/// null) and its address is never taken (so nothing else can store to it).
+static bool isInferredOwnerLocal(ASTContext &Ctx, const VarDecl *VD,
+                                 const Stmt *Body) {
+  // Body is the function being checked (not yet attached to its decl).
+  if (!VD->isLocalVarDecl() || VD->isStaticLocal() || !Body)
+    return false;
+  // Also an exclusive reborrow, when every value comes from a reborrow call.
+  auto Fine = [&](const Expr *E) {
+    return isOwnedSource(Ctx, E) || isExclusiveReborrowCall(Ctx, E, Body, 0);
+  };
+  if (const Expr *Init = VD->getInit(); Init && !Fine(Init))
+    return false;
+  struct Finder : RecursiveASTVisitor<Finder> {
+    ASTContext &Ctx;
+    const VarDecl *VD;
+    std::function<bool(const Expr *)> Fine;
+    bool Ok = true;
+    bool names(const Expr *E) {
+      const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+      return DRE && DRE->getDecl() == VD;
+    }
+    bool VisitBinaryOperator(BinaryOperator *BO) {
+      if (BO->isAssignmentOp() && names(BO->getLHS()) &&
+          (BO->getOpcode() != BO_Assign || !Fine(BO->getRHS())))
+        Ok = false;
+      return Ok;
+    }
+    bool VisitUnaryOperator(UnaryOperator *UO) {
+      if (UO->getOpcode() == UO_AddrOf && names(UO->getSubExpr()))
+        Ok = false;
+      return Ok;
+    }
+  } F{{}, Ctx, VD, Fine};
+  F.TraverseStmt(const_cast<Stmt *>(Body));
+  return F.Ok;
+}
+
+/// Rule 8.2: an argument lent exclusively must reach its object only through
+/// owners and exclusive borrows: an owned or exclusive variable, the address
+/// of a stack object, or an owned field reached from one of those. Returns
+/// the offending variable, or null when the argument is fine.
+static const ValueDecl *exclusiveArgBlocker(ASTContext &Ctx, const Expr *E,
+                                            const Stmt *Body) {
+  E = E->IgnoreParenImpCasts();
+  if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
+    if (UO->getOpcode() == UO_AddrOf || UO->getOpcode() == UO_Deref)
+      return exclusiveArgBlocker(Ctx, UO->getSubExpr(), Body);
+  }
+  if (const auto *ME = dyn_cast<MemberExpr>(E)) {
+    // `p->f` passed by value is the field's pointer: it must be owned.
+    if (E->getType()->isPointerType() &&
+        safeCPointerKind(E->getType()) != "owned")
+      return ME->getMemberDecl();
+    return exclusiveArgBlocker(Ctx, ME->getBase(), Body);
+  }
+  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+    if (E->getType()->isPointerType() &&
+        safeCPointerKind(E->getType()) != "owned")
+      return nullptr; // an element's pointer: covered by the heap-slot rules
+    return exclusiveArgBlocker(Ctx, ASE->getBase(), Body);
+  }
+  const auto *DRE = dyn_cast<DeclRefExpr>(E);
+  const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  if (!VD || !VD->getType()->isPointerType())
+    return nullptr; // a stack object (or array), or something else
+  StringRef K = safeCPointerKind(VD->getType());
+  if (K == "owned" || K == "excl" || isOwnedStorage(VD) ||
+      isInferredOwnerLocal(Ctx, VD, Body))
+    return nullptr;
+  return VD;
+}
+
 namespace {
 class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   Sema &S;
@@ -506,7 +612,10 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   llvm::SmallPtrSet<const Expr *, 4> AllowedStructCopies;
 
 public:
-  explicit PointerKindChecker(Sema &S) : S(S) {}
+  // The function body being checked, if any (null for global initializers).
+  const Stmt *Body = nullptr;
+  explicit PointerKindChecker(Sema &S, const Stmt *Body = nullptr)
+      : S(S), Body(Body) {}
 
   bool VisitBinaryOperator(BinaryOperator *BO) {
     if (BO->getOpcode() == BO_Assign && !isTrackedLocal(BO->getLHS()) &&
@@ -605,6 +714,10 @@ public:
         continue;
       if (const VarDecl *Root = lifetimes::safeCRootVar(Call->getArg(I)))
         Lent.push_back({Root, I});
+      if (K == "excl")
+        if (const ValueDecl *B = exclusiveArgBlocker(S.Context, Call->getArg(I), Body))
+          S.SafeCDiag(Call->getArg(I)->getExprLoc(), "excl-arg-borrowed")
+              << B;
       // Rule 7: an exclusive variable is never given away.
       if (K != "excl")
         if (const auto *DRE = dyn_cast<DeclRefExpr>(
@@ -671,7 +784,7 @@ public:
 
 void clang::checkSafeCPointerKindsIn(Sema &S, Stmt *Body) {
   if (Body && safeCOwnershipEnabled(S))
-    PointerKindChecker(S).TraverseStmt(Body);
+    PointerKindChecker(S, Body).TraverseStmt(Body);
 }
 
 void clang::checkSafeCPointerKindsIn(Sema &S, Decl *GlobalVar) {
