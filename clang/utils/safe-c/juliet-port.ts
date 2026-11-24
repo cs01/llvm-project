@@ -46,6 +46,11 @@ function port(text: string): string {
   text = text.replace(/([(,]\s*)((?:const\s+)?[A-Za-z_]\w*) \* data(\s*[,)])/g,
     (_m, pre, ty, post) => { stats.slices = (stats.slices ?? 0) + 1; return `${pre}${ty} *__bidi_indexable data${post}`; });
   text = text.replace(/\(\*funcPtr\) \(((?:const\s+)?[A-Za-z_]\w*) \*\)/g, "(*funcPtr) ($1 *__bidi_indexable)");
+  // ...and the same through a source function's result (variants 42, 61)
+  // or a carrier's field (34, 67).
+  text = text.replace(/^((?:static\s+)?(?:const\s+)?[A-Za-z_]\w*) \* ([A-Za-z_]\w*[Ss]ource\s*\()/gm,
+    (_m, ty, fn) => { stats.slices = (stats.slices ?? 0) + 1; return `${ty} *__bidi_indexable ${fn}`; });
+  text = text.replace(/^(\s+(?:const\s+)?[A-Za-z_]\w*) \* (structFirst|unionFirst|unionSecond);/gm, "$1 *__bidi_indexable $2;");
   // (b) strcpy/strcat/wcscpy/wcscat: checked copies that trap (juliet_port.h).
   if (/\b(strcpy|strcat|wcscpy|wcscat|strncat|wcsncat|strncpy|wcsncpy)\s*\(/.test(text)) {
     stats.strfns++;
