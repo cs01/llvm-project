@@ -11,6 +11,7 @@
 #include <string>
 
 #include "clang/AST/Decl.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
@@ -526,6 +527,67 @@ void FactsGenerator::VisitMemberExpr(const MemberExpr *ME) {
 }
 
 void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
+  // Safe C: `memcpy(d, s, n)` copies the borrows *s holds into *d, as
+  // `*d = *s` would. (The void* conversions hide the pointee level, so look
+  // through them to the typed pointers.)
+  if (AC.getASTContext().getLangOpts().SafeC && CE->getNumArgs() >= 2)
+    if (const FunctionDecl *FD = CE->getDirectCallee()) {
+      unsigned ID = FD->getBuiltinID();
+      // A redeclaration whose types differ from the builtin's (Safe C's
+      // pointer defaults can do that) is still the C library function.
+      if (!ID && FD->isExternC() && FD->getIdentifier())
+        ID = llvm::StringSwitch<unsigned>(FD->getName())
+                 .Case("memcpy", Builtin::BImemcpy)
+                 .Case("memmove", Builtin::BImemmove)
+                 .Default(0);
+      switch (ID) {
+      case Builtin::BImemcpy:
+      case Builtin::BImemmove:
+      case Builtin::BI__builtin_memcpy:
+      case Builtin::BI__builtin_memmove:
+      case Builtin::BI__builtin___memcpy_chk:
+      case Builtin::BI__builtin___memmove_chk: {
+        // Strips conversions to void* but not loads: the result is still
+        // the pointer argument (an rvalue), one level above the bytes.
+        auto Typed = [](const Expr *E) {
+          while (true) {
+            E = E->IgnoreParens();
+            if (const auto *Cast = dyn_cast<CastExpr>(E);
+                Cast && Cast->getCastKind() != CK_LValueToRValue)
+              E = Cast->getSubExpr();
+            else if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E);
+                OVE && OVE->getSourceExpr())
+              E = OVE->getSourceExpr();
+            else if (const auto *PPE =
+                         dyn_cast<BoundsSafetyPointerPromotionExpr>(E))
+              E = PPE->getPointer();
+            else
+              return E;
+          }
+        };
+        // `&x` as the destination writes x itself: use its own origins
+        // (the address expression's are a copy).
+        const Expr *Dst = Typed(CE->getArg(0));
+        OriginList *DP = nullptr;
+        if (const auto *UO = dyn_cast<UnaryOperator>(Dst);
+            UO && UO->getOpcode() == UO_AddrOf) {
+          if (OriginList *X = getOriginsList(*UO->getSubExpr()->IgnoreParens()))
+            DP = X->peelOuterOrigin();
+        } else if (OriginList *D = getOriginsList(*Dst)) {
+          DP = D->peelOuterOrigin();
+        }
+        OriginList *S = getOriginsList(*Typed(CE->getArg(1)));
+        if (DP && S)
+            if (OriginList *SP = S->peelOuterOrigin())
+              CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+                  DP->getOuterOriginID(), SP->getOuterOriginID(),
+                  /*Kill=*/false));
+        break;
+      }
+      default:
+        break;
+      }
+    }
   if (safeCOwnershipOn(AC.getASTContext())) {
     // Rule 14: a call that may touch globals ends every borrow rooted at them,
     // including ones passed to it, which it could free (so its arguments are
