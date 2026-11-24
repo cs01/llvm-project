@@ -437,6 +437,33 @@ static void LZ4_writeLE16(BYTE* __bidi_indexable memPtr, U16 value)
     }
 }
 
+/* Safe C: a wild copy writes whole stripes of `piece` bytes up to and past
+ * dstEnd, so it may touch up to the run rounded up to `stripe`. That run is
+ * checked against both buffers once, here (a trap if it does not fit), and
+ * the stripes are then copied without per-stripe checks: the same safety as
+ * checking every copy, at one check per call. Without Safe C it is the plain
+ * loop. TODO(safe-c): the compiler should hoist this check by itself. */
+LZ4_FORCE_INLINE void LZ4_wildCopyRun(BYTE* __bidi_indexable d, const BYTE* __bidi_indexable s,
+                                      const BYTE* __bidi_indexable e, size_t piece, size_t stripe)
+{
+    size_t const len = e > d ? (size_t)(e - d) : 1;
+    size_t const n = (len + stripe - 1) / stripe * stripe;
+#if defined(__SAFE_C__)
+    if (d < (BYTE*)__ptr_lower_bound(d) || n > (size_t)((BYTE*)__ptr_upper_bound(d) - d) ||
+        s < (const BYTE*)__ptr_lower_bound(s) || n > (size_t)((const BYTE*)__ptr_upper_bound(s) - s))
+        __builtin_trap();
+    __unsafe {
+        BYTE* __unsafe_indexable du = d;
+        const BYTE* __unsafe_indexable su = s;
+        for (size_t i = 0; i < n; i += piece)
+            LZ4_memcpy(__unsafe_forge_bidi_indexable(BYTE*, du + i, piece),
+                       __unsafe_forge_bidi_indexable(const BYTE*, su + i, piece), piece);
+    }
+#else
+    for (size_t i = 0; i < n; i += piece) LZ4_memcpy(d + i, s + i, piece);
+#endif
+}
+
 /* customized variant of memcpy, which can overwrite up to 8 bytes beyond dstEnd */
 LZ4_FORCE_INLINE
 void LZ4_wildCopy8(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPtr, BYTE* __bidi_indexable dstEnd)
@@ -445,7 +472,7 @@ void LZ4_wildCopy8(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable s
     const BYTE* s = srcPtr;
     BYTE* const e = dstEnd;
 
-    do { LZ4_memcpy(d,s,8); d+=8; s+=8; } while (d<e);
+    LZ4_wildCopyRun(d, s, e, 8, 8);
 }
 
 static const unsigned inc32table[8] = {0, 1, 2,  1,  0,  4, 4, 4};
@@ -516,7 +543,7 @@ LZ4_wildCopy64(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPt
     const BYTE* s = srcPtr;
     BYTE* const e = dstEnd;
 
-    do { LZ4_memcpy(d,s,64); d+=64; s+=64; } while (d<e);
+    LZ4_wildCopyRun(d, s, e, 64, 64);
 }
 #endif
 
@@ -530,7 +557,7 @@ LZ4_wildCopy32(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPt
     const BYTE* s = srcPtr;
     BYTE* const e = dstEnd;
 
-    do { LZ4_memcpy(d,s,16); LZ4_memcpy(d+16,s+16,16); d+=32; s+=32; } while (d<e);
+    LZ4_wildCopyRun(d, s, e, 16, 32);
 }
 
 /* customized variant of memcpy, which can overwrite up to 16 bytes beyond dstEnd,
@@ -542,7 +569,7 @@ LZ4_wildCopy16(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPt
     const BYTE* s = srcPtr;
     BYTE* const e = dstEnd;
 
-    do { LZ4_memcpy(d,s,16); d+=16; s+=16; } while (d<e);
+    LZ4_wildCopyRun(d, s, e, 16, 16);
 }
 
 /* Fast-loop copies without per-copy bounds checks (Safe C).
