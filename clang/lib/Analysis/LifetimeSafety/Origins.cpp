@@ -146,6 +146,10 @@ bool OriginManager::hasOrigins(QualType QT, bool IntrinsicOnly) const {
   // holds the same value); see through it.
   if (const auto *AT = QT->getAs<AtomicType>())
     return hasOrigins(AT->getValueType(), IntrinsicOnly);
+  // Safe C: a view struct gets one origin for everything its fields borrow,
+  // as a lambda does for its captures.
+  if (isSafeCViewType(QT))
+    return true;
   const auto *RD = QT->getAsCXXRecordDecl();
   if (!RD)
     return false;

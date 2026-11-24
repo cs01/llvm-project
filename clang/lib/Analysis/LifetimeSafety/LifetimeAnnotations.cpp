@@ -664,6 +664,16 @@ const Expr *safeCPeel(const Expr *E) {
   }
 }
 
+bool isSafeCViewType(QualType T) {
+  const RecordDecl *RD = T->getAsRecordDecl();
+  if (!RD)
+    return false;
+  for (const auto *A : RD->specific_attrs<AnnotateAttr>())
+    if (A->getAnnotation() == "safec_view")
+      return true;
+  return false;
+}
+
 const VarDecl *safeCRootVar(const Expr *E) {
   while (true) {
     E = safeCPeel(E);

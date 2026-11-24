@@ -47,6 +47,10 @@ const VarDecl *safeCRootVar(const Expr *E);
 /// safety wraps call arguments in.
 const Expr *safeCPeel(const Expr *E);
 
+/// Safe C: a struct marked _View (it holds borrows, and lives only in locals
+/// and parameters).
+bool isSafeCViewType(QualType T);
+
 /// Returns the most recent declaration of the method to ensure all
 /// lifetime-bound attributes from redeclarations are considered.
 const FunctionDecl *getDeclWithMergedLifetimeBoundAttrs(const FunctionDecl *FD);

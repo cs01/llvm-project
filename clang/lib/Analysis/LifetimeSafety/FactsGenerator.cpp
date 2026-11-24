@@ -583,6 +583,13 @@ void FactsGenerator::VisitCastExpr(const CastExpr *CE) {
     // `int *p, *q; p = q;`) should propagate the inner origin (what the pointer
     // points to), not the outer origin (the pointer's storage location).
     flow(Dest, readValue(SubExpr), /*Kill=*/true);
+    // Safe C: a pointer read out of a view (`s.p`) borrows what the view does.
+    if (const auto *ME = dyn_cast<MemberExpr>(SubExpr->IgnoreParens());
+        Dest && ME && !ME->isArrow() && isSafeCViewType(ME->getBase()->getType()))
+      if (OriginList *Base = getOriginsList(*ME->getBase()))
+        if (OriginList *Agg = Base->peelOuterOrigin())
+          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+              Dest->getOuterOriginID(), Agg->getOuterOriginID(), /*Kill=*/true));
     if (Dest && safeCOwnershipOn(AC.getASTContext()) &&
         safeCPointerKind(SubExpr->getType()) == "owned")
       if (const VarDecl *Root = safeCRootOrGlobal(SubExpr)) {
@@ -732,6 +739,15 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
                                       const Expr *LHSExpr,
                                       const Expr *RHSExpr) {
   LHSExpr = ignoreParensAndImpCasts(LHSExpr);
+  // Safe C: `s.p = x` on a view adds x's loans to the view (the view keeps
+  // borrows of every field; Sema allows such writes only by name).
+  if (const auto *ME = dyn_cast<MemberExpr>(LHSExpr);
+      ME && !ME->isArrow() && isSafeCViewType(ME->getBase()->getType()))
+    if (OriginList *Base = getOriginsList(*ME->getBase()))
+      if (OriginList *Agg = Base->peelOuterOrigin())
+        if (OriginList *RHS = readValue(RHSExpr))
+          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+              Agg->getOuterOriginID(), RHS->getOuterOriginID(), /*Kill=*/false));
   handleAccess(LHSExpr);
   OriginList *RHSList = readValue(RHSExpr);
   OriginList *LHSList = nullptr;
@@ -920,6 +936,28 @@ void FactsGenerator::VisitCXXFunctionalCastExpr(
 void FactsGenerator::VisitInitListExpr(const InitListExpr *ILE) {
   if (!hasOrigins(ILE))
     return;
+  // Safe C: a view's origin holds the loans of every pointer it is built from.
+  if (isSafeCViewType(ILE->getType())) {
+    const InitListExpr *Sem =
+        ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
+    if (!Sem)
+      Sem = ILE;
+    OriginList *ViewList = getOriginsList(*ILE);
+    bool Kill = true;
+    for (const Expr *Init : Sem->inits()) {
+      if (!Init)
+        continue;
+      if (OriginList *IL = getOriginsList(*Init)) {
+        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+            ViewList->getOuterOriginID(), IL->getOuterOriginID(), Kill));
+        Kill = false;
+      }
+    }
+    if (Kill)
+      CurrentBlockFacts.push_back(
+          FactMgr.createFact<KillOriginFact>(ViewList->getOuterOriginID()));
+    return;
+  }
   // For list initialization with a single element, like `View{...}`, the
   // origin of the list itself is the origin of its single element.
   if (ILE->getNumInits() == 1) {
