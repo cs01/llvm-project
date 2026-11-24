@@ -1,0 +1,194 @@
+//// o1 own-array
+int main(int c,char**v){int*_Owned _Nullable a[2]={0};a[0]=malloc(4);a[1]=malloc(4);int i=c,j=1;free(_Take(a[i]));int*_Nullable p=a[j];free(_Take(a[1]));return p?*p:0;}
+//// o2
+struct n{int v;struct n*_Owned _Nullable nx;};int main(int c,char**v){struct n a={1,0};a.nx=calloc(1,sizeof(struct n));struct n b=a;free(_Take(b.nx));return a.nx?a.nx->v:0;}
+//// o3
+struct n{int v;struct n*_Owned _Nullable nx;};int main(int c,char**v){struct n a={1,0};a.nx=calloc(1,sizeof(struct n));struct n b;memcpy(&b,&a,sizeof a);free(_Take(b.nx));return a.nx?a.nx->v:0;}
+//// o4 overwrite self
+struct n{int v;struct n*_Owned _Nullable nx;};int main(int c,char**v){struct n*a=calloc(1,sizeof*a);if(!a)return 1;a->nx=a;free(a->nx);return a->v;}
+//// o5 
+struct n{int v;struct n*_Owned _Nullable nx;};void f(struct n*_Exclusive x,struct n*y){free(_Take(x->nx));y->v=1;}int main(int c,char**v){struct n*a=calloc(1,sizeof*a);if(!a)return 1;a->nx=calloc(1,sizeof*a);if(a->nx)f(a,a->nx);return 0;}
+//// o6
+struct n{int v;struct n*_Owned _Nullable nx;};void f(struct n*_Exclusive x,int*_Nullable y){free(_Take(x->nx));if(y)*y=1;}int main(int c,char**v){struct n*a=calloc(1,sizeof*a);if(!a)return 1;a->nx=calloc(1,sizeof*a);int*_Nullable q=0;if(a->nx)q=&a->nx->v;f(a,q);return 0;}
+//// o7 callback ctx
+struct n{int v;struct n*_Owned _Nullable nx;};void each(struct n*a,void(*f)(struct n*_Exclusive),struct n*_Exclusive ctx){struct n*_Nullable p=a->nx;f(ctx);if(p)p->v=1;}void k(struct n*_Exclusive x){free(_Take(x->nx));}int main(int c,char**v){struct n*a=calloc(1,sizeof*a);if(!a)return 1;a->nx=calloc(1,sizeof*a);each(a,k,a);return 0;}
+//// o8 global owner
+static _Thread_local int*_Owned _Nullable g;void clr(void){free(_Take(g));}int main(int c,char**v){g=malloc(4);int*_Nullable p=g;clr();return p?*p:0;}
+//// o9
+static _Thread_local int*_Owned _Nullable g;void clr(void){free(_Take(g));}void use(int*p){clr();*p=1;}int main(int c,char**v){g=malloc(4);if(g)use(g);return 0;}
+//// o10 via fnptr
+static _Thread_local int*_Owned _Nullable g;void clr(void){free(_Take(g));}void use(int*p,void(*f)(void)){f();*p=1;}int main(int c,char**v){g=malloc(4);if(g)use(g,clr);return 0;}
+//// o11 return alias
+static _Thread_local int*_Owned _Nullable g;int*_Nullable get(void){return g;}void clr(void){free(_Take(g));}int main(int c,char**v){g=malloc(4);int*_Nullable p=get();clr();return p?*p:0;}
+//// o12 ternary
+int main(int c,char**v){int*p=malloc(4);int*q=malloc(4);if(!p||!q)return 1;int*r=c?p:q;free(r);return *p;}
+//// o13 
+int main(int c,char**v){int*p=malloc(4);if(!p)return 1;int*q=p;free(q);return *p;}
+//// o14
+int main(int c,char**v){int*p=malloc(4);if(!p)return 1;int*a[2]={p,p};free(a[0]);return *a[1];}
+//// o15
+struct s{int*p;};int main(int c,char**v){int*p=malloc(4);if(!p)return 1;struct s s={p};free(s.p);return *p;}
+//// o16
+struct _View s{int*p;};int main(int c,char**v){int*p=malloc(4);if(!p)return 1;struct s s={p};free(p);return *s.p;}
+//// o17
+struct _View s{int*p;};void set(struct s*s,int*p){s->p=p;}int main(int c,char**v){struct s s={&c};{int x=5;set(&s,&x);}return *s.p;}
+//// o18
+struct _View s{int*p;};struct s mk(int*a,int*b){struct s s={a};s.p=b;return s;}int main(int c,char**v){struct s s={&c};{int x=5;s=mk(&c,&x);}return *s.p;}
+//// o19
+void set(int**o,int*p){*o=p;}int main(int c,char**v){int*q=&c;{int x=5;set(&q,&x);}return *q;}
+//// o20
+void set(int**o){int x=5;*o=&x;}int main(int c,char**v){int*q=&c;set(&q);return *q;}
+//// o21
+int*pick(int*a _Lifetimebound,int*b){return b;}int main(int c,char**v){int*q;{int x=5;q=pick(&c,&x);}return *q;}
+//// o22
+int*pick(int*a _Lifetimebound,int*b _Lifetimebound){return b;}int main(int c,char**v){int*q;{int x=5;q=pick(&c,&x);}return *q;}
+//// o23
+int*pick(int*a){return a;}int main(int c,char**v){int*(*f)(int*)=pick;int*q;{int x=5;q=f(&x);}return *q;}
+//// o24
+int*pick(int*a _Lifetimebound,int*b){return a;}int*pick2(int*a,int*b _Lifetimebound){return b;}int main(int c,char**v){int*(*f)(int*,int*)=c?pick2:pick;int*q;{int x=5;q=f(&c,&x);}return *q;}
+//// o25 taking fn via fnptr without owned
+void fr(int*_Owned p){free(p);}int main(int c,char**v){void(*f)(int*)=fr;int*p=malloc(4);if(!p)return 1;f(p);return *p;}
+//// o26 drop
+void d(int*_Nullable*_Nonnull p){free(*p);}int main(int c,char**v){int*_Nullable p _Drop(d)=malloc(4);int*_Nullable q=p;free(q);return 0;}
+//// o27
+int main(int c,char**v){int*_Nullable p _Drop_free=malloc(4);free(_Take(p));return 0;}
+//// o28
+int main(int c,char**v){int*_Nullable p _Drop_free=malloc(4);p=&c;return 0;}
+//// o29
+int*f(void){int*p _Drop_free=malloc(4);if(!p)abort();return p;}int main(int c,char**v){return *f();}
+//// o30
+int*f(void){int*p _Drop_free=malloc(4);if(!p)abort();int*q=p;return q;}int main(int c,char**v){return *f();}
+//// o31
+int main(int c,char**v){int*_Nullable q=0;{int*p _Drop_free=malloc(4);q=p;}return q?*q:0;}
+//// o32
+int main(int c,char**v){int*_Nullable q=0;{int x _Drop_free=3;}return 0;}
+//// o33
+struct s{int a;};int main(int c,char**v){struct s x _Drop_free={3};return 0;}
+//// o34
+int main(int c,char**v){char p[16] _Drop_free={3};return 0;}
+//// o35 goto past drop
+int main(int c,char**v){if(c)goto e;int*_Nullable p _Drop_free=malloc(4);e:return 0;}
+//// o36 switch past drop
+int main(int c,char**v){switch(c){int*_Nullable p _Drop_free=malloc(4);case 1:return 0;}return 0;}
+//// o37 realloc fail
+int main(int c,char**v){int*p=malloc(4);if(!p)return 1;int*q=realloc(p,1ul<<60);if(!q){free(p);return 0;}free(q);return *p;}
+//// o38 realloc 0
+int main(int c,char**v){int*p=malloc(4);if(!p)return 1;int*q=realloc(p,0);if(!q)return 1;return q[0];}
+//// o39 realloc uninit
+int main(int c,char**v){char*p=malloc(4);if(!p)return 1;char*q=realloc(p,4096);if(!q)return 1;return printf("%d",q[2000]);}
+//// o40 realloc struct w/ ptr
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){for(int i=0;i<100;i++){char*z=malloc(1600);if(z){memset(z,7,1600);free(z);}}struct s*a=calloc(1,sizeof*a);if(!a)return 1;struct s*b=realloc(a,200*sizeof*b);if(!b)return 1;int*_Nullable q=b[150].p;return q?*q:0;}
+//// o41 counted local
+int main(int c,char**v){int n=3;int*__counted_by(n) p=malloc(12);p[0]=1;n=2;n=3;return 0;}
+//// o42
+struct s{int n;int*_Owned _Nullable __counted_by(n) p;};int main(int c,char**v){struct s s={0};s.p=malloc(8);s.n=2;s.n=200;return s.p?s.p[100]:0;}
+//// o43
+struct s{int n;int*_Owned _Nullable __counted_by(n) p;};void bump(int*n){*n=200;}int main(int c,char**v){struct s s={0};s.p=malloc(8);s.n=2;bump(&s.n);return s.p?s.p[100]:0;}
+//// o44
+struct s{int n;int*_Owned _Nullable __counted_by(n) p;};int main(int c,char**v){struct s s={0};s.p=malloc(8);s.n=2;memset(&s.n,1,4);return s.p?s.p[100]:0;}
+//// o45
+struct s{int n;int*_Owned _Nullable __counted_by(n) p;};int main(int c,char**v){struct s s={0};s.p=malloc(8);s.n=2;struct s t={.n=200};memcpy(&s,&t,4);return s.p?s.p[100]:0;}
+//// o46
+struct s{int n;int*_Owned _Nullable __counted_by(n) p;};int main(int c,char**v){struct s s={0};s.p=malloc(8);s.n=2;int*q=s.p;int m=s.n;if(q){free(_Take(s.p));return q[m-1];}return 0;}
+//// o47
+struct s{int n;int*_Owned _Nullable __counted_by(n) p;};int main(int c,char**v){struct s s={0};s.n=2,s.p=malloc(8);scanf("%d",&s.n);return s.p?s.p[1]:0;}
+//// o48
+struct s{int n;int*_Owned _Nullable __counted_by(n) p;};int main(int c,char**v){struct s s={0};sscanf("500","%d",&s.n);return s.p?s.p[100]:0;}
+//// o49 fam
+struct s{int n;int a[__counted_by(n)];};int main(int c,char**v){struct s*s=malloc(sizeof*s+8);if(!s)return 1;s->n=200;return s->a[100];}
+//// o50
+struct s{int n;int a[];};int main(int c,char**v){struct s*s=malloc(sizeof*s+8);if(!s)return 1;return s->a[100];}
+//// o51
+struct s{int n;int a[__counted_by(n)];};int main(int c,char**v){struct s s={5};return s.a[3];}
+//// o52
+struct s{int n;int a[__counted_by(n)];};int f(struct s*s){return s->a[s->n-1];}int main(int c,char**v){struct s s={200};return f(&s);}
+//// o53
+struct s{int n;int a[__counted_by(n)];};int f(struct s*s){return s->a[s->n-1];}int main(int c,char**v){struct s*s=malloc(sizeof*s);if(!s)return 1;s->n=0;struct s t={300};*s=t;return f(s);}
+//// o54
+struct s{int n;int a[__counted_by(n)];};struct o{struct s s;int z;};int main(int c,char**v){struct o o={};o.s.n=1;return o.s.a[0];}
+//// o55 ended_by
+int f(int*__ended_by(e) p,int*e){return p[0];}int main(int c,char**v){int a[3]={0},b[3]={0};return f(a,b+2);}
+//// o56
+int f(int*__ended_by(e) p,int*e){int s=0;while(p<e)s+=*p++;return s;}int main(int c,char**v){int a[3]={0};return f(a+3,a);}
+//// o57
+int f(int*__ended_by(e) p,int*e){return *e;}int main(int c,char**v){int a[3]={0};return f(a,a+3);}
+//// o58
+struct _View s{int*__ended_by(e) p;int*e;};int main(int c,char**v){int a[3]={0};struct s s={a,a+3};return *s.e;}
+//// o59 ptr cmp / sub
+int main(int c,char**v){int a[3]={0};int*p=a+1;p-=5;p+=100;return *p;}
+//// o60
+int main(int c,char**v){int a[3]={0};int*p=a;p+=(1l<<62)+c-1;return *p;}
+//// o61
+int main(int c,char**v){char a[3]={0};int*p=(int*)a;return *p;}
+//// o62
+int main(int c,char**v){char a[16]={0};int*p=(int*)(a+1);return *p;}
+//// o63
+struct a{int x;};struct b{int x,y,z;};int main(int c,char**v){struct a a={0};struct b*b=(struct b*)&a;return b->z;}
+//// o64
+struct a{int x;};struct b{int x;int*_Static _Nullable p;};int main(int c,char**v){struct a a={0};void*q=&a;struct b*b=q;return b->x;}
+//// o65
+int main(int c,char**v){int n=3;int (*p)[n]=malloc(12);if(!p)return 1;return (*p)[c+8];}
+//// o66
+int f(int n,int a[n]){return a[n-1];}int main(int c,char**v){int a[3]={0};return f(c+10,a);}
+//// o67
+int f(int a[static 10]){return a[9];}int main(int c,char**v){int a[3]={0};int*p=a;return f(p);}
+//// o68
+int f(int n,int m,int a[n][m]){return a[n-1][m-1];}int main(int c,char**v){int a[3][3]={0};return f(c+10,c+20,a);}
+//// o69
+int f(int (*a)[3]){return (*a)[2]+a[1][0];}int main(int c,char**v){int a[3]={0};return f(&a);}
+//// o70
+int f(int (*a)[3]){return (*a)[2];}int main(int c,char**v){int a[1]={0};return f((int(*)[3])&a);}
+//// o71
+int f(int (*a)[10]){return (*a)[9];}int main(int c,char**v){int a[3]={0};return f((void*)a);}
+//// o72
+int f(int (*a)[]){return (*a)[9];}int main(int c,char**v){int a[3]={0};return f(&a);}
+//// o73
+int f(int (*a)[]){int(*b)[100]=a;return (*b)[90];}int main(int c,char**v){int a[3]={0};return f(&a);}
+//// o74
+int main(int c,char**v){int a[3]={0};int(*b)[]=&a;int(*d)[100]=b;return (*d)[90];}
+//// o75
+extern int a[];int main(int c,char**v){return a[c+5];}int a[3];
+//// o76
+extern int a[100];int main(int c,char**v){return a[c+50];}
+//// file2
+int a[3];
+//// o77
+extern int*f(int);int main(int c,char**v){return *f(3);}
+//// file2
+long f(int x){return x;}
+//// o78
+struct s{int*_Static p;};extern int f(struct s*);static int z;int main(int c,char**v){struct s s={&z};return f(&s);}
+//// file2
+struct s{long p[5];};int f(struct s*s){return s->p[4];}
+//// o79
+extern const int z;int main(int c,char**v){return 10/z;}
+//// file2
+int z _Unsynchronized;
+//// o80
+void f(int*p);int main(int c,char**v){int*p=malloc(4);if(!p)return 1;f(p);return *p;}
+//// file2
+void f(int*_Owned p){free(p);}
+//// o81
+void f(int*__counted_by(n) p,int n);int main(int c,char**v){int a[3]={};f(a,3);return 0;}
+//// file2
+void f(int*__counted_by(n) p,int m,int n);void f(int*__counted_by(n*4) p,int n){p[10]=1;}
+//// o82
+void f(int*__counted_by(n) p,int n);int main(int c,char**v){int a[3]={};f(a,3);return 0;}
+//// file2
+void f(int*__counted_by(n*4) p,int n){p[10]=1;}
+//// o83
+int f(int*_Nullable p);int main(int c,char**v){return f(0);}
+//// file2
+int f(int*p){return *p;}
+//// o84
+int*f(int*p,int*q _Lifetimebound);int main(int c,char**v){int*r;{int x=3;r=f(&x,&c);}return *r;}
+//// file2
+int*f(int*p _Lifetimebound,int*q){return p;}
+//// o85
+enum k{A,B};struct t{enum k k;union _Tagged_by(k){int*_Static p _When(A);long l _When(B);};};extern int f(struct t*);int main(int c,char**v){struct t t={.k=B,.l=77};return f(&t);}
+//// file2
+enum k{A,B};struct t{enum k k;union _Tagged_by(k){int*_Static p _When(B);long l _When(A);};};int f(struct t*t){if(t->k==B)return *t->p;return 0;}
+//// o86
+extern struct {char a;} g;int main(int c,char**v){return g.a;}
+//// file2
+struct {int a;} g _Unsynchronized;

@@ -325,6 +325,9 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 holds pointers, and the memory 'realloc' adds is not zeroed, so its "
      "pointers would be garbage; 'calloc' the larger array and move the "
      "elements over ('_Take' each owned pointer)"},
+    {"alloc-pointers", false,
+     "the memory %0 returns is not zeroed, and %1 holds pointers, which would "
+     "be garbage; use 'calloc' (or 'malloc', which Safe C zeroes)"},
     {"owned-in-union", false,
      "%0 is an '_Owned' member of an untagged union, so another member could "
      "read and free the same pointer; tag the union ('_Tagged_by', '_When'), "

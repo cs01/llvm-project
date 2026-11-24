@@ -1,0 +1,158 @@
+//// z1 block owned capture double
+int main(int c,char**v){int*p=malloc(4);if(!p)return 1;void(^b)(void)=^{free(p);};b();b();return 0;}
+//// z2 block stored param
+typedef void(^B)(void);struct _View h{B b;};int main(int c,char**v){struct h h;{int x=c;h.b=^{printf("%d\n",x);};}{volatile int j[40];for(int i=0;i<40;i++)j[i]=0x4141;}h.b();return 0;}
+//// z3 block assigned in scope
+typedef int(^B)(void);int main(int c,char**v){B b=^{return 0;};if(c){int x=c;int y[20]={x};B t=^{return x+y[3];};b=t;}{volatile long j[60];for(int i=0;i<60;i++)j[i]=0x4141414141;}return b();}
+//// z4 block in global
+typedef int(^B)(void);static _Thread_local B _Static _Nullable g;void f(int x){g=^{return x;};}int main(int c,char**v){f(c);volatile long j[60];for(int i=0;i<60;i++)j[i]=0x4141414141;return g?g():0;}
+//// z5 block array
+typedef int(^B)(void);int main(int c,char**v){B a[3];for(int i=0;i<3;i++){int x=i;a[i]=^{return x;};}return a[0]()*100+a[1]()*10+a[2]();}
+//// z6 block out param
+typedef int(^B)(void);void f(B*o,int x){*o=^{return x;};}int main(int c,char**v){B b=^{return 1;};f(&b,c);volatile long j[60];for(int i=0;i<60;i++)j[i]=0x4141414141;return b();}
+//// z7 block returns captured stack ptr
+int main(int c,char**v){int*p;{int x=3;int*q=&x;int*(^b)(void)=^{return q;};p=b();}return *p;}
+//// z8 block param store
+int main(int c,char**v){int k=0;__block int*__single p=&k;void(^b)(int*)=^(int*q){p=q;};{int x=3;b(&x);}return *p;}
+//// z9 block bounds
+int main(int c,char**v){int a[3]={};int*p=a;int(^b)(int)=^(int i){return p[i];};return b(c+50);}
+//// z10 block uninit
+int main(int c,char**v){int x;int(^b)(void)=^{return x;};x=1;return b();}
+//// z11 __block uninit
+int main(int c,char**v){__block int*__single p;int(^b)(void)=^{return *p;};return b();}
+//// z12 block null
+int main(int c,char**v){int k;__block int*__single _Nullable p=&k;void(^b)(void)=^{p=0;};if(p){b();return *p;}return 0;}
+//// z13 block take owned field
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){__block struct s s={0};s.p=malloc(4);int*_Nullable q=s.p;void(^b)(void)=^{free(_Take(s.p));};b();return q?*q:0;}
+//// z14 block copies owning struct
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){struct s s={0};s.p=malloc(4);void(^b)(void)=^{int*_Nullable r=s.p;if(r)printf("%d",*r);};free(_Take(s.p));b();return 0;}
+//// z15 qsort_b capturing
+int main(int c,char**v){int a[3]={3,1,2};int*p=malloc(4);if(!p)return 1;qsort_b(a,3,4,^(const void*x,const void*y){free(p);return 0;});return 0;}
+//// z16 lifetimebound via struct fnptr
+struct ops{int*(*f)(int*,int*);};int*pick2(int*a,int*b _Lifetimebound){return b;}int main(int c,char**v){struct ops o={pick2};int k=0;int*q;{int x=5;q=o.f(&k,&x);}return *q;}
+//// z17 returned from fnptr param
+int*id(int*a){return a;}int ap(int*(*f)(int*)){int*q;{int x=4;q=f(&x);}return *q;}int main(int c,char**v){return ap(id);}
+//// z18 fnptr returning owned
+_Returns_owned int*mk(void){int*p=malloc(4);if(!p)abort();return p;}int main(int c,char**v){int*(*f)(void)=mk;int*p=f();return *p;}
+//// z19 fnptr exclusive
+struct s{int*_Owned _Nullable p;};void del(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){struct s s={0};s.p=malloc(4);void(*f)(struct s*)=del;int*_Nullable r=s.p;f(&s);return r?*r:0;}
+//// z20 fnptr static
+static _Thread_local int*_Static _Nullable g;void keep(int*_Static p){g=p;}int main(int c,char**v){void(*f)(int*)=keep;{int x=3;f(&x);}return g?*g:0;}
+//// z21 fnptr counted
+int f(int*__counted_by(n) p,int n){return p[n-1];}int main(int c,char**v){int(*g)(int*,int)=f;int x=0;return g(&x,50);}
+//// z22 fnptr nonnull
+int f(int*_Nonnull p){return *p;}int main(int c,char**v){int(*g)(int*_Nullable)=f;return g(0);}
+//// z23 fnptr null ret
+int*_Nullable f(void){return 0;}int main(int c,char**v){int*(*g)(void)=f;return *g();}
+//// z24 fnptr view
+struct _View w{int*p;};struct w f(int*p){struct w w={p};return w;}int main(int c,char**v){struct w(*g)(int*)=f;struct w w;{int x=3;w=g(&x);}return *w.p;}
+//// z25 fnptr out param stores
+void f(int*__single*__single o,int*p _Lifetimebound){*o=p;}int main(int c,char**v){return 0;}
+//// z26 fnptr array const struct
+struct s{int*_Owned _Nullable p;};typedef void(*F)(struct s*);void del(struct s*_Exclusive s){free(_Take(s->p));}static const F t[1]={del};int main(int c,char**v){struct s s={0};s.p=malloc(4);int*_Nullable r=s.p;t[0](&s);return r?*r:0;}
+//// z27 ternary fn
+struct s{int*_Owned _Nullable p;};void del(struct s*_Exclusive s){free(_Take(s->p));}void nop(struct s*s){}int main(int c,char**v){struct s s={0};s.p=malloc(4);int*_Nullable r=s.p;(c?del:nop)(&s);return r?*r:0;}
+//// z28 take through helper ptr chain
+struct s{int*_Owned _Nullable p;};struct s*_Nonnull id(struct s*_Exclusive s){return s;}int main(int c,char**v){struct s s={0};s.p=malloc(4);int*r=s.p;struct s*a=id(&s);free(_Take(a->p));return r?*r:0;}
+//// z29 excl of helper result
+struct s{int*_Owned _Nullable p;};struct s*id(struct s*s){return s;}void del(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){struct s s={0};s.p=malloc(4);int*r=s.p;del(id(&s));return r?*r:0;}
+//// z30 excl of ternary
+struct s{int*_Owned _Nullable p;};void del(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){struct s s={0},u={0};s.p=malloc(4);int*r=s.p;del(c?&s:&u);return r?*r:0;}
+//// z31 excl of array elem via helper
+struct s{int*_Owned _Nullable p;};struct s*at(struct s*__counted_by(3) a,int i){return &a[i];}void del(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){struct s a[3]={{0}};a[1].p=malloc(4);int*r=a[1].p;del(at(a,c));return r?*r:0;}
+//// z32 free helper result field
+struct s{int*_Owned _Nullable p;int*_Owned _Nullable q;};int*_Owned _Nullable*fld(struct s*_Exclusive s){return &s->p;}int main(int c,char**v){struct s s={0};s.p=malloc(4);int*r=s.p;free(_Take(*fld(&s)));return r?*r:0;}
+//// z33 container_of
+struct s{int a;int*_Owned _Nullable p;};int main(int c,char**v){struct s s={0};int*q=&s.a;struct s*t=(struct s*)((char*)q-offsetof(struct s,a));return t->a;}
+//// z34 compound-literal owned field
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){int*q=malloc(4);if(!q)return 1;struct s s;s=(struct s){q};free(_Take(s.p));return *q;}
+//// z35 init list owned
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){int*q=malloc(4);if(!q)return 1;struct s s={q},t={q};free(_Take(s.p));free(_Take(t.p));return 0;}
+//// z36 return compound
+struct s{int*_Owned _Nullable p;};struct s mk(int*_Owned q){return (struct s){q};}int main(int c,char**v){int*q=malloc(4);if(!q)return 1;struct s s=mk(q);free(_Take(s.p));return *q;}
+//// z37 heap compound assign
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){int*q=malloc(4);if(!q)return 1;struct s*s=calloc(1,sizeof*s);if(!s)return 1;*s=(struct s){q};free(_Take(s->p));free(s);return *q;}
+//// z38 array of struct init
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){int*q=malloc(4);if(!q)return 1;struct s a[2]={{q},{q}};free(_Take(a[0].p));free(_Take(a[1].p));return 0;}
+//// z39 eat ptr to compound
+struct s{int*_Owned _Nullable p;};void eat(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){int*q=malloc(4);if(!q)return 1;eat(&(struct s){q});return *q;}
+//// z40 eat array compound
+void eat(int*_Owned _Nullable*_Exclusive s){free(_Take(*s));}int main(int c,char**v){int*q=malloc(4);if(!q)return 1;eat((int*_Owned _Nullable[]){q});return *q;}
+//// z41 drop compound
+struct s{int*_Owned _Nullable p;};void del(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){int*q=malloc(4);if(!q)return 1;{struct s s _Drop(del)={q};}return *q;}
+//// z42 drop + plain free
+struct s{int*_Owned _Nullable p;};void del(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){int*q=malloc(4);if(!q)return 1;struct s s _Drop(del)={q};free(q);return 0;}
+//// z43 drop var copied
+struct s{int*_Owned _Nullable p;};void del(struct s*_Exclusive s){free(_Take(s->p));}struct s f(void){struct s s _Drop(del)={0};s.p=malloc(4);return s;}int main(int c,char**v){struct s s=f();return s.p?*s.p:0;}
+//// z44 drop global clear used by return expr
+struct n{struct n*_Owned _Nullable l;int v;};static _Thread_local struct n g;void cl(int*x){free(_Take(g.l));}struct n*_Nullable f(void){int z _Drop(cl)=1;return g.l;}int main(int c,char**v){g.l=calloc(1,sizeof g);struct n*_Nullable q=f();return q?q->v:0;}
+//// z45 drop clears global in loop break
+struct n{struct n*_Owned _Nullable l;int v;};static _Thread_local struct n g;void cl(int*x){free(_Take(g.l));}int main(int c,char**v){g.l=calloc(1,sizeof g);struct n*_Nullable q=g.l;for(;;){int z _Drop(cl)=1;break;}return q?q->v:0;}
+//// z46 atexit clears global / raise
+struct n{struct n*_Owned _Nullable l;int v;};static _Thread_local struct n g;
+#include <signal.h>
+void h(int s){free(_Take(g.l));}int main(int c,char**v){signal(SIGUSR1,h);g.l=calloc(1,sizeof g);struct n*_Nullable q=g.l;raise(SIGUSR1);return q?q->v:0;}
+//// z47 kill
+#include <signal.h>
+#include <unistd.h>
+static _Thread_local int*_Owned _Nullable g;void h(int s){free(_Take(g));}int main(int c,char**v){signal(SIGUSR1,h);g=calloc(1,4);int*_Nullable q=g;kill(getpid(),SIGUSR1);return q?*q:0;}
+//// z48 signal null
+#include <signal.h>
+static _Thread_local const char*_Static _Nullable g;void h(int s){g=0;}int main(int c,char**v){signal(SIGUSR1,h);g="abc";if(g){raise(SIGUSR1);return *g;}return 0;}
+//// z49 signal atomics w/ tls non atomics ok
+#include <signal.h>
+static _Thread_local int idx;static _Thread_local int a[4];void h(int s){idx=500;}int main(int c,char**v){signal(SIGUSR1,h);if(idx<4){raise(SIGUSR1);return a[idx];}return 0;}
+//// z50 enum falloff struct
+enum k{A,B};struct _View w{int*__counted_by(n) p;int n;};struct w f(enum k k,int*q){switch(k){case A:return (struct w){q,1};case B:return (struct w){q,1};}}int main(int c,char**v){int x=0;struct w w=f((enum k)(c+5),&x);printf("%d\n",w.n);return w.n>0?w.p[0]:0;}
+//// z51 bool falloff
+int*f(_Bool k){static const int z=0;switch(k){case 0:abort();case 1:abort();}}int main(int c,char**v){return *f(c);}
+//// z52 enum covered uninit var
+enum k{A,B};int main(int c,char**v){int x;enum k k=(enum k)(c+5);switch(k){case A:x=1;break;case B:x=2;break;}return x;}
+//// z53 enum covered uninit ptr
+enum k{A,B};int main(int c,char**v){int y=0;int*__single x;enum k k=(enum k)(c+5);switch(k){case A:x=&y;break;case B:x=&y;break;}return *x;}
+//// z54 enum switch frees
+enum k{A,B};int main(int c,char**v){int*p=malloc(4);if(!p)return 1;enum k k=(enum k)(c+5);switch(k){case A:p=malloc(4);break;case B:abort();}if(!p)return 1;free(p);return 0;}
+//// z55 nullable switch
+enum k{A,B};int main(int c,char**v){int y=0;int*__single _Nullable x=0;enum k k=(enum k)(c+5);switch(k){case A:x=&y;break;case B:x=&y;break;}return *x;}
+//// z56 cast-single shrink
+#include <sys/stat.h>
+int main(int c,char**v){struct{char t;char z[200];}s={};stat("/",(struct stat*)&s.t);return s.z[0];}
+//// z57 shrink to user fn
+struct big{int z[40];};int f(struct big*b){return b->z[39];}int main(int c,char**v){char t=0;return f((struct big*)&t);}
+//// z58 time()
+#include <time.h>
+int main(int c,char**v){struct{char t;char z[20];}s={};time((time_t*)&s.t);return s.z[0];}
+//// z59 pipe
+#include <unistd.h>
+int main(int c,char**v){struct{int t;int z[5];}s={};pipe(&s.t);return s.z[0];}
+//// z60 waitpid
+#include <sys/wait.h>
+#include <unistd.h>
+int main(int c,char**v){struct{char t;char z[5];}s={};if(fork()==0)_exit(7);waitpid(-1,(int*)&s.t,0);return s.z[0];}
+//// z61 frexp/modf
+#include <math.h>
+int main(int c,char**v){struct{char t;char z[9];}s={};frexp(1024,(int*)&s.t);modf(3.7,(double*)&s.t);return s.z[6];}
+//// z62 strtol endptr null-term write
+int main(int c,char**v){return 0;}
+//// z63 utimes array
+#include <sys/time.h>
+int main(int c,char**v){struct timeval t={};utimes("/nope",&t);return 0;}
+//// z64 socketpair
+#include <sys/socket.h>
+int main(int c,char**v){struct{int t;int z[5];}s={};socketpair(AF_UNIX,SOCK_STREAM,0,&s.t);return s.z[0];}
+//// z65 setitimer
+#include <sys/time.h>
+int main(int c,char**v){struct{char t;char z[50];}s={};getitimer(0,(struct itimerval*)&s.t);gettimeofday((struct timeval*)&s.t,0);return s.z[5];}
+//// z66 nanosleep read
+#include <time.h>
+int main(int c,char**v){char t=0;return nanosleep((struct timespec*)&t,0);}
+//// z67 memcpy from cast
+struct big{int z[40];};int main(int c,char**v){char t=0;struct big b=*(struct big*)&t;return b.z[30];}
+//// z68 nested cast counted
+int main(int c,char**v){short a[3]={};int*p=(int*)a;return p[1];}
+//// z69 getline stack
+int main(int c,char**v){char b[30];size_t n=30;char*__single __counted_by_or_null(n) l=b;FILE*f=fopen("/etc/services","r");if(!f)return 1;for(int i=0;i<20;i++)getline(&l,&n,f);return 0;}
+//// z70 getline owned stale
+int main(int c,char**v){size_t n=0;char*__single __counted_by_or_null(n) _Nullable l=0;FILE*f=fopen("/etc/services","r");if(!f)return 1;getline(&l,&n,f);char*_Nullable q=l;for(int i=0;i<50;i++)getline(&l,&n,f);return q?q[0]:0;}
+//// z71 getline free loop
+int main(int c,char**v){size_t n=0;char*__single __counted_by_or_null(n) _Nullable l=0;FILE*f=fopen("/etc/services","r");if(!f)return 1;getline(&l,&n,f);free(l);getline(&l,&n,f);return 0;}

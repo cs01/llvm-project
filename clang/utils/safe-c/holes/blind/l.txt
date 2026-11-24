@@ -1,0 +1,206 @@
+//// v1 posix_memalign
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){for(int i=0;i<50;i++){char*z=malloc(64);if(z){memset(z,7,64);free(z);}}void*p=0;posix_memalign(&p,64,64);return 0;}
+//// v2 aligned_alloc
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){for(int i=0;i<50;i++){char*z=malloc(64);if(z){memset(z,7,64);free(z);}}struct s*q=aligned_alloc(64,64);if(!q)return 1;int*_Nullable r=q->p;printf("%d",r!=0);return r?*r:0;}
+//// v3 valloc
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){for(int i=0;i<50;i++){char*z=valloc(16384);if(z){memset(z,7,16384);free(z);}}struct s*q=valloc(16384);if(!q)return 1;int*_Nullable r=q->p;printf("%d",r!=0);return r?*r:0;}
+//// v4 reallocf
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){for(int i=0;i<50;i++){char*z=malloc(1600);if(z){memset(z,7,1600);free(z);}}struct s*q=reallocf(0,1600);if(!q)return 1;int*_Nullable r=q[100].p;printf("%d",r!=0);return r?*r:0;}
+//// v5 realloc null
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){for(int i=0;i<50;i++){char*z=malloc(1600);if(z){memset(z,7,1600);free(z);}}struct s*q=realloc(0,1600);if(!q)return 1;int*_Nullable r=q[100].p;printf("%d",r!=0);return r?*r:0;}
+//// v6 malloc_zone
+#include <malloc/malloc.h>
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){struct s*q=malloc_zone_malloc(malloc_default_zone(),16);if(!q)return 1;free(q);return 0;}
+//// v7 fnptr malloc
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){void*(*m)(size_t)=malloc;for(int i=0;i<50;i++){char*z=malloc(64);if(z){memset(z,7,64);free(z);}}char*q=m(64);printf("%d",q[40]);return 0;}
+//// v8 builtin_malloc
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){for(int i=0;i<50;i++){char*z=malloc(64);if(z){memset(z,7,64);free(z);}}struct s*q=__builtin_malloc(64);if(!q)return 1;int*_Nullable r=q[3].p;printf("%d",r!=0);return r?*r:0;}
+//// v9 vla zero
+struct s{int*_Owned _Nullable p;};void dirty(void){volatile char b[4000];for(int i=0;i<4000;i++)b[i]=7;}int f(int n){struct s a[n];int*_Nullable r=a[n-1].p;return r?*r:0;}int main(int c,char**v){dirty();return f(c+50);}
+//// v10 vla ptrs
+void dirty(void){volatile char b[4000];for(int i=0;i<4000;i++)b[i]=7;}int f(int n){int*_Nullable a[n];int*_Nullable r=a[n-1];return r?*r:0;}int main(int c,char**v){dirty();return f(c+50);}
+//// v11 union
+union u{char a;long b;};int main(int c,char**v){union u x;x.a=1;return x.b>>8;}
+//// v12 switch-skip-init struct
+struct s{int*_Nullable _Static p;};void dirty(void){volatile char b[4000];for(int i=0;i<4000;i++)b[i]=7;}int f(int n){switch(n){struct s a;case 1:return a.p?*a.p:0;}return 0;}int main(int c,char**v){dirty();return f(c);}
+//// v13 goto-skip-init array
+void dirty(void){volatile char b[4000];for(int i=0;i<4000;i++)b[i]=7;}int f(int n){if(n)goto x;int*_Nullable a[4];x:return a[n]?*a[n]:0;}int main(int c,char**v){dirty();return f(c);}
+//// v14 switch skip with bounds ptr
+void dirty(void){volatile char b[4000];for(int i=0;i<4000;i++)b[i]=7;}int f(int n){switch(n){char x[4];case 1:return x[n];}return 0;}int main(int c,char**v){dirty();printf("%d",f(c));return 0;}
+//// v15 computed goto
+void dirty(void){volatile char b[4000];for(int i=0;i<4000;i++)b[i]=7;}int f(int n){void*l[]={&&a,&&b};goto *l[n];a:;int x=3;b:return x;}int main(int c,char**v){dirty();printf("%d",f(c));return 0;}
+//// v16 computed goto oob
+int f(int n){static const void*const l[]={&&a,&&b};goto *l[n];a:;b:return 0;}int main(int c,char**v){return f(c+6);}
+//// v17 computed goto foreign
+static const void*_Static g(void){return &&x;x:return 0;}int main(int c,char**v){goto *g();y:return 0;}
+//// v18 unreachable
+int f(int n){int a[2]={1,2};if(n>1)__builtin_unreachable();return a[n];}int main(int c,char**v){return f(c+200);}
+//// v19 assume
+int f(int n){int a[2]={1,2};__builtin_assume(n<2);__builtin_assume(n>=0);return a[n];}int main(int c,char**v){return f(c+200);}
+//// v20 C23 assume
+int f(int n){int a[2]={1,2};[[clang::assume(n<2&&n>=0)]];return a[n];}int main(int c,char**v){return f(c+200);}
+//// v21 omp/gnu assume
+int f(int n){int a[2]={1,2};__attribute__((assume(n<2&&n>=0)));return a[n];}int main(int c,char**v){return f(c+200);}
+//// v22 noreturn
+_Noreturn void g(void){}int f(int n){int a[2]={1,2};if(n>1)g();return a[n];}int main(int c,char**v){return f(c+200);}
+//// v23 noreturn fnptr
+void g(void){}int f(int n){int a[2]={1,2};_Noreturn void(*h)(void)=(void*)g;if(n>1)h();return a[n];}int main(int c,char**v){return f(c+200);}
+//// v24 attr noreturn fnptr
+void g(void){}int f(int n){int*_Nullable p=0;void(*h)(void) __attribute__((noreturn))=g;if(n>1)h();else p=&n;return *p;}int main(int c,char**v){return f(c+200);}
+//// v25 missing return
+int*f(int c){static const int z=3;if(c>100)abort();}int main(int c,char**v){return *f(c);}
+//// v26 missing return2
+struct _View s{int*p;};struct s f(int c){if(c>100)abort();}int main(int c,char**v){return *f(c).p;}
+//// v27 vector idx
+typedef int v4 __attribute__((vector_size(16)));int main(int c,char**v){v4 x={1,2,3,4};return x[c+50];}
+//// v28 vector w
+typedef int v4 __attribute__((vector_size(16)));int main(int c,char**v){v4 x={1,2,3,4};x[c+500000]=3;return 0;}
+//// v29 vec ptr
+typedef int v4 __attribute__((vector_size(16)));int main(int c,char**v){int a[2]={};v4*p=(v4*)a;return (*p)[c];}
+//// v30 ext vec
+typedef float f3 __attribute__((ext_vector_type(3)));int main(int c,char**v){f3 x={1,2,3};return x[c+500000];}
+//// v31 bool vector
+typedef bool b8 __attribute__((ext_vector_type(8)));int main(int c,char**v){b8 x={1};return x[c+500000];}
+//// v32 bitcast
+int main(int c,char**v){long l=5;int*p=__builtin_bit_cast(int*,l);return *p;}
+//// v33 bitcast bool
+int main(int c,char**v){char l=77;_Bool b=__builtin_bit_cast(_Bool,l);int a[2]={};return a[b];}
+//// v34 convertvec
+typedef int*pv __attribute__((ext_vector_type(2)));int main(int c,char**v){return 0;}
+//// v35 vector of long cast to ptr struct
+typedef long v2 __attribute__((vector_size(16)));struct s{int*p,*q;};int main(int c,char**v){v2 x={5,6};struct s*s=(struct s*)&x;return *s->p;}
+//// v36 _Bool vs char cast
+int main(int c,char**v){char x=77;_Bool*b=(_Bool*)&x;int a[2]={};return a[*b];}
+//// v37 enum
+enum e:unsigned char{A,B};int main(int c,char**v){enum e e;memset(&e,77,1);switch(e){case A:return 0;case B:return 1;}__builtin_trap();}
+//// v38 builtin memcpy chk
+int main(int c,char**v){char a[4],b[90]={};__builtin_memcpy(a,b,c+80);return 0;}
+//// v39
+int main(int c,char**v){char a[4],b[90]={};__builtin___memcpy_chk(a,b,c+80,-1);return 0;}
+//// v40
+int main(int c,char**v){char a[4];__builtin___strcpy_chk(a,"abcdefgh",-1);return 0;}
+//// v41
+int main(int c,char**v){char a[4];__builtin_strcpy(a,"abcdefgh");return 0;}
+//// v42
+int main(int c,char**v){char a[4];__builtin___sprintf_chk(a,0,-1,"abcdefgh");return 0;}
+//// v43
+int main(int c,char**v){char a[4];__builtin___snprintf_chk(a,40,0,40,"abcdefgh");return 0;}
+//// v44
+int main(int c,char**v){char a[4];__builtin_strncpy(a,"abcdefgh",8);return 0;}
+//// v45
+int main(int c,char**v){char a[4];__builtin_memset_inline(a,0,80);return 0;}
+//// v46
+int main(int c,char**v){char a[4],b[80];__builtin_memcpy_inline(a,b,80);return 0;}
+//// v47
+int main(int c,char**v){char a[4]={1,1,1,1};return __builtin_strlen(a);}
+//// v48
+int main(int c,char**v){char*p=__builtin_frame_address(0);p[1]=1;return 0;}
+//// v49
+int main(int c,char**v){void*p=__builtin_return_address(0);memset(p,0,1);return 0;}
+//// v50
+int main(int c,char**v){int x;int*p=&x;__atomic_store_n(&p,(int*)5,0);return 0;}
+//// v51
+int main(int c,char**v){int x=0,k=0;int*__single p=&k;{int z=3;__atomic_store_n(&p,&z,0);}return *p;}
+//// v52
+int main(int c,char**v){int k=0;int*__single p=&k;{int z=3;__sync_lock_test_and_set(&p,&z);}return *p;}
+//// v53
+int main(int c,char**v){int k=0;int*__single p=&k;__sync_fetch_and_add(&p,400);return *p;}
+//// v54
+int main(int c,char**v){int k=0;int*__single p=&k;{int z=3;int*__single q=&z;__atomic_exchange(&p,&q,&q,0);}return *p;}
+//// v55
+int main(int c,char**v){int k=0;int*__single p=&k;{int z=3;int*__single q=&z;__atomic_load(&q,&p,0);}return *p;}
+//// v56 atomic struct copy
+int main(int c,char**v){long a=0,b=0;struct{int x[2];}s;__atomic_load(&a,(long*)&s,0);return 0;}
+//// v57 atomic size
+int main(int c,char**v){char a=0;char b[8]={};__atomic_load(16+&a,&b[0],0);return 0;}
+//// v58 atomic ptr to owned
+int main(int c,char**v){int*p=malloc(4);if(!p)return 1;_Atomic(int*) q=p;free(p);return *q;}
+//// v59
+int main(int c,char**v){int k=0;_Atomic(int*) q=&k;{int z=3;q=&z;}return *q;}
+//// v60
+int main(int c,char**v){int k=0;_Atomic(int*) q=&k;q+=500;return *q;}
+//// v61
+#include <stdatomic.h>
+int main(int c,char**v){int k=0;_Atomic(int*) q=&k;{int z=3;atomic_store(&q,&z);}return *atomic_load(&q);}
+//// v62
+#include <stdatomic.h>
+int main(int c,char**v){int k=0;_Atomic(int*) q=&k;{int z=3;int*__single e=&k;atomic_compare_exchange_strong(&q,&e,&z);}return *q;}
+//// v63
+#include <stdatomic.h>
+int main(int c,char**v){int k=0;_Atomic(int*) q=0;return *q;}
+//// v64
+int main(int c,char**v){int k=0;_Atomic(int*) q=&k;q=0;return *q;}
+//// v65 atomic uintptr
+int main(int c,char**v){_Atomic uintptr_t q=5;int*_Nullable*p=(int*_Nullable*)&q;return **p;}
+//// v66 volatile
+int main(int c,char**v){int k=0;int*volatile p=&k;{int z=3;p=&z;}return *p;}
+//// v67 register
+int main(int c,char**v){int k=0;register int*p=&k;{int z=3;p=&z;}return *p;}
+//// v68 restrict
+void f(int*restrict a,int*restrict b){*a=1;*b=2;if(*a!=2)abort();}int main(int c,char**v){int k;f(&k,&k);return 0;}
+//// v69 linemarker
+# 1 "/usr/include/x.h" 3
+int f(int*p){return p[100];}int main(int c,char**v){int k=0;return f(&k);}
+//// v70 pragma redefine_extname
+#pragma redefine_extname foo bar
+int foo(long);int bar(int*p){return *p;}int main(int c,char**v){return foo(5);}
+//// v71 pragma weak
+#pragma weak zz=bar
+int zz(long);int bar(int*p){return *p;}int main(int c,char**v){return zz(5);}
+//// v72 pragma attribute
+#pragma clang attribute push(__attribute__((no_thread_safety_analysis)),apply_to=function)
+int main(int c,char**v){return 0;}
+#pragma clang attribute pop
+//// v73 optnone/ no_sanitize
+__attribute__((no_sanitize("null"))) int f(int*_Nullable p){return *p;}int main(int c,char**v){return f(0);}
+//// v74 no_sanitize all
+__attribute__((no_sanitize("bounds","vla-bound","all"))) int f(int n){int a[3]={};return a[n];}int main(int c,char**v){return f(c+100);}
+//// v75 uninitialized attr
+int main(int c,char**v){__attribute__((uninitialized)) int a[40];return a[c];}
+//// v76 pragma clang no-auto-init
+#pragma clang optimize off
+int main(int c,char**v){int a[40];return a[c];}
+//// v77 alloc_size lying
+__attribute__((malloc,alloc_size(1))) char*f(size_t n){char*p=malloc(1);if(!p)abort();return p;}int main(int c,char**v){char*p=f(100);return p[50];}
+//// v78 counted return
+char*__counted_by(n) f(size_t n){char*p=malloc(1);if(!p)abort();return p;}int main(int c,char**v){char*p=f(100);return p[50];}
+//// v79 returns_nonnull
+__attribute__((returns_nonnull)) int*_Nullable f(void){return 0;}int main(int c,char**v){int*p=f();return *p;}
+//// v80 nonnull attr
+__attribute__((nonnull)) int f(int*_Nullable p){return p?1:2;}int main(int c,char**v){return f(0);}
+//// v81 enable pure
+__attribute__((const)) int f(const int*p){return *p;}int main(int c,char**v){int x=1;int a=f(&x);x=2;return a+f(&x);}
+//// v82 ifunc/section
+__attribute__((section("__TEXT,__text"))) int zz _Unsynchronized=3;int main(int c,char**v){return zz;}
+//// v83 section const str
+__attribute__((section("__TEXT,__cstring"))) _Thread_local int q;int main(int c,char**v){q=3;return q;}
+//// v84 section write
+__attribute__((section("__TEXT,__const"))) _Atomic int q=1;int main(int c,char**v){q=3;return q;}
+//// v85 aligned attr on ptr
+typedef int ai __attribute__((aligned(64)));int main(int c,char**v){_Alignas(64) char b[128]={0};ai*p=(ai*)(b+4);return *p;}
+//// v86 may_alias
+typedef int*_Nullable __attribute__((may_alias)) ip;int main(int c,char**v){long l=5;ip*p=(ip*)&l;return **p;}
+//// v87 strict aliasing
+int f(int*a,float*b){*a=1;*b=2;return *a;}int main(int c,char**v){int x;printf("%d",f(&x,(float*)&x));return 0;}
+//// v88 _BitInt
+int main(int c,char**v){_BitInt(200) x=1;char*p=(char*)&x;return p[c+90];}
+//// v89 bitfield
+struct s{unsigned n:4;int a[__counted_by(8)];};int main(int c,char**v){return 0;}
+//// v90 count volatile
+struct s{volatile int n;int a[__counted_by(n)];};int main(int c,char**v){struct s*s=malloc(sizeof*s+4);if(!s)return 1;s->n=1;return s->a[c];}
+//// v91 count in union
+struct s{union{int n;char m[4];};int a[__counted_by(n)];};int main(int c,char**v){struct s*s=malloc(sizeof*s+4);if(!s)return 1;s->n=1;s->m[0]=100;return s->a[50];}
+//// v92 count in bitfield cast
+struct s{short n;short z;int a[__counted_by(n)];};int main(int c,char**v){struct s*s=malloc(sizeof*s+4);if(!s)return 1;s->n=1;int*p=(int*)s;*p=100;return s->a[50];}
+//// v93 count via memset of struct
+struct s{int n;int a[__counted_by(n)];};int main(int c,char**v){struct s*s=malloc(sizeof*s+4);if(!s)return 1;s->n=1;memset(s,1,4);return s->a[50];}
+//// v94 count via fread into struct
+struct s{int n;int a[__counted_by(n)];};int main(int c,char**v){struct s*s=malloc(sizeof*s+4);if(!s)return 1;s->n=1;FILE*f=fopen("/etc/hosts","r");if(!f)return 1;fread(s,4,1,f);fclose(f);return s->a[500];}
+//// v95 count alias pointer
+struct s{int n;int a[__counted_by(n)];};int main(int c,char**v){struct s*s=malloc(sizeof*s+4);if(!s)return 1;s->n=1;struct s*t=s;t->n=100;return s->a[50];}
+//// v96 count inc
+struct s{int n;int a[__counted_by(n)];};int main(int c,char**v){struct s*s=malloc(sizeof*s+4);if(!s)return 1;s->n=1;s->n+=100;return s->a[50];}
+//// v97 count via nested struct assign
+struct h{int n;};struct s{struct h h;int a[__counted_by(h.n)];};int main(int c,char**v){struct s*s=malloc(sizeof*s+4);if(!s)return 1;s->h.n=1;struct h z={100};s->h=z;return s->a[50];}
+//// v98 fam container single ptr across func
+struct s{int n;int a[__counted_by(n)];};void set(struct s*s,int n){s->n=n;}int main(int c,char**v){struct s*s=malloc(sizeof*s+4);if(!s)return 1;set(s,100);return s->a[50];}

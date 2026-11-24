@@ -1,0 +1,116 @@
+//// g1 tsan proper-lock ptr escape
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;void lk(void) _Acquires(m);void ul(void) _Releases(m);
+static int n _Guarded_by(m);@W{lk();int*p=&n;ul();*p=1;return 0;}int main(void){@R}
+//// file2
+#include <pthread.h>
+static pthread_mutex_t mm=PTHREAD_MUTEX_INITIALIZER;struct mtx{int s;};struct mtx m _Unsynchronized;void lk(void){pthread_mutex_lock(&mm);}void ul(void){pthread_mutex_unlock(&mm);}
+//// g2 tsan array decay escape
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;void lk(void) _Acquires(m);void ul(void) _Releases(m);
+static int n[4] _Guarded_by(m);static int*g(void){return n;}@W{g()[1]=3;return 0;}int main(void){@R}
+//// file2
+#include <pthread.h>
+static pthread_mutex_t mm=PTHREAD_MUTEX_INITIALIZER;void lk(void){pthread_mutex_lock(&mm);}void ul(void){pthread_mutex_unlock(&mm);}
+//// g3 tsan memset on guarded
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;
+static int n _Guarded_by(m);@W{memset(&n,1,4);__atomic_load_n(&n,0);return 0;}int main(void){@R}
+//// g4 tsan helper taking ptr
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;
+static void inc(int*p){(*p)++;}static int n _Guarded_by(m);@W{inc(&n);return 0;}int main(void){@R}
+//// g5 tsan guarded owned borrow after unlock
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;void lk(void) _Acquires(m);void ul(void) _Releases(m);
+static int*_Owned _Nullable g _Guarded_by(m);@W{lk();if(!g)g=calloc(1,4);int*_Nullable p=g;ul();if(p)(*p)++;return 0;}int main(void){@R}
+//// file2
+#include <pthread.h>
+static pthread_mutex_t mm=PTHREAD_MUTEX_INITIALIZER;void lk(void){pthread_mutex_lock(&mm);}void ul(void){pthread_mutex_unlock(&mm);}
+//// g6 tsan guarded owned pointee without pt_guarded
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;void lk(void) _Acquires(m);void ul(void) _Releases(m);
+struct in{int x;};struct o{struct in*_Owned _Nullable p;};static struct o g _Guarded_by(m);@W{lk();if(!g.p)g.p=calloc(1,4);struct o*q=&g;ul();if(q->p)q->p->x++;return 0;}int main(void){@R}
+//// file2
+#include <pthread.h>
+static pthread_mutex_t mm=PTHREAD_MUTEX_INITIALIZER;void lk(void){pthread_mutex_lock(&mm);}void ul(void){pthread_mutex_unlock(&mm);}
+//// g7 tls addr published under lock, thread exits
+#include <pthread.h>
+#include <unistd.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;void lk(void) _Acquires(m);void ul(void) _Releases(m);
+static _Thread_local int tl[40000];static int*_Static _Nullable g _Guarded_by(m);static void*_Nullable w(void*_Nullable a){lk();g=tl;ul();return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);pthread_join(t,0);usleep(100000);lk();int r=g?*g:0;ul();return r;}
+//// file2
+#include <pthread.h>
+static pthread_mutex_t mm=PTHREAD_MUTEX_INITIALIZER;void lk(void){pthread_mutex_lock(&mm);}void ul(void){pthread_mutex_unlock(&mm);}
+//// g8 tsan tls race by pointer
+#include <pthread.h>
+#include <unistd.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;void lk(void) _Acquires(m);void ul(void) _Releases(m);
+static _Thread_local int tl;static int*_Static _Nullable g _Guarded_by(m);static void*_Nullable w(void*_Nullable a){lk();g=&tl;ul();for(int i=0;i<100000;i++)tl++;usleep(50000);return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);usleep(1000);lk();int*_Nullable q=g;ul();if(q)for(int i=0;i<1000;i++)(*q)++;pthread_join(t,0);return 0;}
+//// file2
+#include <pthread.h>
+static pthread_mutex_t mm=PTHREAD_MUTEX_INITIALIZER;void lk(void){pthread_mutex_lock(&mm);}void ul(void){pthread_mutex_unlock(&mm);}
+//// g9 tsan owned handed through lock while keeping borrow
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;void lk(void) _Acquires(m);void ul(void) _Releases(m);
+static int*_Owned _Nullable g _Guarded_by(m);static void*_Nullable w(void*_Nullable a){lk();free(_Take(g));ul();return 0;}int main(void){int*p=calloc(1,4);if(!p)return 1;lk();g=p;ul();pthread_t __single t;pthread_create(&t,0,w,0);for(int i=0;i<1000;i++)(*p)++;pthread_join(t,0);return 0;}
+//// file2
+#include <pthread.h>
+static pthread_mutex_t mm=PTHREAD_MUTEX_INITIALIZER;void lk(void){pthread_mutex_lock(&mm);}void ul(void){pthread_mutex_unlock(&mm);}
+//// g10 tsan shared lock write
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;void lk(void) __attribute__((acquire_shared_capability(m)));void ul(void) __attribute__((release_shared_capability(m)));
+static int n _Guarded_by(m);static void inc(int*p){(*p)++;}@W{lk();inc(&n);ul();return 0;}int main(void){@R}
+//// file2
+#include <pthread.h>
+static pthread_rwlock_t mm=PTHREAD_RWLOCK_INITIALIZER;void lk(void){pthread_rwlock_rdlock(&mm);}void ul(void){pthread_rwlock_unlock(&mm);}
+//// g11 tsan try lock
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;int tl(void) __attribute__((try_acquire_capability(0,m)));void ul(void) _Releases(m);
+static int n _Guarded_by(m);@W{for(int i=0;i<1000;i++){if(!tl()){n++;ul();}}return 0;}int main(void){@R}
+//// file2
+#include <pthread.h>
+static pthread_mutex_t mm=PTHREAD_MUTEX_INITIALIZER;int tl(void){return pthread_mutex_trylock(&mm)==0;}void ul(void){pthread_mutex_unlock(&mm);}
+//// g12 tsan two instances aliasing lock expr
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};void lk(struct mtx*q) _Acquires(q);void ul(struct mtx*q) _Releases(q);extern struct mtx m,m2;
+static int n _Guarded_by(m);@W{struct mtx*q=&m;lk(q);n++;ul(q);return 0;}int main(void){@R}
+//// g13 tsan guarded bool const ptr
+#include <pthread.h>
+static _Atomic int a[2];@W{int*p=(int*)a;p[1]++;return 0;}int main(void){@R}
+//// g14 tsan block static
+#include <pthread.h>
+typedef void(^B)(void);static void(^const b)(void)=^{static int n;n++;};@W{b();return 0;}int main(void){@R}
+//// g15 tsan extern decl with const then nonconst
+#include <pthread.h>
+extern _Atomic int zz;@W{zz=zz+1;return 0;}int main(void){@R}
+//// file2
+#include <pthread.h>
+int zz _Unsynchronized;
+//// g16 tsan struct const ptr chain
+#include <pthread.h>
+struct in{int x;};struct s{struct in*_Static p;};static const struct s g={&(struct in){3}};@W{g.p->x++;return 0;}int main(void){@R}
+//// g17 tsan string literal char* non const? 
+#include <pthread.h>
+static char*_Static const g="abc";@W{g[0]='z';return 0;}int main(void){@R}
+//// g18 tsan const array of compound
+#include <pthread.h>
+static int*_Static const g[2]={&(int){1},(int[]){2,3}};@W{g[0][0]++;return 0;}int main(void){@R}
+//// g19 tsan getopt
+#include <pthread.h>
+#include <getopt.h>
+@W{for(int i=0;i<9;i++)optind=1;return 0;}int main(void){@R}
+//// g20 tsan stdin assign
+#include <pthread.h>
+@W{FILE*f=stdout;fputs("a",f);setvbuf(stdout,0,_IONBF,0);return 0;}int main(void){@R}
+//// g21 tsan errno/ environ
+#include <pthread.h>
+extern char**environ;@W{environ[0]=0;return 0;}int main(void){@R}
+//// g22 tsan daylight/tz
+#include <pthread.h>
+#include <time.h>
+@W{for(int i=0;i<100;i++){timezone=3;tzset();}return 0;}int main(void){@R}
+//// g23 tsan signgam
+#include <pthread.h>
+#include <math.h>
+@W{for(int i=0;i<100;i++){signgam=3;}return 0;}int main(void){@R}

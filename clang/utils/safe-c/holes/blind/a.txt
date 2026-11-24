@@ -1,0 +1,182 @@
+//// l1
+int main(void){int*_Nullable p=0;{int x=5;p=&x;}return p?*p:0;}
+//// l2
+int main(void){int *p=malloc(4);if(!p)return 1;free(p);return *p;}
+//// l3
+int main(void){int *p=malloc(4);if(!p)return 1;for(int i=0;i<2;i++){free(p);}return 0;}
+//// l4
+int main(int c,char**v){int *p=malloc(4);if(!p)return 1;*p=1;again:if(c>1){return *p;}free(p);c=2;goto again;}
+//// l5
+int main(int c,char**v){int *p=malloc(4);if(!p)return 1;switch(c){case 1:free(p);case 2:*p=2;break;}return 0;}
+//// l6
+int f(int c){int x;if(c>5)x=1;return x;}int main(int c,char**v){return f(c);}
+//// l7
+int f(int c){switch(c){int y;case 0:y=1;return y;case 1:return y;}return 0;}int main(int c,char**v){return f(c);}
+//// l8
+int main(int c,char**v){int s=0;for(int i=0;i<2;i++){int x;if(i==1)s+=x;x=7;}return s;}
+//// l9
+int main(int c,char**v){int s=0;int *p;int n=0;top:;int x;if(n){s+=x;return s;}x=3;n=1;goto top;}
+//// l10
+int main(int c,char**v){int*p=0;int i=0;again:;int x=i;if(i==0){p=&x;i++;goto again;}return p?*p:0;}
+//// l11
+struct s{int a[4];int b;};int main(int c,char**v){struct s s={0};int *p=s.a;return p[c+3];}
+//// l12
+struct s{int a[4];int b;};int main(int c,char**v){struct s s={0};return s.a[c+3];}
+//// l13
+int main(int c,char**v){int a[2][3]={0};return a[0][c+2];}
+//// l14
+int main(int c,char**v){int a[2][3]={0};int (*p)[3]=a;return p[c+1][0];}
+//// l15
+int main(int c,char**v){int n=c;int a[n];memset(a,0,sizeof a);return a[c];}
+//// l16
+int main(int c,char**v){int n=c+3;int a[n];n=100;memset(a,0,sizeof a);return a[50];}
+//// l17
+#include <alloca.h>
+int main(int c,char**v){char*p=alloca(4);memset(p,0,4);return p[c+3];}
+//// l18
+#include <alloca.h>
+char* f(void){char*p=alloca(4);p[0]=3;return p;}int main(int c,char**v){return f()[0];}
+//// l19
+#include <alloca.h>
+int main(int c,char**v){int s=0;char*q=0;for(int i=0;i<2;i++){char*p=alloca(8);s+=p[0];p[0]=9;q=p;}return s;}
+//// l20
+int main(int c,char**v){int*p=0;for(int i=0;i<2;i++){if(p)*p=3;int*q=(int[]){i,2};p=q;}return *p;}
+//// l21
+int main(int c,char**v){int*p=({int x=3;&x;});return *p;}
+//// l22
+struct s{char a;int b;};int main(void){struct s s;s.a=1;return s.b;}
+//// l23
+struct s{char a;int b[3];};int main(void){struct s s;s.b[0]=1;struct s t=s;return t.b[2];}
+//// l24
+int main(int c,char**v){int a[3];return a[c];}
+//// l25
+int main(int c,char**v){int*p[3];return *p[c];}
+//// l26
+int main(int c,char**v){int*_Nonnull p[3]={};return *p[c];}
+//// l27
+struct s{int*_Nonnull _Static p;};int main(int c,char**v){struct s s;return *s.p;}
+//// l28
+struct s{int*_Static p;};int main(int c,char**v){struct s s={};return *s.p;}
+//// l29
+struct s{int x;int*_Owned p;};int main(int c,char**v){struct s*s=malloc(sizeof*s);if(!s)return 1;return *s->p;}
+//// l30
+struct s{int x;int(*f)(void);};int main(int c,char**v){struct s*s=calloc(1,sizeof*s);if(!s)return 1;return s->f();}
+//// l31
+int g(void){return 3;}int main(int c,char**v){int(*f[2])(void);return f[c]();}
+//// l32
+int f(int a){return a;}int main(int c,char**v){int(*p)(int,int)=(int(*)(int,int))f;return p(1,2);}
+//// l33
+int f();int main(int c,char**v){return f(1,2,3);}int f(int*p){return *p;}
+//// l34
+int main(int c,char**v){long l=(long)&c;int*p=(int*)(l+400000000000);return *p;}
+//// l35
+int main(int c,char**v){uintptr_t l=(uintptr_t)&c;void*q=&l;int**p=q;return **p;}
+//// l36
+union u{long l;int*p;};int main(int c,char**v){union u u;u.l=5;return *u.p;}
+//// l37
+int main(int c,char**v){_Bool b;char x=77;memcpy(&b,&x,1);return b;}
+//// l38
+union u{_Bool b;char x;};int main(int c,char**v){union u u;u.x=77;int a[2]={0};return a[u.b];}
+//// l39
+enum e{A,B};int main(int c,char**v){enum e e=(enum e)77;int a[2]={1,2};return a[e];}
+//// l40
+#include <setjmp.h>
+jmp_buf j;void g(void){longjmp(j,1);}int main(void){int*p=malloc(4);if(!p)return 1;if(setjmp(j)){return *p;}free(p);g();}
+//// l41
+int main(int c,char**v){char b[4]="abcd";return strlen(b);}
+//// l42
+int main(int c,char**v){char b[4]="abcd";printf("%s",b);return 0;}
+//// l43
+int main(int c,char**v){char b[4];return snprintf(b,100,"hello %d",1111111);}
+//// l44
+int main(int c,char**v){char b[4];sscanf("aaaaaaaaaaaaaaa","%s",b);return b[0];}
+//// l45
+int main(int c,char**v){char b[4];sscanf("aaaaaaaaaaaaaaa","%10s",b);return b[0];}
+//// l46
+int main(int c,char**v){char b[4];const char*f="%s%n";printf(f,"x",3);return 0;}
+//// l47
+int main(int c,char**v){printf(c>1?"%d":"%s",5);return 0;}
+//// l48
+int cmp(const void*a,const void*b){const long long*x=a,*y=b;return x[10]>y[10];}int main(int c,char**v){int a[3]={3,1,2};qsort(a,3,4,cmp);return a[0];}
+//// l49
+int cmp(const void*a,const void*b){return *(const int*)a-*(const int*)b;}int main(int c,char**v){int a[3]={3,1,2};qsort(a,5,4,cmp);return a[0];}
+//// l50
+int cmp(const void*a,const void*b){return *(const long*)a>*(const long*)b;}int main(int c,char**v){int a[3]={3,1,2};qsort(a,3,4,cmp);return a[0];}
+//// l51
+int cmp(const void*a,const void*b){return *(const int*)a-*(const int*)b;}int main(int c,char**v){int a[3]={1,2,3};int k=3;int*p=bsearch(&k,a,3,4,cmp);return p[1];}
+//// l52
+int cmp(const void*a,const void*b){return *(const long*)a-*(const long*)b;}int main(int c,char**v){long a[3]={1,2,3};char k=3;long*p=bsearch(&k,a,3,8,cmp);return p!=0;}
+//// l53
+int main(int c,char**v){char*s=strdup("abc");if(!s)return 1;char*t=strtok(s,"b");free(s);return t?t[0]:0;}
+//// l54
+int main(int c,char**v){char s[]="abc,d";char*t=strtok(s,",");{char u[]="x,y,z";t=strtok(u,",");}t=strtok(0,",");return t!=0;}
+//// l55
+int main(int c,char**v){char*e;const char s[]="12x";long l=strtol(s,&e,10);return e[5];}
+//// l56
+char*e;long f(void){char s[]="12x";return strtol(s,&e,10);}int main(int c,char**v){f();return e[0];}
+//// l57
+int main(int c,char**v){char*e;{char s[]="12x";long l=strtol(s,&e,10);}return *e;}
+//// l58
+int main(int c,char**v){char*l=0;size_t n=0;getline(&l,&n,stdin);char*q=l;getline(&l,&n,stdin);return q?q[0]:0;}
+//// l59
+int main(int c,char**v){char*l=0;size_t n=100;getline(&l,&n,stdin);return l?l[99]:0;}
+//// l60
+int main(int c,char**v){char*l=0;asprintf(&l,"%d",1);free(l);return l[0];}
+//// l61
+int main(int c,char**v){int*p=malloc(4);if(!p)return 1;int*q=realloc(p,4000);return *p;}
+//// l62
+int main(int c,char**v){int*p=malloc(8);if(!p)return 1;size_t n=1ul<<62;int*q=malloc(n*sizeof(int));if(!q)return 0;return q[c];}
+//// l63
+int main(int c,char**v){size_t n=(1ul<<62)+1;int*q=malloc(n*sizeof(int));if(!q)return 0;return q[c];}
+//// l64
+int main(int c,char**v){size_t n=(1ul<<62)+1;int*__counted_by(n) q=malloc(n*sizeof(int));if(!q)return 0;return q[c];}
+//// l65
+int main(int c,char**v){int*q=reallocarray(0,(1ul<<62)+1,4);if(!q)return 0;return q[c];}
+//// l66
+int main(int c,char**v){FILE*f=fopen("/etc/hosts","r");if(!f)return 1;fclose(f);return fgetc(f);}
+//// l67
+FILE*_Nullable g;int main(int c,char**v){FILE*f=fopen("/etc/hosts","r");if(!f)return 1;g=f;fclose(f);return g?fgetc(g):0;}
+//// l68
+int main(int c,char**v){FILE*f=fopen("/etc/hosts","r");if(!f)return 1;free(f);return 0;}
+//// l69
+int main(int c,char**v){FILE f=*stdin;return fgetc(&f);}
+//// l70
+int main(int c,char**v){fclose(stdin);return fgetc(stdin);}
+//// l71
+int main(int c,char**v){FILE*f=fopen("/etc/hosts","r");if(!f)return 1;FILE*g=freopen("/nonexist","r",f);return fgetc(f);}
+//// l72
+int main(int c,char**v){char b[8];FILE*f=fopen("/etc/hosts","r");if(!f)return 1;setvbuf(f,b,_IOFBF,800);return fgetc(f);}
+//// l73
+FILE*_Nullable op(void){char b[800];FILE*f=fopen("/etc/hosts","r");if(!f)return f;setvbuf(f,b,_IOFBF,800);return f;}int main(int c,char**v){FILE*f=op();if(!f)return 1;int x=fgetc(f);fclose(f);return x;}
+//// l74
+void op(void){char b[800];setvbuf(stdout,b,_IOFBF,800);}void z(void){char b[900];memset(b,1,900);}int main(int c,char**v){op();printf("hi");z();fflush(stdout);return 0;}
+//// l75
+#include <stdlib.h>
+int main(int c,char**v){char b[]="A=1";putenv(b);return 0;}
+//// l76
+void f(void){char b[]="AZZ=1";putenv(b);}int main(int c,char**v){f();char*_Nullable p=getenv("AZZ");return p?p[0]:0;}
+//// l77
+int main(int c,char**v){setenv("Q","abc",1);const char*p=getenv("Q");unsetenv("Q");setenv("Q","abcdefffffffffffffffffffffffffffff",1);return p?p[0]:0;}
+//// l78
+int main(int c,char**v){char*p=strdup("abc");if(!p)return 1;free(p+1);return 0;}
+//// l79
+int main(int c,char**v){int x;free(&x);return 0;}
+//// l80
+int main(int c,char**v){char*s="abc";s[0]=1;return 0;}
+//// l81
+int main(int c,char**v){char*s=(char*)"abc";s[0]=1;return 0;}
+//// l82
+int main(int c,char**v){const char*s="abc";char*t=strchr(s,'b');if(t)*t=1;return 0;}
+//// l83
+int main(int c,char**v){const int x=3;const int*p=&x;int*q=memchr(p,3,4);if(q)*q=2;return 0;}
+//// l84
+int main(int c,char**v){void(^b)(void);{int x=3;b=^{printf("%d",x);};}b();return 0;}
+//// l85
+typedef int(^B)(void);B f(int c){return ^{return c;};}int main(int c,char**v){return f(3)();}
+//// l86
+int main(int c,char**v){__block int*p=malloc(4);if(!p)return 1;void(^b)(void)=^{free(p);};b();return *p;}
+//// l87
+int main(int c,char**v){int*p=malloc(4);if(!p)return 1;void(^b)(void)=^{*p=3;};free(p);b();return 0;}
+//// l88
+#include <Block.h>
+typedef int(^B)(void);int main(int c,char**v){B b=Block_copy(^{return c;});Block_release(b);return b();}

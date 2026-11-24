@@ -1,0 +1,160 @@
+//// d1 fread-overflow
+int main(int c,char**v){struct {char b[4];char z[64];} s={};FILE*f=fopen("/etc/hosts","r");if(!f)return 1;size_t n=(1ul<<63)+c;fread(s.b,n,2,f);fclose(f);return s.z[20];}
+//// d2 arrptr1
+int main(int c,char**v){int a[2][3]={0};int (*p)[3]=a;p[c+50][0]=77;return 0;}
+//// d3 arrptr2
+int main(int c,char**v){int a[2][3]={0};int (*p)[3]=a;p[2][0]=77;return 0;}
+//// d4 arrptr heap
+int main(int c,char**v){int (*p)[3]=malloc(24);if(!p)return 1;p[c+500][0]=7;return 0;}
+//// d5
+int main(int c,char**v){int a[2][3]={0};int (*p)[3]=&a[0];p+=c+20;(*p)[0]=3;return 0;}
+//// d6
+struct s{int a[3];int b;};int main(int c,char**v){struct s a[2]={0};struct s*p=a;p[c+50].a[0]=77;return 0;}
+//// d7
+struct s{int a[3];int b;};int main(int c,char**v){struct s a[2]={0};struct s*p=a;p[c+50].b=77;return 0;}
+//// d8
+int f(int (*__counted_by(n) p)[3],int n,int i){return p[i][0];}int main(int c,char**v){int a[2][3]={0};return f(a,2,c+60);}
+//// d9
+int f(int m,int (*__counted_by(n) p)[m],int n,int i){return p[i][0];}int main(int c,char**v){int a[2][3]={0};return f(3,a,2,c+60);}
+//// d10
+int main(int c,char**v){int a[2][3]={0};return a[c+50][0];}
+//// d11
+int main(int c,char**v){int a[2][3]={0};int *p=a[c+50];return *p;}
+//// d12
+int main(int c,char**v){int a[2][3][4]={0};int (*p)[3][4]=a;return p[c+50][1][1];}
+//// d13
+int main(int c,char**v){int a[2][3]={0};int (*p)[3]=a;int*q=p[c+50];*q=3;return 0;}
+//// d14
+int main(int c,char**v){int a[2][3]={0};int (*p)[3]=a;return (*p)[c+50];}
+//// d15 recv
+#include <sys/socket.h>
+#include <unistd.h>
+int main(int c,char**v){struct{char b[4];char z[80];}s={};int sv[2];socketpair(AF_UNIX,SOCK_STREAM,0,sv);char m[60];memset(m,7,60);write(sv[0],m,60);recv(sv[1],s.b,50,0);return s.z[10];}
+//// d16 readv
+#include <sys/uio.h>
+#include <fcntl.h>
+int main(int c,char**v){struct{char b[4];char z[80];}s={};int fd=open("/etc/hosts",0);struct iovec i={s.b,50};readv(fd,&i,1);return s.z[10];}
+//// d17 readv uaf
+#include <sys/uio.h>
+#include <fcntl.h>
+int main(int c,char**v){char*p=malloc(50);if(!p)return 1;int fd=open("/etc/hosts",0);struct iovec i={p,50};free(p);char*q=calloc(50,1);readv(fd,&i,1);return q?q[10]:0;}
+//// d18 recvfrom
+#include <sys/socket.h>
+#include <unistd.h>
+int main(int c,char**v){struct{char b[4];char z[80];}s={};int sv[2];socketpair(AF_UNIX,SOCK_STREAM,0,sv);char m[60];memset(m,7,60);write(sv[0],m,60);recvfrom(sv[1],s.b,50,0,0,0);return s.z[10];}
+//// d19 send OOB read
+#include <sys/socket.h>
+int main(int c,char**v){char b[4]={};return send(1,b,5000,0);}
+//// d20 getsockname
+#include <sys/socket.h>
+int main(int c,char**v){struct{char s[4];char z[80];}s={};int sv[2];socketpair(AF_UNIX,SOCK_STREAM,0,sv);socklen_t l=80;getsockname(sv[0],(struct sockaddr*)s.s,&l);return s.z[10];}
+//// d21 getsockopt
+#include <sys/socket.h>
+int main(int c,char**v){struct{char s[1];char z[80];}s={};int sv[2];socketpair(AF_UNIX,SOCK_STREAM,0,sv);socklen_t l=80;getsockopt(sv[0],SOL_SOCKET,SO_SNDBUF,s.s,&l);printf("%d",s.z[1]);return 0;}
+//// d22 ioctl FIONREAD
+#include <sys/ioctl.h>
+#include <unistd.h>
+int main(int c,char**v){struct{char b;char z[7];}s={};int p[2];pipe(p);char m[2000]={};write(p[1],m,2000);ioctl(p[0],FIONREAD,&s.b);printf("%d %d",s.b,s.z[0]);return 0;}
+//// d23 fcntl
+#include <fcntl.h>
+#include <unistd.h>
+int main(int c,char**v){struct{char b[4];char z[1200];}s={};int fd=open("/etc/hosts",0);fcntl(fd,F_GETPATH,s.b);printf("%s",s.z);return 0;}
+//// d24 munmap heap/stack
+#include <sys/mman.h>
+int main(int c,char**v){static _Thread_local char b[65536];_Alignas(16384) char x[32768]={};munmap(x,16384);return x[c];}
+//// d25 sysctl
+#include <sys/sysctl.h>
+int main(int c,char**v){struct{char b[4];char z[200];}s={};size_t l=200;sysctlbyname("kern.version",s.b,&l,0,0);printf("%.5s",s.z);return 0;}
+//// d26 sysctl2
+#include <sys/types.h>
+#include <sys/sysctl.h>
+int main(int c,char**v){struct{char b[4];char z[200];}s={};size_t l=200;int m[2]={CTL_KERN,KERN_VERSION};sysctl(m,2,s.b,&l,0,0);printf("%d",s.z[0]);return 0;}
+//// d27 msg
+#include <sys/socket.h>
+#include <unistd.h>
+#include <sys/uio.h>
+int main(int c,char**v){struct{char b[4];char z[80];}s={};int sv[2];socketpair(AF_UNIX,SOCK_STREAM,0,sv);char m[60];memset(m,7,60);write(sv[0],m,60);struct iovec i={s.b,50};struct msghdr h={.msg_iov=&i,.msg_iovlen=1};recvmsg(sv[1],&h,0);return s.z[10];}
+//// d28 atomic misaligned
+int main(int c,char**v){char a[32]={0};_Atomic long*p=(_Atomic long*)(a+c);return *p+=1;}
+//// d29
+struct p{long a,b;};int main(int c,char**v){_Alignas(16) char a[64]={0};_Atomic long*p=(_Atomic long*)(a+c*13);*p+=1;return 0;}
+//// d30 unaligned long on cmpxchg
+int main(int c,char**v){_Alignas(16) char a[64]={0};long*p=(long*)(a+c*13);__sync_fetch_and_add(p,1);return 0;}
+//// d31 cast out param
+int main(int c,char**v){struct{char n;char z[8];}s={};printf("ab%n",(int*)&s.n);s.n=1;return s.z[0];}
+//// d32 scanf cast
+int main(int c,char**v){struct{char n;char z[8];}s={};sscanf("16843009","%d",(int*)&s.n);return s.z[0];}
+//// d33 scanf float
+int main(int c,char**v){struct{char n;char z[8];}s={};sscanf("1.5","%lf",(double*)&s.n);return s.z[6];}
+//// d34 printf s cast
+int main(int c,char**v){int x=0x61616161;return printf("%s",(char*)&x);}
+//// d35 printf %.*s
+int main(int c,char**v){char b[3]={'a','b','c'};return printf("%.*s",c+30,b);}
+//// d36
+int main(int c,char**v){char b[3]={'a','b','c'},o[40];return snprintf(o,40,"%.30s",b);}
+//// d37
+int main(int c,char**v){char*b=malloc(3);if(!b)return 1;memset(b,'a',3);return printf("%.*s",c+30,b);}
+//// d38 cross counted
+void f(int*__counted_by(n) p,int n);int main(int c,char**v){struct{int a[3];int z[20];}s={};f(s.a,3);return s.z[7];}
+//// file2
+void f(int*__counted_by(n*4) p,int n){p[10]=1;}
+//// d39 cross nothing->lifetimebound
+int*f(int*p);int*g(int*p,int*q _Lifetimebound);int main(int c,char**v){int*r;int y=1;{int x=3;r=g(&x,&y);}return *r;}
+//// file2
+int*g(int*p _Lifetimebound,int*q){return p;}
+//// d40 cross owned ret
+int*f(void);int main(int c,char**v){int*p=f();return *p;}
+//// file2
+_Returns_owned int*f(void){int*p=malloc(4);if(!p)abort();return p;}
+//// d41 cross owned ret2
+_Returns_owned int*f(void);int main(int c,char**v){int*p=f();free(p);return 0;}
+//// file2
+static const int z=3;const int*q(void){return &z;}static _Thread_local int y;int*f(void){return &y;}
+//// d42 cross static field
+struct s{const int*_Static p;};void set(struct s*,const int*);int main(int c,char**v){struct s s={};{int x=3;}return 0;}
+//// file2
+int x2;
+//// d43 cross exclusive
+struct n{int v;struct n*_Owned _Nullable nx;};void f(struct n*);int main(int c,char**v){struct n a={};a.nx=calloc(1,sizeof a);struct n*q=a.nx;f(&a);return q?q->v:0;}
+//// file2
+struct n{int v;struct n*_Owned _Nullable nx;};void f(struct n*_Exclusive a){free(_Take(a->nx));}
+//// d44 cross owned field vs static
+struct n{int*_Owned _Nullable p;};void f(struct n*_Exclusive);int main(int c,char**v){struct n a={};f(&a);free(_Take(a.p));return 0;}
+//// file2
+struct n{int*_Static _Nullable p;};static _Thread_local int z;void f(struct n*_Exclusive a){a->p=&z;}
+//// d45 cross count field
+struct n{int k;int m;int*_Owned _Nullable __counted_by(m) p;};int f(struct n*);int main(int c,char**v){struct n a={};a.k=100;return f(&a);}
+//// file2
+struct n{int k;int m;int*_Owned _Nullable __counted_by(k) p;};int f(struct n*n){return n->p?n->p[50]:0;}
+//// d46 cross struct layout same tag
+struct n{int*_Static _Nullable p;};int f(struct n*);int main(int c,char**v){struct n a={};return f(&a);}
+//// file2
+struct n{long p;long q[20];};int f(struct n*n){return n->q[19];}
+//// d47 cross enum vals
+enum k{A,B};struct t{enum k k;union _Tagged_by(k){const char*_Static p _When(A);long l _When(B);};};void f(struct t*);int main(int c,char**v){struct t t={.k=B,.l=77};f(&t);return t.k==A?puts(t.p):0;}
+//// file2
+enum k{B,A};struct t{enum k k;union _Tagged_by(k){const char*_Static p _When(A);long l _When(B);};};void f(struct t*t){if(t->k==A)puts(t->p);}
+//// d48 cross Nullable return
+int*f(void);int main(int c,char**v){return *f();}
+//// file2
+int*_Nullable f(void){return 0;}
+//// d49 cross requires
+struct _Capability("mutex") mtx{int s;};struct mtx m;extern int h _Guarded_by(m);void f(void);int main(int c,char**v){f();return 0;}
+//// file2
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;int h _Guarded_by(m);void f(void) _Requires(m){h++;}
+//// d50 cross tls
+extern int h _Unsynchronized;int main(int c,char**v){return h;}
+//// file2
+_Thread_local int h;
+//// d51 cross fn fam
+struct s{int n;int a[];};int f(struct s*);int main(int c,char**v){struct s*s=calloc(1,sizeof*s);if(!s)return 1;return f(s);}
+//// file2
+struct s{int n;int a[10];};int f(struct s*s){return s->a[9];}
+//// d52 cross noescape/global keep
+void keep(int*p _Noescape);int get(void);int main(int c,char**v){{int x=3;keep(&x);}return get();}
+//// file2
+static _Thread_local int*_Static _Nullable g;void keep(int*_Static p){g=p;}int get(void){return g?*g:0;}
+//// d53 cross static param
+void keep(int*p);int get(void);int main(int c,char**v){int*p=malloc(4);if(!p)return 1;*p=1;keep(p);free(p);return get();}
+//// file2
+static _Thread_local int*_Static _Nullable g;void keep(int*_Static p){g=p;}int get(void){return g?*g:0;}

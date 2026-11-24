@@ -1,0 +1,173 @@
+//// p1 loop-owned
+struct n{int v;struct n*_Owned _Nullable nx;};int main(int c,char**v){struct n*_Nullable h=0;for(int i=0;i<3;i++){struct n*k=calloc(1,sizeof*k);if(!k)return 1;k->nx=h;h=k;}int s=0;while(h){struct n*_Nullable nx=_Take(h->nx);free(h);s+=h->v;h=nx;}return s;}
+//// p2 borrow of inner then free outer
+struct n{int v;struct n*_Owned _Nullable nx;};int main(int c,char**v){struct n*h=calloc(1,sizeof*h);if(!h)return 1;int*p=&h->v;free(h);return *p;}
+//// p3 helper frees
+struct n{int v;struct n*_Owned _Nullable nx;};void del(struct n*_Owned n){free(_Take(n->nx));free(n);}int main(int c,char**v){struct n*h=calloc(1,sizeof*h);if(!h)return 1;h->nx=calloc(1,sizeof*h);struct n*q=h->nx;del(h);return q?q->v:0;}
+//// p4 helper returns borrow inferred
+struct n{int v;struct n*_Owned _Nullable nx;};int*vp(struct n*n){return &n->v;}int main(int c,char**v){struct n*h=calloc(1,sizeof*h);if(!h)return 1;int*p=vp(h);free(h);return *p;}
+//// p5 out param borrow
+struct n{int v;};void vp(struct n*n,int**o){*o=&n->v;}int main(int c,char**v){struct n*h=calloc(1,sizeof*h);if(!h)return 1;int k=0;int*__single p=&k;vp(h,&p);free(h);return *p;}
+//// p6 struct in out param
+struct _View w{int*p;};struct n{int v;};struct w vp(struct n*n){struct w w={&n->v};return w;}int main(int c,char**v){struct n*h=calloc(1,sizeof*h);if(!h)return 1;struct w x=vp(h);free(h);return *x.p;}
+//// p7 view array
+struct _View w{int*p;};int main(int c,char**v){int k=0;struct w a[2]={{&k},{&k}};{int z=3;a[c].p=&z;}return *a[1].p;}
+//// p8 ptr array
+int main(int c,char**v){int k=0;int*a[2]={&k,&k};{int z=3;a[c]=&z;}return *a[1];}
+//// p9 memcpy view
+struct _View w{int*p;};int main(int c,char**v){int k=0;struct w a={&k};{int z=3;struct w b={&z};memcpy(&a,&b,sizeof a);}return *a.p;}
+//// p10 memcpy ptr arr
+int main(int c,char**v){int k=0;int*a[2]={&k,&k};{int z=3;int*b[2]={&z,&z};memcpy(a,b,sizeof a);}return *a[1];}
+//// p11 memmove
+int main(int c,char**v){int k=0;int*a[2]={&k,&k};{int z=3;int*b[2]={&z,&z};memmove(a,b,sizeof a);}return *a[1];}
+//// p12 loop-helper ptr to ptr swap
+void sw(int*__single*__single a,int*__single*__single b){int*t=*a;*a=*b;*b=t;}int main(int c,char**v){int k=0;int*__single p=&k;{int z=3;int*__single q=&z;sw(&p,&q);}return *p;}
+//// p13 sw of owner
+void sw(int*_Owned*a,int*_Owned*b){int*t=*a;*a=*b;*b=t;}int main(int c,char**v){return 0;}
+//// p14 _View struct swap
+struct _View w{int*p;};void sw(struct w*a,struct w*b){struct w t=*a;*a=*b;*b=t;}int main(int c,char**v){int k=0;struct w p={&k};{int z=3;struct w q={&z};sw(&p,&q);}return *p.p;}
+//// p15 qsort views
+struct _View w{int*p;};int main(int c,char**v){int k=0;struct w p[2]={{&k},{&k}};{int z=3;struct w q={&z};p[0]=q;}return *p[0].p;}
+//// p16 ternary borrow
+int main(int c,char**v){int k=0;int*p=&k;{int z=3;p=c?&z:&k;}return *p;}
+//// p17 comma
+int main(int c,char**v){int k=0;int*p=&k;{int z=3;p=(k++,&z);}return *p;}
+//// p18 gnu elvis
+int main(int c,char**v){int k=0;int*_Nullable p=&k;{int z=3;int*_Nullable q=&z;p=q?:&k;}return *p;}
+//// p19 generic
+int main(int c,char**v){int k=0;int*p=&k;{int z=3;p=_Generic(k,int:&z,default:&k);}return *p;}
+//// p20 choose
+int main(int c,char**v){int k=0;int*p=&k;{int z=3;p=__builtin_choose_expr(1,&z,&k);}return *p;}
+//// p21 stmt expr
+int main(int c,char**v){int k=0;int*p=&k;p=({int z=3;int*q=&z;q;});return *p;}
+//// p22 typeof
+int main(int c,char**v){int k=0;typeof(&k) p=&k;{int z=3;typeof(p) q=&z;p=q;}return *p;}
+//// p23 cast to long*
+int main(int c,char**v){int k=0;unsigned*p=(unsigned*)&k;{int z=3;p=(unsigned*)&z;}return *p;}
+//// p24 void* roundtrip
+int main(int c,char**v){int k=0;void*p=&k;{int z=3;p=&z;}memset(p,1,4);return 0;}
+//// p25 char* 
+int main(int c,char**v){int k=0;char*p=(char*)&k;{int z=3;p=(char*)&z;}return p[1];}
+//// p26 arith
+int main(int c,char**v){int k[2]={};int*p=k;{int z[4]={};p=z+c+1;}return *p;}
+//// p27 incr
+int main(int c,char**v){int k[2]={};int*p=k;{int z[4]={};int*q=z;p=q++;}return *p;}
+//// p28 array decay struct
+struct s{int a[4];};int main(int c,char**v){int k[2]={};int*p=k;{struct s z={};p=z.a;}return *p;}
+//// p29 fn returning struct temp array
+struct s{int a[4];};struct s f(void){return (struct s){{1,2,3,4}};}int main(int c,char**v){int*p=f().a;int x[50];memset(x,c,200);return *p;}
+//// p30
+struct s{int a[4];};struct s f(void){return (struct s){{1,2,3,4}};}int*g(int*p){return p;}int main(int c,char**v){int*p=g(f().a);return *p;}
+//// p31 return param addr
+int*f(int x){int*p=&x;return p;}int main(int c,char**v){return *f(3);}
+//// p32 ret struct member of param
+struct s{int a[4];};int*f(struct s s){return s.a;}int main(int c,char**v){return *f((struct s){});}
+//// p33 nested fn
+int main(int c,char**v){int g(void){return c;}return g();}
+//// p34 VLA loop
+int main(int c,char**v){int*p=0;int s=0;for(int i=1;i<4;i++){int a[i];a[0]=i;if(p)s+=*p;p=a;}return s;}
+//// p35 alloca in helper via inline
+#include <alloca.h>
+static inline __attribute__((always_inline)) char*f(int n){return alloca(n);}int main(int c,char**v){char*p=f(10);p[0]=3;return p[0];}
+//// p36 alloca stored in struct
+#include <alloca.h>
+struct _View w{char*p;};struct w f(int n){struct w w={alloca(4)};return w;}int main(int c,char**v){struct w p=f(10);p.p[0]=3;return *p.p;}
+//// p37 alloca out
+#include <alloca.h>
+void f(char*__single*__single o){char*x=alloca(4);*o=x;}int main(int c,char**v){char k=0;char*__single p=&k;f(&p);return *p;}
+//// p38 alloca global owned
+#include <alloca.h>
+static _Thread_local char*_Owned _Nullable g;void f(void){g=alloca(4);}int main(int c,char**v){f();free(_Take(g));return 0;}
+//// p39 free alloca
+#include <alloca.h>
+int main(int c,char**v){char*p=alloca(4);free(p);return 0;}
+//// p40 owned from static
+static _Thread_local int z;struct s{int*_Owned _Nullable p;};int main(int c,char**v){struct s s={};s.p=&z;free(_Take(s.p));return 0;}
+//// p41 owned from mid alloc
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){struct s s={};int*q=malloc(16);if(!q)return 1;s.p=q+1;free(_Take(s.p));return 0;}
+//// p42 moved local then used
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){struct s s={};int*q=malloc(16);if(!q)return 1;s.p=q;free(_Take(s.p));return *q;}
+//// p43 alias q2
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){struct s s={};int*q=malloc(16);if(!q)return 1;int*r=q;s.p=q;free(_Take(s.p));return *r;}
+//// p44 owner overwritten (leak only) while borrow
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){struct s s={};s.p=malloc(4);int*r=s.p;s.p=0;return r?*r:0;}
+//// p45 free(struct) with borrow of owned child: child leaks but freed?
+struct s{int*_Owned _Nullable p;};void del(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){struct s*s=calloc(1,sizeof*s);if(!s)return 1;s->p=malloc(4);int*r=s->p;struct s*t=s;del(t);return r?*r:0;}
+//// p46 excl via alias pointer
+struct s{int*_Owned _Nullable p;};void del(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){struct s s={};s.p=malloc(4);struct s*a=&s,*b=&s;int*r=a->p;del(b);return r?*r:0;}
+//// p47 alias via array idx
+struct s{int*_Owned _Nullable p;};void del(struct s*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){struct s s[3]={};s[1].p=malloc(4);int*r=s[1].p;del(&s[c]);return r?*r:0;}
+//// p48 take via alias
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){struct s s={};s.p=malloc(4);struct s*a=&s;int*r=s.p;free(_Take(a->p));return r?*r:0;}
+//// p49 alias returned by helper
+struct s{int*_Owned _Nullable p;};struct s*id(struct s*s){return s;}int main(int c,char**v){struct s s={};s.p=malloc(4);int*r=s.p;free(_Take(id(&s)->p));return r?*r:0;}
+//// p50 array elements
+int main(int c,char**v){int*_Owned _Nullable a[3]={};a[1]=malloc(4);int*r=a[c];int j=1;free(_Take(a[j]));return r?*r:0;}
+//// p51 ptr to elem
+int main(int c,char**v){int*_Owned _Nullable a[3]={};a[1]=malloc(4);int*_Nullable*q=&a[1];int*r=*q;free(_Take(a[c]));return r?*r:0;}
+//// p52 2-level struct
+struct in{int*_Owned _Nullable p;};struct s{struct in i;};void del(struct in*_Exclusive s){free(_Take(s->p));}int main(int c,char**v){struct s s={};s.i.p=malloc(4);int*r=s.i.p;del(&s.i);return r?*r:0;}
+//// p53 outer excl
+struct in{int*_Owned _Nullable p;};struct s{struct in i;};void del(struct s*_Exclusive s){free(_Take(s->i.p));}int main(int c,char**v){struct s s={};s.i.p=malloc(4);struct in*q=&s.i;int*r=q->p;del(&s);return r?*r:0;}
+//// p54 heap inner, container freed by replace
+struct in{int v;};struct s{struct in*_Owned _Nullable i;};int main(int c,char**v){struct s s={};s.i=calloc(1,4);int*r=s.i?&s.i->v:0;struct s t={};t.i=_Take(s.i);free(_Take(t.i));return r?*r:0;}
+//// p55 struct assign w/ _Take
+struct s{int*_Owned _Nullable p;};int main(int c,char**v){struct s s={};s.p=malloc(4);struct s t={.p=_Take(s.p)};int*r=t.p;t=(struct s){};free(_Take(t.p));return r?*r:0;}
+//// p56 return struct with owned
+struct s{int*_Owned _Nullable p;};struct s mk(void){struct s s={};s.p=malloc(4);return s;}int main(int c,char**v){struct s a=mk();struct s b=mk();b=a;free(_Take(a.p));free(_Take(b.p));return 0;}
+//// p57 return struct twice via ptr
+struct s{int*_Owned _Nullable p;};struct s get(struct s*s){return *s;}int main(int c,char**v){struct s s={};s.p=malloc(4);struct s a=get(&s);free(_Take(a.p));return s.p?*s.p:0;}
+//// p58 by-value param
+struct s{int*_Owned _Nullable p;};void eat(struct s s){free(_Take(s.p));}int main(int c,char**v){struct s s={};s.p=malloc(4);eat(s);return s.p?*s.p:0;}
+//// p59 compound-literal by val
+struct s{int*_Owned _Nullable p;};void eat(struct s s){free(_Take(s.p));}int main(int c,char**v){int*q=malloc(4);if(!q)return 1;eat((struct s){q});return *q;}
+//// p60 moved in loop
+struct s{int*_Owned _Nullable p;};void eat(struct s s){free(_Take(s.p));}int main(int c,char**v){int*q=malloc(4);if(!q)return 1;for(int i=0;i<2;i++)eat((struct s){q});return 0;}
+//// p61 owned param conditionally freed
+void eat(int*_Owned p,int c){if(c)free(p);}int main(int c,char**v){int*q=malloc(4);if(!q)return 1;eat(q,0);return *q;}
+//// p62 owned param stored and borrowed ret
+static _Thread_local int*_Owned _Nullable g;int*sv(int*_Owned p){g=p;return p;}int main(int c,char**v){return 0;}
+//// p63 recursion
+struct n{struct n*_Owned _Nullable l;int v;};int f(struct n*_Exclusive n,int d){if(!d){free(_Take(n->l));return 0;}struct n*_Nullable q=n->l;f(n,d-1);return q?q->v:0;}int main(int c,char**v){struct n n={};n.l=calloc(1,sizeof n);return f(&n,1);}
+//// p64 global owner struct
+struct n{struct n*_Owned _Nullable l;int v;};static _Thread_local struct n g;void clr(void){free(_Take(g.l));}int rd(struct n*q){clr();return q->v;}int main(int c,char**v){g.l=calloc(1,sizeof g);return g.l?rd(g.l):0;}
+//// p65 cross TU global owner
+struct n{struct n*_Owned _Nullable l;int v;};extern _Thread_local struct n g;void clr(void);int rd(struct n*q);int main(int c,char**v){g.l=calloc(1,sizeof g);return g.l?rd(g.l):0;}
+//// file2
+struct n{struct n*_Owned _Nullable l;int v;};extern _Thread_local struct n g;void clr(void);int rd(struct n*q){clr();return q->v;}
+//// file2
+struct n{struct n*_Owned _Nullable l;int v;};_Thread_local struct n g;void clr(void){free(_Take(g.l));}
+//// p66 cross TU callee clears global while caller keeps
+struct n{struct n*_Owned _Nullable l;int v;};extern _Thread_local struct n g;void clr(void);int main(int c,char**v){g.l=calloc(1,sizeof g);struct n*_Nullable q=g.l;clr();return q?q->v:0;}
+//// file2
+struct n{struct n*_Owned _Nullable l;int v;};_Thread_local struct n g;void clr(void){free(_Take(g.l));}
+//// p67 static hidden behind accessor cross TU
+struct n{struct n*_Owned _Nullable l;int v;};struct n*acc(void);void clr(void);int main(int c,char**v){struct n*a=acc();a->l=calloc(1,sizeof *a);struct n*_Nullable q=a->l;clr();return q?q->v:0;}
+//// file2
+struct n{struct n*_Owned _Nullable l;int v;};static _Thread_local struct n g;struct n*acc(void){return &g;}void clr(void){free(_Take(g.l));}
+//// p68 fn ptr clr in struct
+struct n{struct n*_Owned _Nullable l;int v;};struct ops{void(*clr)(void);};static _Thread_local struct n g;void clr(void){free(_Take(g.l));}int main(int c,char**v){struct ops o={clr};g.l=calloc(1,sizeof g);struct n*_Nullable q=g.l;o.clr();return q?q->v:0;}
+//// p69 qsort comparator frees global
+struct n{struct n*_Owned _Nullable l;int v;};static _Thread_local struct n g;int cmp(const void*a,const void*b){free(_Take(g.l));return 0;}int main(int c,char**v){int z[2]={2,1};g.l=calloc(1,sizeof g);struct n*_Nullable q=g.l;qsort(z,2,4,cmp);return q?q->v:0;}
+//// p70 cleanup attr frees global
+struct n{struct n*_Owned _Nullable l;int v;};static _Thread_local struct n g;void cl(int*x){free(_Take(g.l));}int main(int c,char**v){g.l=calloc(1,sizeof g);struct n*_Nullable q=g.l;{int z _Drop(cl)=1;}return q?q->v:0;}
+//// p71 drop order
+struct n{struct n*_Owned _Nullable l;int v;};void cl(struct n*_Exclusive x){free(_Take(x->l));}struct _View w{struct n*p;};void cl2(struct w*w){w->p->v=1;}int main(int c,char**v){struct n z={};z.l=calloc(1,sizeof z);if(!z.l)return 1;struct w w _Drop(cl2)={z.l};struct n y=(struct n){_Take(z.l)};cl(&y);return 0;}
+//// p72 drop order 2
+struct n{struct n*_Owned _Nullable l;int v;};void cl(struct n*_Exclusive x){free(_Take(x->l));}struct _View w{struct n*_Nullable p;};void cl2(struct w*w){if(w->p)w->p->v=1;}int main(int c,char**v){struct w w _Drop(cl2)={0};struct n z _Drop(cl)={};z.l=calloc(1,sizeof z);w.p=z.l;return 0;}
+//// p73 drop order return value
+struct n{struct n*_Owned _Nullable l;int v;};void cl(struct n*_Exclusive x){free(_Take(x->l));}int rd(struct n*_Nullable p){return p?p->v:0;}struct n*_Nullable f(void){struct n z _Drop(cl)={};z.l=calloc(1,sizeof z);return z.l;}int main(int c,char**v){struct n*_Nullable q=f();return q?q->v:0;}
+//// p74 drop in inner scope
+struct n{struct n*_Owned _Nullable l;int v;};void cl(struct n*_Exclusive x){free(_Take(x->l));}int main(int c,char**v){struct n*_Nullable q=0;{struct n z _Drop(cl)={};z.l=calloc(1,sizeof z);q=z.l;}return q?q->v:0;}
+//// p75 constructor/destructor
+static _Thread_local int*_Owned _Nullable g;__attribute__((destructor)) void d(void){free(_Take(g));}int main(int c,char**v){g=malloc(4);return 0;}
+//// p76 alias fns attr
+int f(int*p){return *p;}extern int h(long*p) __attribute__((alias("f")));int main(int c,char**v){return 0;}
+//// p77 asm label
+int h(long long p) __asm__("_f");int f(int*p){return *p;}int main(int c,char**v){return h(5);}
+//// p78 weak
+extern int*_Nonnull gg __attribute__((weak));extern int wf(void) __attribute__((weak));int main(int c,char**v){return wf();}
+//// p79 weak import var
+extern const int gg __attribute__((weak_import));int main(int c,char**v){return gg;}
+//// p80 packed
+struct __attribute__((packed)) s{char a;int*_Owned _Nullable p;};int main(int c,char**v){struct s s={};s.p=malloc(4);int*r=s.p;free(_Take(s.p));return r?*r:0;}

@@ -70,13 +70,20 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 | Uninitialized reads | locals must be set before use; heap memory is zero-filled, except the bytes `realloc` adds (which may not hold pointers) |
 | Integer UB | division by zero and oversized shifts trap; signed overflow wraps (as in Rust release builds) |
 | Type confusion | unions holding pointers must be tagged unions, and every read checks the tag. A pointer to memory holding pointers may be a writable `void *` only in the call that needs one |
-| Use after free, double free | on by default, **not sound yet**: the common forms are caught, but not every path is tracked. Of 53 accepted programs with real bugs found on 2026-11-24, all are now rejected ([the open issues](safe-c-notes/review-2026-11-23.md)); a fresh search is expected to find more. A null check can also survive a call that clears the pointer through a global |
+| Use after free, double free | on by default, **not sound**: see below |
 | Data races | a thread owns its argument; locked data, mutable globals and signal handlers are checked. Not yet: a counted pointer and its count under one lock, shared owners (`Arc`) |
 
 **Maturity.** Early. Tested on macOS (arm64) against Apple's SDK. Linux builds but is not usable yet
 (glibc's headers have no annotations). Ported so far: jsmn, cJSON, lz4, inih. The design is proven sound in Lean for small
 models of each rule set, not for Clang itself (see [results](safe-c-docs/results.md)).
 Every open item: [open issues](safe-c-notes/review-2026-11-23.md).
+
+**Not sound yet, in any row.** On 2026-11-24 an independent attacker who had only the
+user docs broke it in 34 different ways: for example, the outer index of a two-dimensional
+array is not checked, the result of `strdup` is not tracked, variables captured by a block
+are not tracked, and annotations are not compared between files. All are listed in the
+[open issues](safe-c-notes/review-2026-11-23.md), and the programs are in
+`clang/utils/safe-c/holes/blind`. Do not rely on it for security.
 
 Details: [how each is closed](safe-c-docs/protection.md).
 

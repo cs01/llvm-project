@@ -4117,8 +4117,11 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
           // already had the new type, or there was no old block.
           const Expr *Old = unwrapBoundsSafety(CE->getArg(0));
           if (Old->isNullPointerConstant(Context,
-                                         Expr::NPC_ValueDependentIsNotNull))
+                                         Expr::NPC_ValueDependentIsNotNull)) {
+            if (!isSafeCPlainData(Context, D, /*VoidIsPlain=*/true))
+              SafeCDiag(CE->getExprLoc(), "realloc-pointers") << D;
             return;
+          }
           if (const auto *OldPT = Old->getType()->getAs<PointerType>())
             if (isSameTypeDeep(Context, OldPT->getPointeeType(), D)) {
               // The bytes realloc adds are whatever was there before: as
@@ -4130,12 +4133,16 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
           break;
         }
         default:
-          if (FD->getIdentifier() && FD->getName() == "aligned_alloc")
+          // Safe C checks that an alloc_size function returns only fresh,
+          // zeroed memory (checkSafeCAllocatorBody). A library's allocators
+          // other than malloc and calloc return it unzeroed.
+          if (Name == "aligned_alloc" || FD->hasAttr<AllocSizeAttr>()) {
+            if ((Name == "aligned_alloc" ||
+                 SourceMgr.isInSystemHeader(FD->getLocation())) &&
+                !isSafeCPlainData(Context, D, /*VoidIsPlain=*/true))
+              SafeCDiag(CE->getExprLoc(), "alloc-pointers") << FD << D;
             return;
-          // Safe C checks that an alloc_size function returns only fresh
-          // memory (checkSafeCAllocatorBody); system headers are trusted.
-          if (FD->hasAttr<AllocSizeAttr>())
-            return;
+          }
         }
       }
   } else if (isSameTypeDeep(Context, S, D) ||

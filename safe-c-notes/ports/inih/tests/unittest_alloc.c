@@ -25,7 +25,9 @@ _Returns_owned __attribute__((alloc_size(2)))
 void* _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
                                                      size_t size) {
     printf("ini_realloc(%d)\n", (int)size);
-    return realloc(ptr, size);
+    /* unsafe: alloc_size promises zeroed memory, which realloc's growth is
+       not; ini.c only ever holds text in it */
+    __unsafe { return realloc(ptr, size); }
 }
 
 /* Safe C: _Thread_local, as a mutable global shared by threads is a race. */

@@ -1,0 +1,103 @@
+//// bb1 strdup uaf
+int main(void){char*p=strdup("abc");if(!p)return 1;free(p);return p[0];}
+//// bb2 strdup dbl
+int main(void){char*p=strdup("abc");if(!p)return 1;free(p);free(p);return 0;}
+//// bb3 strndup uaf
+int main(void){char*p=strndup("abc",2);if(!p)return 1;free(p);return p[0];}
+//// bb4 realpath uaf
+int main(void){char*p=realpath("/tmp",0);if(!p)return 1;free(p);return p[0];}
+//// bb5 getcwd
+#include <unistd.h>
+int main(void){char*p=getcwd(0,0);if(!p)return 1;free(p);return p[0];}
+//// bb6 fnptr setjmp
+#include <setjmp.h>
+static _Thread_local jmp_buf j;int main(void){int(*f)(jmp_buf)=setjmp;void(*g)(jmp_buf,int)=longjmp;int*p=malloc(4);if(!p)return 1;*p=1;if(f(j))return *p;free(p);g(j,1);}
+//// bb7 fcntl forge
+#include <fcntl.h>
+struct s{int*_Static _Nullable p[200];};int main(void){struct s s={0};int f=open("/etc/hosts",0);fcntl(f,F_GETPATH,&s);return s.p[0]?*s.p[0]:0;}
+//// bb8 fcntl overflow on ASAN
+#include <fcntl.h>
+int main(void){struct{char b[4];char z[1200];}s={0};int fd=open("/etc/hosts",0);fcntl(fd,F_GETPATH,s.b);puts(s.z);return 0;}
+//// bb9 memcpy partial struct view
+static _Thread_local int y[2];struct s{int*_Static _Nullable p;};int main(void){struct s s={y},t={0};memcpy(&t,&s,3);return t.p?*t.p:0;}
+//// bb10 memmove overlapped ptr arr
+static _Thread_local int y[2];struct s{int*_Static _Nullable p[3];};int main(void){struct s s={{y,y,y}};memcpy(&s.p[0],&s.p[1],5);memset(&s.p[2],0,4);return s.p[2]?*s.p[2]:0;}
+//// bb11 memset owned partially
+struct s{int*_Owned _Nullable p;};int main(void){struct s s={0};s.p=malloc(4);memset(&s,0,1);free(_Take(s.p));return 0;}
+//// bb12 memset 0 of struct with count desync
+struct s{int*_Owned _Nullable __counted_by_or_null(n) p;int n;};int main(void){struct s s={0};int*q=malloc(40);s.p=q;s.n=10;memset(&s,0,8);return s.n;}
+//// bb13 reg copy dbl free
+#include <regex.h>
+int main(void){regex_t r={0};if(regcomp(&r,"a",0))return 1;regfree(&r);regfree(&r);return 0;}
+//// bb14 regexec after free
+#include <regex.h>
+int main(void){regex_t r={0};if(regcomp(&r,"ab*c",0))return 1;regex_t q=r;regfree(&r);for(int i=0;i<9;i++){char*x=malloc(64);if(x)memset(x,0x41,64);}return regexec(&q,"abc",0,0,0);}
+//// bb15 globfree twice
+#include <glob.h>
+int main(void){glob_t g={0};glob("/*",0,0,&g);glob_t h=g;globfree(&g);return h.gl_pathv[0][0];}
+//// bb16 enum fall off
+enum k{A,B};const char*f(enum k k){switch(k){case A:return "a";case B:return "b";}}int main(int c,char**v){puts(f((enum k)(c+6)));return 0;}
+//// bb17 enum fall off _View
+enum k{A,B};int*f(enum k k,int*p){switch(k){case A:return p;case B:return p;}}int main(int c,char**v){int x=3;printf("%d\n",*f((enum k)(c+6),&x));return 0;}
+//// bb18 guarded memset race
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;
+//// bb19 aligned drop p++
+int main(void){char*p _Drop_free=malloc(64);if(!p)return 1;p+=16;return 0;}
+//// bb20 socketpair heap
+#include <sys/socket.h>
+int main(void){struct{int t;int z;}s={0};socketpair(AF_UNIX,SOCK_STREAM,0,&s.t);printf("%d\n",s.z);return 0;}
+//// bb21 waitpid
+#include <sys/wait.h>
+#include <unistd.h>
+int main(void){struct{char t;char z[7];}s={0};if(fork()==0)_exit(7);waitpid(-1,(int*)&s.t,0);printf("%d\n",s.z[0]);return 0;}
+//// bb22 readv canonical
+#include <sys/uio.h>
+#include <fcntl.h>
+int main(void){struct{char b[4];char z[80];}s={0};int fd=open("/etc/hosts",0);struct iovec i={s.b,50};readv(fd,&i,1);printf("%.10s\n",s.z);return 0;}
+//// bb23 recv
+#include <sys/socket.h>
+#include <unistd.h>
+int main(void){struct{char b[4];char z[80];}s={0};int sv[2];socketpair(AF_UNIX,SOCK_STREAM,0,sv);write(sv[0],"AAAABBBBBBBB",12);recv(sv[1],s.b,50,0);puts(s.z);return 0;}
+//// bb24 aligned_alloc uninit
+int main(void){for(int i=0;i<200;i++){char*z=aligned_alloc(64,6400);if(z){memset(z,'Q',6400);free(z);}}char*q=aligned_alloc(64,6400);if(!q)return 1;printf("%d %d\n",q[40],q[3000]);free(q);return 0;}
+//// bb25 reallocf grow
+int main(void){for(int i=0;i<100;i++){char*z=malloc(1600);if(z){memset(z,'Q',1600);free(z);}}char*a=malloc(16);if(!a)return 1;char*q=realloc(a,1600);if(!q)return 1;printf("%d %d\n",q[400],q[1200]);return 0;}
+//// bb26 realloc owned forged free
+struct s{int*_Owned _Nullable p;};int main(void){for(int i=0;i<100;i++){char*z=malloc(1600);if(z){memset(z,7,1600);free(z);}}struct s*a=calloc(1,sizeof*a);if(!a)return 1;struct s*b=realloc(a,200*sizeof*b);if(!b)return 1;free(_Take(b[150].p));return 0;}
+//// bb27 qsort struct stmt: sort freed elements in cmp global
+static _Thread_local int*_Owned _Nullable g;int cmp(const void*a,const void*b){int*_Nullable n=realloc(_Take(g),4000);g=n;return 0;}int main(void){g=calloc(8,4);if(!g)return 1;qsort(g,1,4,cmp);return 0;}
+//// bb28 iterate then callback frees array via global
+struct s{int*_Owned _Nullable __counted_by_or_null(n) p;int n;};static _Thread_local struct s g;void cb(void){free(_Take(g.p));}int main(void){int*q=calloc(8,4);g.p=q;g.n=q?8:0;int t=0;for(int i=0;i<g.n;i++){t+=g.p[i];cb();}return t;}
+//// bb29 null narrowing global via call counted
+struct s{int*_Owned _Nullable p;};static _Thread_local struct s g;void cb(void){free(_Take(g.p));}int main(void){g.p=calloc(1,4);if(g.p){cb();return *g.p;}return 0;}
+//// bb30 generic macro eval twice
+#define MAX(a,b) ((a)>(b)?(a):(b))
+int main(int c,char**v){int a[3]={1,2,3};int i=2;int r=a[MAX(i++,c)];return a[i]+r;}
+//// bb31 bitfield idx
+struct b{int i:3;};int main(int c,char**v){int a[3]={1,2,3};struct b b={c+2};return a[b.i];}
+//// bb32 setvbuf via open file closed later
+int main(void){FILE*f=fopen("/etc/hosts","r");if(!f)return 1;{char b[64];setvbuf(f,b,_IOFBF,64);fgetc(f);}char z[64];memset(z,1,64);int x=fgetc(f);fclose(f);return x;}
+//// bb33 setbuf
+int main(void){char*b=malloc(BUFSIZ);if(!b)return 1;setbuf(stdout,b);free(b);puts("hi");return 0;}
+//// bb34 sigaltstack uaf
+#include <signal.h>
+void f(void){char b[65536];stack_t s={.ss_sp=b,.ss_size=65536};sigaltstack(&s,0);}void h(int s){}int main(void){f();return 0;}
+//// bb35 iovec in struct outlives
+#include <sys/uio.h>
+struct iovec mk(void){char b[4]="abc";return (struct iovec){b,4};}int main(void){struct iovec i=mk();char*_Nullable z=0;return writev(1,&i,1);}
+//// bb36 msghdr / addrinfo fields
+#include <netdb.h>
+int main(void){struct addrinfo a={0};{char b[4]="abc";a.ai_canonname=0;struct sockaddr sa={0};a.ai_addr=&sa;}return a.ai_addr?a.ai_addr->sa_family:0;}
+//// bb37 system struct null deref
+#include <netdb.h>
+int main(void){struct addrinfo a={0};return a.ai_addr->sa_family;}
+//// bb38 hostent
+#include <netdb.h>
+int main(void){struct hostent*h=gethostbyname("127.0.0.1");if(!h)return 1;return h->h_addr_list[c_()][0];}
+//// bb39 tm_zone stale
+#include <time.h>
+int main(void){time_t t=0;struct tm x={0};localtime_r(&t,&x);char b[40];strftime(b,40,"%Z",&x);x.tm_zone=0;return 0;}
+//// bb40 strftime with stale zone
+#include <time.h>
+int main(void){struct tm x={0};{char*__null_terminated _Nullable z=strdup("ABC");if(!z)return 1;x.tm_zone=z;free(z);}return x.tm_zone[0];}

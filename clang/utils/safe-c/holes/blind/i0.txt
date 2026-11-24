@@ -1,0 +1,179 @@
+//// u1 tsan
+#include <pthread.h>
+@W{static int n;n++;return 0;}int main(void){@R}
+//// u2 tsan
+#include <pthread.h>
+static pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;static int n _Guarded_by(m);@W{pthread_mutex_lock(&m);n++;pthread_mutex_unlock(&m);return 0;}int main(void){@R}
+//// u3 tsan
+#include <pthread.h>
+static pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;static int n _Guarded_by(m);@W{pthread_mutex_lock(&m);int*p=&n;pthread_mutex_unlock(&m);*p=1;return 0;}int main(void){@R}
+//// u4 tsan
+#include <os/lock.h>
+#include <pthread.h>
+static os_unfair_lock m=OS_UNFAIR_LOCK_INIT;static int n _Guarded_by(m);@W{os_unfair_lock_lock(&m);int*p=&n;os_unfair_lock_unlock(&m);*p=1;return 0;}int main(void){@R}
+//// u5 tsan
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};static struct mtx m;
+void lk(void) _Acquires(m){}void ul(void) _Releases(m){}
+static int n _Guarded_by(m);@W{lk();n++;ul();return 0;}int main(void){@R}
+//// u6 tsan
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};static struct mtx m;
+void lk(void) _Acquires(m);void ul(void) _Releases(m);
+__attribute__((no_thread_safety_analysis)) void lk(void){}__attribute__((no_thread_safety_analysis)) void ul(void){}
+static int n _Guarded_by(m);@W{lk();n++;ul();return 0;}int main(void){@R}
+//// u7 tsan
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};static struct mtx m;
+void as(void) __attribute__((assert_capability(m))){}
+static int n _Guarded_by(m);@W{as();n++;return 0;}int main(void){@R}
+//// u8 tsan
+#include <pthread.h>
+struct _Capability("mutex") mtx{pthread_mutex_t p;};static struct mtx m={PTHREAD_MUTEX_INITIALIZER};
+void lk(void) _Acquires(m);void ul(void) _Releases(m);
+static int n[3] _Guarded_by(m);@W{lk();int*p=n;ul();p[1]=1;return 0;}int main(void){@R}
+//// file2
+#include <pthread.h>
+void lk(void){}void ul(void){}
+//// u9 tsan const global w/ pointer to mutable compound
+#include <pthread.h>
+struct s{int*_Static p;};static const struct s g={&(int){3}};@W{(*g.p)++;return 0;}int main(void){@R}
+//// u10 tsan
+#include <pthread.h>
+static int*_Static const g=&(int){3};@W{(*g)++;return 0;}int main(void){@R}
+//// u11 tsan
+#include <pthread.h>
+static int*_Static const g=(int[]){3,4};@W{(*g)++;return 0;}int main(void){@R}
+//// u12 tsan
+#include <pthread.h>
+static _Thread_local int x;static int*_Static _Nullable g _Unsynchronized;@W{if(g)(*g)++;return 0;}int main(void){g=&x;@R}
+//// u13 tsan
+#include <pthread.h>
+static _Atomic int x;@W{int*p=(int*)&x;(*p)++;return 0;}int main(void){@R}
+//// u14 tsan
+#include <pthread.h>
+static _Atomic int x;@W{memset((int*)&x,1,4);return 0;}int main(void){@R}
+//// u15 tsan
+#include <pthread.h>
+static _Atomic int x;@W{memset(&x,1,4);return 0;}int main(void){@R}
+//// u16 tsan
+#include <pthread.h>
+static _Atomic int x;@W{sscanf("3","%d",(int*)&x);return 0;}int main(void){@R}
+//// u17 tsan
+#include <pthread.h>
+struct s{int a,b;};static _Atomic struct s x;@W{x.a=1;return 0;}int main(void){@R}
+//// u18 tsan
+#include <pthread.h>
+struct s{int a,b;};static _Atomic struct s x;@W{struct s*p=(struct s*)&x;p->a++;return 0;}int main(void){@R}
+//// u19 tsan
+#include <pthread.h>
+static volatile int x;@W{x++;return 0;}int main(void){@R}
+//// u20 tsan bitfield w/ atomic
+#include <pthread.h>
+struct s{_Atomic int a;int b;};static struct s x;@W{x.b++;return 0;}int main(void){@R}
+//// u21 tsan
+#include <pthread.h>
+struct s{_Atomic int a;_Atomic int b;};static struct s x;@W{struct s z={1,2};x=z;return 0;}int main(void){@R}
+//// u22 tsan
+#include <pthread.h>
+static _Atomic int x[4];@W{int z[4]={1,2,3,4};memcpy(x,z,16);return 0;}int main(void){@R}
+//// u23 tsan
+#include <pthread.h>
+static pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;static pthread_mutex_t m2=PTHREAD_MUTEX_INITIALIZER;struct s{int n _Guarded_by(m);};static struct s x;@W{pthread_mutex_lock(&m2);x.n++;pthread_mutex_unlock(&m2);return 0;}int main(void){@R}
+//// u24 tsan
+#include <pthread.h>
+static pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;static int n _Guarded_by(m);@W{pthread_mutex_lock(&m);pthread_mutex_destroy(&m);pthread_mutex_init(&m,0);n++;pthread_mutex_unlock(&m);return 0;}int main(void){@R}
+//// u25 tsan
+#include <pthread.h>
+static pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;static int n _Guarded_by(m);@W{pthread_mutex_trylock(&m);n++;pthread_mutex_unlock(&m);return 0;}int main(void){@R}
+//// u26 tsan
+#include <pthread.h>
+static pthread_rwlock_t m=PTHREAD_RWLOCK_INITIALIZER;static int n _Guarded_by(m);@W{pthread_rwlock_rdlock(&m);n++;pthread_rwlock_unlock(&m);return 0;}int main(void){@R}
+//// u27 tsan block dispatch
+#include <dispatch/dispatch.h>
+int main(void){int x[2]={0};int*p=x;dispatch_apply(1000,dispatch_get_global_queue(0,0),^(size_t i){p[0]++;});return 0;}
+//// u28 tsan dispatch_async uaf
+#include <dispatch/dispatch.h>
+#include <unistd.h>
+void f(void){int x=1;int*p=&x;dispatch_async(dispatch_get_global_queue(0,0),^{usleep(1000);*p=2;});}int main(void){f();usleep(100000);return 0;}
+//// u29 dispatch uaf asan
+#include <dispatch/dispatch.h>
+#include <unistd.h>
+void f(void){int x=1;int*p=&x;dispatch_async(dispatch_get_global_queue(0,0),^{usleep(1000);*p=2;});}int main(void){f();usleep(100000);return 0;}
+//// u30 tsan
+#include <pthread.h>
+@W{strtok("a b"," ");return 0;}int main(void){@R}
+//// u31 tsan gmtime
+#include <pthread.h>
+#include <time.h>
+@W{for(int i=0;i<1000;i++){time_t t=i;struct tm*_Nullable p=gmtime(&t);if(p)p->tm_sec=3;}return 0;}int main(void){@R}
+//// u32 tsan getenv
+#include <pthread.h>
+@W{for(int i=0;i<3000;i++){setenv("A",i&1?"bbbbbbbbbbbbbbbbbbbbbbbbbbbbb":"c",1);}return 0;}int main(void){@P int s=0;for(int i=0;i<3000;i++){const char*_Nullable __null_terminated p=getenv("A");if(p)s+=*p;}@J}
+//// u33 tsan rand
+#include <pthread.h>
+@W{for(int i=0;i<3000;i++){srand(i);rand();}return 0;}int main(void){@R}
+//// u34 tsan setlocale
+#include <pthread.h>
+@W{for(int i=0;i<300;i++){setlocale(LC_ALL,i&1?"C":"en_US.UTF-8");printf("%f\n",1.5);}return 0;}int main(void){@R}
+//// u35 tsan strerror
+#include <pthread.h>
+@W{for(int i=0;i<300;i++){char*__null_terminated s=strerror(i+9999);if(*s=='x')return 0;}return 0;}int main(void){@R}
+//// u36 tsan FILE
+#include <pthread.h>
+@W{FILE*f=stdout;fclose(f);return 0;}int main(void){@R}
+//// u37 tsan tls pointer stash through dispatch
+#include <dispatch/dispatch.h>
+static _Thread_local int x;int main(void){int*p=&x;dispatch_apply(1000,dispatch_get_global_queue(0,0),^(size_t i){(*p)++;});return 0;}
+//// u38 tsan _Unsync struct member ptr
+#include <pthread.h>
+static int z _Unsynchronized;static void inc(int*p){(*p)++;}@W{inc(&z);return 0;}int main(void){@R}
+//// u39 tsan _Unsync w/ fgets/ fread
+#include <pthread.h>
+static char z[10] _Unsynchronized;@W{snprintf(z,10,"abc");return 0;}int main(void){@R}
+//// u40 tsan extern mutable in fn
+#include <pthread.h>
+@W{extern int zz;zz++;return 0;}int main(void){@R}
+//// file2
+int zz _Unsynchronized;
+//// u41 tsan extern const vs mutable
+#include <pthread.h>
+extern const int zz;@W{return zz?0:0;}int main(void){@R}
+//// file2
+int zz _Unsynchronized;
+//// u42 tsan mismatch lock across TU
+#include <pthread.h>
+extern pthread_mutex_t m;extern int n _Guarded_by(m);void w2(void);@W{pthread_mutex_lock(&m);n++;pthread_mutex_unlock(&m);return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);w2();pthread_join(t,0);return 0;}
+//// file2
+#include <pthread.h>
+pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER,m2=PTHREAD_MUTEX_INITIALIZER;int n _Guarded_by(m2);void w2(void){pthread_mutex_lock(&m2);n++;pthread_mutex_unlock(&m2);}
+//// u43 tsan requires mismatch
+#include <pthread.h>
+void w2(void);@W{w2();return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);w2();pthread_join(t,0);return 0;}
+//// file2
+#include <pthread.h>
+pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;int n _Guarded_by(m);void w2(void)_Requires(m){n++;}
+//// u44 tsan requires via fnptr
+#include <pthread.h>
+static pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;static int n _Guarded_by(m);static void w2(void)_Requires(m){n++;}@W{void(*f)(void)=w2;f();return 0;}int main(void){@R}
+//// u45 tsan requires thread entry
+#include <pthread.h>
+static pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;static int n _Guarded_by(m);static void*_Nullable w(void*_Nullable a)_Requires(m){n++;return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);pthread_mutex_lock(&m);n++;pthread_mutex_unlock(&m);pthread_join(t,0);return 0;}
+//// u46 tsan per-object lock
+#include <pthread.h>
+struct s{pthread_mutex_t m;int n _Guarded_by(m);};static struct s x={PTHREAD_MUTEX_INITIALIZER},y={PTHREAD_MUTEX_INITIALIZER};@W{pthread_mutex_lock(&x.m);y.n++;pthread_mutex_unlock(&x.m);return 0;}int main(void){@R}
+//// u47 tsan per-object lock
+#include <pthread.h>
+struct s{pthread_mutex_t m;int n _Guarded_by(m);};static struct s x={PTHREAD_MUTEX_INITIALIZER};@W{pthread_mutex_lock(&x.m);x.n++;pthread_mutex_unlock(&x.m);return 0;}int main(void){@R}
+//// u48 tsan per-object lock, reassign var
+#include <pthread.h>
+struct s{pthread_mutex_t m;int n _Guarded_by(m);};static struct s x[2]={{PTHREAD_MUTEX_INITIALIZER},{PTHREAD_MUTEX_INITIALIZER}};@W{int i=0;pthread_mutex_lock(&x[i].m);i=1;x[i].n++;i=0;pthread_mutex_unlock(&x[i].m);return 0;}int main(void){@R}
+//// u49 tsan ptr var
+#include <pthread.h>
+struct s{pthread_mutex_t m;int n _Guarded_by(m);};static struct s x={PTHREAD_MUTEX_INITIALIZER};static struct s y={PTHREAD_MUTEX_INITIALIZER};@W{struct s*p=&x;pthread_mutex_lock(&p->m);p=&y;p->n++;p=&x;pthread_mutex_unlock(&p->m);return 0;}int main(void){@R}
+//// u50 tsan guarded owned ptr
+#include <pthread.h>
+static pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;static int*_Owned _Nullable g _Guarded_by(m);@W{pthread_mutex_lock(&m);int*_Nullable p=g;if(!p){g=calloc(1,4);p=g;}pthread_mutex_unlock(&m);if(p)(*p)++;return 0;}int main(void){@R}
+//// u51 tsan atomic ptr
+#include <pthread.h>
+static _Atomic(int*_Nullable) g;@W{return 0;}int main(void){return 0;}

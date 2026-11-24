@@ -1,0 +1,231 @@
+//// aa1
+#include <setjmp.h>
+int main(void){sigjmp_buf j;volatile int n=0;sigsetjmp(j,0);return 0;}
+//// aa2
+int main(void){void*b[5];if(__builtin_setjmp(b))return 1;__builtin_longjmp(b,1);}
+//// aa3
+#include <unistd.h>
+int main(void){int*p=malloc(4);if(!p)return 1;*p=1;if(vfork()==0){free(p);_exit(0);}return *p;}
+//// aa4
+#include <setjmp.h>
+int main(void){jmp_buf j;int(*f)(jmp_buf)=_setjmp;return 0;}
+//// aa5
+#include <dlfcn.h>
+int main(void){jmp:;return 0;}
+//// aa6 bsearch const
+int cmp(const void*a,const void*b){return 0;}static const int g[4]={1};int main(void){int*__single p=bsearch(g,g,4,4,cmp);if(p)*p=3;return 0;}
+//// aa7 bsearch
+int cmp(const void*a,const void*b){return 0;}static const int g[4]={1};int main(void){void*p=bsearch(g,g,4,4,cmp);if(p)memset(p,0,4);return 0;}
+//// aa8 memchr
+static const char g[4]="abc";int main(void){void*p=memchr(g,'a',4);if(p)memset(p,0,1);return 0;}
+//// aa9 strtol const
+int main(void){const char*__null_terminated s="12ab";char*__null_terminated _Nullable e=0;strtol(s,&e,10);if(e)*e='z';return 0;}
+//// aa10 const via ternary/gen
+int main(int c,char**v){const int x=3;int y;int*p=c?(int*)&x:&y;*p=3;return 0;}
+//// aa11 const struct copy via ptr to ptr
+int main(int c,char**v){static const int x=3;int*__single p=0;const int*__single*q=(const int*__single*)&p;*q=&x;if(p)*p=1;return 0;}
+//// aa12 const member
+struct s{const int x;int y;};int main(int c,char**v){struct s s={1,2};memset(&s,0,sizeof s);return s.x;}
+//// aa13 unchecked deref
+struct n{struct n*_Unchecked _Nullable p;int v;};int main(int c,char**v){struct n n={};n.p=&n;struct n*_Nullable q=n.p;return q?q->v:0;}
+//// aa14 unchecked passed libc
+struct n{char*_Unchecked _Nullable p;int v;};int main(int c,char**v){struct n n={};if(n.p)free(n.p);return 0;}
+//// aa15 unchecked cmp copy
+struct n{char*_Unchecked _Nullable p;int v;};int main(int c,char**v){struct n n={},m={};{char x[3]={};n.p=x;}m=n;m.p=n.p;return m.p==n.p;}
+//// aa16 unchecked addr
+struct n{int*_Unchecked _Nullable p;int v;};void f(int*_Nullable*_Nonnull q){if(*q)printf("%d",**q);}int main(int c,char**v){struct n n={};{int x=3;n.p=&x;}f(&n.p);return 0;}
+//// aa17 unsafe_indexable local
+int main(int c,char**v){int x=0;int*__unsafe_indexable p=&x;return p[c+50];}
+//// aa18 bidi field
+struct _View w{int*__bidi_indexable p;};int main(int c,char**v){struct w w;{int a[4]={};w.p=a;}return w.p[c];}
+//// aa19 bidi field tag copy race
+struct _View w{int*__bidi_indexable p;};int main(int c,char**v){int a[4]={};struct w w={a};long*q=(long*)&w;q[1]=0;return w.p[5];}
+//// aa20 view heap array
+struct _View w{int*p;};int main(int c,char**v){struct w*_Owned a=calloc(2,sizeof*a);if(!a)return 1;{int x=3;a[c].p=&x;}int r=*a[1].p;free(a);return r;}
+//// aa21 cleanup(free)
+int main(int c,char**v){int x __attribute__((cleanup(free)))=1;return 0;}
+//// aa22 cleanup w/ ptr fn
+void f(void*p){free(p);}int main(int c,char**v){int x __attribute__((cleanup(f)))=1;return 0;}
+//// aa23 drop_free literal
+int main(int c,char**v){const char*p _Drop_free="abc";return 0;}
+//// aa24 drop_free static
+static _Thread_local int z;int main(int c,char**v){int*p _Drop_free=&z;return 0;}
+//// aa25 drop_free mid
+int main(int c,char**v){char*p _Drop_free=malloc(9);if(!p)return 1;p++;return 0;}
+//// aa26 drop_free FILE
+int main(int c,char**v){FILE*f _Drop_free=fopen("/etc/hosts","r");return 0;}
+//// aa27 drop_free struct w/ ptr first & non heap
+struct _View w{int*p;};int main(int c,char**v){int x;struct w w _Drop_free={&x};return 0;}
+//// aa28 drop_free long
+int main(int c,char**v){long x _Drop_free=0x1234560;return 0;}
+//// aa29 drop_free loaned
+int main(int c,char**v){int*q=malloc(4);int*p _Drop_free=q;free(q);return 0;}
+//// aa30 drop_free two
+int main(int c,char**v){int*q=malloc(4);int*p _Drop_free=q;int*r _Drop_free=q;return 0;}
+//// aa31 take static
+struct s{const char*_Static _Nullable p;};int main(int c,char**v){struct s s={"a"};free(_Take(s.p));return 0;}
+//// aa32 take param
+void f(int*_Owned _Nullable p){free(_Take(p));free(p);}int main(int c,char**v){f(malloc(4));return 0;}
+//// aa33 take borrow-local
+int main(int c,char**v){int*_Nullable q=malloc(4);int*_Nullable p=q;free(_Take(p));free(q);return 0;}
+//// aa34 count after take
+struct s{int*_Owned _Nullable __counted_by_or_null(n) p;int n;};int main(int c,char**v){struct s s={0};int*q=malloc(40);s.p=q;s.n=10;int*_Nullable __single t=_Take(s.p);free(t);return s.n;}
+//// aa35 struct with two counts
+struct s{int*_Owned _Nullable __counted_by_or_null(n) p;int*_Owned _Nullable __counted_by_or_null(n) q;int n;};int main(int c,char**v){struct s s={0};s.p=malloc(40);s.q=malloc(4);s.n=10;return s.q?s.q[9]:0;}
+//// aa36 counted set order
+struct s{int*_Owned _Nullable __counted_by_or_null(n) p;int n;};int main(int c,char**v){struct s s={0};s.p=malloc(4);s.n=10;return s.p?s.p[9]:0;}
+//// aa37 counted via helper
+struct s{int*_Owned _Nullable __counted_by_or_null(n) p;int n;};void grow(struct s*_Exclusive s){int*_Nullable q=realloc(_Take(s->p),400);s->p=q;s->n=q?100:0;}int main(int c,char**v){struct s s={0};grow(&s);int*_Nullable __bidi_indexable r=s.p;grow(&s);return r?r[50]:0;}
+//// aa38 stale view after count shrink
+struct s{int*_Owned _Nullable __counted_by_or_null(n) p;int n;};int main(int c,char**v){struct s s={0};s.p=malloc(40);s.n=10;int*_Nullable __bidi_indexable r=s.p;int*_Nullable q=realloc(_Take(s.p),4);s.p=q;s.n=q?1:0;return r?r[9]:0;}
+//// aa39 cross TU struct count type
+struct _View s{int*__counted_by(n) p;int n;};int f(struct s s);int main(int c,char**v){int a[2]={};struct s s={a,2};return f(s);}
+//// file2
+struct _View s{int*__counted_by(n*50) p;int n;};int f(struct s s){return s.p[90];}
+//// aa40 cross TU enum size/tag; view vs static
+struct _View s{int*p;};void f(struct s s);int g(void);int main(int c,char**v){{int x=4;struct s s={&x};f(s);}return g();}
+//// file2
+struct s{int*_Static p;};static _Thread_local int*_Static _Nullable k;void f(struct s s){k=s.p;}int g(void){return k?*k:0;}
+//// aa41 cross TU null-terminated
+int f(const char*__counted_by(n) p,int n);int main(int c,char**v){char a[3]={1,2,3};return f(a,3);}
+//// file2
+int f(const char*p,int n){return strlen(p);}
+//// aa42 cross TU fn ptr type
+void f(int(*g)(int*));int h(int*p){return p[0];}int main(int c,char**v){f(h);return 0;}
+//// file2
+void f(int(*g)(int*_Nullable)){printf("%d",g(0));}
+//// aa43 cross TU const
+void f(const int*p);static const int z=3;int main(int c,char**v){f(&z);return 0;}
+//// file2
+void f(int*p){*p=3;}
+//// aa44 cross TU global type qual
+extern const int z[4];int main(int c,char**v){return z[c];}
+//// file2
+static int q;const int z[1]={3};
+//// aa45 cross TU array size
+extern const int z[400];int main(int c,char**v){return z[c+300];}
+//// file2
+const int z[1]={3};
+//// aa46 cross TU ret lifetime
+int*g(int*p);int main(int c,char**v){int*q;{int x=4;q=g(&x);}return *q;}
+//// file2
+int*g(int*p){return p;}
+//// aa47 cross TU enum fnptr params int* single vs struct layout
+struct a{int x;};void f(struct a*);int main(int c,char**v){struct a a={1};f(&a);return 0;}
+//// file2
+struct a{int x,y[40];};void f(struct a*p){p->y[39]=7;}
+//// aa48 block-scope extern fn
+int main(int c,char**v){extern int f(long);return f(5);}
+//// file2
+int f(int*p){return *p;}
+//// aa49 block-scope extern var type mismatch
+int main(int c,char**v){extern const long zz;return zz>>33;}
+//// file2
+const char zz=3;
+//// aa50 K&R
+int f(p) int*p;{return *p;}int main(int c,char**v){return f(5);}
+//// aa51 empty-proto ptr
+int f(int*p){return *p;}int main(int c,char**v){int(*g)()=(int(*)())f;return g(5);}
+//// aa52 implicit incompatible union-transparent
+typedef union{int*i;long l;} U __attribute__((transparent_union));int f(U u){return *u.i;}int main(int c,char**v){return f(5L);}
+//// aa53 anonymous struct ms ext / flexible union
+struct s{union{char c[8];long l;};};int main(int c,char**v){struct s s={};s.l=5;return s.c[c+20];}
+//// aa54 union diff size bounds
+union u{char c[4];char d[400];};int main(int c,char**v){union u*u=malloc(4);if(!u)return 1;return u->c[c]+u->d[300];}
+//// aa55 complex real part / imag ptr
+int main(int c,char**v){_Complex double z=1;double*p=&__imag__ z;return p[c];}
+//// aa56 varargs missing sentinel
+#include <unistd.h>
+int main(int c,char**v){execl("/bin/echo","a","b");return 0;}
+//// aa57 execl int
+#include <unistd.h>
+int main(int c,char**v){execl("/bin/echo","a",5,(char*)0);return 0;}
+//// aa58 open varargs/ fcntl ptr
+#include <fcntl.h>
+int main(int c,char**v){char x;return fcntl(0,F_GETLK,&x);}
+//// aa59 printf extra positional
+int main(int c,char**v){return printf("%2$s\n",1,"a");}
+//// aa60 printf missing
+int main(int c,char**v){return printf("%s %s\n","a");}
+//// aa61 printf via fnptr
+int main(int c,char**v){int(*p)(const char*,...)=printf;return p("%s\n",5);}
+//// aa62 printf __attribute__less wrapper
+int main(int c,char**v){const char f[]="%s%s";return printf(f,"a");}
+//// aa63 vprintf like strfmon
+#include <monetary.h>
+int main(int c,char**v){char b[40];return strfmon(b,40,"%n %n %n");}
+//// aa64 CFString/ NSLog skip; warn/err/syslog/setproctitle
+#include <syslog.h>
+int main(int c,char**v){char*__null_terminated f=v[0];syslog(1,"%s",5);return 0;}
+//// aa65 os_log
+#include <os/log.h>
+int main(int c,char**v){os_log(OS_LOG_DEFAULT,"%{public}s","a");return 0;}
+//// aa66 wide formats
+#include <wchar.h>
+int main(int c,char**v){wchar_t b[10];return swprintf(b,10,L"%s",5);}
+//// aa67 wscanf
+#include <wchar.h>
+int main(int c,char**v){struct{int x;int z[5];}s={};swscanf(L"99999999999",L"%ld",&s.x);return s.z[0];}
+//// aa68 wcsftime
+#include <wchar.h>
+#include <time.h>
+int main(int c,char**v){wchar_t b[10];wcsftime(b,100,L"a",&(struct tm){0});return 0;}
+//// aa69 scanf %ms / %p
+int main(int c,char**v){void*p=0;sscanf("0x5","%p",&p);memset(p,0,1);return 0;}
+//// aa70 scanf vs const
+int main(int c,char**v){static const int x=3;sscanf("5","%d",(int*)&x);return x;}
+//// aa71 scanf s to bool
+int main(int c,char**v){_Bool b=0;sscanf("5","%hhd",(char*)&b);return b;}
+//// aa72 printf n const
+int main(int c,char**v){static const int x=3;printf("%n",&x);return x;}
+//// aa73 sscanf nullable
+int main(int c,char**v){int*_Nullable p=0;sscanf("5","%d",p);return 0;}
+//// aa74 printf %s nonterm local via cast to uchar
+int main(int c,char**v){unsigned char b[3]={'a','b','c'};printf("%s",(char*)b);return 0;}
+//// aa75 printf %s freed
+int main(int c,char**v){char*p=strdup("a");if(!p)return 1;free(p);printf("%s",p);return 0;}
+//// aa76 fgets uninit; fread short uninit pointers
+struct s{int*_Static _Nullable p;};int main(int c,char**v){struct s s={};FILE*f=fopen("/etc/hosts","r");if(!f)return 1;fread(&s,8,1,f);return s.p?*s.p:0;}
+//// aa77 read()
+#include <unistd.h>
+#include <fcntl.h>
+struct s{int*_Static _Nullable p;};int main(int c,char**v){struct s s={};int f=open("/etc/hosts",0);read(f,&s,8);return s.p?*s.p:0;}
+//// aa78 recv forge
+#include <sys/socket.h>
+#include <unistd.h>
+struct s{int*_Static _Nullable p;};int main(int c,char**v){struct s s={};int sv[2];socketpair(AF_UNIX,SOCK_STREAM,0,sv);write(sv[0],"AAAAAAAA",8);recv(sv[1],&s,8,0);return s.p?*s.p:0;}
+//// aa79 readv forge
+#include <sys/uio.h>
+#include <fcntl.h>
+struct s{int*_Static _Nullable p;};int main(int c,char**v){struct s s={};int f=open("/etc/hosts",0);struct iovec i={&s,8};readv(f,&i,1);return s.p?*s.p:0;}
+//// aa80 sysctl/ioctl/getsockopt forge
+#include <fcntl.h>
+struct s{int*_Static _Nullable p[200];};int main(int c,char**v){struct s s={};int f=open("/etc/hosts",0);fcntl(f,F_GETPATH,&s);return s.p[0]?*s.p[0]:0;}
+//// aa81 strlcpy into struct ptr cast
+struct s{int*_Static _Nullable p;};int main(int c,char**v){struct s s={};char*q=(char*)&s;memset(q,'A',8);return s.p?*s.p:0;}
+//// aa82 memcpy forge via void*
+struct s{int*_Static _Nullable p;};int main(int c,char**v){struct s s={};void*q=&s;char b[8]={1};memcpy(q,b,8);return s.p?*s.p:0;}
+//// aa83 memcpy forge via helper
+struct s{int*_Static _Nullable p;};void cp(void*__sized_by(n) d,const void*__sized_by(n) x,size_t n){memcpy(d,x,n);}int main(int c,char**v){struct s s={};char b[8]={1};cp(&s,b,8);return s.p?*s.p:0;}
+//// aa84 snprintf/asctime forge; swab, strftime
+#include <unistd.h>
+struct s{int*_Static _Nullable p;};int main(int c,char**v){struct s s={};char b[8]={1};swab(b,&s,8);return s.p?*s.p:0;}
+//// aa85 arc4random_buf, getentropy
+#include <sys/random.h>
+struct s{int*_Static _Nullable p;};int main(int c,char**v){struct s s={};getentropy(&s,8);return s.p?*s.p:0;}
+//// aa86 qsort struct halves (forge by element size)
+struct s{int*_Static _Nullable p;long a;};int cmp(const void*a,const void*b){return 1;}int main(int c,char**v){struct s s={0,77};qsort(&s,2,8,cmp);return s.p?*s.p:0;}
+//// aa87 qsort bytes
+struct s{int*_Static _Nullable p;long a;};int cmp(const void*a,const void*b){return -1;}int main(int c,char**v){struct s s[2]={{0,0x4141414141414141},{0,0x4242424242}};qsort(s,32,1,cmp);qsort(s,4,8,cmp);return s[0].p?*s[0].p:(s[1].p?*s[1].p:0);}
+//// aa88 memmove self offset
+struct s{int*_Static _Nullable p;long a;};int main(int c,char**v){struct s s={0,77};memmove(&s,&s.a,8);return s.p?*s.p:0;}
+//// aa89 memcpy same type offset
+struct s{int*_Static _Nullable p;long a;};int main(int c,char**v){struct s s[2]={{0,77},{0,88}};memcpy(s,(struct s*)((void*)&s[0].a),8);return s[0].p?*s[0].p:0;}
+//// aa90 memcpy partial ptr
+struct s{int*_Static _Nullable p;long a;};static const int z;int main(int c,char**v){static _Thread_local int y[2];struct s s={&y[0],77},t={0,0};memcpy(&t,&s,3);return t.p?*t.p:0;}
+//// aa91 memset partial
+struct s{int*_Static _Nullable p;long a;};static _Thread_local int y[2];int main(int c,char**v){struct s s={&y[0],77};memset(&s,0,3);return s.p?*s.p:0;}
+//// aa92 memmove in place
+static _Thread_local int y[2];struct s{int*_Static _Nullable p[3];};int main(int c,char**v){struct s s={{y,y,y}};char*_Nullable q=0;memmove(s.p,(void*)s.p+3,8);return s.p[0]?*s.p[0]:0;}
+//// aa93 fnptr memcpy
+static _Thread_local int y[2];struct s{int*_Static _Nullable p;};int main(int c,char**v){void*(*m)(void*,const void*,size_t)=memcpy;struct s s={};char b[8]={1};m(&s,b,8);return s.p?*s.p:0;}

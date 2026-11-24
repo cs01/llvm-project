@@ -17947,16 +17947,17 @@ static bool isSafeCFreshAllocation(
   if (FD->getBuiltinID() == Builtin::BIalloca ||
       FD->getBuiltinID() == Builtin::BI__builtin_alloca)
     return false;
+  StringRef Name = FD->getIdentifier() ? FD->getName() : StringRef();
+  // realloc keeps or adds old bytes, whatever attributes its header gives it.
+  if (Name == "realloc" && CE->getNumArgs() == 2)
+    return CE->getArg(0)->IgnoreParenCasts()->isNullPointerConstant(
+        Ctx, Expr::NPC_ValueDependentIsNotNull);
   if (FD->hasAttr<AllocSizeAttr>() ||
       llvm::any_of(FD->specific_attrs<OwnershipAttr>(),
                    [](const OwnershipAttr *A) { return A->isReturns(); }))
     return true;
-  StringRef Name = FD->getIdentifier() ? FD->getName() : StringRef();
   if (Name == "malloc" || Name == "calloc" || Name == "aligned_alloc")
     return true;
-  if (Name == "realloc" && CE->getNumArgs() == 2)
-    return CE->getArg(0)->IgnoreParenCasts()->isNullPointerConstant(
-        Ctx, Expr::NPC_ValueDependentIsNotNull);
   return false;
 }
 

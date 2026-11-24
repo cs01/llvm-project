@@ -1,0 +1,17 @@
+//// zz1 tsan
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;
+static int n _Guarded_by(m);static void*_Nullable w(void*_Nullable a){int*p=&n;for(int i=0;i<100000;i++)(*p)++;return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);w(0);pthread_join(t,0);return 0;}
+//// zz2 tsan
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;void lk(void) __attribute__((acquire_shared_capability(m)));void ul(void) __attribute__((release_shared_capability(m)));
+static int n _Guarded_by(m);static void inc(int*p){for(int i=0;i<100000;i++)(*p)++;}static void*_Nullable w(void*_Nullable a){lk();inc(&n);ul();return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);w(0);pthread_join(t,0);return 0;}
+//// file2
+#include <pthread.h>
+static pthread_rwlock_t mm=PTHREAD_RWLOCK_INITIALIZER;void lk(void){pthread_rwlock_rdlock(&mm);}void ul(void){pthread_rwlock_unlock(&mm);}
+//// zz3 fnptr count heap far
+void f(int*__counted_by(n) p,int n){p[n-1]=7;}int main(void){void(*g)(int*,int)=f;int*h=malloc(4);if(!h)return 1;g(h,3);free(h);return 0;}
+//// zz4 cross tu count
+void f(int*__counted_by(n) p,int n);int main(void){int*h=malloc(12);if(!h)return 1;f(h,3);free(h);return 0;}
+//// file2
+void f(int*__counted_by(n*4) p,int n){p[4]=1;}

@@ -1,0 +1,46 @@
+//// ok1 qsort comparator
+int cmp(const void*a,const void*b){const int*x=a,*y=b;return (*x>*y)-(*x<*y);}int main(void){int a[3]={3,1,2};qsort(a,3,sizeof*a,cmp);return 0;}
+//// ok2 getline
+int main(void){char*_Nullable l=NULL;size_t n=0;while(getline(&l,&n,stdin)>0){}free(l);return 0;}
+//// ok3 thread w/ arg
+#include <pthread.h>
+static void*_Nullable w(void*_Owned _Nullable a){free(a);return NULL;}int main(void){int*p=malloc(4);if(!p)return 1;pthread_t __single t;if(pthread_create(&t,NULL,w,p))return 1;pthread_join(t,NULL);return 0;}
+//// ok4 doc thread signature
+#include <pthread.h>
+static void *worker(void *arg) { return NULL; }
+int main(void){pthread_t __single t;pthread_create(&t,NULL,worker,NULL);pthread_join(t,NULL);return 0;}
+//// ok5 pthread mutex guarded
+#include <pthread.h>
+static pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;static int n _Guarded_by(m);int main(void){pthread_mutex_lock(&m);n++;pthread_mutex_unlock(&m);return 0;}
+//// ok6 empty init of owning struct
+struct s{int*_Owned _Nullable p;};int main(void){struct s s={};free(_Take(s.p));return 0;}
+//// ok7 cond free
+int main(int c,char**v){int*_Nullable p=NULL;if(c>1)p=malloc(4);free(p);return 0;}
+//// ok8 list build+drain
+struct n{int v;struct n*_Owned _Nullable nx;};int main(void){struct n*_Nullable h=NULL;for(int i=0;i<3;i++){struct n*k=calloc(1,sizeof*k);if(!k)return 1;k->nx=h;h=k;}while(h){struct n*_Nullable x=_Take(h->nx);free(h);h=x;}return 0;}
+//// ok9 asprintf
+int main(void){char*_Nullable s=NULL;if(asprintf(&s,"%d",1)<0)return 1;free(s);return 0;}
+//// ok10 strtol
+int main(int c,char**v){char*e;long x=strtol(v[0],&e,10);return *e==0?x:1;}
+//// ok11 swap
+void swap(int*a,int*b){int t=*a;*a=*b;*b=t;}int main(void){int a=1,b=2;swap(&a,&b);return 0;}
+//// ok12 argv walk
+int main(int c,char**v){for(int i=1;i<c;i++)c++,c--;return 0;}
+//// ok13 &argc by ptr
+void inc(int*p){(*p)++;}int main(int c,char**v){int n=c;inc(&n);return n;}
+//// ok14 out ptr
+void first(int*__counted_by(n) a,int n,int*_Nonnull*_Nonnull o){*o=&a[0];}int main(void){int a[2]={1,2};int*p;first(a,2,&p);return *p;}
+//// ok15 getenv
+int main(void){const char*_Nullable h=getenv("HOME");if(h)puts(h);return 0;}
+//// ok16 strtok
+int main(void){char b[]="a b";for(char*t=strtok(b," ");t;t=strtok(NULL," "))puts(t);return 0;}
+//// ok17 dlsym/mmap
+#include <sys/mman.h>
+int main(void){void*p=mmap(0,16384,3,MAP_ANON|MAP_PRIVATE,-1,0);if(p==MAP_FAILED)return 1;munmap(p,16384);return 0;}
+//// ok18 popen/fmemopen
+int main(void){char b[64];FILE*f=fmemopen(b,64,"w");if(!f)return 1;fclose(f);return 0;}
+//// ok19 sigaction
+#include <signal.h>
+static void h(int s){}int main(void){struct sigaction a={0};a.sa_handler=h;sigaction(SIGINT,&a,NULL);return 0;}
+//// ok20 printf-style wrapper static string local
+int main(void){char b[8]="abc";const char*p=b;puts(p);return 0;}

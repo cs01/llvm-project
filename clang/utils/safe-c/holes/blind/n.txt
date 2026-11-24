@@ -1,0 +1,253 @@
+//// y1 vec ptr idx
+typedef int v4 __attribute__((vector_size(16)));int f(v4*p,int i){return (*p)[i];}int main(int c,char**v){v4 x={1,2,3,4};return f(&x,c+10000000);}
+//// y2 vec ptr store
+typedef int v4 __attribute__((vector_size(16)));void f(v4*p,int i){(*p)[i]=9;}int main(int c,char**v){v4 x={1,2,3,4};f(&x,c+10000000);return 0;}
+//// y3 vec addr elem
+typedef int v4 __attribute__((vector_size(16)));struct s{v4 a;int z[8];};int f(struct s*s,int i){return s->a[i];}int main(int c,char**v){struct s s={{1,2,3,4},{5,6,7,8,9,10,11,12}};return f(&s,c+6);}
+//// y4 neon
+#include <arm_neon.h>
+int main(int c,char**v){int a[2]={1,2};int32x4_t x=vld1q_s32(a);return vgetq_lane_s32(x,3);}
+//// y5 neon store
+#include <arm_neon.h>
+int main(int c,char**v){int a[2]={1,2};vst1q_s32(a,vdupq_n_s32(7));return a[0];}
+//// y6 neon tbl
+#include <arm_acle.h>
+int main(int c,char**v){__prefetch((void*)5);return 0;}
+//// y7 strlcpy src unterminated
+int main(int c,char**v){char a[4]={1,2,3,4},b[4];strlcpy(b,a,4);return b[0];}
+//// y8 strncmp
+int main(int c,char**v){char a[4]={1,2,3,4},b[4]={1,2,3,4};return strncmp(a,b,40);}
+//// y9 strnlen
+int main(int c,char**v){char a[4]={1,2,3,4};return strnlen(a,40);}
+//// y10 strndup
+int main(int c,char**v){char a[4]={1,2,3,4};char*p=strndup(a,40);return 0;}
+//// y11 memmem
+int main(int c,char**v){char a[4]={1,2,3,4};return memmem(a,40,"zz",2)!=0;}
+//// y12 memccpy
+int main(int c,char**v){char a[4]={1,2,3,4},b[9];memccpy(b,a,9,9);return 0;}
+//// y13 strcasestr
+int main(int c,char**v){char a[4]={1,2,3,4};return strcasestr(a,"x")!=0;}
+//// y14 strtoul uninit
+int main(int c,char**v){char a[4]={'1','1','1','1'};return strtoul(a,0,10);}
+//// y15 strftime
+#include <time.h>
+int main(int c,char**v){char a[4];struct tm t={};t.tm_mon=99999;return strftime(a,400,"%B",&t);}
+//// y16 strftime idx
+#include <time.h>
+int main(int c,char**v){char a[40];struct tm t={};t.tm_mon=-99999;t.tm_wday=999999;return strftime(a,40,"%B%A",&t);}
+//// y17 asctime idx
+#include <time.h>
+int main(int c,char**v){struct tm t={};t.tm_mon=-9999999;t.tm_wday=99999999;char*p=asctime(&t);return 0;}
+//// y18 isalpha idx
+#include <ctype.h>
+int main(int c,char**v){return isalpha(c+100000000)+toupper(-900000000+c);}
+//// y19 mbstowcs
+int main(int c,char**v){wchar_t w[2];mbstowcs(w,"abcdefgh",9);return 0;}
+//// y20 wcstombs
+int main(int c,char**v){char w[2];wcstombs(w,L"abcdefgh",9);return 0;}
+//// y21 mbrtowc
+#include <wchar.h>
+int main(int c,char**v){wchar_t w;mbstate_t s={};mbrtowc(&w,"a",400,&s);return 0;}
+//// y22 wcrtomb
+#include <wchar.h>
+int main(int c,char**v){char w[1];mbstate_t s={};wcrtomb(w,L'\x20ac',&s);return 0;}
+//// y23 wctomb
+int main(int c,char**v){char w[1];setlocale(LC_ALL,"en_US.UTF-8");wctomb(w,L'\x20ac');return 0;}
+//// y24 wctomb ptr
+void f(char*w){setlocale(LC_ALL,"en_US.UTF-8");wctomb(w,L'\x20ac');}int main(int c,char**v){struct{char w;char z[7];}s={};f(&s.w);return s.z[0];}
+//// y25 tmpnam
+int main(int c,char**v){char a[4];tmpnam(a);return 0;}
+//// y26 ctermid
+#include <unistd.h>
+int main(int c,char**v){char a[4];ctermid(a);return 0;}
+//// y27 cuserid/ttyname_r
+#include <unistd.h>
+int main(int c,char**v){char a[4];ttyname_r(0,a,400);gethostname(a,400);readlink("/tmp",a,400);return 0;}
+//// y28 confstr
+#include <unistd.h>
+int main(int c,char**v){char a[4];confstr(_CS_PATH,a,400);return a[0];}
+//// y29 getgroups
+#include <unistd.h>
+int main(int c,char**v){gid_t a[1];return getgroups(40,a);}
+//// y30 getlogin_r
+#include <unistd.h>
+int main(int c,char**v){char a[1];getlogin_r(a,40);return 0;}
+//// y31 swab
+#include <unistd.h>
+int main(int c,char**v){char a[4]={},b[4];swab(a,b,400);return 0;}
+//// y32 pread/pwrite
+#include <unistd.h>
+int main(int c,char**v){char a[4];pread(0,a,40,0);pwrite(1,a,40,0);return 0;}
+//// y33 crypt/encrypt
+#include <unistd.h>
+int main(int c,char**v){char a[4];encrypt(a,0);return 0;}
+//// y34 inet_ntop
+#include <arpa/inet.h>
+int main(int c,char**v){char a[4];struct in_addr i={0xffffffff};inet_ntop(AF_INET,&i,a,40);return 0;}
+//// y35 inet_pton
+#include <arpa/inet.h>
+int main(int c,char**v){struct{char a[1];char z[19];}s={};inet_pton(AF_INET,"1.2.3.4",s.a);return s.z[0];}
+//// y36 inet_pton6
+#include <arpa/inet.h>
+int main(int c,char**v){struct in_addr a;inet_pton(AF_INET6,"1:2::3",&a);return 0;}
+//// y37 inet_ntop read
+#include <arpa/inet.h>
+int main(int c,char**v){char b[90];char i=1;inet_ntop(AF_INET6,&i,b,90);puts(b);return 0;}
+//// y38 bind len
+#include <sys/socket.h>
+int main(int c,char**v){struct sockaddr s={};return bind(0,&s,4000);}
+//// y39 poll
+#include <poll.h>
+int main(int c,char**v){struct pollfd p={};return poll(&p,40,0);}
+//// y40 gettimeofday
+#include <sys/time.h>
+int main(int c,char**v){char t=0;gettimeofday((struct timeval*)&t,0);return t;}
+//// y41 fgetpos etc
+int main(int c,char**v){fpos_t p;return fgetpos(stdin,&p);}
+//// y42 getdelim
+int main(int c,char**v){char*l=malloc(3);size_t n=30;char*__counted_by(n) q=0;return getdelim(&l,&n,'\n',stdin);}
+//// y43 getline idiom
+int main(int c,char**v){char*_Nullable l=0;size_t n=0;getline(&l,&n,stdin);free(l);return 0;}
+//// y44 fgetln
+int main(int c,char**v){size_t n;char*p=fgetln(stdin,&n);return p?p[0]:0;}
+//// y45 getdelim bad ptr
+int main(int c,char**v){char b[30];size_t n=30;char*__single __counted_by_or_null(n) l=b;return getline(&l,&n,stdin);}
+//// y46 asprintf uaf
+int main(int c,char**v){char*__null_terminated _Nullable l=0;asprintf(&l,"%d",1);if(!l)return 1;free(l);return *l;}
+//// y47 vasprintf
+int main(int c,char**v){char*__null_terminated _Nullable l="abc";asprintf(&l,"%d",1);return 0;}
+//// y48 strdup uaf
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("abc");if(!l)return 1;free(l);return *l;}
+//// y49 strtok_r
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("a b");if(!l)return 1;char*__null_terminated _Nullable sv=0;char*__null_terminated _Nullable t=strtok_r(l," ",&sv);free(l);t=strtok_r(0," ",&sv);return t?*t:0;}
+//// y50 strsep
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("a b");if(!l)return 1;char*__null_terminated _Nullable s=l;char*__null_terminated _Nullable t=strsep(&s," ");free(l);return t?*t:0;}
+//// y51 strsep2
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("a b");if(!l)return 1;char*__null_terminated _Nullable s=l;strsep(&s," ");free(l);return s?*s:0;}
+//// y52 strtol end
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("12 b");if(!l)return 1;char*__null_terminated _Nullable e=0;strtol(l,&e,10);free(l);return e?*e:0;}
+//// y53 strchr uaf
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("12 b");if(!l)return 1;char*__null_terminated _Nullable e=strchr(l,'b');free(l);return e?*e:0;}
+//// y54 strpbrk/strstr
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("12 b");if(!l)return 1;char*__null_terminated _Nullable e=strcasestr(l,"b");free(l);return e?*e:0;}
+//// y55 basename
+#include <libgen.h>
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("12/b");if(!l)return 1;char*__null_terminated _Nullable e=dirname(l);free(l);return e?*e:0;}
+//// y56 getopt optarg
+#include <getopt.h>
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("-ab");return optarg?*optarg:0;}
+//// y57 term removed
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("abc");if(!l)return 1;while(*l){*l='x';l++;}*l='y';return strlen(l);}
+//// y58 term overwritten through alias
+int main(int c,char**v){char b[4]="abc";const char*__null_terminated s=__unsafe_null_terminated_from_indexable(b);b[3]='x';return strlen(s);}
+//// y59 term alias via indexable
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("abc");if(!l)return 1;char*q=__null_terminated_to_indexable(l);memset(q,'x',3);q[c+2]='z';return strlen(l);}
+//// y60 static init array as str
+static _Thread_local char g[4]="abc";int main(int c,char**v){const char*__null_terminated s="x";s=g;g[3]='x';return strlen(s);}
+//// y61 struct strings
+struct s{const char*_Static p;};static _Thread_local char g[4]="abc";int main(int c,char**v){struct s s={g};g[3]='x';return strlen(s.p);}
+//// y62 tmpfile etc putenv
+int main(int c,char**v){char*__null_terminated _Nullable l=strdup("QQQ=1");if(!l)return 1;putenv(l);free(l);const char*__null_terminated _Nullable e=getenv("QQQ");return e?*e:0;}
+//// y63 getenv stale
+int main(int c,char**v){setenv("QQ","abc",1);const char*__null_terminated _Nullable p=getenv("QQ");unsetenv("QQ");for(int i=0;i<9;i++)setenv("QQ","abcdefffffffffffffffffffffffffffff",1);return p?*p:0;}
+//// y64 environ
+int main(int c,char**v){return 0;}
+//// y65 setproctitle / signal
+#include <signal.h>
+int main(int c,char**v){stack_t s={};char b[10];s.ss_sp=b;s.ss_size=90000;return 0;}
+//// y66 sigaltstack
+#include <signal.h>
+void f(void){static _Thread_local char b[65536];stack_t s={.ss_sp=b,.ss_size=65536};sigaltstack(&s,0);}int main(int c,char**v){f();return 0;}
+//// y67 localtime static alias
+#include <time.h>
+int main(int c,char**v){time_t t=0;struct tm*_Nullable a=localtime(&t);if(!a)return 1;a->tm_zone="x";return 0;}
+//// y68 readdir
+#include <dirent.h>
+int main(int c,char**v){DIR*d=opendir("/");if(!d)return 1;struct dirent*e=readdir(d);if(!e)return 1;char*n=e->d_name;closedir(d);return n[0];}
+//// y69 scandir
+#include <dirent.h>
+int main(int c,char**v){struct dirent**l=0;int n=scandir("/",&l,0,0);return n;}
+//// y70 getaddrinfo
+#include <netdb.h>
+int main(int c,char**v){struct addrinfo*_Nullable __single a=0;getaddrinfo("127.0.0.1",0,0,&a);if(!a)return 1;freeaddrinfo(a);return a->ai_family;}
+//// y71 gethostbyname, getpwuid
+#include <pwd.h>
+#include <unistd.h>
+int main(int c,char**v){struct passwd*a=getpwuid(0);if(!a)return 1;char*n=a->pw_name;endpwent();getpwuid(getuid());return n[0];}
+//// y72 getifaddrs
+#include <ifaddrs.h>
+int main(int c,char**v){struct ifaddrs*__single _Nullable a=0;getifaddrs(&a);if(!a)return 1;freeifaddrs(a);return a->ifa_flags;}
+//// y73 tsearch
+#include <search.h>
+int main(int c,char**v){int x=3;void*_Nullable __single r=0;return 0;}
+//// y74 insque
+#include <search.h>
+struct q{struct q*n,*p;};int main(int c,char**v){return 0;}
+//// y75 lfind
+#include <search.h>
+int cmp(const void*a,const void*b){return 1;}int main(int c,char**v){int x=3,a[2]={1,2};size_t n=200;lfind(&x,a,&n,4,cmp);return 0;}
+//// y76 hdestroy/hsearch stack key
+#include <search.h>
+int main(int c,char**v){hcreate(3);ENTRY e={0};e.key=strdup("a");hsearch(e,ENTER);return 0;}
+//// y77 ftw cb
+#include <ftw.h>
+int main(int c,char**v){return 0;}
+//// y78 dlsym
+#include <dlfcn.h>
+int main(int c,char**v){void*p=dlsym(RTLD_DEFAULT,"puts");return 0;}
+//// y79 fclose stdin alias
+int main(int c,char**v){FILE*f=stdin;fclose(f);return fgetc(stdin);}
+//// y80 FILE copied then closed
+int main(int c,char**v){FILE f=*stdin;fclose(&f);return 0;}
+//// y81 write to FILE
+int main(int c,char**v){FILE*f=fopen("/etc/hosts","r");if(!f)return 1;memset(f,1,sizeof*f);fgetc(f);return 0;}
+//// y82 FILE field
+int main(int c,char**v){FILE*f=fopen("/etc/hosts","r");if(!f)return 1;f->_r=100000;for(int i=0;i<90000;i++)fgetc(f);return 0;}
+//// y83 FILE stack
+int main(int c,char**v){FILE f;memset(&f,1,sizeof f);fgetc(&f);return 0;}
+//// y84 FILE zero
+int main(int c,char**v){FILE f={0};fprintf(&f,"abc");return 0;}
+//// y85 DIR
+int main(int c,char**v){FILE*f=malloc(sizeof(FILE));if(!f)return 1;fclose(f);return 0;}
+//// y86 fdopen dup? closedir of fdopendir
+#include <dirent.h>
+int main(int c,char**v){DIR*d=opendir("/");if(!d)return 1;closedir(d);return readdir(d)!=0;}
+//// y87 pthread_join junk
+#include <pthread.h>
+int main(int c,char**v){pthread_t __single t=pthread_self();pthread_detach(t);pthread_kill(t,0);return 0;}
+//// y88 pthread join twice
+#include <pthread.h>
+static void*_Nullable w(void*_Nullable a){return 0;}int main(int c,char**v){pthread_t __single t;pthread_create(&t,0,w,0);pthread_join(t,0);pthread_t q=t;for(int i=0;i<3;i++){pthread_t __single z;pthread_create(&z,0,w,0);}return t->__opaque[3];}
+//// y89 pthread_t deref
+#include <pthread.h>
+int main(int c,char**v){pthread_t __single t=pthread_self();t->__sig=5;memset(t,1,sizeof *t);pthread_mutex_t m=PTHREAD_MUTEX_INITIALIZER;pthread_mutex_lock(&m);return 0;}
+//// y90 mutex struct
+#include <pthread.h>
+int main(int c,char**v){pthread_mutex_t m;memset(&m,0x41,sizeof m);pthread_mutex_lock(&m);return 0;}
+//// y91 mutex copy / key
+#include <pthread.h>
+int main(int c,char**v){pthread_attr_t m={};memset(&m,0x41,sizeof m);m.__sig=0x54484441;size_t s;pthread_attr_getstacksize(&m,&s);return 0;}
+//// y92 attr setstack
+#include <pthread.h>
+static void*_Nullable w(void*_Nullable a){return 0;}int main(int c,char**v){pthread_attr_t m;pthread_attr_init(&m);static _Thread_local char b[65536];pthread_attr_setstack(&m,b,65536*16);return 0;}
+//// y93 mbstate, regex corrupt
+#include <regex.h>
+int main(int c,char**v){regex_t r;if(regcomp(&r,"a",0))return 1;regex_t q=r;regfree(&r);regfree(&q);return 0;}
+//// y94 regex after free g
+#include <regex.h>
+int main(int c,char**v){regex_t r;if(regcomp(&r,"a",0))return 1;regex_t q=r;regfree(&r);return regexec(&q,"a",0,0,0);}
+//// y95 glob copy
+#include <glob.h>
+int main(int c,char**v){glob_t g={0};glob("/*",0,0,&g);glob_t h=g;globfree(&g);globfree(&h);return 0;}
+//// y96 glob pathv oob
+#include <glob.h>
+int main(int c,char**v){glob_t g={0};glob("/*",0,0,&g);return g.gl_pathv[c+500000]!=0;}
+//// y97 regex preg memset
+#include <regex.h>
+int main(int c,char**v){regex_t r={0};memset(&r,0x41,sizeof r);regfree(&r);return 0;}
+//// y98 posix_spawn, wordexp
+#include <wordexp.h>
+int main(int c,char**v){wordexp_t w={0};memset(&w,0x41,sizeof w);wordfree(&w);return 0;}
+//// y99 va_list memset
+#include <stdarg.h>
+int f(const char*m,...){va_list a;va_start(a,m);memset(&a,0x41,sizeof a);vprintf("%d",a);va_end(a);return 0;}int main(int c,char**v){return f("a");}

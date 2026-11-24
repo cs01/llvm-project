@@ -15,6 +15,16 @@ struct P { const char *_Static s; };
 void wide(const wchar_t *__null_terminated f) {
   wprintf(f); // expected-error {{'wprintf' is not checked}}
 }
+void *_Nullable aligned_alloc(size_t a, size_t n);
+_Returns_owned __attribute__((alloc_size(2))) void *_Nullable wrap(void *_Nullable _Owned p, size_t n) {
+  return realloc(p, n); // expected-error {{'wrap' is marked 'alloc_size'}}
+}
+void other(void) {
+  struct P *_Nullable p = realloc(0, sizeof(struct P)); // expected-error {{the memory 'realloc' adds is not zeroed}}
+  free(p);
+  struct P *_Nullable q = aligned_alloc(16, 160); // expected-error {{the memory 'aligned_alloc' returns is not zeroed}}
+  free(q);
+}
 void grow(void) {
   struct P *_Nullable p = malloc(sizeof(struct P));
   struct P *_Nullable q = realloc(p, 500 * sizeof(struct P)); // expected-error {{'struct P' holds pointers, and the memory 'realloc' adds is not zeroed}}

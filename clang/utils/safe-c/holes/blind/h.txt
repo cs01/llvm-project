@@ -1,0 +1,17 @@
+//// h1
+#include <pthread.h>
+static void*w(void*a){return NULL;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);pthread_join(t,0);return 0;}
+//// h2
+#include <pthread.h>
+static void*_Nullable w(void*_Nullable a){return NULL;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);pthread_join(t,0);return 0;}
+//// h3
+#include <pthread.h>
+static void*_Nullable w(void*_Nullable a){int*_Nullable __single p=a;if(p)free(p);return NULL;}int main(void){pthread_t __single t;int*p=malloc(4);pthread_create(&t,0,w,p);pthread_join(t,0);return 0;}
+//// h4
+#include <pthread.h>
+static void*_Nullable w(void*_Owned _Nullable a){int*_Nullable __single p=a;if(p)free(p);return NULL;}int main(void){pthread_t __single t;int*p=malloc(4);pthread_create(&t,0,w,p);pthread_join(t,0);return 0;}
+//// h5
+#include <pthread.h>
+static void*_Nullable __unsafe_indexable w(void*_Nullable __unsafe_indexable a){return NULL;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);pthread_join(t,0);return 0;}
+//// h6
+int cmp(const void*a,const void*b){const int*__single x=a;const int*__single y=b;return *x>*y;}int main(void){int a[3]={1,2,3};qsort(a,3,4,cmp);return 0;}

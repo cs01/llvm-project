@@ -1,0 +1,140 @@
+//// w1 tag via ptr
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};int*q=&t.k;*q=1;if(t.k==1)puts(t.p);return 0;}
+//// w2 
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};void f(int*q){*q=1;}int main(int c,char**v){struct t t={.k=0,.l=77};f(&t.k);if(t.k==1)puts(t.p);return 0;}
+//// w3 memset
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};memset(&t.k,1,1);if(t.k==1)puts(t.p);return 0;}
+//// w4 sscanf
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};sscanf("1","%d",&t.k);if(t.k==1)puts(t.p);return 0;}
+//// w5 scanf %n
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};printf("a%n",&t.k);if(t.k==1)puts(t.p);return 0;}
+//// w6 alias ptr struct
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=1,.p="a"};struct t*q=&t;if(t.k==1){q->k=0;q->l=77;puts(t.p);}return 0;}
+//// w7 call
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};void g(struct t*q){q->k=0;q->l=77;}int main(int c,char**v){struct t t={.k=1,.p="a"};if(t.k==1){g(&t);puts(t.p);}return 0;}
+//// w8 global
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};static _Thread_local struct t t;void g(void){t.k=0;t.l=77;}int main(int c,char**v){t.k=1;t.p="a";if(t.k==1){g();puts(t.p);}return 0;}
+//// w9 param alias
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};void g(struct t*a,struct t*b){if(a->k==1){b->k=0;b->l=77;puts(a->p);}}int main(int c,char**v){struct t t={.k=1,.p="a"};g(&t,&t);return 0;}
+//// w10 ptr into union member
+struct t{int k;union _Tagged_by(k){struct{const char*_Static p;} s _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=1,.s={"a"}};if(t.k==1){const char*_Static*q=&t.s.p;t.k=0;t.l=77;puts(*q);}return 0;}
+//// w11 passed
+struct t{int k;union _Tagged_by(k){struct{const char*_Static p;} s _When(1);long l _When(0);};};void g(const char*_Static*q,struct t*t){t->k=0;t->l=77;puts(*q);}int main(int c,char**v){struct t t={.k=1,.s={"a"}};if(t.k==1)g(&t.s.p,&t);return 0;}
+//// w12 loop
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=1,.p="a"};if(t.k==1)for(int i=0;i<2;i++){puts(t.p);t.k=0;t.l=77;}return 0;}
+//// w13 switch fallthrough
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};switch(t.k){case 0:case 1:puts(t.p);break;default:;}return 0;}
+//// w14 fallthrough2
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};switch(t.k){case 0:t.l=78;case 1:puts(t.p);break;default:;}return 0;}
+//// w15 set tag w/o member
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};t.k=1;puts(t.p);return 0;}
+//// w16 init mismatch
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=1,.l=77};if(t.k==1)puts(t.p);return 0;}
+//// w17 init computed
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=c,.l=77};if(t.k==1)puts(t.p);return 0;}
+//// w18 compound literal
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t=(struct t){1,{.l=77}};if(t.k==1)puts(t.p);return 0;}
+//// w19 partial memcpy of tag
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};int one=1;memcpy(&t.k,&one,4);if(t.k==1)puts(t.p);return 0;}
+//// w20 bitfield tag
+struct t{int k:1;int z:5;union _Tagged_by(k){const char*_Static p _When(-1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};t.k=c+2;if(t.k==-1)puts(t.p);return 0;}
+//// w21 tag trunc
+struct t{unsigned char k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(257);};};int main(int c,char**v){struct t t={.k=257,.l=77};if(t.k==1)puts(t.p);return 0;}
+//// w22 overlapping When
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(1);};};int main(int c,char**v){struct t t={.k=1,.l=77};if(t.k==1)puts(t.p);return 0;}
+//// w23 nested struct copy of union
+union u{const char*_Static p;long l;};struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);} u;};int main(int c,char**v){struct t a={.k=1,.u.p="a"},b={.k=0,.u.l=77};if(a.k==1){a.u=b.u;puts(a.u.p);}return 0;}
+//// w24 ++ tag
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};t.k++;if(t.k==1)puts(t.p);return 0;}
+//// w25 |= tag
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};t.k|=1;if(t.k==1)puts(t.p);return 0;}
+//// w26 atomic tag
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};__atomic_store_n(&t.k,1,0);if(t.k==1)puts(t.p);return 0;}
+//// w27 sync tag
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};__sync_fetch_and_add(&t.k,1);if(t.k==1)puts(t.p);return 0;}
+//// w28 block tag
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){__block struct t t={.k=1,.p="a"};void(^b)(void)=^{t.k=0;t.l=77;};if(t.k==1){b();puts(t.p);}return 0;}
+//// w29 stmt expr between
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=1,.p="a"};if(t.k==1){struct t z={.k=0,.l=77};t=z;puts(t.p);}return 0;}
+//// w30 array idx change
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t[2]={{.k=1,.p="a"},{.k=0,.l=77}};int i=0;if(t[i].k==1){i=1;puts(t[i].p);}return 0;}
+//// w31 ptr change
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t a={.k=1,.p="a"},b={.k=0,.l=77};struct t*q=&a;if(q->k==1){q=&b;puts(q->p);}return 0;}
+//// w32 array const alias
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t[2]={{.k=1,.p="a"},{.k=0,.l=77}};if(t[0].k==1){t[c-1].k=0;t[c-1].l=77;puts(t[0].p);}return 0;}
+//// w33 fread in struct w/ tag only
+struct in{const char*_Static p;};struct t{int k;union _Tagged_by(k){int a _When(1);long l _When(0);};};int main(int c,char**v){struct t t;memset(&t,1,sizeof t);return t.k;}
+//// w34 uninit tagged default tag 0 with ptr
+struct t{int k;union _Tagged_by(k){int*_Static p _When(0);long l _When(1);};};int main(int c,char**v){struct t t={};if(t.k==0)return *t.p;return 0;}
+//// w35 tagged owned double free
+struct t{int k;union _Tagged_by(k){int*_Owned _Nullable p _When(0);long l _When(1);};};int main(int c,char**v){struct t t={.k=0,.p=0};t.p=malloc(4);int*_Nullable q=t.k==0?t.p:0;t.k=1;t.l=9;t.k=0;if(t.k==0)free(_Take(t.p));return 0;}
+//// w36 tag owned overwritten while borrow
+struct t{int k;union _Tagged_by(k){int*_Owned _Nullable p _When(0);long l _When(1);};};void f(struct t*_Exclusive t){if(t->k==0){free(_Take(t->p));}t->k=1;t->l=99;}int main(int c,char**v){struct t t={.k=0,.p=0};if(t.k==0){t.p=malloc(4);int*_Nullable q=t.p;f(&t);return q?*q:0;}return 0;}
+//// w37 while cond
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};void g(struct t*);int main(int c,char**v){struct t t={.k=1,.p="a"};while(t.k==1&&(t.k=0,t.l=77,1)){puts(t.p);break;}return 0;}
+//// w38 goto
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=0,.l=77};if(t.k==0)goto in;if(t.k==1){in:puts(t.p);}return 0;}
+//// w39 signal/callback
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};void g(struct t*q){q->k=0;q->l=77;}int use(struct t*t,void(*f)(struct t*)){if(t->k==1){f(t);puts(t->p);}return 0;}int main(int c,char**v){struct t t={.k=1,.p="a"};return use(&t,g);}
+//// w40 cleanup
+struct t{int k;union _Tagged_by(k){const char*_Static p _When(1);long l _When(0);};};static _Thread_local struct t t;void cl(int*x){t.k=0;t.l=77;}int main(int c,char**v){t.k=1;t.p="a";if(t.k==1){{int z _Drop(cl)=1;}puts(t.p);}return 0;}
+//// w41 union fnptr
+struct t{int k;union _Tagged_by(k){int(*f)(int) _When(1);long l _When(0);};};int main(int c,char**v){struct t t={.k=1};if(t.k==1)return t.f(3);return 0;}
+//// w42 memcpy whole from char buf w/o ptr
+struct t{int k;union _Tagged_by(k){_Bool b _When(1);char l _When(0);};};int main(int c,char**v){char b[8]={1,0,0,0,77};struct t t;memcpy(&t,b,8);int a[2]={};if(t.k==1)return a[t.b];return 0;}
+//// w43 enum-tag outside range
+enum k{A,B};struct t{enum k k;union _Tagged_by(k){const char*_Static p _When(A);long l _When(B);};};const char*f(struct t*t){switch(t->k){case A:return t->p;case B:return "b";}}int main(int c,char**v){struct t t={.k=B,.l=77};t.k=(enum k)(c+6);puts(f(&t));return 0;}
+//// w44 enum switch no return
+enum k{A,B};int*f(enum k k){static const int z=0;switch(k){case A:case B:abort();}}int main(int c,char**v){return *f((enum k)(c+6));}
+//// n1 null: call clears via ptr
+struct s{int*_Nullable _Static p;};static const int z=3;void g(struct s*s){s->p=0;}int f(struct s*s){if(s->p){g(s);return *s->p;}return 0;}int main(int c,char**v){return 0;}
+//// n2 alias
+int f(int*_Nullable*a,int*_Nullable*b){if(*a){*b=0;return **a;}return 0;}int main(int c,char**v){int x=3;int*_Nullable p=&x;return f(&p,&p);}
+//// n3 nonnull from calloc
+struct s{int*_Static p;};int main(int c,char**v){struct s*s=calloc(1,sizeof*s);if(!s)return 1;return *s->p;}
+//// n4 nonnull array
+int main(int c,char**v){int*_Nonnull a[4];return *a[c];}
+//// n5 nonnull null to libc
+int main(int c,char**v){struct{const char*_Static p;}*s=calloc(1,8);if(!s)return 1;return strlen(s->p);}
+//// n6 null to libc cb
+int main(int c,char**v){struct{const char*_Static p;}*s=calloc(1,8);if(!s)return 1;return puts(s->p);}
+//// n7 null fclose
+struct s{FILE*_Owned f;};int main(int c,char**v){struct s*s=calloc(1,8);if(!s)return 1;fputs("a",s->f);return 0;}
+//// n8 strcmp null
+struct s{const char*_Static a,*_Static b;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return strcmp(s->a,s->b);}
+//// n9 printf %s null
+struct s{const char*_Static a;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;printf("%s",s->a);return 0;}
+//// n10 memcpy null
+struct s{int*_Static a;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;int x;memcpy(&x,s->a,4);return x;}
+//// n11 atoi null
+struct s{const char*_Static a;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return atoi(s->a);}
+//// n12 qsort null cmp
+struct s{int(*f)(const void*,const void*);};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;int a[2]={2,1};qsort(a,2,4,s->f);return 0;}
+//// n13 atexit null
+struct s{void(*f)(void);};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;atexit(s->f);return 0;}
+//// n14 null block
+int main(int c,char**v){void(^b[2])(void)={0};b[c]();return 0;}
+//// n15 struct assign null big offset
+struct big{char z[200000];int q;};struct s{struct big*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return s->p->q;}
+//// n16 null struct copy
+struct big{char z[200];};struct s{struct big*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;struct big b=*s->p;return b.z[3];}
+//// n17 null member array decay
+struct big{char z[200];};struct s{struct big*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;char*q=s->p->z;return q[100];}
+//// n18 null memset via member
+struct big{char z[200];};struct s{struct big*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;memset(s->p->z,0,200);return 0;}
+//// n19 null &p->f
+struct big{char z[200];int f;};struct s{struct big*_Static p;};int f(int*q){return *q;}int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return f(&s->p->f);}
+//// n20 null atomics
+struct s{_Atomic int*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return (*s->p)++;}
+//// n21 null atomic builtin
+struct s{int*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return __atomic_fetch_add(s->p,1,0);}
+//// n22 bitfield
+struct b{int x:3;};struct s{struct b*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return s->p->x;}
+//// n23 volatile/complex
+struct s{_Complex double*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return __real__ *s->p;}
+//// n24 vector
+typedef int v4 __attribute__((vector_size(16)));struct s{v4*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return (*s->p)[c];}
+//// n25 counted null nonnull
+struct s{int n;int*_Static __counted_by(n) p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;return s->p[c];}
+//// n26 cstr walk
+struct s{const char*_Static p;};int main(int c,char**v){struct s*s=calloc(1,16);if(!s)return 1;const char*__null_terminated q=s->p;int n=0;while(*q){q++;n++;}return n;}

@@ -1,0 +1,237 @@
+//// f1 setvbuf2
+int main(int c,char**v){char*b=malloc(1000);if(!b)return 1;setvbuf(stdout,b,_IOFBF,1000);free(b);printf("hi");return 0;}
+//// f2 block-escape-scope
+int main(int c,char**v){int(^b)(void)=^{return 0;};for(int i=0;i<3;i++){int y=c+i;int (^t)(void)=^{return y;};if(i==1)b=t;}int x[40];for(int i=0;i<40;i++)x[i]=c*9;return b();}
+//// f3 blockparam
+void call(int*p,void(^b)(void)){b();}int main(int c,char**v){__block int*_Nullable p=malloc(4);if(!p)return 1;*p=5;call(p,^{free(p);p=0;});return 0;}
+//// f4 block null in closure
+int main(int c,char**v){__block int*_Nullable p=&c;void(^b)(void)=^{p=0;};if(p){b();return *p;}return 0;}
+//// f5 global nullable via call
+static _Thread_local int*_Nullable _Static g;static int z=3;void clr(void){g=0;}int main(int c,char**v){g=&z;if(g){clr();return *g;}return 0;}
+//// f6 funcptr null global
+static _Thread_local int(*_Nullable h)(void);int main(int c,char**v){return h();}
+//// f7
+struct s{int(*f)(void);};int main(int c,char**v){struct s s={};return s.f();}
+//// f8
+struct s{int*_Nonnull _Static p;};static int z;int main(int c,char**v){struct s s={};return *s.p;}
+//// f9 strchr const on global const
+static const char m[]="abc";int main(int c,char**v){char*t=strrchr(m,'b');if(t)*t=1;return m[1];}
+//// f10
+static const char m[4]="abc";int main(int c,char**v){char*t=memchr(m,'b',3);if(t)*t=1;return m[1];}
+//// f11
+int main(int c,char**v){char*t=strstr("abc","b");if(t)*t=1;return 0;}
+//// f12
+int main(int c,char**v){char*t=strpbrk("abc","b");if(t)*t=1;return 0;}
+//// f13 sscanf widths
+int main(int c,char**v){char b[4];sscanf("aaaaaaaaaaaaaaa","%10[a]",b);return b[0];}
+//// f14
+int main(int c,char**v){char b[4];sscanf("aaaaaaaaaaaaaaa","%10c",b);return b[0];}
+//// f15
+int main(int c,char**v){char b[4];sscanf("aaaaaaaaaaaaaaa","%[a]",b);return b[0];}
+//// f16
+int main(int c,char**v){short b;sscanf("12345678","%ld",&b);return b;}
+//// f17
+int main(int c,char**v){char b[4];sscanf("aaaaaaaaaaaaaaa","%1$s",b);return b[0];}
+//// f18
+int main(int c,char**v){char*b=malloc(3);if(!b)return 1;sscanf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","%30s",b);char x=b[0];free(b);return x;}
+//// f19
+void f(char*b){sscanf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","%30s",b);}int main(int c,char**v){char b;f(&b);return b;}
+//// f20 %ms
+int main(int c,char**v){int n[1];sscanf("a","%*s%n%n",n,n);return n[0];}
+//// f21 sscanf uninit
+int main(int c,char**v){char b[4];int x;sscanf("zz","%d",&x);return x;}
+//// f22 wide
+#include <wchar.h>
+int main(int c,char**v){wchar_t b[4];swscanf(L"aaaaaaaaaaaaaaa",L"%ls",b);return b[0];}
+//// f23 wprintf
+#include <wchar.h>
+int main(int c,char**v){wprintf(L"%s %s",5);return 0;}
+//// f24
+#include <wchar.h>
+int main(int c,char**v){wchar_t b[4]=L"abcd";return wcslen(b);}
+//// f25
+#include <wchar.h>
+int main(int c,char**v){wchar_t b[4];wcscpy(b,L"abcdef");return b[0];}
+//// f26
+#include <wchar.h>
+int main(int c,char**v){wchar_t b[4];wcsncpy(b,L"abcdef",10);return b[0];}
+//// f27
+#include <wchar.h>
+int main(int c,char**v){wchar_t b[4];wmemset(b,0,10);return b[0];}
+//// f28 fopen'd free
+int main(int c,char**v){FILE*f=popen("true","r");if(!f)return 1;fclose(f);pclose(f);return 0;}
+//// f29 
+int main(int c,char**v){FILE*f=popen("true","r");if(!f)return 1;fclose(f);return 0;}
+//// f30
+#include <dirent.h>
+int main(int c,char**v){DIR*d=opendir("/");if(!d)return 1;struct dirent*e=readdir(d);closedir(d);return e?e->d_name[0]:0;}
+//// f31
+#include <dirent.h>
+int main(int c,char**v){DIR*d=opendir("/");if(!d)return 1;free(d);return 0;}
+//// f32
+#include <dirent.h>
+int main(int c,char**v){DIR*d=opendir("/");if(!d)return 1;struct dirent*e=readdir(d);if(!e)return 1;struct dirent x=*e;return x.d_name[900];}
+//// f33
+#include <netdb.h>
+int main(int c,char**v){struct addrinfo*a=0;getaddrinfo("127.0.0.1",0,0,&a);freeaddrinfo(a);return a?a->ai_family:0;}
+//// f34
+#include <time.h>
+int main(int c,char**v){time_t t=0;struct tm*a=localtime(&t);t=1ul<<40;struct tm*b=localtime(&t);return a!=b;}
+//// f35
+#include <time.h>
+int main(int c,char**v){time_t t=0;char b[4];struct tm*a=gmtime(&t);if(!a)return 1;asctime_r(a,b);return b[0];}
+//// f36
+#include <time.h>
+int main(int c,char**v){time_t t=0;char b[4];ctime_r(&t,b);return b[0];}
+//// f37
+#include <unistd.h>
+int main(int c,char**v){int b[4];return read(0,b,17);}
+//// f38
+#include <unistd.h>
+int main(int c,char**v){char b[4];return getcwd(b,400)!=0;}
+//// f39
+#include <limits.h>
+int main(int c,char**v){char b[4];return realpath("/tmp",b)!=0;}
+//// f40
+#include <libgen.h>
+int main(int c,char**v){char b[40];memset(b,'x',40);return basename(b)!=0;}
+//// f41
+#include <string.h>
+int main(int c,char**v){char b[4];strerror_r(3,b,50);return 0;}
+//// f42
+#include <sys/socket.h>
+int main(int c,char**v){char b[4];return recv(0,b,50,0);}
+//// f43
+#include <sys/uio.h>
+int main(int c,char**v){char b[4];struct iovec i={b,50};return readv(0,&i,1);}
+//// f44
+#include <sys/socket.h>
+int main(int c,char**v){struct sockaddr s;socklen_t l=400;return getsockname(0,&s,&l);}
+//// f45
+#include <sys/ioctl.h>
+int main(int c,char**v){char b;return ioctl(0,TIOCGWINSZ,&b);}
+//// f46
+#include <sys/stat.h>
+int main(int c,char**v){struct stat s;stat("/nope",&s);return s.st_size;}
+//// f47
+#include <sys/mman.h>
+int main(int c,char**v){char*p=mmap(0,16384,3,MAP_ANON|MAP_PRIVATE,-1,0);munmap(p,16384);return p[0];}
+//// f48
+#include <sys/mman.h>
+int main(int c,char**v){char*p=mmap(0,16384,3,MAP_ANON|MAP_PRIVATE,-1,0);return p[16384*3];}
+//// f49
+#include <sys/mman.h>
+int main(int c,char**v){char b[16384];munmap(b,16384);return b[0];}
+//// f50
+#include <sys/mman.h>
+int main(int c,char**v){char*p=mmap(0,1,3,MAP_SHARED,-1,0);return p[0];}
+//// f51
+#include <sys/select.h>
+int main(int c,char**v){fd_set s;FD_ZERO(&s);FD_SET(5000,&s);return 0;}
+//// f52
+#include <pthread.h>
+int main(int c,char**v){pthread_attr_t a;pthread_attr_destroy(&a);return 0;}
+//// f53
+#include <pthread.h>
+int main(int c,char**v){pthread_mutex_t m;pthread_mutex_lock(&m);return 0;}
+//// f54
+#include <unistd.h>
+int main(int c,char**v){char*const a[]={"x","y"};execv("/bin/echo",a);return 0;}
+//// f55
+#include <regex.h>
+int main(int c,char**v){regex_t r;return regexec(&r,"a",0,0,0);}
+//// f56
+#include <regex.h>
+int main(int c,char**v){regex_t r;if(regcomp(&r,"a",0))return 1;regfree(&r);return regexec(&r,"a",0,0,0);}
+//// f57
+#include <regex.h>
+int main(int c,char**v){regex_t r;if(regcomp(&r,"a",0))return 1;regmatch_t m[1];return regexec(&r,"a",10,m,0);}
+//// f58
+#include <search.h>
+int main(int c,char**v){hcreate(10);char k[]="a";ENTRY e={k,0};hsearch(e,ENTER);return 0;}
+//// f59
+#include <glob.h>
+int main(int c,char**v){glob_t g;globfree(&g);return 0;}
+//// f60
+#include <glob.h>
+int main(int c,char**v){glob_t g;glob("/*",0,0,&g);globfree(&g);return g.gl_pathv[0][0];}
+//// f61
+#include <iconv.h>
+int main(int c,char**v){iconv_t i=iconv_open("UTF-8","UTF-16");iconv_close(i);iconv_close(i);return 0;}
+//// f62
+#include <locale.h>
+int main(int c,char**v){char*a=setlocale(LC_ALL,0);setlocale(LC_ALL,"en_US.UTF-8");return a?a[0]:0;}
+//// f63
+#include <signal.h>
+void h(int s){printf("x");free(malloc(3));}int main(int c,char**v){signal(SIGINT,h);return 0;}
+//// f64
+#include <stdarg.h>
+int f(int n,...){va_list a;va_start(a,n);char b[20];vsnprintf(b,20,"%s",a);va_end(a);return 0;}int main(int c,char**v){return f(1,5);}
+//// f65
+#include <stdarg.h>
+__attribute__((format(printf,1,2))) int f(const char*m,...){va_list a;va_start(a,m);va_end(a);return vprintf(m,a);}int main(int c,char**v){return f("%s\n","a");}
+//// f66
+#include <stdarg.h>
+__attribute__((format(printf,1,2))) int f(const char*m,...){va_list a;return vprintf(m,a);}int main(int c,char**v){return f("%s\n","a");}
+//// f67
+#include <stdarg.h>
+__attribute__((format(printf,1,2))) int f(const char*m,...){va_list a;va_start(a,m);vprintf(m,a);vprintf(m,a);va_end(a);return 0;}int main(int c,char**v){return f("%s %s %s %s\n","a","b","c","d");}
+//// f68
+__attribute__((format(printf,1,2))) int f(const char*m,...);int f(const char*m,...){return printf("%s",m);}int main(int c,char**v){return f("%n",&c);}
+//// f69
+int main(int c,char**v){return printf("%.*s",100,&v[0][0]);}
+//// f70
+int main(int c,char**v){char b[3]={1,2,3};return printf("%.*s",100,b);}
+//// f71
+int main(int c,char**v){char b[3]={'a','b','c'};return printf("%.9s",b);}
+//// f72
+int main(int c,char**v){char ch='a';return printf("%s",&ch);}
+//// f73
+int main(int c,char**v){char n;return printf("%n",(int*)&n);}
+//// f74
+int main(int c,char**v){long n;return printf("%*d",n,c);}
+//// f75
+int main(int c,char**v){char*p=malloc(3);if(!p)return 1;memset(p,'a',3);printf("%s",p);free(p);return 0;}
+//// f76
+#include <wchar.h>
+int main(int c,char**v){wchar_t p[2]={65,65};printf("%ls",p);return 0;}
+//// f77
+#include <err.h>
+int main(int c,char**v){warnx("%s",5);return 0;}
+//// f78
+#include <syslog.h>
+int main(int c,char**v){char b[2]={1,1};syslog(1,"%s",b);return 0;}
+//// f79
+#include <syslog.h>
+void f(void){char b[5]="abc";openlog(b,0,0);}int main(int c,char**v){f();syslog(1,"a");return 0;}
+//// f80
+#include <stdio.h>
+int main(int c,char**v){char b[4];gets_s(b,50);return 0;}
+//// f81
+int main(int c,char**v){char b[4];return fgets(b,50,stdin)!=0;}
+//// f82
+int main(int c,char**v){char b[4];return fread(b,2,3,stdin);}
+//// f83
+int main(int c,char**v){char b[4];return fread(b,1ul<<63,2,stdin);}
+//// f84
+int main(int c,char**v){char b[4];memcpy(b,b+3,c+2);return 0;}
+//// f85
+int main(int c,char**v){char b[4]={1,2,3,4};strlcpy(b,"abcdef",50);return 0;}
+//// f86
+int main(int c,char**v){char b[4]={1,2,3,4};return strlcat(b,"a",4);}
+//// f87
+int main(int c,char**v){char b[4]={1,2,3,4};strncpy(b,"abcdef",4);return strlen(b);}
+//// f88
+int main(int c,char**v){char b[4]={1,2,3,4};bzero(b,50);return 0;}
+//// f89
+int main(int c,char**v){char b[4]={1,2,3,4};char*p=b;char*q=strsep(&p,",");return 0;}
+//// f90
+int main(int c,char**v){FILE*f=fmemopen((char[4]){0},4,"w");if(!f)return 1;fprintf(f,"abc");fclose(f);return 0;}
+//// f91
+FILE*_Nullable o(void){char b[64];return fmemopen(b,64,"w");}int main(int c,char**v){FILE*f=o();if(!f)return 1;fprintf(f,"abc");fclose(f);return 0;}
+//// f92
+int main(int c,char**v){char*b=malloc(64);if(!b)return 1;FILE*f=fmemopen(b,64,"w");free(b);if(!f)return 1;fprintf(f,"abc");fclose(f);return 0;}
+//// f93
+int main(int c,char**v){char*p;size_t n;FILE*f=open_memstream(&p,&n);if(!f)return 1;fprintf(f,"abc");fclose(f);return p[n+5];}
+//// f94
+FILE*_Nullable o(void){char*p=0;size_t n;return open_memstream(&p,&n);}int main(int c,char**v){FILE*f=o();if(!f)return 1;fprintf(f,"abc");fclose(f);return 0;}

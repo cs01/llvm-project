@@ -1,0 +1,15 @@
+//// cc1 tsan
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;
+static int n _Guarded_by(m);static void*_Nullable w(void*_Nullable a){for(int i=0;i<10000;i++)memset(&n,1,4);return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);w(0);pthread_join(t,0);return 0;}
+//// cc2 tsan
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;
+static int n _Guarded_by(m);static void*_Nullable w(void*_Nullable a){int*p=&n;(*p)++;return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);w(0);pthread_join(t,0);return 0;}
+//// cc3 tsan
+#include <pthread.h>
+struct _Capability("mutex") mtx{int s;};extern struct mtx m;
+static int n _Guarded_by(m);static void*_Nullable w(void*_Nullable a){for(int i=0;i<1000;i++)snprintf((char*)&n,4,"%d",i);return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);w(0);pthread_join(t,0);return 0;}
+//// cc4 tsan atomic cast
+#include <pthread.h>
+static _Atomic int x;static void*_Nullable w(void*_Nullable a){for(int i=0;i<10000;i++){int*p=(int*)&x;(*p)++;}return 0;}int main(void){pthread_t __single t;pthread_create(&t,0,w,0);w(0);pthread_join(t,0);return 0;}
