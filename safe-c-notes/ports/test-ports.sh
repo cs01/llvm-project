@@ -10,7 +10,7 @@ out=$(mktemp -d)
 fail=0
 # The vendored safec.h copies (for compilers without Safe C) must match the
 # real one, or the non-Safe-C builds test a different header.
-for copy in "$here"/cjson/safec.h "$here"/jsmn/safec.h "$here"/lz4/safec.h "$here"/../../safe-c-std/safec.h; do
+for copy in "$here"/cjson/safec.h "$here"/jsmn/safec.h "$here"/lz4/safec.h "$here"/inih/safec.h "$here"/../../safe-c-std/safec.h; do
   cmp -s "$copy" "$here/../../clang/lib/Headers/safec.h" ||
     { echo "stale: $copy (cp clang/lib/Headers/safec.h there)"; fail=1; }
 done
@@ -24,7 +24,9 @@ ulimit -s 65520
 
 configs=(
   "safec|$safec -fsafe-c -isysroot $sdk"
-  "safec-own|$safec -fsafe-c -mllvm -safe-c-ownership -isysroot $sdk"
+  # Ownership is on by default now; the driver rejects a bare
+  # -mllvm -safe-c-ownership (it allows only =true or =1 for -safe-c-* switches).
+  "safec-own|$safec -fsafe-c -mllvm -safe-c-ownership=true -isysroot $sdk"
   "system|/usr/bin/clang"
   "asan|/usr/bin/clang -fsanitize=address,undefined -fno-sanitize-recover=all"
 )
@@ -46,6 +48,44 @@ run() { # name, compiler command, sources...
   [ "$pass" = "$total" ] || fail=1
 }
 
+# inih's tests print what the handler saw. Each build must exit 0 and print
+# exactly upstream's checked-in baseline; inih/tests/unittest.sh lists the same
+# builds (it regenerates the baselines, this compares against them).
+run_inih() { # name, compiler command
+  local name=$1 cc=$2 port=$here/inih pass=0 total=0 base src flags
+  while read -r base src flags; do
+    total=$((total + 1))
+    local exe=$out/$name-inih-$base
+    # shellcheck disable=SC2086
+    if $cc $flags -o "$exe" "$port/ini.c" "$port/tests/$src" 2>"$exe.log" &&
+      (cd "$port/tests" && perl -e 'alarm 60; exec @ARGV' "$exe" </dev/null >"$exe.out" 2>&1) &&
+      cmp -s "$port/tests/baseline_$base.txt" "$exe.out"; then
+      pass=$((pass + 1))
+    else
+      echo "  FAIL $name inih $base: $exe.log $exe.out"
+    fi
+  done <<'EOF'
+multi unittest.c
+multi_max_line unittest.c -DINI_MAX_LINE=20
+single unittest.c -DINI_ALLOW_MULTILINE=0
+disallow_inline_comments unittest.c -DINI_ALLOW_INLINE_COMMENTS=0
+stop_on_first_error unittest.c -DINI_STOP_ON_FIRST_ERROR=1
+handler_lineno unittest.c -DINI_HANDLER_LINENO=1
+string unittest_string.c -DINI_MAX_LINE=20
+heap unittest.c -DINI_USE_STACK=0
+heap_max_line unittest.c -DINI_USE_STACK=0 -DINI_MAX_LINE=20 -DINI_INITIAL_ALLOC=20
+heap_realloc unittest.c -DINI_USE_STACK=0 -DINI_ALLOW_REALLOC=1 -DINI_INITIAL_ALLOC=5
+heap_realloc_max_line unittest.c -DINI_USE_STACK=0 -DINI_MAX_LINE=20 -DINI_ALLOW_REALLOC=1 -DINI_INITIAL_ALLOC=5
+heap_string unittest_string.c -DINI_USE_STACK=0 -DINI_MAX_LINE=20 -DINI_INITIAL_ALLOC=20
+call_handler_on_new_section unittest.c -DINI_CALL_HANDLER_ON_NEW_SECTION=1
+allow_no_value unittest.c -DINI_ALLOW_NO_VALUE=1
+alloc unittest_alloc.c -DINI_CUSTOM_ALLOCATOR=1 -DINI_USE_STACK=0 -DINI_ALLOW_REALLOC=1 -DINI_INITIAL_ALLOC=12
+file_error unittest_file_error.c
+EOF
+  echo "inih $name: $pass/$total"
+  [ "$pass" = "$total" ] || fail=1
+}
+
 for spec in "${configs[@]}"; do
   name=${spec%%|*}; cc=${spec#*|}
   # cJSON_Utils is not ported, so its three tests are left out; unity_setup.c
@@ -59,6 +99,7 @@ for spec in "${configs[@]}"; do
   # test.c reads lz4.c and lz4.h from its own directory
   port=$here/lz4; label=lz4; lib=$port/lz4.c
   run "$name" "$cc" "$port"/test.c
+  run_inih "$name" "$cc"
   port=$here/../../safe-c-std; label=std; lib=
   run "$name" "$cc" "$port"/tests/*.c "$port"/examples/*.c
 done

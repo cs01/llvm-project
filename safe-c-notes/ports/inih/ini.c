@@ -18,16 +18,20 @@ https://github.com/benhoyt/inih
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>
-#include <assert.h>
 
 #include "ini.h"
 
 #if !INI_USE_STACK
 #if INI_CUSTOM_ALLOCATOR
 #include <stddef.h>
-void* ini_malloc(size_t size);
-void ini_free(void* ptr);
-void* ini_realloc(void* ptr, size_t size);
+/* The same contracts as malloc, free and realloc. alloc_size lets the result
+   be cast to char* (Safe C checks the definition returns fresh memory). */
+_Returns_owned __attribute__((alloc_size(1)))
+void* _Nullable __sized_by_or_null(size) ini_malloc(size_t size);
+void ini_free(void* _Nullable _Owned ptr);
+_Returns_owned __attribute__((alloc_size(2)))
+void* _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
+                                                     size_t size);
 #else
 #include <stdlib.h>
 #define ini_malloc malloc
@@ -36,15 +40,26 @@ void* ini_realloc(void* ptr, size_t size);
 #endif
 #endif
 
-/* Used by ini_parse_string() to keep track of string parsing state. */
-typedef struct {
-    const char* ptr;
-    size_t num_left;
-} ini_parse_string_ctx;
+/* Where ini_parse_stream() reads its lines from. Upstream passes a void*
+   stream to every reader, including its own fgets and string readers; Safe C
+   rejects casting that void* back to FILE* or to a struct holding a pointer,
+   so the built-in sources are told apart by kind instead, and only a user's
+   reader sees a void*. */
+enum { INI_SOURCE_READER, INI_SOURCE_FILE, INI_SOURCE_STRING };
+typedef struct _View {
+    int kind;
+    ini_reader _Nullable reader;          /* INI_SOURCE_READER */
+    void* _Nullable stream;
+    FILE* _Nullable file;                 /* INI_SOURCE_FILE */
+    const char* _Nullable __counted_by_or_null(length) string; /* INI_SOURCE_STRING */
+    size_t length;
+    size_t offset;                        /* bytes of string already read */
+} ini_source;
 
 /* Strip whitespace chars off end of given string, in place. end must be a
    pointer to the NUL terminator at the end of the string. Return s. */
-static char* ini_rstrip(char* s, char* end)
+static char* __bidi_indexable ini_rstrip(char* __bidi_indexable s _Lifetimebound,
+                                         char* __bidi_indexable end)
 {
     while (end > s && isspace((unsigned char)(*--end)))
         *end = '\0';
@@ -52,17 +67,18 @@ static char* ini_rstrip(char* s, char* end)
 }
 
 /* Return pointer to first non-whitespace char in given string. */
-static char* ini_lskip(const char* s)
+static char* __bidi_indexable ini_lskip(char* __bidi_indexable s)
 {
     while (*s && isspace((unsigned char)(*s)))
         s++;
-    return (char*)s;
+    return s;
 }
 
 /* Return pointer to first char (of chars) or inline comment in given string,
    or pointer to NUL at end of string if neither found. Inline comment must
    be prefixed by a whitespace character to register as a comment. */
-static char* ini_find_chars_or_comment(const char* s, const char* chars)
+static char* __bidi_indexable ini_find_chars_or_comment(char* __bidi_indexable s _Lifetimebound,
+                                                        const char* _Nullable chars)
 {
 #if INI_ALLOW_INLINE_COMMENTS
     int was_space = 0;
@@ -76,12 +92,14 @@ static char* ini_find_chars_or_comment(const char* s, const char* chars)
         s++;
     }
 #endif
-    return (char*)s;
+    return s;
 }
 
 /* Similar to strncpy, but ensures dest (size bytes) is
    NUL-terminated, and doesn't pad with NULs. */
-static char* ini_strncpy0(char* dest, const char* src, size_t size)
+static char* __bidi_indexable ini_strncpy0(char* __counted_by(size) dest _Lifetimebound,
+                                           const char* __bidi_indexable src,
+                                           size_t size)
 {
     /* Could use strncpy internally, but it causes gcc warnings (see issue #91) */
     size_t i;
@@ -91,9 +109,38 @@ static char* ini_strncpy0(char* dest, const char* src, size_t size)
     return dest;
 }
 
-/* See documentation in header file. */
-int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
-                     void* user)
+/* Read the next line from src into str (num bytes), fgets-style: returns
+   nonzero with a NUL-terminated line, or 0 at end of input. The string
+   source is the fgets() equivalent upstream calls ini_reader_string(). */
+static int ini_read_line(ini_source* src, char* __counted_by(num) str, int num)
+{
+    size_t i = 0;
+    char c;
+
+    switch (src->kind) {
+    case INI_SOURCE_READER:
+        return src->reader && src->stream &&
+               src->reader(str, num, src->stream) != NULL;
+    case INI_SOURCE_FILE:
+        return src->file && fgets(str, num, src->file) != NULL;
+    case INI_SOURCE_STRING:
+        if (!src->string || src->offset == src->length || num < 2)
+            return 0;
+        while ((int)i < num - 1 && src->offset != src->length) {
+            c = src->string[src->offset++];
+            str[i++] = c;
+            if (c == '\n')
+                break;
+        }
+        str[i] = '\0';
+        return 1;
+    }
+    return 0;
+}
+
+/* The parser behind every ini_parse*() entry point. */
+static int ini_parse_source(ini_source* src, ini_handler handler,
+                            void* _Nullable user)
 {
     /* Uses a fair bit of stack (use heap instead if you need to) */
 #if INI_USE_STACK
@@ -121,10 +168,6 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
     char abyss[16];  /* Used to consume input when a line is too long. */
     size_t abyss_len;
 
-    assert(reader != NULL);
-    assert(stream != NULL);
-    assert(handler != NULL);
-
 #if !INI_USE_STACK
     line = (char*)ini_malloc(INI_INITIAL_ALLOC);
     if (!line) {
@@ -139,7 +182,7 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
 #endif
 
     /* Scan through stream line by line */
-    while (reader(line, (int)max_line, stream) != NULL) {
+    while (ini_read_line(src, line, (int)max_line)) {
         offset = strlen(line);
 
 #if INI_ALLOW_REALLOC && !INI_USE_STACK
@@ -148,13 +191,20 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
             max_line *= 2;
             if (max_line > INI_MAX_LINE)
                 max_line = INI_MAX_LINE;
-            new_line = ini_realloc(line, max_line);
-            if (!new_line) {
-                ini_free(line);
-                return -2;
+            /* unsafe: realloc keeps the old block when it fails, so freeing
+               line then is correct, but Safe C treats the call as freeing it
+               on every path; it also takes the block this loop reallocated
+               last time round for the one realloc frees now (see PORT.md).
+               new_line still gets its bounds from ini_realloc's size. */
+            __unsafe {
+                new_line = (char*)ini_realloc(line, max_line);
+                if (!new_line) {
+                    ini_free(line);
+                    return -2;
+                }
             }
             line = new_line;
-            if (reader(line + offset, (int)(max_line - offset), stream) == NULL)
+            if (!ini_read_line(src, line + offset, (int)(max_line - offset)))
                 break;
             offset += strlen(line + offset);
         }
@@ -164,7 +214,7 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
 
         /* If line exceeded INI_MAX_LINE bytes, discard till end of line. */
         if (offset == max_line - 1 && line[offset - 1] != '\n') {
-            while (reader(abyss, sizeof(abyss), stream) != NULL) {
+            while (ini_read_line(src, abyss, sizeof(abyss))) {
                 if (!error)
                     error = lineno;
                 abyss_len = strlen(abyss);
@@ -269,15 +319,26 @@ int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
     return error;
 }
 
-/* See documentation in header file. */
-int ini_parse_file(FILE* file, ini_handler handler, void* user)
+/* See documentation in header file. The asserts that reader and stream are
+   not NULL are gone: the parameters are non-null, which Safe C checks at
+   every call. */
+int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
+                     void* _Nullable user)
 {
-    int error = ini_parse_stream((ini_reader)fgets, file, handler, user);
+    ini_source src = {INI_SOURCE_READER, reader, stream, NULL, NULL, 0, 0};
+    return ini_parse_source(&src, handler, user);
+}
+
+/* See documentation in header file. */
+int ini_parse_file(FILE* file, ini_handler handler, void* _Nullable user)
+{
+    ini_source src = {INI_SOURCE_FILE, NULL, NULL, file, NULL, 0, 0};
+    int error = ini_parse_source(&src, handler, user);
     return ferror(file) ? -3 : error;
 }
 
 /* See documentation in header file. */
-int ini_parse(const char* filename, ini_handler handler, void* user)
+int ini_parse(const char* filename, ini_handler handler, void* _Nullable user)
 {
     FILE* file;
     int error;
@@ -290,45 +351,16 @@ int ini_parse(const char* filename, ini_handler handler, void* user)
     return error;
 }
 
-/* An ini_reader function to read the next line from a string buffer. This
-   is the fgets() equivalent used by ini_parse_string(). */
-static char* ini_reader_string(char* str, int num, void* stream) {
-    ini_parse_string_ctx* ctx = (ini_parse_string_ctx*)stream;
-    const char* ctx_ptr = ctx->ptr;
-    size_t ctx_num_left = ctx->num_left;
-    char* strp = str;
-    char c;
-
-    if (ctx_num_left == 0 || num < 2)
-        return NULL;
-
-    while (num > 1 && ctx_num_left != 0) {
-        c = *ctx_ptr++;
-        ctx_num_left--;
-        *strp++ = c;
-        if (c == '\n')
-            break;
-        num--;
-    }
-
-    *strp = '\0';
-    ctx->ptr = ctx_ptr;
-    ctx->num_left = ctx_num_left;
-    return str;
+/* See documentation in header file. */
+int ini_parse_string(const char* string, ini_handler handler, void* _Nullable user) {
+    size_t length = strlen(string);
+    return ini_parse_string_length(__null_terminated_to_indexable(string),
+                                   length, handler, user);
 }
 
 /* See documentation in header file. */
-int ini_parse_string(const char* string, ini_handler handler, void* user) {
-    return ini_parse_string_length(string, strlen(string), handler, user);
-}
-
-/* See documentation in header file. */
-int ini_parse_string_length(const char* string, size_t length,
-                            ini_handler handler, void* user) {
-    ini_parse_string_ctx ctx;
-
-    ctx.ptr = string;
-    ctx.num_left = length;
-    return ini_parse_stream((ini_reader)ini_reader_string, &ctx, handler,
-                            user);
+int ini_parse_string_length(const char* __counted_by(length) string, size_t length,
+                            ini_handler handler, void* _Nullable user) {
+    ini_source src = {INI_SOURCE_STRING, NULL, NULL, NULL, string, length, 0};
+    return ini_parse_source(&src, handler, user);
 }

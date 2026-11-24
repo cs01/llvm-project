@@ -9,30 +9,34 @@
 #endif
 #include "../ini.h"
 
-void* ini_malloc(size_t size) {
+/* The annotations repeat ini.c's declarations of these three. */
+_Returns_owned __attribute__((alloc_size(1)))
+void* _Nullable __sized_by_or_null(size) ini_malloc(size_t size) {
     printf("ini_malloc(%d)\n", (int)size);
     return malloc(size);
 }
 
-void ini_free(void* ptr) {
+void ini_free(void* _Nullable _Owned ptr) {
     printf("ini_free()\n");
     free(ptr);
 }
 
-void* ini_realloc(void* ptr, size_t size) {
+_Returns_owned __attribute__((alloc_size(2)))
+void* _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
+                                                     size_t size) {
     printf("ini_realloc(%d)\n", (int)size);
     return realloc(ptr, size);
 }
 
-char Prev_section[50];
+/* Safe C: _Thread_local, as a mutable global shared by threads is a race. */
+_Thread_local char Prev_section[50];
 
-int dumper(void* user, const char* section, const char* name,
-           const char* value)
+int dumper(void* _Nullable user, const char* section _Noescape,
+           const char* name _Noescape, const char* value _Noescape)
 {
     if (strcmp(section, Prev_section)) {
         printf("... [%s]\n", section);
-        strncpy(Prev_section, section, sizeof(Prev_section));
-        Prev_section[sizeof(Prev_section) - 1] = '\0';
+        strlcpy(Prev_section, section, sizeof(Prev_section));
     }
     printf("... %s=%s;\n", name, value);
     return 1;

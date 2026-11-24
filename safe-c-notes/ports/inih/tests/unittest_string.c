@@ -9,24 +9,36 @@
 #endif
 #include "../ini.h"
 
-int User;
-char Prev_section[50];
+/* Safe C: _Thread_local, as a mutable global shared by threads is a race. */
+_Thread_local int User;
+_Thread_local char Prev_section[50];
 
-int dumper(void* user, const char* section, const char* name,
-           const char* value)
+/* Safe C: the handler is handed the int that parse() passed as void*, but
+   the compiler cannot see that, so it rejects the cast back to int*. Safe
+   because every ini_parse_string() call in this file passes &u, an int. */
+static int user_value(void* _Nullable user)
 {
-    User = *((int*)user);
+    int v = 0;
+    __unsafe {
+        v = user ? *((int*)user) : 0;
+    }
+    return v;
+}
+
+int dumper(void* _Nullable user, const char* section _Noescape,
+           const char* name _Noescape, const char* value _Noescape)
+{
+    User = user_value(user);
     if (strcmp(section, Prev_section)) {
         printf("... [%s]\n", section);
-        strncpy(Prev_section, section, sizeof(Prev_section));
-        Prev_section[sizeof(Prev_section) - 1] = '\0';
+        strlcpy(Prev_section, section, sizeof(Prev_section));
     }
     printf("... %s=%s;\n", name, value);
     return 1;
 }
 
 void parse(const char* name, const char* string) {
-    static int u = 100;
+    static _Thread_local int u = 100;
     int e;
 
     *Prev_section = '\0';

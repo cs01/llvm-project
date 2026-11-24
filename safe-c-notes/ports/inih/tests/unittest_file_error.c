@@ -7,8 +7,8 @@
 #endif
 #include "../ini.h"
 
-int handler(void* user, const char* section, const char* name,
-            const char* value)
+int handler(void* _Nullable user, const char* section _Noescape,
+            const char* name _Noescape, const char* value _Noescape)
 {
     (void)user;
     (void)section;

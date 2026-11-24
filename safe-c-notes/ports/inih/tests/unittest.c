@@ -19,22 +19,36 @@ respectively).
 #endif
 #include "../ini.h"
 
-int User;
-char Prev_section[50];
+/* Safe C: _Thread_local, as a mutable global shared by threads is a race. */
+_Thread_local int User;
+_Thread_local char Prev_section[50];
+
+/* Safe C: the handler is handed the int that parse() passed as void*, but
+   the compiler cannot see that, so it rejects the cast back to int*. Safe
+   because every ini_parse() call in this file passes &u, an int. */
+static int user_value(void* _Nullable user)
+{
+    int v = 0;
+    __unsafe {
+        v = user ? *((int*)user) : 0;
+    }
+    return v;
+}
 
 #if INI_HANDLER_LINENO
-int dumper(void* user, const char* section, const char* name,
-           const char* value, int lineno)
+int dumper(void* _Nullable user, const char* section _Noescape,
+           const char* INI_NAME_NULLABLE name _Noescape,
+           const char* INI_VALUE_NULLABLE value _Noescape, int lineno)
 #else
-int dumper(void* user, const char* section, const char* name,
-           const char* value)
+int dumper(void* _Nullable user, const char* section _Noescape,
+           const char* INI_NAME_NULLABLE name _Noescape,
+           const char* INI_VALUE_NULLABLE value _Noescape)
 #endif
 {
-    User = *((int*)user);
+    User = user_value(user);
     if (!name || strcmp(section, Prev_section)) {
         printf("... [%s]\n", section);
-        strncpy(Prev_section, section, sizeof(Prev_section));
-        Prev_section[sizeof(Prev_section) - 1] = '\0';
+        strlcpy(Prev_section, section, sizeof(Prev_section));
     }
     if (!name) {
         return 1;
@@ -55,7 +69,7 @@ int dumper(void* user, const char* section, const char* name,
 }
 
 void parse(const char* fname) {
-    static int u = 100;
+    static _Thread_local int u = 100;
     int e;
 
     *Prev_section = '\0';

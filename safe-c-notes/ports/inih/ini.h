@@ -20,6 +20,7 @@ extern "C" {
 #endif
 
 #include <stdio.h>
+#include "safec.h"   /* Safe C annotations; they expand to nothing on other compilers */
 
 /* Nonzero if ini_handler callback should accept lineno parameter. */
 #ifndef INI_HANDLER_LINENO
@@ -53,18 +54,39 @@ extern "C" {
    may cast to "char*" and modify its content, as the value is not used again
    after the call to ini_handler. This is not true of section and name --
    those must not be modified.
+
+   Safe C: section, name and value point into the parser's buffers, which it
+   rewrites after the call, so they are _Noescape (a handler that keeps one
+   is a compile error) and const (the cast to char* above is rejected).
+   name is NULL only with INI_CALL_HANDLER_ON_NEW_SECTION, value only with
+   that or INI_ALLOW_NO_VALUE; otherwise handlers need no NULL check.
 */
+#if INI_CALL_HANDLER_ON_NEW_SECTION
+#define INI_NAME_NULLABLE _Nullable
+#else
+#define INI_NAME_NULLABLE
+#endif
+#if INI_CALL_HANDLER_ON_NEW_SECTION || INI_ALLOW_NO_VALUE
+#define INI_VALUE_NULLABLE _Nullable
+#else
+#define INI_VALUE_NULLABLE
+#endif
 #if INI_HANDLER_LINENO
-typedef int (*ini_handler)(void* user, const char* section,
-                           const char* name, const char* value,
+typedef int (*ini_handler)(void* _Nullable user, const char* section _Noescape,
+                           const char* INI_NAME_NULLABLE name _Noescape,
+                           const char* INI_VALUE_NULLABLE value _Noescape,
                            int lineno);
 #else
-typedef int (*ini_handler)(void* user, const char* section,
-                           const char* name, const char* value);
+typedef int (*ini_handler)(void* _Nullable user, const char* section _Noescape,
+                           const char* INI_NAME_NULLABLE name _Noescape,
+                           const char* INI_VALUE_NULLABLE value _Noescape);
 #endif
 
-/* Typedef for prototype of fgets-style reader function. */
-typedef char* (*ini_reader)(char* str, int num, void* stream);
+/* Typedef for prototype of fgets-style reader function: fills str (num
+   bytes) with a NUL-terminated line and returns non-NULL, or returns NULL at
+   end of input. */
+typedef char* _Nullable (*ini_reader)(char* __counted_by(num) str, int num,
+                                      void* stream);
 
 /* Parse given INI-style file. May have [section]s, name=value pairs
    (whitespace stripped), and comments starting with ';' (semicolon). Section
@@ -79,27 +101,31 @@ typedef char* (*ini_reader)(char* str, int num, void* stream);
    stop on first error), -1 on file open error, -2 on memory allocation error
    (only when INI_USE_STACK is zero), or -3 on file read error.
 */
-INI_API int ini_parse(const char* filename, ini_handler handler, void* user);
+INI_API int ini_parse(const char* filename, ini_handler handler,
+                      void* _Nullable user);
 
 /* Same as ini_parse(), but takes a FILE* instead of filename. This doesn't
    close the file when it's finished -- the caller must do that. */
-INI_API int ini_parse_file(FILE* file, ini_handler handler, void* user);
+INI_API int ini_parse_file(FILE* file, ini_handler handler, void* _Nullable user);
 
 /* Same as ini_parse(), but takes an ini_reader function pointer instead of
    filename. Used for implementing custom or string-based I/O (see also
    ini_parse_string). */
 INI_API int ini_parse_stream(ini_reader reader, void* stream, ini_handler handler,
-                     void* user);
+                     void* _Nullable user);
 
 /* Same as ini_parse(), but takes a zero-terminated string with the INI data
    instead of a file. Useful for parsing INI data from a network socket or
    which is already in memory. */
-INI_API int ini_parse_string(const char* string, ini_handler handler, void* user);
+INI_API int ini_parse_string(const char* string, ini_handler handler,
+                             void* _Nullable user);
 
 /* Same as ini_parse_string(), but takes a string and its length, avoiding
    strlen(). Useful for parsing INI data from a network socket or which is
    already in memory, or interfacing with C++ std::string_view. */
-INI_API int ini_parse_string_length(const char* string, size_t length, ini_handler handler, void* user);
+INI_API int ini_parse_string_length(const char* __counted_by(length) string,
+                                    size_t length, ini_handler handler,
+                                    void* _Nullable user);
 
 /* Nonzero to allow multi-line value parsing, in the style of Python's
    configparser. If allowed, ini_parse() will call the handler with the same
