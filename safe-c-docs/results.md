@@ -51,7 +51,8 @@ Rust, soundly. Bounds are checked at run time in Rust too, so the random-index c
 above would go unseen there as well, and signed overflow wraps in Rust release builds as
 it does here. Safe C matches Rust today on bounds, null, initialization and integers;
 Rust is ahead on use after free (sound for every pointer, where Safe C covers locals and
-annotated interfaces) and on data races, which Safe C does not address yet.
+annotated interfaces) and on data races, where Safe C checks thread arguments, locked
+data and signal handlers but not yet every global.
 
 **The Lean core.** [safe-c-lean/](../safe-c-lean/) models the rules as a small calculus.
 `safe_c_sound` covers bounds, null, casts and integers; `own_sound` covers ownership.

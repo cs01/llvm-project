@@ -47,22 +47,38 @@ The same code compiles as plain C on any compiler: the annotations come from one
 | Null dereference | done |
 | Uninitialized reads | done |
 | Integer UB | done |
-| Type confusion | done, except unions holding pointers (next) |
-| Use after free | on by default; a fuzzing pass found holes, being fixed |
-| Data races | in progress: a thread owns its argument; locked data is checked; globals next |
+| Type confusion | done: unions holding pointers must be tagged unions, and every read checks the tag |
+| Use after free | on by default; the 18 holes a fuzzing pass found are fixed, re-run pending |
+| Data races | in progress: a thread owns its argument, locked data and signal handlers are checked; globals next |
 
 "Done" means checked at compile time or trapped, and passing NIST's Juliet suite. Two
 small libraries are ported so far; larger ones are the real test.
 
 Details: [how each is closed](safe-c-docs/protection.md).
 
-## Results
+## Results: NIST's Juliet suite
+
+[Juliet](https://samate.nist.gov/SARD/test-suites/112) is NIST's standard test suite for
+C security tools: thousands of small programs, each with a real bug in a `bad()` function
+and fixed `good()` versions, sorted by CWE (the standard list of weakness types). Static
+analyzers and sanitizers are measured against it. A normal C compiler builds every one of
+them without an error.
+
+A case counts as caught only if Safe C stops it with a compile error, or with a trap at
+the bad access when it runs (a crash or segfault does not count). The fixed versions must
+still compile and run.
 
 <!-- generated:summary -->
 On NIST's Juliet suite, bugs Rust rejects at compile time (null, double free, use after
 free): 498 of 498 rejected at compile time. Bugs Rust catches at run time (bounds,
 division by zero): 1915 of 2017 trapped, counting cases whose bug the test input reaches.
 <!-- end generated:summary -->
+
+What this means: the memory bugs behind most C security fixes (use after free, double
+free, null, out of bounds) are compile errors or a clean stop at the bad access, the same
+split Rust makes. Scope: these are the 3011 cases whose fixed version builds under Safe C
+as written. The rest need annotations first, mostly raw pointers in struct fields: that
+is porting work, not missed bugs. Full table in [results](safe-c-docs/results.md).
 
 Ports: [jsmn](safe-c-notes/ports/jsmn/PORT.md) and [cJSON](safe-c-notes/ports/cjson/PORT.md)
 pass their tests under Safe C, Apple clang and gcc. More in [results](safe-c-docs/results.md).
