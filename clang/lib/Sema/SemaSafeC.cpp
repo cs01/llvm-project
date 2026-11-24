@@ -204,6 +204,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 is a shared borrow, but this parameter is '_Excl': the callee may "
      "free or replace what it owns while the owner still uses it; pass the "
      "owner, or declare %0 '_Owned' (if it owns the object) or '_Excl'"},
+    {"drop-moved-by-name", false,
+     "%0 is freed automatically at the end of its scope ('_Drop'), so giving "
+     "it away here would free it twice; move it out with '_Take(%1)', which "
+     "leaves null for the cleanup"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
@@ -428,10 +432,18 @@ static bool isOwnedSource(ASTContext &Ctx, const Expr *E) {
   if (const auto *CE = dyn_cast<CStyleCastExpr>(E))
     return isOwnedSource(Ctx, CE->getSubExpr());
   if (const auto *Call = dyn_cast<CallExpr>(E)) {
-    // Taking from a borrowed place gives a borrow.
-    if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take)
-      return Call->getNumArgs() == 1 &&
-             safeCPointerKind(Call->getArg(0)->getType()) == "owned";
+    // Taking from a borrowed place gives a borrow; taking a local moves
+    // what it holds (the lifetime analysis follows locals).
+    if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take) {
+      if (Call->getNumArgs() != 1)
+        return false;
+      if (safeCPointerKind(Call->getArg(0)->getType()) == "owned")
+        return true;
+      const auto *DRE =
+          dyn_cast<DeclRefExpr>(lifetimes::safeCPeel(Call->getArg(0)));
+      const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+      return VD && VD->isLocalVarDecl() && !VD->isStaticLocal();
+    }
     const FunctionDecl *F = Call->getDirectCallee();
     if (!F)
       return false;
@@ -586,6 +598,16 @@ static const ValueDecl *exclusiveArgBlocker(ASTContext &Ctx, const Expr *E,
   return VD;
 }
 
+/// A local with a cleanup (`_Drop`), named directly: giving it away by name
+/// would leave the cleanup to free it again.
+static const VarDecl *dropLocalNamed(const Expr *E) {
+  const auto *DRE = dyn_cast<DeclRefExpr>(lifetimes::safeCPeel(E));
+  const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  return VD && VD->hasAttr<CleanupAttr>() && VD->getType()->isPointerType()
+             ? VD
+             : nullptr;
+}
+
 namespace {
 class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   Sema &S;
@@ -606,6 +628,10 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
     if (Dst->getType()->isPointerType() && isOwnedStorage(Dst) &&
         !isa<ParmVarDecl>(Dst) && !isOwnedSource(S.Context, Src))
       S.SafeCDiag(Src->getExprLoc(), "owned-store") << Dst;
+    if (Dst->getType()->isPointerType() && isOwnedStorage(Dst) &&
+        !isa<ParmVarDecl>(Dst))
+      if (const VarDecl *D = dropLocalNamed(Src))
+        S.SafeCDiag(Src->getExprLoc(), "drop-moved-by-name") << D << D->getName();
     if (const auto *Call = dyn_cast<CallExpr>(Src->IgnoreParenCasts());
         Call && isOwnedSource(S.Context, Call) &&
         Call->getBuiltinCallee() != Builtin::BI__builtin_safec_take)
@@ -698,6 +724,9 @@ public:
 
   bool VisitReturnStmt(ReturnStmt *RS) {
     if (const Expr *V = RS->getRetValue())
+      if (const VarDecl *D = dropLocalNamed(V))
+        S.SafeCDiag(V->getExprLoc(), "drop-moved-by-name") << D << D->getName();
+    if (const Expr *V = RS->getRetValue())
       if (const auto *DRE = dyn_cast<DeclRefExpr>(V->IgnoreParenImpCasts()))
         if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
             VD && VD->isLocalVarDecl() && !VD->isStaticLocal())
@@ -750,6 +779,10 @@ public:
     for (unsigned I = 0, N = Call->getNumArgs(); I != N; ++I) {
       if (!safeCTakesParam(Callee, I))
         continue;
+      if (const VarDecl *D = dropLocalNamed(Call->getArg(I))) {
+        S.SafeCDiag(Call->getArg(I)->getExprLoc(), "drop-moved-by-name") << D << D->getName();
+        continue;
+      }
       // Only a named local or parameter is tracked by the lifetime analysis;
       // anything else (a field, element, global, or *p) still holds the
       // pointer after the free.

@@ -100,6 +100,7 @@
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ConvertUTF.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/Locale.h"
@@ -5061,6 +5062,17 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
       continue;
     QualType Dest = safeCOriginalPointee(TheCall->getArg(I));
     if (Dest.isNull() || safeCHoldsNoPointers(S.Context, Dest))
+      continue;
+    // safec.h's cleanup for _Drop_free gets the variable's address as void *
+    // and only frees what it holds; honoured only for a function in safec.h
+    // (the driver includes it by path, so it need not be a system header).
+    if (llvm::sys::path::filename(S.getSourceManager().getFilename(
+            S.getSourceManager().getSpellingLoc(FD->getLocation()))) ==
+            "safec.h" &&
+        llvm::any_of(FD->specific_attrs<AnnotateAttr>(),
+                     [](const AnnotateAttr *A) {
+                       return A->getAnnotation() == "safec_cleanup";
+                     }))
       continue;
     // A parameter the function takes ownership of is freed, not written.
     if (llvm::any_of(FD->specific_attrs<OwnershipAttr>(),

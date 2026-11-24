@@ -10824,6 +10824,10 @@ void Sema::ActOnCleanupAttr(Decl *D, const Attr *A) {
   // We're currently more strict than GCC about what function types we accept.
   // If this ever proves to be a problem it should be easy to fix.
   QualType Ty = this->Context.getPointerType(VD->getType());
+  // -fbounds-safety: the address of a variable is a single object.
+  if (getLangOpts().BoundsSafety)
+    Ty = Context.getBoundsSafetyPointerType(
+        Ty, BoundsSafetyPointerAttributes::single());
   QualType ParamTy = FD->getParamDecl(0)->getType();
   if (QualType ConvertedTy;
       !this->IsAssignConvertCompatible(this->CheckAssignmentConstraints(
