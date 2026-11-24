@@ -426,7 +426,7 @@ LZ4_AUDITED static void LZ4_write32(BYTE* __bidi_indexable memPtr, U32 value)
 }
 
 
-static U16 LZ4_readLE16(const BYTE* __bidi_indexable memPtr)
+LZ4_AUDITED static U16 LZ4_readLE16(const BYTE* __bidi_indexable memPtr)
 {
     if (LZ4_isLittleEndian()) {
         return LZ4_read16(memPtr);
@@ -437,7 +437,7 @@ static U16 LZ4_readLE16(const BYTE* __bidi_indexable memPtr)
 }
 
 #ifdef LZ4_STATIC_LINKING_ONLY_ENDIANNESS_INDEPENDENT_OUTPUT
-static U32 LZ4_readLE32(const BYTE* __bidi_indexable memPtr)
+LZ4_AUDITED static U32 LZ4_readLE32(const BYTE* __bidi_indexable memPtr)
 {
     if (LZ4_isLittleEndian()) {
         return LZ4_read32(memPtr);
@@ -448,7 +448,7 @@ static U32 LZ4_readLE32(const BYTE* __bidi_indexable memPtr)
 }
 #endif
 
-static void LZ4_writeLE16(BYTE* __bidi_indexable memPtr, U16 value)
+LZ4_AUDITED static void LZ4_writeLE16(BYTE* __bidi_indexable memPtr, U16 value)
 {
     if (LZ4_isLittleEndian()) {
         LZ4_write16(memPtr, value);
@@ -518,7 +518,7 @@ static const int      dec64table[8] = {0, 0, 0, -1, -4,  1, 2, 3};
 /* LZ4_memcpy_using_offset_base() :
  * copy a match of length >= MINMATCH (srcPtr + offset == dstPtr, overlap allowed),
  * can overwrite up to 12 bytes beyond dstEnd */
-LZ4_FORCE_INLINE void
+LZ4_AUDITED LZ4_FORCE_INLINE void
 LZ4_memcpy_using_offset_base(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPtr, BYTE* __bidi_indexable dstEnd, const size_t offset)
 {
     assert(srcPtr + offset == dstPtr);
@@ -592,51 +592,6 @@ LZ4_wildCopy16(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPt
     BYTE* const e = dstEnd;
 
     do { LZ4_memcpy(d,s,16); d+=16; s+=16; } while (d<e);
-}
-
-/* Fast-loop copies without per-copy bounds checks (Safe C).
- * The fast decode loop of LZ4_decompress_generic runs only while
- * `oend - op >= FASTLOOP_SAFE_DISTANCE` (64), checked on entry and before every
- * match that could cross it, and copies literals only when
- * `ip <= iend - 17`, checked before the copy. Under those checks the
- * fixed-size copies below stay inside the buffers, so each is done with one
- * audited unchecked access instead of nine compare-and-branch checks (the
- * profile showed them as most of decompression time). Use them nowhere else.
- * TODO(safe-c): drop these once the compiler hoists and removes bounds checks
- * implied by a loop guard (see PORT.md, "Speed"). */
-LZ4_FORCE_INLINE void LZ4_fastCopy16(BYTE* __bidi_indexable op, const BYTE* __bidi_indexable ip)
-{
-    /* op: 64 bytes of room (loop guard); ip: 17 bytes of input (literal guard). */
-    __unsafe {
-        LZ4_memcpy(__unsafe_forge_bidi_indexable(BYTE*, __unsafe_forge_single(BYTE*, op), 16),
-                   __unsafe_forge_bidi_indexable(const BYTE*, __unsafe_forge_single(const BYTE*, ip), 16), 16);
-    }
-}
-LZ4_FORCE_INLINE void LZ4_fastCopy18(BYTE* __bidi_indexable op, const BYTE* __bidi_indexable match)
-{
-    /* op: 18 bytes of room (loop guard, ml <= 18); match <= op, so its top is
-       inside the output too. Its bottom is checked here: in 64 KB prefix mode
-       it is otherwise only the caller's promise. */
-#if defined(__SAFE_C__)
-    if (match < (const BYTE*)__ptr_lower_bound(match)) __builtin_trap();
-#endif
-    __unsafe {
-        BYTE* __unsafe_indexable d = op;
-        const BYTE* __unsafe_indexable s = match;
-        LZ4_memcpy(__unsafe_forge_bidi_indexable(BYTE*, d, 8), __unsafe_forge_bidi_indexable(const BYTE*, s, 8), 8);
-        LZ4_memcpy(__unsafe_forge_bidi_indexable(BYTE*, d + 8, 8), __unsafe_forge_bidi_indexable(const BYTE*, s + 8, 8), 8);
-        LZ4_memcpy(__unsafe_forge_bidi_indexable(BYTE*, d + 16, 2), __unsafe_forge_bidi_indexable(const BYTE*, s + 16, 2), 2);
-    }
-}
-LZ4_FORCE_INLINE U16 LZ4_fastReadLE16(const BYTE* __bidi_indexable ip)
-{
-    /* At most 14 literals were consumed since the `ip <= iend - 17` check. */
-    U16 v;
-    __unsafe {
-        const BYTE* __unsafe_indexable s = ip;
-        LZ4_memcpy(&v, __unsafe_forge_bidi_indexable(const BYTE*, s, 2), 2);
-    }
-    return LZ4_isLittleEndian() ? v : (U16)((v << 8) | (v >> 8));
 }
 
 /* LZ4_memcpy_using_offset()  presumes :
@@ -907,7 +862,7 @@ LZ4_FORCE_INLINE U32 LZ4_hash5(U64 sequence, tableType_t const tableType)
     }
 }
 
-LZ4_FORCE_INLINE U32 LZ4_hashPosition(const BYTE* __bidi_indexable const p, tableType_t const tableType)
+LZ4_AUDITED LZ4_FORCE_INLINE U32 LZ4_hashPosition(const BYTE* __bidi_indexable const p, tableType_t const tableType)
 {
     if ((sizeof(reg_t)==8) && (tableType != byU16)) return LZ4_hash5(LZ4_read_ARCH(p), tableType);
 
@@ -947,7 +902,7 @@ LZ4_AUDITED LZ4_FORCE_INLINE void LZ4_putIndexOnHash(U32 idx, U32 h, U32* __bidi
 
 /* LZ4_putPosition() :
  * register position p by index relative to base (byU32, byU16) */
-LZ4_FORCE_INLINE void LZ4_putPosition(const BYTE* __bidi_indexable p, U32* __bidi_indexable tableBase, tableType_t tableType, const BYTE* __bidi_indexable base)
+LZ4_AUDITED LZ4_FORCE_INLINE void LZ4_putPosition(const BYTE* __bidi_indexable p, U32* __bidi_indexable tableBase, tableType_t tableType, const BYTE* __bidi_indexable base)
 {
     U32 const h = LZ4_hashPosition(p, tableType);
     LZ4_putIndexOnHash((U32)(p - base), h, tableBase, tableType);
@@ -979,7 +934,7 @@ LZ4_AUDITED LZ4_FORCE_INLINE U32 LZ4_getIndexOnHash(U32 h, const U32* __bidi_ind
  * clearing the table is faster than rejecting its stale entries */
 #define LZ4_CLEAR_TABLE_THRESHOLD (LZ4_HASHTABLESIZE / 16)
 
-LZ4_FORCE_INLINE void
+LZ4_AUDITED LZ4_FORCE_INLINE void
 LZ4_prepareTable(LZ4_stream_t_internal* const cctx,
            const int inputSize,
            const tableType_t tableType) {
@@ -1021,7 +976,7 @@ LZ4_prepareTable(LZ4_stream_t_internal* const cctx,
 }
 
 /* LZ4_match8() : the 8 bytes at p and q are equal */
-LZ4_FORCE_INLINE int LZ4_match8(const BYTE* __bidi_indexable p, const BYTE* __bidi_indexable q)
+LZ4_AUDITED LZ4_FORCE_INLINE int LZ4_match8(const BYTE* __bidi_indexable p, const BYTE* __bidi_indexable q)
 {
     if (sizeof(reg_t) == 8) return LZ4_read_ARCH(p) == LZ4_read_ARCH(q);
     return (LZ4_read32(p) == LZ4_read32(q))
@@ -2090,7 +2045,7 @@ typedef enum { complete_input = 0, incomplete_input = 1 } inputEnd_directive;
 **/
 typedef size_t Rvl_t;
 static const Rvl_t rvl_error = (Rvl_t)(-1);
-LZ4_FORCE_INLINE Rvl_t
+LZ4_AUDITED LZ4_FORCE_INLINE Rvl_t
 read_variable_length(const BYTE* __bidi_indexable* ipPtr, const BYTE* __bidi_indexable ilimit)
 {
     Rvl_t s, length = 0;
@@ -2150,7 +2105,7 @@ LZ4_copyMatchExact(BYTE* __bidi_indexable op _Lifetimebound, const BYTE* __bidi_
  * copy a match starting within the external dictionary (match < lowPrefix),
  * possibly stretching into the current block.
  * @return : output position after the match */
-LZ4_FORCE_INLINE BYTE* __bidi_indexable
+LZ4_AUDITED LZ4_FORCE_INLINE BYTE* __bidi_indexable
 LZ4_copyExtDictMatch(BYTE* __bidi_indexable op _Lifetimebound, const BYTE* __bidi_indexable match, size_t length,
                      const BYTE* __bidi_indexable lowPrefix, const BYTE* __bidi_indexable dictEnd)
 {
@@ -2296,12 +2251,12 @@ LZ4_decompress_generic(
             } else {
                 DEBUGLOG(7, "copy %u bytes in a 16-bytes stripe", (unsigned)ll);
                 /* Literals can only be <= 14, but hope compilers optimize better when copy by a register size */
-                LZ4_fastCopy16(op, ip);
+                LZ4_memcpy(op, ip, 16);
                 ip += ll; op += ll;
             }
 
             /* get offset */
-            offset = LZ4_fastReadLE16(ip); ip+=2;
+            offset = LZ4_readLE16(ip); ip+=2;
             DEBUGLOG(6, "blockPos%6u: offset = %u", (unsigned)(op-(BYTE*)dst), (unsigned)offset);
             match = op - offset;
             assert(match <= op);  /* overflow check */
@@ -2334,7 +2289,16 @@ LZ4_decompress_generic(
                 assert(match >= lowPrefix);
                 assert(match <= op);
                 assert(op + 18 <= oend);
-                LZ4_fastCopy18(op, match);
+#if defined(__SAFE_C__)
+                /* In 64 KB prefix mode the bytes before dst are the caller's
+                   promise: check match against dst's real lower bound. (The
+                   other modes test match >= lowPrefix above.) */
+                if (dict == withPrefix64k && match < (const BYTE*)__ptr_lower_bound(op))
+                    __builtin_trap();
+#endif
+                LZ4_memcpy(op, match, 8);
+                LZ4_memcpy(op+8, match+8, 8);
+                LZ4_memcpy(op+16, match+16, 2);
                 op += ml;
                 continue;
             }

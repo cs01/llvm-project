@@ -160,11 +160,17 @@ char *getenv(const char *__null_terminated);
 #endif
 
 /* _No_bounds_checks on an `__unsafe` function: compiled without run-time
-   bounds checks, for an audited hot loop whose own tests already keep every
+   bounds, null and integer checks, for an audited hot loop whose own tests already keep every
    access in bounds (say which, in a comment). Use as a last resort for speed;
    the compiler should remove such checks itself. */
 #if defined(__SAFE_C__)
-#define _No_bounds_checks __attribute__((annotate("safec_no_bounds_checks")))
+/* Also the trap checks -fsafe-c adds for null dereference and integer UB:
+   the same audited promise covers them. */
+#define _No_bounds_checks                                                      \
+  __attribute__((annotate("safec_no_bounds_checks"),                          \
+                 no_sanitize("null", "signed-integer-overflow",              \
+                             "shift-exponent", "integer-divide-by-zero",     \
+                             "vla-bound")))
 #else
 #define _No_bounds_checks
 #endif

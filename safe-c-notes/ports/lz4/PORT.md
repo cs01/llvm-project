@@ -105,28 +105,26 @@ random truncation and capacity) under Safe C -O2: no trap. A caller that lies ab
 | port, Safe C | 770 to 786 | 3469 to 3620 | 82,654 |
 
 Those were the numbers before the changes below. Now (2026-11-24, same input, best of
-5): Apple clang compress 908 MB/s, decompress 5816 MB/s; Safe C compress 865 MB/s
-(0.95x), decompress 5326 to 5398 MB/s (0.92x to 0.93x).
+10, runs interleaved): Apple clang compress 917 MB/s, decompress 5814 MB/s; Safe C
+compress 917 MB/s (1.00x), decompress 5921 MB/s (1.02x, within noise). Same speed.
 
 **Where the time went** (a SIGPROF sampling profiler inside the process; lines from this
 tree's `dsymutil` and `llvm-symbolizer`): bounds checks on nearly every access in the
-compress and decompress cores, nine compare-and-branch checks per fixed-size copy.
+compress and decompress cores (nine compare-and-branch checks per fixed-size copy), and
+`-fsafe-c`'s null and integer trap checks on every dereference.
 
-**What changed:**
-- `LZ4_AUDITED` (`__unsafe _No_bounds_checks`) on the two cores and the memory
-  primitives they inline: compiled without run-time bounds checks. The audit argument is
-  in the comment above its definition in `lz4.c`: lz4 checks every access itself, and Safe
-  C still checks every call into these functions against the buffers' sizes.
-- `LZ4_fastCopy16`/`LZ4_fastCopy18`/`LZ4_fastReadLE16` in the fast decode loop, each
-  naming the loop check that keeps it in bounds.
+**What changed:** `LZ4_AUDITED` (`__unsafe _No_bounds_checks`) on the two cores and the
+memory primitives they inline: compiled without run-time bounds, null and integer trap
+checks. The audit argument is in the comment above its definition in `lz4.c`: lz4 checks
+every access itself (it is built to be safe on any input, and fuzzed upstream), and Safe C
+still checks every call into these functions against the buffers' sizes. One check stays
+inside: in 64 KB prefix mode a match's lower bound is the caller's promise, so it is
+checked against the destination's real lower bound (free in the other modes, where `dict`
+is a constant).
 
-**What is left:** the profile of the Safe C build now matches the plain build line for
-line; the remaining 5 to 8% is the cost of carrying bounds with every pointer (three
-words instead of one) through the audited code, not checks.
-
-**TODO (compiler):** remove checks implied by a loop guard (ConstraintElimination: relate
-a pointer difference to a pointer compare, and know a forward-only pointer stays above
-its start), then drop `LZ4_AUDITED`. And let audited code use single-word pointers.
+**TODO (compiler):** remove checks a loop guard already implies (ConstraintElimination:
+relate a pointer difference to a pointer compare; know a forward-only pointer stays above
+its start), then drop `LZ4_AUDITED` and measure again.
 
 ## Compiler gaps, by how much fixing them would help
 
