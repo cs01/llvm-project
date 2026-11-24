@@ -1699,6 +1699,16 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     }
   }
 
+  // Safe C: an enum can hold a value no enumerator names, so a switch over
+  // all of them can still fall off the end; the caller must not get garbage.
+  if (getLangOpts().SafeC && !getLangOpts().CPlusPlus &&
+      !FD->hasImplicitReturnZero() && !SawAsmBlock &&
+      !FD->getReturnType()->isVoidType() && Builder.GetInsertBlock()) {
+    EmitTrapCall(llvm::Intrinsic::trap);
+    Builder.CreateUnreachable();
+    Builder.ClearInsertionPoint();
+  }
+
   // Emit the standard function epilogue.
   FinishFunction(BodyRange.getEnd());
 

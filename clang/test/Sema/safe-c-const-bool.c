@@ -17,6 +17,6 @@ void f(const char *__null_terminated s, int *raw, struct Flags *fl, int *const *
   int **q = (int **)pp;               // expected-error {{removes 'const'}} expected-error {{can treat memory as the wrong type}} expected-error {{points to a place that holds a borrow}}
   const int *ok = (const int *)raw;   // adding const is fine
   _Bool *b = (_Bool *)raw;            // expected-error {{can treat memory as the wrong type}}
-  memcpy(fl, raw, sizeof *raw);       // expected-error {{can forge a pointer}}
+  memcpy(fl, raw, sizeof *raw);       // expected-error {{copied or cleared only whole}}
   (void)p; (void)w; (void)q; (void)ok; (void)b;
 }

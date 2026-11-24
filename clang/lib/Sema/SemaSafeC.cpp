@@ -367,6 +367,42 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "be checked; use a checked function ('snprintf', 'fread', 'strtol'), or "
      "write one wrapper for it that checks its sizes, with the call itself in "
      "'__unsafe'"},
+    {"builtin-unchecked-name", false,
+     "'%0' is a compiler builtin that accesses memory without any check; use "
+     "'<stdatomic.h>' operations on an '_Atomic' object"},
+    {"tag-init-unknown", false,
+     "the tag %0 is known only at run time, so the member initialized beside "
+     "it may be the wrong one; set them together in a branch for each value"},
+    {"tag-unpaired", false,
+     "after this the tag %0 says one member is live while the union still "
+     "holds another's bytes; assign a constant tag, and make the very next "
+     "statement write the member it selects, in the same object"},
+    {"partial-pointer", false,
+     "%0 holds pointers, so it is copied or cleared only whole: the size must "
+     "be 'n * sizeof' of it"},
+    {"drop-type", false,
+     "'_Drop_free' frees what %0 holds, so %0 must be a pointer to memory from "
+     "the allocator; use '_Drop(function)' with the function that closes it"},
+    {"const-search", false,
+     "%0 drops the 'const' of what it searches, so this could write memory "
+     "that must not change; keep the result in a 'const' pointer"},
+    {"drop-return", false,
+     "%0 is cleaned up as this function returns, so the copy returned would "
+     "hold freed memory; return a variable without '_Drop'"},
+    {"literal-move", false,
+     "moving %0 into a literal or nested initializer by name leaves %0 still "
+     "pointing at it; write '_Take(%0)'"},
+    {"helper-place", false,
+     "which object this call's result reaches cannot be told, so what borrows "
+     "it would not end; name the object directly"},
+    {"library-field", false,
+     "the fields of %0 belong to the library; use its functions"},
+    {"atomic-cast", false,
+     "a pointer to an '_Atomic' object used as a plain pointer makes "
+     "unsynchronized accesses; keep the '_Atomic' type"},
+    {"guarded-address", false,
+     "%0 is guarded by a lock, and a pointer to it kept here could be used "
+     "without the lock; pass '&%0' directly to the function that needs it"},
     {"owned-in-union", false,
      "%0 is an '_Owned' member of an untagged union, so another member could "
      "read and free the same pointer; tag the union ('_Tagged_by', '_When'), "
@@ -1310,9 +1346,46 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
       S.SafeCDiag(Bad->getExprLoc(), "give-not-owner-here");
   }
 
+  /// `char *t = strchr(constant, 'x')`.
+  void checkConstSearch(const Expr *Src) {
+    const auto *Call =
+        dyn_cast<CallExpr>(lifetimes::safeCPeel(Src)->IgnoreParenCasts());
+    const FunctionDecl *F = Call ? Call->getDirectCallee() : nullptr;
+    if (!F || !F->isExternC() || !F->getIdentifier() ||
+        !llvm::is_contained({"strchr", "strrchr", "strstr", "strpbrk", "memchr",
+                             "strcasestr", "strnstr", "index", "rindex"},
+                            F->getName()))
+      return;
+    const Expr *A = Call->getArg(0);
+    for (;;) {
+      A = lifetimes::safeCPeel(A)->IgnoreParens();
+      if (const auto *PPE = dyn_cast<BoundsSafetyPointerPromotionExpr>(A))
+        A = PPE->getPointer();
+      else if (const auto *T = dyn_cast<TerminatedByFromIndexableExpr>(A))
+        A = T->getPointer();
+      else
+        break;
+    }
+    QualType T = A->getType();
+    QualType Elem = T->isPointerType() ? T->getPointeeType()
+                    : T->isArrayType()
+                        ? QualType(T->getPointeeOrArrayElementType(), 0)
+                        : QualType();
+    bool Const = !Elem.isNull() && (Elem.isConstQualified() ||
+                                    T.isConstQualified() ||
+                                    isa<StringLiteral>(A));
+    if (const auto *AT = T->getAsArrayTypeUnsafe())
+      Const |= AT->getElementType().isConstQualified();
+    if (Const)
+      S.SafeCDiag(Call->getExprLoc(), "const-search") << F;
+  }
+
   void checkStore(const ValueDecl *Dst, const Expr *Src, SourceLocation Loc) {
     if (!Dst)
       return;
+    if (Dst->getType()->isPointerType() &&
+        !Dst->getType()->getPointeeType().isConstQualified())
+      checkConstSearch(Src);
     if (Dst->getType()->isPointerType() && isOwnedStorage(Dst) &&
         !isa<ParmVarDecl>(Dst) && isOwnedSource(S.Context, Src))
       checkGive(Src);
@@ -1401,6 +1474,64 @@ public:
     return true;
   }
 
+  bool VisitAtomicExpr(AtomicExpr *E) {
+    if (E->getOpAsString().starts_with("__atomic_") ||
+        E->getOpAsString().starts_with("__scoped_"))
+      S.SafeCDiag(E->getExprLoc(), "builtin-unchecked-name")
+          << E->getOpAsString();
+    return true;
+  }
+  /// `(struct s){q}` and `{{q}}`: the analysis follows a move by name only in
+  /// an initializer's own fields.
+  void checkLiteralMoves(const InitListExpr *ILE) {
+    if (const InitListExpr *Sem = ILE->getSemanticForm())
+      ILE = Sem;
+    for (const Expr *I : ILE->inits()) {
+      if (!I)
+        continue;
+      if (const auto *N = dyn_cast<InitListExpr>(I->IgnoreParenImpCasts())) {
+        checkLiteralMoves(N);
+        continue;
+      }
+      const auto *DRE = dyn_cast<DeclRefExpr>(lifetimes::safeCPeel(I));
+      const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+      if (VD && VD->getType()->isPointerType() && VD->hasLocalStorage() &&
+          safeCPointerKind(I->getType()) == "owned")
+        S.SafeCDiag(I->getExprLoc(), "literal-move") << VD->getName();
+    }
+  }
+  bool VisitCompoundLiteralExpr(CompoundLiteralExpr *E) {
+    if (const auto *ILE = dyn_cast<InitListExpr>(E->getInitializer()))
+      checkLiteralMoves(ILE);
+    return true;
+  }
+  static bool callInPlace(const Expr *E) {
+    while (true) {
+      E = lifetimes::safeCPeel(E)->IgnoreParenCasts();
+      if (const auto *ME = dyn_cast<MemberExpr>(E))
+        E = ME->getBase();
+      else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
+        E = ASE->getBase();
+      else if (const auto *UO = dyn_cast<UnaryOperator>(E);
+               UO && (UO->getOpcode() == UO_Deref || UO->getOpcode() == UO_AddrOf))
+        E = UO->getSubExpr();
+      else
+        // (A call with no pointer argument reaches nothing a local borrows
+        // from, globals aside, which such a call ends.)
+        return isa<ConditionalOperator, StmtExpr>(E) ||
+               (isa<CallExpr>(E) &&
+                llvm::any_of(cast<CallExpr>(E)->arguments(), [](const Expr *A) {
+                  return A->getType()->isAnyPointerType();
+                }));
+    }
+  }
+  bool VisitMemberExprFields(MemberExpr *E) {
+    const auto *F = dyn_cast<FieldDecl>(E->getMemberDecl());
+    if (F && isLibraryHandle(S.Context.getCanonicalTagType(F->getParent())) &&
+        !S.getSourceManager().isInSystemMacro(E->getExprLoc()))
+      S.SafeCDiag(E->getExprLoc(), "library-field") << F->getParent();
+    return true;
+  }
   bool VisitBlockExpr(BlockExpr *E) {
     S.SafeCDiag(E->getExprLoc(), "block");
     return true;
@@ -1437,6 +1568,7 @@ public:
       checkSlotValue(Call);
   }
   bool VisitMemberExpr(MemberExpr *E) {
+    VisitMemberExprFields(E);
     if (E->isArrow())
       checkSlotCall(E->getBase());
     return true;
@@ -1513,6 +1645,20 @@ public:
     F.C = this;
     F.TraverseStmt(const_cast<Stmt *>(Body));
   }
+  bool VisitGuardedAddress(UnaryOperator *UO) {
+    if (UO->getOpcode() != UO_AddrOf)
+      return true;
+    collectVoid();
+    const Expr *E = UO->getSubExpr()->IgnoreParens();
+    const ValueDecl *D = nullptr;
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
+      D = DRE->getDecl();
+    else if (const auto *ME = dyn_cast<MemberExpr>(E))
+      D = ME->getMemberDecl();
+    if (D && D->hasAttr<GuardedByAttr>() && !VoidOk.contains(UO))
+      S.SafeCDiag(UO->getOperatorLoc(), "guarded-address") << D->getName();
+    return true;
+  }
   bool isLibraryHandle(QualType T) {
     const RecordDecl *RD = T->getAsRecordDecl();
     return RD && S.getSourceManager().isInSystemHeader(RD->getLocation()) &&
@@ -1521,6 +1667,13 @@ public:
                               RD->getName());
   }
   bool VisitCastExpr(CastExpr *C) {
+    if (QualType From = C->getSubExpr()->getType();
+        C->getCastKind() == CK_BitCast && From->isPointerType() &&
+        From->getPointeeType()->isAtomicType() &&
+        C->getType()->isPointerType() &&
+        !C->getType()->getPointeeType()->isAtomicType() &&
+        !C->getType()->isVoidPointerType())
+      S.SafeCDiag(C->getExprLoc(), "atomic-cast");
     // `FILE *f = malloc(...)`: nothing but the library makes a FILE.
     if (C->getType()->isPointerType() &&
         isLibraryHandle(C->getType()->getPointeeType()) &&
@@ -1547,6 +1700,27 @@ public:
   }
 
   bool VisitVarDecl(VarDecl *VD) {
+    if (VD->hasAttr<CleanupAttr>()) {
+      if (isDropFree(VD) &&
+          (!VD->getType()->isPointerType() ||
+           isLibraryHandle(VD->getType()->getPointeeType())))
+        S.SafeCDiag(VD->getLocation(), "drop-type") << VD;
+    }
+    if (const auto *ILE =
+            VD->getInit()
+                ? dyn_cast<InitListExpr>(VD->getInit()->IgnoreParenImpCasts())
+                : nullptr) {
+      const InitListExpr *Sem =
+          ILE->getSemanticForm() ? ILE->getSemanticForm() : ILE;
+      // (A struct's own fields are followed, unless it is cleaned up.)
+      if (VD->hasAttr<CleanupAttr>())
+        checkLiteralMoves(Sem);
+      else
+        for (const Expr *I : Sem->inits())
+          if (const auto *N =
+                  I ? dyn_cast<InitListExpr>(I->IgnoreParenImpCasts()) : nullptr)
+            checkLiteralMoves(N);
+    }
     if (VD->isLocalVarDecl() && isBorrowSlotPtr(VD->getType()))
       S.SafeCDiag(VD->getLocation(), "borrow-slot") << 0 << VD;
     if (const Expr *Init = VD->getInit(); Init && !isa<InitListExpr>(Init))
@@ -1631,6 +1805,7 @@ public:
         isBorrowSlotPtr(UO->getSubExpr()->getType()))
       checkSlotValue(UO);
     StringRef Tag;
+    VisitGuardedAddress(UO);
     if (UO->getOpcode() == UO_AddrOf || UO->isIncrementDecrementOp())
       if (const auto *ME = dyn_cast<MemberExpr>(UO->getSubExpr()->IgnoreParens()))
         if (const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl());
@@ -1651,6 +1826,11 @@ public:
   }
 
   bool VisitReturnStmt(ReturnStmt *RS) {
+    if (const Expr *V = RS->getRetValue())
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(V->IgnoreParenImpCasts()))
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+            VD && VD->hasAttr<CleanupAttr>() && VD->getType()->isRecordType())
+          S.SafeCDiag(V->getExprLoc(), "drop-return") << VD;
     if (const Expr *V = RS->getRetValue())
       if (const FunctionDecl *F = S.getCurFunctionDecl())
         if (llvm::any_of(F->specific_attrs<OwnershipAttr>(),
@@ -1775,7 +1955,8 @@ public:
           QualType T = VD->getType();
           bool OK = T.isConstQualified() || T->isAtomicType() ||
                     (T.isVolatileQualified() && T->isIntegerType()) ||
-                    VD->getTLSKind() != VarDecl::TLS_None;
+                    (VD->getTLSKind() != VarDecl::TLS_None &&
+                     !lifetimes::safeCReachesOwner(VD->getType()));
           if (!OK) {
             Found = VD;
             Use = DRE;
@@ -1838,6 +2019,17 @@ public:
         S.SafeCDiag(E->getExprLoc(), "borrow-slot-value");
     }
     checkGlobalLent(Call);
+    // `_Take(id(&s)->p)`, `del(id(&s))`: whose borrows end?
+    if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
+        Call->getNumArgs() == 1 && callInPlace(Call->getArg(0)))
+      S.SafeCDiag(Call->getArg(0)->getExprLoc(), "helper-place");
+    if (const FunctionDecl *F = Call->getDirectCallee())
+      for (unsigned I = 0, N = std::min(Call->getNumArgs(), F->getNumParams());
+           I != N; ++I)
+        if (lifetimes::safeCParamDeclKind(F->getParamDecl(I)) == "excl" &&
+            reachesOwner(F->getParamDecl(I)->getType()->getPointeeType()) &&
+            callInPlace(Call->getArg(I)))
+          S.SafeCDiag(Call->getArg(I)->getExprLoc(), "helper-place");
     // FILE and DIR are the library's: never freed as memory, never allocated.
     if (const FunctionDecl *F = Call->getDirectCallee();
         F && F->isExternC() && F->getIdentifier() && Call->getNumArgs() >= 1 &&
@@ -2340,9 +2532,12 @@ static bool sameFacts(const TagFacts &A, const TagFacts &B) {
 static void checkTagInits(Sema &S, const DeclStmt *DS) {
   for (const Decl *D : DS->decls()) {
     const auto *VD = dyn_cast<VarDecl>(D);
-    const auto *ILE = VD && VD->getInit() ? dyn_cast<InitListExpr>(
-                                                VD->getInit()->IgnoreParenImpCasts())
-                                          : nullptr;
+    const Expr *VInit = VD && VD->getInit()
+                            ? VD->getInit()->IgnoreParenImpCasts()
+                            : nullptr;
+    if (const auto *CLE = dyn_cast_or_null<CompoundLiteralExpr>(VInit))
+      VInit = CLE->getInitializer()->IgnoreParenImpCasts();
+    const auto *ILE = dyn_cast_or_null<InitListExpr>(VInit);
     const RecordDecl *RD = VD ? VD->getType()->getAsRecordDecl() : nullptr;
     if (!ILE || !RD)
       continue;
@@ -2364,6 +2559,13 @@ static void checkTagInits(Sema &S, const DeclStmt *DS) {
         TagF = F;
         TagV = Init->getIntegerConstantExpr(S.Context);
       }
+    if (TagF && !TagV)
+      // A tag known only at run time, with a member written beside it.
+      for (auto [F, Init] : Inits)
+        if (Init && taggedByName(F->getType()) == TagF->getName() &&
+            isa<InitListExpr>(Init->IgnoreParenImpCasts()) &&
+            !isa<ImplicitValueInitExpr>(Init))
+          S.SafeCDiag(Init->getBeginLoc(), "tag-init-unknown") << TagF;
     if (!TagF || !TagV)
       continue;
     for (auto [F, Init] : Inits) {
@@ -2396,14 +2598,111 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
   // Quick exit: no member of a tagged union is named in this body.
   struct Finder : RecursiveASTVisitor<Finder> {
     bool Any = false;
+    Sema *S = nullptr;
+    // `t.k = V;` is followed at once by a write of the member V selects:
+    // until then whoever is given t trusts a tag that does not match.
+    llvm::SmallPtrSet<const Expr *, 8> Paired;
+    static const Expr *bare(const Stmt *St) {
+      const auto *E = dyn_cast_or_null<Expr>(St);
+      while (E) {
+        E = E->IgnoreParenImpCasts();
+        if (const auto *M = dyn_cast<MaterializeSequenceExpr>(E))
+          E = M->getWrappedExpr();
+        else if (const auto *B = dyn_cast<BoundsCheckExpr>(E))
+          E = B->getGuardedExpr();
+        else if (const auto *C = dyn_cast<ExprWithCleanups>(E))
+          E = C->getSubExpr();
+        else
+          break;
+      }
+      return E;
+    }
+    static const MemberExpr *tagWrite(const Stmt *St, const BinaryOperator *&BO) {
+      BO = dyn_cast_or_null<BinaryOperator>(bare(St));
+      if (!BO || BO->getOpcode() != BO_Assign)
+        return nullptr;
+      const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens());
+      const auto *F = ME ? dyn_cast<FieldDecl>(ME->getMemberDecl()) : nullptr;
+      return F && isTagField(F) ? ME : nullptr;
+    }
+    // The union tagged by F, when some member holds pointers.
+    static const RecordDecl *unionOf(const FieldDecl *F) {
+      for (const FieldDecl *U : F->getParent()->fields())
+        if (taggedByName(U->getType()) == F->getName())
+          return U->getType()->getAsRecordDecl();
+      return nullptr;
+    }
+    bool matches(const MemberExpr *Tag, const BinaryOperator *BO,
+                 const Stmt *Next) {
+      const auto *TF = cast<FieldDecl>(Tag->getMemberDecl());
+      const RecordDecl *U = unionOf(TF);
+      if (!U)
+        return true;
+      bool Pointers = false;
+      for (const FieldDecl *M : U->fields())
+        Pointers |= !S->isSafeCPlainData(S->Context, M->getType(), true);
+      if (!Pointers)
+        return true;
+      auto V = BO->getRHS()->getIntegerConstantExpr(S->Context);
+      if (!V)
+        return false;
+      llvm::SmallPtrSet<const FieldDecl *, 4> Live;
+      whenValues(S->Context, U,
+                 [&](const FieldDecl *M, llvm::APSInt W, SourceLocation) {
+                   if (llvm::APSInt::isSameValue(W, *V))
+                     Live.insert(M);
+                 });
+      if (Live.empty())
+        return true; // a value with no member: nothing can be read
+      const auto *W = dyn_cast_or_null<BinaryOperator>(bare(Next));
+      if (!W || W->getOpcode() != BO_Assign)
+        return false;
+      const auto *ME = dyn_cast<MemberExpr>(W->getLHS()->IgnoreParens());
+      if (!ME || !Live.contains(dyn_cast<FieldDecl>(ME->getMemberDecl())))
+        return false;
+      // The same object: `b.k = ..; b.u.p = ..` or through an anonymous union.
+      const Expr *Base = ME->getBase()->IgnoreParenImpCasts();
+      if (const auto *UM = dyn_cast<MemberExpr>(Base);
+          UM && UM->getType()->getAsRecordDecl() == U) {
+        Base = UM->getBase()->IgnoreParenImpCasts();
+      }
+      std::string A, B;
+      llvm::raw_string_ostream OA(A), OB(B);
+      Base->printPretty(OA, nullptr, S->getPrintingPolicy());
+      Tag->getBase()->IgnoreParenImpCasts()->printPretty(
+          OB, nullptr, S->getPrintingPolicy());
+      return A == B && !Base->HasSideEffects(S->Context);
+    }
+    bool VisitCompoundStmt(CompoundStmt *CS) {
+      for (auto I = CS->body_begin(), E = CS->body_end(); I != E; ++I) {
+        const BinaryOperator *BO;
+        if (const MemberExpr *T = tagWrite(*I, BO))
+          if (matches(T, BO, std::next(I) == E ? nullptr : *std::next(I)))
+            Paired.insert(BO);
+      }
+      return true;
+    }
+    bool VisitBinaryOperator(BinaryOperator *BO) {
+      const BinaryOperator *Same;
+      const MemberExpr *T = tagWrite(BO, Same);
+      if (T && Same == BO && !Paired.contains(BO) && !matches(T, BO, nullptr))
+        S->SafeCDiag(BO->getOperatorLoc(), "tag-unpaired") << T->getMemberDecl();
+      return true;
+    }
+    // Initializers are checked whether or not a member is named later.
+    bool VisitDeclStmt(DeclStmt *DS) {
+      checkTagInits(*S, DS);
+      return true;
+    }
     bool VisitMemberExpr(MemberExpr *ME) {
       if (const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl()))
         if (const RecordDecl *P = F->getParent(); P && P->isUnion() &&
             getSafeCAnnotation(P, "safec_tagged_by"))
           Any = true;
-      return !Any;
+      return true;
     }
   } Find;
+  Find.S = &S;
   Find.TraverseStmt(Body);
   if (!Find.Any)
     return;
@@ -2471,7 +2770,7 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
       const Stmt *St = CS->getStmt();
       if (Report)
         if (const auto *DS = dyn_cast<DeclStmt>(St))
-          checkTagInits(S, DS);
+          (void)DS;
       {
         if (const auto *ME = dyn_cast<MemberExpr>(St)) {
           const auto *M = dyn_cast<FieldDecl>(ME->getMemberDecl());

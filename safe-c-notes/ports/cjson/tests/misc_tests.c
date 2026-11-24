@@ -722,6 +722,7 @@ static void cjson_delete_item_from_array_should_not_broken_list_structure(void)
 
 static void cjson_set_valuestring_to_object_should_not_leak_memory(void)
 {
+    cJSON *found = NULL;
     cJSON *root = cJSON_Parse("{}");
     const char *stringvalue = "valuestring could be changed safely";
     const char *reference_valuestring = "reference item should be freed by yourself";
@@ -739,19 +740,22 @@ static void cjson_set_valuestring_to_object_should_not_leak_memory(void)
 
     TEST_ASSERT_NOT_NULL(item1);
     ptr1 = item1->valuestring;
-    return_value = cJSON_SetValuestring(cJSON_GetObjectItem(root, "one"), short_valuestring);
+    found = cJSON_GetObjectItem(root, "one");
+    return_value = cJSON_SetValuestring(found, short_valuestring);
     TEST_ASSERT_NOT_NULL(return_value);
     TEST_ASSERT_EQUAL_PTR_MESSAGE(ptr1, return_value, "new valuestring shorter than old should not reallocate memory");
     TEST_ASSERT_EQUAL_STRING(short_valuestring, cJSON_GetStringValue(cJSON_GetObjectItem(root, "one")));
 
     /* we needn't to free the original valuestring manually */
     ptr1 = item1->valuestring;
-    return_value = cJSON_SetValuestring(cJSON_GetObjectItem(root, "one"), long_valuestring);
+    found = cJSON_GetObjectItem(root, "one");
+    return_value = cJSON_SetValuestring(found, long_valuestring);
     TEST_ASSERT_NOT_NULL(return_value);
     TEST_ASSERT_NOT_EQUAL_MESSAGE(ptr1, return_value, "new valuestring longer than old should reallocate memory")
     TEST_ASSERT_EQUAL_STRING(long_valuestring, cJSON_GetStringValue(cJSON_GetObjectItem(root, "one")));
 
-    return_value = cJSON_SetValuestring(cJSON_GetObjectItem(root, "two"), long_valuestring);
+    found = cJSON_GetObjectItem(root, "two");
+    return_value = cJSON_SetValuestring(found, long_valuestring);
     TEST_ASSERT_NULL_MESSAGE(return_value, "valuestring of reference object should not be changed");
     TEST_ASSERT_EQUAL_STRING(reference_valuestring, cJSON_GetStringValue(cJSON_GetObjectItem(root, "two")));
 

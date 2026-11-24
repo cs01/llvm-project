@@ -46,6 +46,8 @@ std::vector<std::pair<std::string, std::string>>
 safeCPointedStructs(const ValueDecl *VD);
 /// Whether a call may read or change this program's globals (rule 14).
 bool safeCMayTouchGlobals(const CallExpr *CE, const SourceManager &SM);
+bool safeCFunctionTouchesGlobals(const FunctionDecl *FD,
+                                 const SourceManager &SM);
 /// Whether a value of type T holds an owned pointer (opaque structs: assumed).
 bool safeCReachesOwner(QualType T, unsigned Depth = 0);
 /// The variable a borrow local is rooted at (`q` from `q = x->p` is x),

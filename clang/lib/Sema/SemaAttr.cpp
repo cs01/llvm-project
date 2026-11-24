@@ -249,6 +249,15 @@ void Sema::inferLifetimeBoundAttribute(FunctionDecl *FD) {
   // _Lifetimebound. Owners, _Static and _Unchecked pointers, function
   // pointers and functions returning new memory are not borrows. System
   // headers keep their declared meaning.
+  // The C library's searches return a pointer into their first argument.
+  if (getLangOpts().SafeC && FD->isExternC() && FD->getIdentifier() &&
+      llvm::is_contained({"strchr", "strrchr", "strstr", "strpbrk", "memchr",
+                          "strcasestr", "strnstr", "index", "rindex",
+                          "strchrnul", "memmem", "readdir"},
+                         FD->getName()) &&
+      !FD->getParamDecl(0)->hasAttr<LifetimeBoundAttr>())
+    FD->getParamDecl(0)->addAttr(
+        LifetimeBoundAttr::CreateImplicit(Context, FD->getLocation()));
   if (getLangOpts().SafeC &&
       !SourceMgr.isInSystemHeader(FD->getLocation())) {
     auto Borrowed = [](QualType T) {

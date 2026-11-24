@@ -137,7 +137,7 @@ int alias_write(void) {
   struct value *q = &x;
   if (x.is_ptr != 1)
     return 0;
-  q->is_ptr = 0;
+  q->is_ptr = 0; // expected-error {{after this the tag}}
   return *x.p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
 }
 void clobber(struct value *w);

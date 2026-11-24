@@ -16,7 +16,7 @@ static const int one = 1;
 
 int after_test(void) {
   struct T t = {.k = I, .i = 0x41414141};
-  t.k = P;
+  t.k = P; // expected-error {{after this the tag}}
   if (t.k == P)
     return *t.p; // expected-error {{the tag 'k' now names 'p', but 'p' has not been written since the tag changed}}
   return 0;
@@ -25,7 +25,7 @@ int after_test(void) {
 int after_call(void) {
   struct T t = {.k = I, .i = 0x41414141};
   take(&t);
-  t.k = P;
+  t.k = P; // expected-error {{after this the tag}}
   g();
   if (t.k == P)
     return *t.p; // expected-error {{has not been written since the tag changed}}
@@ -35,7 +35,7 @@ int after_call(void) {
 int after_join(int c) {
   struct T t = {.k = I, .i = 0x41414141};
   if (c)
-    t.k = P;
+    t.k = P; // expected-error {{after this the tag}}
   if (t.k == P)
     return *t.p; // expected-error {{has not been written since the tag changed}}
   return 0;

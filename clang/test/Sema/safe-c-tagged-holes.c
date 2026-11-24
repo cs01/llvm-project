@@ -17,7 +17,7 @@ static int gx = 5;
 int h06(void) {
   struct T t = {.k = I, .i = 0};
   t.i = 0x41414141;
-  t.k = P;
+  t.k = P; // expected-error {{after this the tag}}
   return *t.p; // expected-error {{the tag 'k' now names 'p', but 'p' has not been written since the tag changed, so the union still holds another member's bytes; write 'p' first}}
 }
 int h06_ok(void) {
@@ -30,7 +30,7 @@ int h06_ok(void) {
 int h07(int j) {
   struct T a[2] = {{.k = P, .p = &gx}, {.k = P, .p = &gx}};
   if (a[0].k == P) {
-    a[j].k = I;
+    a[j].k = I; // expected-error {{after this the tag}}
     return *a[0].p; // expected-error {{'p' is reached through something whose tag cannot be followed here (an array element or a call result); take a pointer to the struct first}}
   }
   return 0;

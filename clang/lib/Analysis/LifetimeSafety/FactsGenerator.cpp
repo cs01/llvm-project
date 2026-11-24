@@ -1874,6 +1874,14 @@ void FactsGenerator::handleLifetimeEnds(const CFGLifetimeEnds &LifetimeEnds) {
                              HasCleanup ? UseKind::Cleanup
                                         : UseKind::Destructor),
           List));
+  // A cleanup function is a call made here: it may change globals.
+  if (const auto *A = LifetimeEndsVD->getAttr<CleanupAttr>();
+      A && A->getFunctionDecl() && safeCOwnershipOn(AC.getASTContext()) &&
+      isa<FunctionDecl>(AC.getDecl()) &&
+      safeCFunctionTouchesGlobals(A->getFunctionDecl(),
+                                  AC.getASTContext().getSourceManager()))
+    CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
+        safeCGlobalsInterior(AC.getDecl()), EndLoc));
   // Safe C: _Drop_free's cleanup frees what the pointer holds, so copies of
   // it made in the scope die here too. (The invalidation is reported at the
   // variable's initializer, which names what was freed.)
@@ -2512,4 +2520,10 @@ clang::lifetimes::safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
 bool clang::lifetimes::safeCMayTouchGlobals(const CallExpr *CE,
                                             const SourceManager &SM) {
   return internal::safeCCallTouchesGlobals(CE, SM, 0);
+}
+
+bool clang::lifetimes::safeCFunctionTouchesGlobals(const FunctionDecl *FD,
+                                                   const SourceManager &SM) {
+  return !SM.isInSystemHeader(FD->getCanonicalDecl()->getLocation()) &&
+         internal::safeCTouchesGlobals(FD, 0);
 }

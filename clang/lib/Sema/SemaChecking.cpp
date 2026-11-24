@@ -5107,7 +5107,8 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
           "va_copy"};
       static const llvm::StringSet<> Never = {
           "setvbuf", "setbuf", "setbuffer", "setlinebuf", "setenv", "putenv",
-          "unsetenv", "munmap", "mmap"};
+          "unsetenv", "munmap", "mmap", "strtok", "strtok_r", "strsep",
+          "strfmon", "strfmon_l", "poll", "getdelim", "vsprintf"};
       bool Bad = Never.contains(FD->getName());
       if (!Bad && !Checked.contains(FD->getName()))
         for (unsigned I = 0, N = std::min(FD->getNumParams(),
@@ -5198,6 +5199,14 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
              "__builtin_expect", "__builtin_prefetch", "__builtin_trap",
              "__builtin_unreachable", "__builtin_classify_type"},
             B);
+    // The fortified forms take sizes the headers work out; written by hand
+    // they say whatever the caller likes.
+    if (B.ends_with("_chk") &&
+        !S.getSourceManager().isInSystemHeader(
+            S.getSourceManager().getSpellingLoc(
+                TheCall->getCallee()->getExprLoc())) &&
+        !S.getSourceManager().isInSystemMacro(TheCall->getExprLoc()))
+      Known = false;
     if (!Known) {
       S.SafeCDiag(TheCall->getExprLoc(), "builtin-unchecked") << FD;
       return;
@@ -5267,6 +5276,31 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
     } else if (Name == "memset" || Name == "bzero" ||
                Name == "explicit_bzero" || Name == "memset_s") {
       Kind = Fill;
+    }
+    // Part of a pointer's bytes make a different pointer.
+    if ((Kind == Copy || Kind == Fill) && TheCall->getNumArgs() >= 2) {
+      const Expr *Size =
+          TheCall->getArg(Name == "bzero" || Name == "explicit_bzero"
+                              ? 1
+                              : TheCall->getNumArgs() > 2 ? 2 : 1);
+      uint64_t Elem = S.Context.getTypeSizeInChars(Dest).getQuantity();
+      std::function<bool(const Expr *)> Whole = [&](const Expr *E) {
+        E = E->IgnoreParenImpCasts();
+        if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E);
+            OVE && OVE->getSourceExpr())
+          return Whole(OVE->getSourceExpr());
+        Expr::EvalResult R;
+        if (E->EvaluateAsInt(R, S.Context))
+          return Elem != 0 && R.Val.getInt().getZExtValue() % Elem == 0;
+        if (const auto *BO = dyn_cast<BinaryOperator>(E);
+            BO && BO->getOpcode() == BO_Mul)
+          return Whole(BO->getLHS()) || Whole(BO->getRHS());
+        return false;
+      };
+      if (!Dest->isIncompleteType() && !Whole(Size)) {
+        S.SafeCDiag(Size->getExprLoc(), "partial-pointer") << Dest;
+        continue;
+      }
     }
     if (Kind == Copy && SrcArg >= 0 && unsigned(SrcArg) < N) {
       QualType Src = safeCOriginalPointee(TheCall->getArg(SrcArg));
