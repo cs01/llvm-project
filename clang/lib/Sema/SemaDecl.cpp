@@ -8027,7 +8027,8 @@ static QualType deduceBoundsSafetyFuncType(Sema &S, const FunctionDecl *Decl,
         deduceBoundsSafetyFuncType(S, Decl, AttrTy->getModifiedType());
     QualType EquivTy =
         deduceBoundsSafetyFuncType(S, Decl, AttrTy->getEquivalentType());
-    return S.Context.getAttributedType(AttrTy->getAttrKind(), ModTy, EquivTy);
+    return S.Context.getAttributedType(AttrTy->getAttrKind(), ModTy, EquivTy,
+                                       AttrTy->getAttr());
   }
 
   QualType NewRetTy = S.Context.getBoundsSafetyAutoPointerType(
@@ -11934,11 +11935,8 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   if (getLangOpts().SafeC) {
     SmallVector<ParamIdx, 2> Owned;
     for (unsigned I = 0, N = NewFD->getNumParams(); I != N; ++I)
-      for (const auto *A : NewFD->getParamDecl(I)->specific_attrs<AnnotateAttr>())
-        if (A->getAnnotation() == "safec_owned") {
-          Owned.push_back(ParamIdx(I + 1, NewFD));
-          break;
-        }
+      if (safeCPointerKind(NewFD->getParamDecl(I)->getType()) == "owned")
+        Owned.push_back(ParamIdx(I + 1, NewFD));
     if (!Owned.empty())
       NewFD->addAttr(OwnershipAttr::CreateImplicit(
           Context, &Context.Idents.get("malloc"), Owned.data(), Owned.size(),

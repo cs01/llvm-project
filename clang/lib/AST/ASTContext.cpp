@@ -3964,7 +3964,7 @@ QualType ASTContext::getBoundsSafetyPointerType(QualType PointerTy,
       auto QualsOnT = Ty.getQualifiers();
       auto QualsOnModifTy = AT->getModifiedType().getQualifiers();
       Ty = getAttributedType(AT->getAttrKind(), ModifiedTy,
-                             EquivalentTy);
+                             EquivalentTy, AT->getAttr());
 
       Qualifiers::removeCommonQualifiers(QualsOnT, QualsOnModifTy);
       if (!QualsOnT.empty()) {
@@ -4046,7 +4046,8 @@ QualType ASTContext::mergeBoundsSafetyPointerTypes(
     auto QualsOnT = DstTy.getQualifiers();
     auto QualsOnModifTy = AT->getModifiedType().getQualifiers();
     auto NewDstTy =
-        getAttributedType(AT->getAttrKind(), ModifiedTy, EquivalentTy);
+        getAttributedType(AT->getAttrKind(), ModifiedTy, EquivalentTy,
+                          AT->getAttr());
 
     Qualifiers::removeCommonQualifiers(QualsOnT, QualsOnModifTy);
     if (!QualsOnT.empty()) {
@@ -4150,7 +4151,8 @@ public:
     AutoPtrAttr = SavedAutoPtrAttr;
     QualType EquivalentTy = Visit(T->getEquivalentType());
     QualType NewTy =
-        Ctx.getAttributedType(T->getAttrKind(), ModifiedTy, EquivalentTy);
+        Ctx.getAttributedType(T->getAttrKind(), ModifiedTy, EquivalentTy,
+                              T->getAttr());
     return {NewTy, false};
   }
 

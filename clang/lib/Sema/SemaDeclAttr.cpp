@@ -6867,7 +6867,8 @@ public:
     if (NewModTy != T->getModifiedType()) {
       QualType NewEqTy = T->getModifiedType() != T->getEquivalentType() ?
         Visit(T->getEquivalentType()) : NewModTy;
-      return S.Context.getAttributedType(T->getAttrKind(), NewModTy, NewEqTy);
+      return S.Context.getAttributedType(T->getAttrKind(), NewModTy, NewEqTy,
+                                         T->getAttr());
     }
     return QualType(T, 0);
   }

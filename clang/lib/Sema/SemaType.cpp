@@ -11585,7 +11585,8 @@ QualType DropAutoNullTerminated(ASTContext &Ctx, QualType T) {
     }
     QualType EquivalentTy =
         DropPtrAutoNullTerminatedAttr(AT->getEquivalentType());
-    return Ctx.getAttributedType(AT->getAttrKind(), ModifiedTy, EquivalentTy);
+    return Ctx.getAttributedType(AT->getAttrKind(), ModifiedTy, EquivalentTy,
+                                 AT->getAttr());
   };
 
   return DropPtrAutoNullTerminatedAttr(T);

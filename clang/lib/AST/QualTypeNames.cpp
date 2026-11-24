@@ -422,7 +422,8 @@ QualType getFullyQualifiedType(QualType QT, const ASTContext &Ctx,
         getFullyQualifiedType(AT->getEquivalentType(), Ctx, WithGlobalNsPrefix);
     Qualifiers Qualifiers = QT.getLocalQualifiers();
     return Ctx.getQualifiedType(
-        Ctx.getAttributedType(AT->getAttrKind(), NewModified, NewEquivalent),
+        Ctx.getAttributedType(AT->getAttrKind(), NewModified, NewEquivalent,
+                              AT->getAttr()),
         Qualifiers);
   }
 
