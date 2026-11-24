@@ -24,6 +24,7 @@ lists only `propext`, `Classical.choice` and `Quot.sound`.
   `realloc`, stack scopes, globals and views, with its own soundness theorem
   (`own_sound`: no UB, so no use after free, double free or dangling stack
   access) and one counterexample per ownership rule. See `OWNERSHIP.md`.
+- `SafeC/Out.lean`, `SafeC/OutSound.lean`, `SafeC/OutHoles.lean`: out arguments and view arrays. See `OUTARGS.md`.
 
 ## What is modeled
 
