@@ -67,7 +67,7 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 |---|---|
 | Out of bounds | checked (compile time where provable, a trap otherwise) |
 | Null dereference | checked |
-| Uninitialized reads | locals must be set before use; heap memory is zero-filled (except the bytes `realloc` adds) |
+| Uninitialized reads | locals must be set before use; heap memory is zero-filled, except the bytes `realloc` adds (which may not hold pointers) |
 | Integer UB | division by zero and oversized shifts trap; signed overflow wraps (as in Rust release builds) |
 | Type confusion | unions holding pointers must be tagged unions, and every read checks the tag. A pointer to memory holding pointers may be a writable `void *` only in the call that needs one |
 | Use after free, double free | on by default, **not sound yet**: the common forms are caught, but not every path is tracked. Of 53 accepted programs with real bugs found on 2026-11-24, all are now rejected ([the open issues](safe-c-notes/review-2026-11-23.md)); a fresh search is expected to find more. A null check can also survive a call that clears the pointer through a global |

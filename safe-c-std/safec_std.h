@@ -329,10 +329,17 @@ static inline void lines_close(lines *_Exclusive it) {
     if ((v)->len == (v)->cap) {                                                \
       size_t safec_cap_ = (v)->cap ? 2 * (v)->cap : 4;                         \
       size_t safec_len_ = (v)->len;                                            \
-      __typeof__(*(v)->items) *_Nullable _Owned safec_new_ = realloc(          \
-          _Take((v)->items), safec_cap_ * sizeof(*(v)->items));                \
+      __typeof__(*(v)->items) *_Nullable _Owned safec_new_ =                   \
+          calloc(safec_cap_, sizeof(*(v)->items));                             \
       if (!safec_new_)                                                         \
         abort();                                                               \
+      /* unsafe: moves the elements (owners among them) byte for byte into the \
+         new zeroed block; the old one is freed without touching them */       \
+      if ((v)->items)                                                          \
+        __unsafe {                                                             \
+          memcpy(safec_new_, (v)->items, safec_len_ * sizeof(*(v)->items));    \
+        }                                                                      \
+      free(_Take((v)->items));                                                 \
       (v)->items = safec_new_;                                                 \
       (v)->cap = safec_cap_;                                                   \
       (v)->len = safec_len_;                                                   \

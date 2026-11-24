@@ -321,6 +321,18 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "into the middle of a block: keep the original pointer and give that "
      "away"},
     {"give-not-owner-here", true, "it may be this value instead"},
+    {"realloc-pointers", false,
+     "%0 holds pointers, and the memory 'realloc' adds is not zeroed, so its "
+     "pointers would be garbage; 'calloc' the larger array and move the "
+     "elements over ('_Take' each owned pointer)"},
+    {"owned-in-union", false,
+     "%0 is an '_Owned' member of an untagged union, so another member could "
+     "read and free the same pointer; tag the union ('_Tagged_by', '_When'), "
+     "or keep the owner outside it"},
+    {"wide-format", false,
+     "%0 is not checked: nothing compares its arguments with its format (wide "
+     "formats have no checking in the compiler); format with 'snprintf' and "
+     "convert, or pass the text to 'fputws'"},
     {"owned-param-stored", false,
      "%0 is owned by this function, which frees it or gives it on, but a "
      "borrow of it is stored where %1 points, so the caller could use it "
@@ -597,6 +609,12 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
           S.SafeCDiag(FD->getLocation(), "view-of-owner") << FD;
       return;
     }
+    if (RD->isUnion() &&
+        std::distance(RD->field_begin(), RD->field_end()) > 1)
+      for (const FieldDecl *FD : RD->fields())
+        if (getSafeCAnnotation(FD, "safec_when") == nullptr &&
+            lifetimes::safeCReachesOwner(FD->getType()))
+          S.SafeCDiag(FD->getLocation(), "owned-in-union") << FD;
     for (const FieldDecl *FD : RD->fields()) {
       if (holdsBorrow(FD->getType()) && !Kinded(FD))
         S.SafeCDiag(FD->getLocation(), "storage-borrow") << 0 << FD;

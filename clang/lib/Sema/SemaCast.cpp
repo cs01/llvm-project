@@ -4120,8 +4120,13 @@ void Sema::checkSafeCVoidPointerConversion(const Expr *Src, QualType DestTy,
                                          Expr::NPC_ValueDependentIsNotNull))
             return;
           if (const auto *OldPT = Old->getType()->getAs<PointerType>())
-            if (isSameTypeDeep(Context, OldPT->getPointeeType(), D))
+            if (isSameTypeDeep(Context, OldPT->getPointeeType(), D)) {
+              // The bytes realloc adds are whatever was there before: as
+              // pointers they would be forged ones.
+              if (!isSafeCPlainData(Context, D, /*VoidIsPlain=*/true))
+                SafeCDiag(CE->getExprLoc(), "realloc-pointers") << D;
               return;
+            }
           break;
         }
         default:

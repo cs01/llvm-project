@@ -5069,6 +5069,14 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
     S.SafeCDiag(TheCall->getExprLoc(), "wide-copy-unchecked") << FD;
     return;
   }
+  if (FD->isExternC() &&
+      llvm::is_contained({"wprintf", "fwprintf", "swprintf", "vwprintf",
+                          "vfwprintf", "vswprintf", "wscanf", "fwscanf",
+                          "swscanf", "vwscanf", "vfwscanf", "vswscanf"},
+                         Name)) {
+    S.SafeCDiag(TheCall->getExprLoc(), "wide-format") << FD;
+    return;
+  }
   // A sort moves elements of the size it is told: any other size than the
   // element's mixes the bytes of pointers.
   if (llvm::is_contained({"qsort", "qsort_r", "qsort_b", "mergesort",
