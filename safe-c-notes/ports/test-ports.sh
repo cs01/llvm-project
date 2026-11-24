@@ -57,6 +57,6 @@ for spec in "${configs[@]}"; do
   port=$here/jsmn; label=jsmn; lib=
   run "$name" "$cc" "$port"/test/tests.c
   port=$here/../../safe-c-std; label=std; lib=
-  run "$name" "$cc" "$port"/tests/*.c
+  run "$name" "$cc" "$port"/tests/*.c "$port"/examples/*.c
 done
 exit $fail

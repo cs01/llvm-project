@@ -69,6 +69,7 @@ pass their tests under Safe C, Apple clang and gcc. More in [results](safe-c-doc
 
 ## More
 
+- [Safe C for Rust programmers](safe-c-docs/for-rust-programmers.md): the map, and real errors
 - [What you annotate](safe-c-docs/annotations.md), with the Rust equivalent of each
 - [Examples](safe-c-docs/examples.md)
 - [Adopting it one file at a time](safe-c-docs/adoption.md)
