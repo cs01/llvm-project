@@ -206,6 +206,9 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 is a shared borrow, but this parameter is '_Excl': the callee may "
      "free or replace what it owns while the owner still uses it; pass the "
      "owner, or declare %0 '_Owned' (if it owns the object) or '_Excl'"},
+    {"outparam-local-type", true,
+     "the callee stores a pointer without bounds into %0, but a local "
+     "pointer carries them by default; declare it as '%1;'"},
     {"drop-store", false,
      "%0 is freed automatically when its scope ends, so it may only hold "
      "memory it owns; store an allocation, '_Take(...)' of an owner, or "

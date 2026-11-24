@@ -22784,6 +22784,35 @@ bool Sema::DiagnoseAssignmentResult(AssignConvertType ConvTy,
       ConvTy == AssignConvertType::IncompatiblePointer)
     ObjC().EmitRelatedResultTypeNoteForReturn(DstType);
 
+  // Safe C: `&local` passed where the callee stores a pointer of another
+  // kind (strtol's end pointer, pthread_create's thread): a local pointer
+  // carries bounds by default, so say which type to declare it with.
+  if (getLangOpts().SafeC && Action == AssignmentAction::Passing && SrcExpr)
+    if (const auto *UO = dyn_cast<UnaryOperator>(SrcExpr->IgnoreParenImpCasts());
+        UO && UO->getOpcode() == UO_AddrOf)
+      if (const auto *DRE =
+              dyn_cast<DeclRefExpr>(UO->getSubExpr()->IgnoreParenImpCasts()))
+        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+            VD && VD->isLocalVarDecl() && VD->getType()->isPointerType())
+          if (const auto *DPT = DstType->getAs<PointerType>();
+              DPT && DPT->getPointeeType()->isPointerType()) {
+            // The local as written (its typedef kept), plus the one keyword
+            // that makes it the kind the callee stores.
+            QualType Want = DPT->getPointeeType();
+            const char *Kind = "__single";
+            if (const auto *VT = Want->getAs<ValueTerminatedType>())
+              if (VT->getTerminatorValue(Context).isZero())
+                Kind = "__null_terminated";
+            std::string Written =
+                VD->getTypeSourceInfo()
+                    ? VD->getTypeSourceInfo()->getType().getAsString(
+                          getPrintingPolicy())
+                    : VD->getType().getAsString(getPrintingPolicy());
+            SafeCDiag(VD->getLocation(), "outparam-local-type")
+                << VD << (Written + (Written.back() == '*' ? "" : " ") + Kind +
+                          " " + VD->getName().str());
+          }
+
   if (Complained)
     *Complained = true;
   return isInvalid;
