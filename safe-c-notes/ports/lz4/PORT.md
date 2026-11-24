@@ -104,12 +104,28 @@ random truncation and capacity) under Safe C -O2: no trap. A caller that lies ab
 | port, the fork without -fsafe-c | 997 to 1023 | 6131 to 6289 | 50,015 |
 | port, Safe C | 770 to 786 | 3469 to 3620 | 82,654 |
 
-Safe C runs compression at 0.77x and decompression at 0.57x of Apple clang, with
-1.75x the code. The fork without `-fsafe-c` matches Apple clang, so the cost is the
-bounds checks, not the compiler. The decoder copies fixed 16, 32 and 64-byte stripes
-guarded by its own `oend - op >= 64` loop condition; each copy still checks both
-pointers against both bounds. The plain C port is smaller than upstream because
-the deprecated decoder and byPtr mode are gone.
+Those were the numbers before the fast-loop copies below; now (2026-11-24, same input,
+best of 5): Apple clang compress 914 MB/s, decompress 5814 MB/s; Safe C compress 718
+MB/s (0.79x), decompress 5010 to 5208 MB/s (0.86x to 0.90x).
+
+**Where the time went** (sampled with a SIGPROF profiler inside the process, lines from
+this tree's `dsymutil` and `llvm-symbolizer`): the fixed-size copies and reads of the fast
+decode loop, the 16-byte literal copy (14%), the 18-byte match copy (20%), the 2-byte
+offset read (12%) and the token read (10%). Each copy carried nine compare-and-branch
+bounds checks, both pointers against both bounds plus length and overflow, although the
+loop already guarantees the room: it runs only while `oend - op >= 64` (checked on entry
+and before every match that could cross it) and copies literals only when
+`ip <= iend - 17`.
+
+**What changed:** `LZ4_fastCopy16`, `LZ4_fastCopy18` and `LZ4_fastReadLE16` do those
+three accesses as audited `__unsafe` copies, used only inside the fast loop, each with a
+comment naming the check that keeps it in bounds. The match copy keeps one real check, its
+lower bound, since in 64 KB prefix mode that is otherwise only the caller's promise.
+
+**TODO (compiler):** a bounds-check elimination pass that removes checks implied by a loop
+guard (lower-bound checks on pointers that only move forward, and upper-bound checks
+covered by `oend - op >= N`) would make these helpers unnecessary for every program. Then
+remove them.
 
 ## Compiler gaps, by how much fixing them would help
 

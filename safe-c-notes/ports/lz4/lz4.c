@@ -545,6 +545,51 @@ LZ4_wildCopy16(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPt
     do { LZ4_memcpy(d,s,16); d+=16; s+=16; } while (d<e);
 }
 
+/* Fast-loop copies without per-copy bounds checks (Safe C).
+ * The fast decode loop of LZ4_decompress_generic runs only while
+ * `oend - op >= FASTLOOP_SAFE_DISTANCE` (64), checked on entry and before every
+ * match that could cross it, and copies literals only when
+ * `ip <= iend - 17`, checked before the copy. Under those checks the
+ * fixed-size copies below stay inside the buffers, so each is done with one
+ * audited unchecked access instead of nine compare-and-branch checks (the
+ * profile showed them as most of decompression time). Use them nowhere else.
+ * TODO(safe-c): drop these once the compiler hoists and removes bounds checks
+ * implied by a loop guard (see PORT.md, "Speed"). */
+LZ4_FORCE_INLINE void LZ4_fastCopy16(BYTE* __bidi_indexable op, const BYTE* __bidi_indexable ip)
+{
+    /* op: 64 bytes of room (loop guard); ip: 17 bytes of input (literal guard). */
+    __unsafe {
+        LZ4_memcpy(__unsafe_forge_bidi_indexable(BYTE*, __unsafe_forge_single(BYTE*, op), 16),
+                   __unsafe_forge_bidi_indexable(const BYTE*, __unsafe_forge_single(const BYTE*, ip), 16), 16);
+    }
+}
+LZ4_FORCE_INLINE void LZ4_fastCopy18(BYTE* __bidi_indexable op, const BYTE* __bidi_indexable match)
+{
+    /* op: 18 bytes of room (loop guard, ml <= 18); match <= op, so its top is
+       inside the output too. Its bottom is checked here: in 64 KB prefix mode
+       it is otherwise only the caller's promise. */
+#if defined(__SAFE_C__)
+    if (match < (const BYTE*)__ptr_lower_bound(match)) __builtin_trap();
+#endif
+    __unsafe {
+        BYTE* __unsafe_indexable d = op;
+        const BYTE* __unsafe_indexable s = match;
+        LZ4_memcpy(__unsafe_forge_bidi_indexable(BYTE*, d, 8), __unsafe_forge_bidi_indexable(const BYTE*, s, 8), 8);
+        LZ4_memcpy(__unsafe_forge_bidi_indexable(BYTE*, d + 8, 8), __unsafe_forge_bidi_indexable(const BYTE*, s + 8, 8), 8);
+        LZ4_memcpy(__unsafe_forge_bidi_indexable(BYTE*, d + 16, 2), __unsafe_forge_bidi_indexable(const BYTE*, s + 16, 2), 2);
+    }
+}
+LZ4_FORCE_INLINE U16 LZ4_fastReadLE16(const BYTE* __bidi_indexable ip)
+{
+    /* At most 14 literals were consumed since the `ip <= iend - 17` check. */
+    U16 v;
+    __unsafe {
+        const BYTE* __unsafe_indexable s = ip;
+        LZ4_memcpy(&v, __unsafe_forge_bidi_indexable(const BYTE*, s, 2), 2);
+    }
+    return LZ4_isLittleEndian() ? v : (U16)((v << 8) | (v >> 8));
+}
+
 /* LZ4_memcpy_using_offset()  presumes :
  * - dstEnd >= dstPtr + MINMATCH
  * - there is at least 12 bytes available to write after dstEnd */
@@ -2202,12 +2247,12 @@ LZ4_decompress_generic(
             } else {
                 DEBUGLOG(7, "copy %u bytes in a 16-bytes stripe", (unsigned)ll);
                 /* Literals can only be <= 14, but hope compilers optimize better when copy by a register size */
-                LZ4_memcpy(op, ip, 16);
+                LZ4_fastCopy16(op, ip);
                 ip += ll; op += ll;
             }
 
             /* get offset */
-            offset = LZ4_readLE16(ip); ip+=2;
+            offset = LZ4_fastReadLE16(ip); ip+=2;
             DEBUGLOG(6, "blockPos%6u: offset = %u", (unsigned)(op-(BYTE*)dst), (unsigned)offset);
             match = op - offset;
             assert(match <= op);  /* overflow check */
@@ -2240,9 +2285,7 @@ LZ4_decompress_generic(
                 assert(match >= lowPrefix);
                 assert(match <= op);
                 assert(op + 18 <= oend);
-                LZ4_memcpy(op, match, 8);
-                LZ4_memcpy(op+8, match+8, 8);
-                LZ4_memcpy(op+16, match+16, 2);
+                LZ4_fastCopy18(op, match);
                 op += ml;
                 continue;
             }
