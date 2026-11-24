@@ -24,7 +24,7 @@ safe choice. You annotate only where a pointer does more:
 | `T *_Exclusive` | an exclusive borrow: the function may take, free or replace owned fields through it | `&mut T` | `void clear(struct node *_Exclusive n);` | Safe C |
 | `T *_Static` | points only at string literals, globals or functions | `&'static T` | `struct op { const char *_Static name; int code; };` | Safe C |
 | `T *_Unchecked` | may point anywhere; its value is used only inside `__unsafe` | `*const T` (a raw pointer) | `struct node2 { struct node2 *_Unchecked _Nullable prev; };` | Safe C |
-| `struct _View` | a struct holding borrows; lives only in locals and parameters | a struct with a lifetime, `struct S<'a>` | `struct _View span { const int *__counted_by(n) p; int n; };` | Safe C |
+| `struct _View` | a struct holding borrows; lives only in locals, parameters, and heap arrays held by a local `_Owned` pointer (which may not outlive what the views borrow) | a struct with a lifetime, `struct S<'a>` | `struct _View span { const int *__counted_by(n) p; int n; };` | Safe C |
 | `_Returns_owned` | the result is new memory the caller must free | returning `Box<T>` | `_Returns_owned struct json *json_parse(const char *text);` | Safe C (Clang's `ownership_returns`) |
 | `_Lifetimebound` | on a parameter: the result points into it and dies with it; not needed when it is the only pointer parameter (inferred, as Rust elides it) | `fn f<'a>(x: &'a T, y: &U) -> &'a U` | `const char *pick(const struct json *j _Lifetimebound, const char *fallback);` | Safe C (Clang's `lifetimebound`) |
 | `_Noescape` | on a parameter: the function does not keep the pointer | a plain `&T` parameter, which cannot outlive the call | `size_t count_spaces(const char *s _Noescape);` | Safe C (Clang's `noescape`) |

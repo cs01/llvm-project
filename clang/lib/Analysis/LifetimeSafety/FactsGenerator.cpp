@@ -1117,8 +1117,35 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
           if (B->getType()->isArrayType())
             Base = B;
         }
-        if (!Base)
+        // Views reached through a local pointer (`toks[i].p = x`,
+        // `v->p = x`, a heap array of views): x's loans go to the pointer's
+        // pointee level, what every view it points to borrows, so the
+        // pointer may not be used once x's target is gone.
+        if (!Base) {
+          const Expr *Ptr = nullptr;
+          if (const auto *ME = dyn_cast<MemberExpr>(Part);
+              ME && ME->isArrow() &&
+              isSafeCViewType(ME->getBase()->getType()->getPointeeType()))
+            Ptr = ME->getBase();
+          else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(Part);
+                   ASE && isSafeCViewType(ASE->getType()))
+            Ptr = ASE->getBase();
+          else if (const auto *UO = dyn_cast<UnaryOperator>(Part);
+                   UO && UO->getOpcode() == UO_Deref &&
+                   isSafeCViewType(UO->getType()))
+            Ptr = UO->getSubExpr();
+          if (Ptr)
+            if (const auto *DRE =
+                    dyn_cast<DeclRefExpr>(Ptr->IgnoreParenImpCasts()))
+              if (OriginList *L = getOriginsList(*DRE))
+                if (OriginList *Val = L->peelOuterOrigin())
+                  if (OriginList *Pointee = Val->peelOuterOrigin())
+                    CurrentBlockFacts.push_back(
+                        FactMgr.createFact<OriginFlowFact>(
+                            Pointee->getOuterOriginID(),
+                            RHS->getOuterOriginID(), /*Kill=*/false));
           break;
+        }
         if (OriginList *BL = getOriginsList(*Base))
           if (OriginList *Agg = BL->peelOuterOrigin())
             CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(

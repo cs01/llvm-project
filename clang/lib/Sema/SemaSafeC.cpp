@@ -322,7 +322,13 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"view-write-through-pointer", false,
      "writing a borrow into a '_View' through a pointer can outlive "
      "what it points to, because the view's own lifetime is unknown here; "
-     "write the field of a local view by name ('v.%0 = ...')"},
+     "write the field of a local view by name ('v.%0 = ...'), or keep the "
+     "views in memory a local '_Owned' pointer holds ('struct %1 *_Owned "
+     "v = calloc(n, sizeof *v)'), whose borrows are tracked"},
+    {"view-pointer-storage", false,
+     "%select{global|field}0 %1 points to '_View' structs, whose borrows are "
+     "tracked only while a local or parameter holds them; keep the pointer in "
+     "a local, or make the enclosing struct a '_View' too"},
 };
 } // namespace
 
@@ -400,6 +406,21 @@ static bool isViewType(QualType T) {
     T = AT->getElementType();
   const RecordDecl *RD = T->getAsRecordDecl();
   return RD && hasSafeCAnnotation(RD, "safec_view");
+}
+
+/// A pointer (at any depth) to `_View` structs.
+static bool pointsToView(QualType T) {
+  bool Ptr = false;
+  for (;;) {
+    if (const ArrayType *AT = T->getAsArrayTypeUnsafe())
+      T = AT->getElementType();
+    else if (T->isPointerType()) {
+      T = T->getPointeeType();
+      Ptr = true;
+    } else
+      break;
+  }
+  return Ptr && isViewType(T);
 }
 
 /// The annotation of \p D named \p Name, if any.
@@ -492,6 +513,8 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
         S.SafeCDiag(FD->getLocation(), "heap-slot-borrow") << Slot;
       else if (isViewType(FD->getType()))
         S.SafeCDiag(FD->getLocation(), "view-storage") << 1 << FD;
+      else if (pointsToView(FD->getType()))
+        S.SafeCDiag(FD->getLocation(), "view-pointer-storage") << 1 << FD;
     }
     return;
   }
@@ -501,6 +524,8 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
       S.SafeCDiag(VD->getLocation(), "storage-borrow") << 1 << VD;
     else if (isViewType(VD->getType()))
       S.SafeCDiag(VD->getLocation(), "view-storage") << 0 << VD;
+    else if (pointsToView(VD->getType()))
+      S.SafeCDiag(VD->getLocation(), "view-pointer-storage") << 0 << VD;
   }
 }
 
@@ -883,6 +908,50 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
 
   void allowRead(const Expr *E) { AllowedUncheckedReads.insert(E->IgnoreParens()); }
 
+  /// A borrow written into a view reached through a pointer (`v->p = x`,
+  /// `v[i].p = x`, `(*v).p = x`) is tracked only when the pointer is a local
+  /// that owns the views: the analysis adds x's loans to that local. Any
+  /// other pointer may lead to views that outlive x.
+  void checkViewWriteThroughPointer(const BinaryOperator *BO) {
+    const auto *Field = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens());
+    if (!Field || !holdsBorrow(Field->getType()))
+      return;
+    const Expr *Part = Field;
+    for (const MemberExpr *ME;
+         (ME = dyn_cast<MemberExpr>(Part->IgnoreParens())) && !ME->isArrow() &&
+         isViewType(ME->getBase()->getType());)
+      Part = ME->getBase()->IgnoreParens();
+    const Expr *Ptr = nullptr;
+    QualType View;
+    if (const auto *ME = dyn_cast<MemberExpr>(Part);
+        ME && ME->isArrow() &&
+        isViewType(ME->getBase()->getType()->getPointeeType())) {
+      Ptr = ME->getBase();
+      View = ME->getBase()->getType()->getPointeeType();
+    } else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(Part);
+               ASE && isViewType(ASE->getType()) &&
+               ASE->getBase()->IgnoreParenImpCasts()->getType()->isPointerType()) {
+      Ptr = ASE->getBase();
+      View = ASE->getType();
+    } else if (const auto *UO = dyn_cast<UnaryOperator>(Part);
+               UO && UO->getOpcode() == UO_Deref &&
+               isViewType(UO->getType())) {
+      Ptr = UO->getSubExpr();
+      View = UO->getType();
+    }
+    if (!Ptr)
+      return;
+    if (const auto *DRE = dyn_cast<DeclRefExpr>(Ptr->IgnoreParenImpCasts()))
+      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
+          VD && VD->isLocalVarDecl() && !VD->isStaticLocal() &&
+          safeCPointerKind(VD->getType()) == "owned")
+        return;
+    const RecordDecl *RD = View->getAsRecordDecl();
+    S.SafeCDiag(BO->getOperatorLoc(), "view-write-through-pointer")
+        << Field->getMemberDecl()->getName()
+        << (RD ? RD->getName() : StringRef("view"));
+  }
+
   void checkStore(const ValueDecl *Dst, const Expr *Src, SourceLocation Loc) {
     if (!Dst)
       return;
@@ -941,11 +1010,7 @@ public:
           safeCPointerKind(BO->getLHS()->getType()) == "owned")
         checkOwnershipRoot(S, BO->getLHS(), 1, Body);
       checkStore(namedStorage(BO->getLHS()), BO->getRHS(), BO->getOperatorLoc());
-      const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens());
-      if (ME && ME->isArrow() && holdsBorrow(ME->getType()) &&
-          isViewType(ME->getBase()->getType()->getPointeeType()))
-        S.SafeCDiag(BO->getOperatorLoc(), "view-write-through-pointer")
-            << ME->getMemberDecl()->getName();
+      checkViewWriteThroughPointer(BO);
     }
     if (BO->isEqualityOp()) {
       if (BO->getRHS()->isNullPointerConstant(S.Context,
