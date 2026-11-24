@@ -333,7 +333,7 @@ static bool isStaticObject(ASTContext &Ctx, const Expr *E);
 
 /// The field or variable an lvalue names directly (x, s.f, p->f), if any.
 static const ValueDecl *namedStorage(const Expr *E) {
-  E = E->IgnoreParenImpCasts();
+  E = lifetimes::safeCPeel(E);
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
     return DRE->getDecl();
   if (const auto *ME = dyn_cast<MemberExpr>(E))
@@ -422,7 +422,7 @@ static const FieldDecl *ownedFieldOf(QualType T) {
 /// E gives up a pointer the receiver may free: null, a new allocation, a
 /// take, or a local or owned parameter (the flow layer checks it owns).
 static bool isOwnedSource(ASTContext &Ctx, const Expr *E) {
-  E = E->IgnoreParenImpCasts();
+  E = lifetimes::safeCPeel(E);
   if (E->isNullPointerConstant(Ctx, Expr::NPC_ValueDependentIsNotNull))
     return true;
   if (const auto *CE = dyn_cast<CStyleCastExpr>(E))
@@ -455,7 +455,7 @@ static bool isOwnedSource(ASTContext &Ctx, const Expr *E) {
 /// A named local variable or parameter: the places the lifetime analysis
 /// follows.
 static bool isTrackedLocal(const Expr *E) {
-  const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+  const auto *DRE = dyn_cast<DeclRefExpr>(lifetimes::safeCPeel(E));
   const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
   return VD && !VD->hasGlobalStorage();
 }
@@ -552,7 +552,7 @@ static bool isInferredOwnerLocal(ASTContext &Ctx, const VarDecl *VD,
 /// the offending variable, or null when the argument is fine.
 static const ValueDecl *exclusiveArgBlocker(ASTContext &Ctx, const Expr *E,
                                             const Stmt *Body) {
-  E = E->IgnoreParenImpCasts();
+  E = lifetimes::safeCPeel(E);
   if (const auto *UO = dyn_cast<UnaryOperator>(E)) {
     if (UO->getOpcode() == UO_AddrOf || UO->getOpcode() == UO_Deref)
       return exclusiveArgBlocker(Ctx, UO->getSubExpr(), Body);
@@ -748,7 +748,7 @@ public:
       // Only a named local or parameter is tracked by the lifetime analysis;
       // anything else (a field, element, global, or *p) still holds the
       // pointer after the free.
-      const Expr *A = Call->getArg(I)->IgnoreParenImpCasts();
+      const Expr *A = lifetimes::safeCPeel(Call->getArg(I));
       if (const auto *Take = dyn_cast<CallExpr>(A);
           Take && Take->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
           Take->getNumArgs() == 1 && !isOwnedSource(S.Context, Take)) {

@@ -27,9 +27,9 @@ void bad_stores(struct list *_Excl l, struct node *borrowed) {
   struct node *_Nullable fresh = malloc(sizeof(struct node));
   l->head = fresh;
   l->head = borrowed; // expected-error {{'head' is '_Owned', so it must be given a pointer it may free: a new allocation, an owned local (which is then moved), or '_Take(...)' of another owned field; this value is borrowed, so its owner would free it too}}
-  struct node *_Nullable h = l->head;
+  struct node *_Nullable h = l->head; // expected-error {{this pointer is borrowed from 'l->head'}}
   if (h)
-    h->next = l->head; // expected-error {{'next' is '_Owned'}} expected-error {{replacing an owned field through 'h' changes what its owner holds}}
+    h->next = l->head; // expected-error {{'next' is '_Owned'}} expected-error {{replacing an owned field through 'h' changes what its owner holds}} expected-note {{the borrow ends here}} expected-note {{later used here}}
   spare = _Take(l->head);
 }
 

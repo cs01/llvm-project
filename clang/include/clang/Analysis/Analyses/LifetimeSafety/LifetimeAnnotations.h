@@ -43,6 +43,10 @@ bool safeCOwnershipFlag();
 /// `l->head->next`, `v` in `v.items[i]`), or null for globals and others.
 const VarDecl *safeCRootVar(const Expr *E);
 
+/// Safe C: E without parentheses, implicit casts, or the opaque values bounds
+/// safety wraps call arguments in.
+const Expr *safeCPeel(const Expr *E);
+
 /// Returns the most recent declaration of the method to ensure all
 /// lifetime-bound attributes from redeclarations are considered.
 const FunctionDecl *getDeclWithMergedLifetimeBoundAttrs(const FunctionDecl *FD);

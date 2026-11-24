@@ -137,6 +137,81 @@ static const Loan *createNewAllocLoan(FactManager &FactMgr,
 // operation through that variable (a take, an owned-field store, or lending it
 // to an exclusive parameter) ends every such borrow. The loan's path is the
 // root's interior, so the root itself stays usable.
+static const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
+                                       unsigned Depth);
+
+/// The root a value derives from: a variable reached by a place, or the root
+/// of a lifetimebound argument of a call. Null for null, allocations and
+/// unknown values.
+static const VarDecl *safeCValueRoot(const Expr *E, const Stmt *Body,
+                                     unsigned Depth) {
+  E = safeCPeel(E);
+  if (const auto *Call = dyn_cast<CallExpr>(E)) {
+    const FunctionDecl *F = Call->getDirectCallee();
+    if (!F)
+      return nullptr;
+    for (unsigned I = 0, N = std::min(Call->getNumArgs(), F->getNumParams());
+         I != N; ++I)
+      if (F->getParamDecl(I)->hasAttr<LifetimeBoundAttr>())
+        return safeCValueRoot(Call->getArg(I), Body, Depth + 1);
+    return nullptr;
+  }
+  if (const VarDecl *VD = safeCRootVar(E))
+    return safeCResolveRoot(VD, Body, Depth + 1);
+  return nullptr;
+}
+
+/// A borrow held in a plain local pointer is rooted where its values come
+/// from (in `c = l; c = c->next;` that is `l`), so a borrow read through `c`
+/// ends when `l` is changed, and may be returned when `l` is lifetimebound.
+/// When the values come from different roots, or from nothing borrowed, the
+/// local is its own root.
+static const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
+                                       unsigned Depth) {
+  if (!Body || Depth > 6 || isa<ParmVarDecl>(VD) || VD->hasGlobalStorage() ||
+      !VD->getType()->isPointerType() ||
+      !safeCPointerKind(VD->getType()).empty())
+    return VD;
+  struct Finder : RecursiveASTVisitor<Finder> {
+    const VarDecl *VD;
+    llvm::SmallVector<const Expr *, 4> Values;
+    bool AddressTaken = false;
+    bool names(const Expr *E) {
+      const auto *DRE = dyn_cast<DeclRefExpr>(safeCPeel(E));
+      return DRE && DRE->getDecl() == VD;
+    }
+    bool VisitBinaryOperator(BinaryOperator *BO) {
+      if (BO->getOpcode() == BO_Assign && names(BO->getLHS()))
+        Values.push_back(BO->getRHS());
+      return true;
+    }
+    bool VisitUnaryOperator(UnaryOperator *UO) {
+      if (UO->getOpcode() == UO_AddrOf && names(UO->getSubExpr()))
+        AddressTaken = true;
+      return true;
+    }
+  } F;
+  F.VD = VD;
+  if (const Expr *Init = VD->getInit())
+    F.Values.push_back(Init);
+  F.TraverseStmt(const_cast<Stmt *>(Body));
+  if (F.AddressTaken)
+    return VD;
+  const VarDecl *Root = nullptr;
+  for (const Expr *V : F.Values) {
+    if (V->isNullPointerConstant(VD->getASTContext(),
+                                 Expr::NPC_ValueDependentIsNotNull))
+      continue;
+    const VarDecl *R = safeCRootVar(V) == VD ? VD : safeCValueRoot(V, Body, Depth);
+    if (R == VD)
+      continue; // `c = c->next` stays within c's own root
+    if (!R || (Root && R != Root))
+      return VD;
+    Root = R;
+  }
+  return Root ? Root : VD;
+}
+
 /// The variable a place is reached from, globals included.
 static const VarDecl *safeCRootOrGlobal(const Expr *E) {
   if (const VarDecl *VD = safeCRootVar(E))
@@ -431,9 +506,21 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
   if (!safeCOwnershipOn(AC.getASTContext()))
     return;
   auto EndBorrowsThrough = [&](const Expr *Place) {
-    if (const VarDecl *Root = safeCRootVar(Place))
-      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
-          safeCRootInterior(FactMgr.getLoanMgr(), *Root), CE->getBeginLoc()));
+    const VarDecl *Root = safeCRootVar(Place);
+    if (!Root)
+      return;
+    const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
+    AccessPath Path = safeCRootInterior(FactMgr.getLoanMgr(), *Resolved);
+    CurrentBlockFacts.push_back(
+        FactMgr.createFact<ExpireFact>(Path, CE->getBeginLoc()));
+    // Lending a borrow local (`r` rooted at `x`) reborrows it: r stays
+    // usable afterwards, every other borrow of x ends (Rust's `&mut *r`).
+    if (Resolved != Root && isa<DeclRefExpr>(safeCPeel(Place)))
+      if (OriginList *L = getOriginsList(*Root)) {
+        const Loan *Fresh = FactMgr.getLoanMgr().createLoan(Path, Place);
+        CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
+            Fresh->getID(), L->getOuterOriginID()));
+      }
   };
   if (CE->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
       CE->getNumArgs() == 1) {
@@ -466,7 +553,9 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
           continue;
         if (const VarDecl *Root = safeCRootVar(CE->getArg(I))) {
           const Loan *L = FactMgr.getLoanMgr().createLoan(
-              safeCRootInterior(FactMgr.getLoanMgr(), *Root), CE);
+              safeCRootInterior(FactMgr.getLoanMgr(),
+                                *safeCResolveRoot(Root, AC.getBody(), 0)),
+              CE);
           CurrentBlockFacts.push_back(
               FactMgr.createFact<IssueFact>(L->getID(), Result->getOuterOriginID()));
           break;
@@ -497,6 +586,7 @@ void FactsGenerator::VisitCastExpr(const CastExpr *CE) {
     if (Dest && safeCOwnershipOn(AC.getASTContext()) &&
         safeCPointerKind(SubExpr->getType()) == "owned")
       if (const VarDecl *Root = safeCRootOrGlobal(SubExpr)) {
+        Root = safeCResolveRoot(Root, AC.getBody(), 0);
         bool Global = Root->hasGlobalStorage();
         // Reading an owned local by name moves or copies it; only places
         // reached through something, and owned globals, are borrows.
@@ -698,7 +788,8 @@ void FactsGenerator::VisitBinaryOperator(const BinaryOperator *BO) {
       safeCPointerKind(BO->getLHS()->getType()) == "owned")
     if (const VarDecl *Root = safeCRootVar(BO->getLHS()))
       CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
-          safeCRootInterior(FactMgr.getLoanMgr(), *Root),
+          safeCRootInterior(FactMgr.getLoanMgr(),
+                            *safeCResolveRoot(Root, AC.getBody(), 0)),
           BO->getOperatorLoc()));
   if (BO->getOpcode() == BO_PtrMemD || BO->getOpcode() == BO_PtrMemI) {
     // `obj.*pm` / `objptr->*pm` names a member of the object, so a borrow of it

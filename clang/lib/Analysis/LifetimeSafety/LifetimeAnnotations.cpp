@@ -654,9 +654,19 @@ static llvm::cl::opt<bool>
 
 bool safeCOwnershipFlag() { return SafeCOwnership; }
 
-const VarDecl *safeCRootVar(const Expr *E) {
+const Expr *safeCPeel(const Expr *E) {
   while (true) {
     E = E->IgnoreParenImpCasts();
+    const auto *OVE = dyn_cast<OpaqueValueExpr>(E);
+    if (!OVE || !OVE->getSourceExpr())
+      return E;
+    E = OVE->getSourceExpr();
+  }
+}
+
+const VarDecl *safeCRootVar(const Expr *E) {
+  while (true) {
+    E = safeCPeel(E);
     if (const auto *ME = dyn_cast<MemberExpr>(E))
       E = ME->getBase();
     else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
