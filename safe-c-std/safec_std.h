@@ -14,8 +14,10 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "safec.h"
 
@@ -129,6 +131,99 @@ static inline bool string_push(string *_Excl s, str more) {
 static inline void string_free(string *_Excl s) {
   free(_Take(s->p));
   s->len = 0;
+}
+
+/* ---- io ------------------------------------------------------------------ */
+
+/* A path as a terminated string, for the C library. */
+static inline bool string_terminate_(string *_Excl s) {
+  if (!string_push(s, S("\0")))
+    return false;
+  s->len--; /* the terminator is not part of the text */
+  return true;
+}
+
+/* Reads the whole file into *out (appending). Returns false on error. */
+static inline bool read_file(str path, string *_Excl out) {
+  string name _Drop(string_free) = {0, 0, 0};
+  if (!string_push(&name, path) || !string_terminate_(&name) || !name.p)
+    return false;
+  FILE *_Nullable f = fopen(name.p, "rb");
+  if (!f)
+    return false;
+  bool ok = true;
+  for (;;) {
+    if (!string_reserve(out, 4096) || !out->p) {
+      ok = false;
+      break;
+    }
+    size_t got = fread(out->p + out->len, 1, out->cap - out->len, f);
+    out->len += got;
+    if (got == 0) {
+      ok = !ferror(f);
+      break;
+    }
+  }
+  fclose(f);
+  return ok;
+}
+
+/* Writes all of bytes to fd, retrying short writes. */
+static inline bool write_all(int fd, str bytes) {
+  size_t done = 0;
+  while (done < bytes.len) {
+    ssize_t n = write(fd, bytes.p + done, bytes.len - done);
+    if (n <= 0)
+      return false;
+    done += (size_t)n;
+  }
+  return true;
+}
+
+/* The lines of a file, read into one reused buffer. */
+typedef struct lines_ {
+  FILE *_Owned _Nullable f;
+  string line;
+} lines;
+
+static inline bool lines_open(str path, lines *_Excl it) {
+  string name _Drop(string_free) = {0, 0, 0};
+  if (!string_push(&name, path) || !string_terminate_(&name) || !name.p)
+    return false;
+  it->f = fopen(name.p, "rb");
+  it->line.len = 0;
+  return it->f != NULL;
+}
+
+/* Reads the next line; false at the end of the file. */
+static inline bool lines_next(lines *_Excl it) {
+  if (!it->f)
+    return false;
+  it->line.len = 0;
+  int c;
+  bool any = false;
+  while ((c = fgetc(it->f)) != EOF) {
+    any = true;
+    if (c == '\n')
+      break;
+    char ch = (char)c;
+    if (!string_push(&it->line, (str){&ch, 1}))
+      return false;
+  }
+  return any;
+}
+
+/* The line lines_next read, without its newline. It borrows the iterator's
+   buffer, so it is valid until the next lines_next. */
+static inline str lines_line(const lines *it _Lifetimebound) {
+  return string_view(&it->line);
+}
+
+static inline void lines_close(lines *_Excl it) {
+  FILE *_Nullable f = _Take(it->f);
+  if (f)
+    fclose(f);
+  string_free(&it->line);
 }
 
 /* ---- VEC(T): owned, growable array -------------------------------------- */

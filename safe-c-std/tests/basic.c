@@ -63,11 +63,43 @@ static void test_drop(void) {
   }
 }
 
+static void test_io(void) {
+  const char *_Nullable __null_terminated tmp = getenv("TMPDIR");
+  str dir = tmp ? str_from(tmp) : S("/tmp/");
+  string path _Drop(string_free) = {0, 0, 0};
+  CHECK(string_push(&path, dir) && string_push(&path, S("/safec_std_io.txt")));
+  string name _Drop(string_free) = {0, 0, 0};
+  CHECK(string_push(&name, string_view(&path)) && string_push(&name, S("\0")));
+  FILE *_Nullable f = name.p ? fopen(name.p, "w") : NULL;
+  CHECK(f != NULL);
+  if (!f)
+    return;
+  fputs("alpha\n  beta  \ngamma", f);
+  fclose(f);
+
+  string all _Drop(string_free) = {0, 0, 0};
+  CHECK(read_file(string_view(&path), &all));
+  CHECK(all.len == 20); /* "alpha\n" + "  beta  \n" + "gamma" */
+
+  lines it _Drop(lines_close) = {0, {0, 0, 0}};
+  CHECK(lines_open(string_view(&path), &it));
+  int n = 0;
+  bool second_ok = false;
+  while (lines_next(&it)) {
+    n++;
+    if (n == 2)
+      second_ok = str_eq(str_trim(lines_line(&it)), S("beta"));
+  }
+  CHECK(n == 3 && second_ok);
+  CHECK(write_all(1, S("io ")));
+}
+
 int main(void) {
   test_str();
   test_string();
   test_vec();
   test_drop();
+  test_io();
   printf(failures ? "%d failed\n" : "ok\n", failures);
   return failures != 0;
 }
