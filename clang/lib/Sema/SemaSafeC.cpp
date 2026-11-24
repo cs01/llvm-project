@@ -349,6 +349,19 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "this slot is '_Owned', so it must be given a pointer it may free: a new "
      "allocation, an owned local (which is then moved), or '_Take(...)' of "
      "another owned field"},
+    {"fn-promise", false,
+     "%0 of this function has different ownership or bounds annotations than "
+     "in %1, so a call through the pointer would not be checked the same way; "
+     "write the function's annotations in the pointer's type"},
+    {"fn-library-pointer", false,
+     "%0 is checked only when called by name; call it inside a function of "
+     "your own and use that one's address"},
+    {"block", false,
+     "blocks are not checked: what one captures may be gone when it runs; use "
+     "a function and pass it what it needs"},
+    {"tag-address", false,
+     "%0 is a tag: changing it through a pointer would leave the union holding "
+     "another member's bytes; assign it by name, together with the member"},
     {"owned-in-union", false,
      "%0 is an '_Owned' member of an untagged union, so another member could "
      "read and free the same pointer; tag the union ('_Tagged_by', '_When'), "
@@ -607,6 +620,71 @@ static void checkTaggedUnions(Sema &S, const RecordDecl *RD) {
                  Seen.push_back({V, M});
                });
   }
+}
+
+/// What a pointer type promises a caller, beyond its C type: the ownership
+/// kind, and its bounds (with the parameters a count names, by position).
+static std::string promiseOf(QualType T) {
+  std::string Out = safeCPointerKind(T).str();
+  // Giving ownership away may be written on the pointer's declaration
+  // (_Takes) instead: checkSafeCTakesStore compares that.
+  if (Out == "owned")
+    Out.clear();
+  if (const auto *CAT = T->getAs<CountAttributedType>()) {
+    Out += "|count" + std::to_string(int(CAT->getKind())) + ":";
+    struct Printer : RecursiveASTVisitor<Printer> {
+      std::string Out;
+      bool VisitDeclRefExpr(DeclRefExpr *E) {
+        if (const auto *P = dyn_cast<ParmVarDecl>(E->getDecl()))
+          Out += "#" + std::to_string(P->getFunctionScopeIndex());
+        else
+          Out += E->getDecl()->getNameAsString();
+        Out += ",";
+        return true;
+      }
+      bool VisitIntegerLiteral(IntegerLiteral *E) {
+        Out += llvm::toString(E->getValue(), 10, false) + ",";
+        return true;
+      }
+      bool VisitBinaryOperator(BinaryOperator *E) {
+        Out += E->getOpcodeStr().str();
+        return true;
+      }
+    } P;
+    P.TraverseStmt(CAT->getCountExpr());
+    Out += P.Out;
+  } else if (T->isBoundsAttributedType()) {
+    Out += "|bounds";
+  } else if (T->isValueTerminatedType()) {
+    Out += "|terminated";
+  }
+  if (T->isPointerType() && T->getPointeeType()->isPointerType())
+    Out += "*" + promiseOf(T->getPointeeType());
+  return Out;
+}
+
+/// A call through a pointer knows only the pointer's type, so a function may
+/// be stored only in one that makes the same promises.
+void clang::checkSafeCFunctionConversion(Sema &S, QualType Dst,
+                                         const Expr *Src) {
+  QualType ST = Src->getType();
+  if (ST->isFunctionPointerType())
+    ST = ST->getPointeeType();
+  if (!Dst->isFunctionPointerType())
+    return;
+  const auto *DP = Dst->getPointeeType()->getAs<FunctionProtoType>();
+  const auto *SP = ST->getAs<FunctionProtoType>();
+  if (!DP || !SP || DP->getNumParams() != SP->getNumParams() ||
+      S.getSourceManager().isInSystemHeader(Src->getExprLoc()))
+    return;
+  for (unsigned I = 0, N = DP->getNumParams(); I != N; ++I)
+    if (promiseOf(DP->getParamType(I)) != promiseOf(SP->getParamType(I))) {
+      S.SafeCDiag(Src->getExprLoc(), "fn-promise")
+          << ("parameter " + std::to_string(I + 1)) << Dst;
+      return;
+    }
+  if (promiseOf(DP->getReturnType()) != promiseOf(SP->getReturnType()))
+    S.SafeCDiag(Src->getExprLoc(), "fn-promise") << "the result" << Dst;
 }
 
 void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
@@ -1156,13 +1234,25 @@ static const VarDecl *dropLocalNamed(const Expr *E) {
 /// A member of a tagged union that holds pointers in some member, named by
 /// \p E (a member access), or null. Its address must not be taken: a later
 /// tag change would let the pointer read another member's bytes.
+namespace {
+static bool isTagField(const FieldDecl *F);
+}
 static const FieldDecl *pointerUnionMember(const ASTContext &Ctx,
                                            const Expr *E, StringRef &Tag) {
   const auto *ME = dyn_cast<MemberExpr>(E->IgnoreParens());
   const auto *F = ME ? dyn_cast<FieldDecl>(ME->getMemberDecl()) : nullptr;
   const RecordDecl *U = F ? F->getParent() : nullptr;
-  if (!U || !U->isUnion())
+  if (!U)
     return nullptr;
+  // `t.u.m.x`, `t.u.m[i].x`: part of member m.
+  if (!U->isUnion() || taggedByName(U).empty()) {
+    if (ME->isArrow())
+      return nullptr;
+    const Expr *B = ME->getBase()->IgnoreParenImpCasts();
+    while (const auto *ASE = dyn_cast<ArraySubscriptExpr>(B))
+      B = ASE->getBase()->IgnoreParenImpCasts();
+    return pointerUnionMember(Ctx, B, Tag);
+  }
   Tag = taggedByName(U);
   if (Tag.empty())
     return nullptr;
@@ -1296,6 +1386,11 @@ public:
       : S(S), Body(Body) {}
 
   bool VisitBinaryOperator(BinaryOperator *BO) {
+    if (BO->isCompoundAssignmentOp())
+      if (const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens()))
+        if (const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl());
+            F && isTagField(F))
+          S.SafeCDiag(BO->getOperatorLoc(), "tag-address") << F;
     if (BO->getOpcode() == BO_Comma ||
         (BO->getOpcode() == BO_Assign && isBorrowSlotPtr(BO->getLHS()->getType())))
       checkSlotValue(BO);
@@ -1340,6 +1435,30 @@ public:
     return true;
   }
 
+  bool VisitBlockExpr(BlockExpr *E) {
+    S.SafeCDiag(E->getExprLoc(), "block");
+    return true;
+  }
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    collectVoid();
+    const auto *F = dyn_cast<FunctionDecl>(E->getDecl());
+    if (!F || DirectCallees.contains(E) || !F->getIdentifier() ||
+        !S.getSourceManager().isInSystemHeader(F->getLocation()))
+      return true;
+    // Harmless: no pointer is written through, and no bounds are needed.
+    if (llvm::is_contained({"malloc", "calloc", "free", "realloc"},
+                           F->getName()))
+      return true;
+    bool Plain = !F->isVariadic() && !F->hasAttr<ReturnsTwiceAttr>() &&
+                 F->getName() != "longjmp" && F->getName() != "_longjmp" &&
+                 F->getName() != "siglongjmp";
+    for (const ParmVarDecl *P : F->parameters())
+      Plain &= !P->getType()->isAnyPointerType();
+    if (!Plain)
+      S.SafeCDiag(E->getExprLoc(), "fn-library-pointer") << F;
+    return true;
+  }
+  llvm::SmallPtrSet<const Expr *, 16> DirectCallees;
   bool VisitAbstractConditionalOperator(AbstractConditionalOperator *E) {
     return checkSlotValue(E);
   }
@@ -1402,6 +1521,8 @@ public:
       bool VisitCallExpr(CallExpr *Call) {
         const FunctionDecl *F = Call->getDirectCallee();
         const Decl *D = Call->getCalleeDecl();
+        if (F)
+          C->DirectCallees.insert(Call->getCallee()->IgnoreParenImpCasts());
         for (unsigned I = 0, N = Call->getNumArgs(); I != N; ++I) {
           // Through a pointer, only an argument that is freed.
           bool Takes = false;
@@ -1544,6 +1665,11 @@ public:
         isBorrowSlotPtr(UO->getSubExpr()->getType()))
       checkSlotValue(UO);
     StringRef Tag;
+    if (UO->getOpcode() == UO_AddrOf || UO->isIncrementDecrementOp())
+      if (const auto *ME = dyn_cast<MemberExpr>(UO->getSubExpr()->IgnoreParens()))
+        if (const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl());
+            F && isTagField(F))
+          S.SafeCDiag(UO->getOperatorLoc(), "tag-address") << F;
     if (UO->getOpcode() == UO_AddrOf)
       if (const FieldDecl *M = pointerUnionMember(S.Context, UO->getSubExpr(), Tag))
         S.SafeCDiag(UO->getOperatorLoc(), "tagged-member-address")

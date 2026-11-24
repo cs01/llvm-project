@@ -14,6 +14,7 @@
 #include "DynamicCountPointerAssignmentAnalysis.h"
 #include "TreeTransform.h"
 #include "UsedDeclVisitor.h"
+#include "SafeCState.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTDiagnostic.h"
@@ -13349,6 +13350,8 @@ AssignConvertType Sema::CheckSingleAssignmentConstraints(QualType LHSType,
   ExprResult LocalRHS = CallerRHS;
   ExprResult &RHS = ConvertRHS ? CallerRHS : LocalRHS;
 
+  if (getLangOpts().SafeC && Diagnose)
+    checkSafeCFunctionConversion(*this, LHSType, RHS.get());
   if (const auto *LHSPtrType = LHSType->getAs<PointerType>()) {
     if (const auto *RHSPtrType = RHS.get()->getType()->getAs<PointerType>()) {
       if (RHSPtrType->getPointeeType()->hasAttr(attr::NoDeref) &&

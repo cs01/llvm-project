@@ -947,8 +947,38 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
           CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(*Arg, L));
     }
   };
-  if (!CE->getDirectCallee())
+  if (!CE->getDirectCallee()) {
     UseOthers();
+    // The result may borrow any argument (a direct call's signature says
+    // which; a pointer's type does not).
+    if (OriginList *Result = getOriginsList(*CE);
+        Result && (isSafeCViewType(CE->getType()) ||
+                   (CE->getType()->isPointerType() &&
+                    !CE->getType()->isVoidPointerType() &&
+                    safeCPointerKind(CE->getType()).empty())))
+      for (const Expr *Arg : CE->arguments()) {
+        if (!Arg->getType()->isPointerType() && !isSafeCViewType(Arg->getType()))
+          continue;
+        OriginList *ArgL = getOriginsList(*Arg);
+        if (!ArgL)
+          continue;
+        for (OriginList *L = ArgL; L; L = L->peelOuterOrigin())
+          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+              Result->getOuterOriginID(), L->getOuterOriginID(),
+              /*Kill=*/false));
+        const VarDecl *Root = safeCRootOrGlobal(Arg);
+        if (!Root || (Root = safeCResolveRoot(Root, AC.getBody(), 0),
+                      Root->hasGlobalStorage()))
+          continue;
+        const Loan *L = FactMgr.getLoanMgr().createLoan(
+            safeCRootInterior(FactMgr.getLoanMgr(), *Root), CE);
+        CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
+            L->getID(), ArgL->getOuterOriginID()));
+        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+            Result->getOuterOriginID(), ArgL->getOuterOriginID(),
+            /*Kill=*/false));
+      }
+  }
   if (const FunctionDecl *FD = CE->getDirectCallee()) {
     unsigned N = std::min(CE->getNumArgs(), FD->getNumParams());
     for (unsigned I = 0; I != N; ++I) {

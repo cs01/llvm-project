@@ -55,6 +55,7 @@ bool safeCOwnershipEnabled(const Sema &S);
 /// Rule 10: a struct field or global holds no borrow. Its pointers are
 /// _Owned, _Static or _Unchecked, unless the struct is a
 /// _View (which lives only in locals and parameters).
+void checkSafeCFunctionConversion(Sema &S, QualType Dst, const Expr *Src);
 void checkSafeCPointerStorage(Sema &S, Decl *D);
 
 /// Rules 11 and 12 and the static kind, per expression: a _Static
