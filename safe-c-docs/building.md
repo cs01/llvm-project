@@ -17,6 +17,19 @@ ninja -C build clang
 build/bin/clang -fsafe-c -isysroot $(xcrun --show-sdk-path) example.c
 ```
 
+## What `-fsafe-c` turns on
+
+One flag; no other flags are needed:
+
+- `-fbounds-safety` (Apple's bounds checks).
+- Pointers are non-null unless marked `_Nullable`, checked by flow analysis.
+- Clang's lifetime analysis, plus Safe C's ownership rules on top of it.
+- Clang's thread-safety analysis (`-Wthread-safety`), for `_Guarded_by`,
+  `_Requires`, `_Acquires` and `_Releases`.
+- `_FORTIFY_SOURCE` off: its checks are replaced by the bounds checks.
+- Every memory-safety finding is an error, not a warning. Code inside
+  `__unsafe { }` is exempt.
+
 ## Prior work
 
 Cyclone and Checked C made C dialects; Fil-C makes C safe at run time with a garbage
