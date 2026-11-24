@@ -8,9 +8,11 @@ Safe C does not lock you in. Every annotation comes from one header, `safec.h`:
 
 - **With the Safe C compiler** and `-fsafe-c`, the annotations are checked and the
   safety rules are enforced.
-- **With any other C compiler** (GCC, MSVC, Xcode's clang, a stock Clang), `safec.h`
-  defines every annotation as nothing. The same source compiles as ordinary C, exactly
-  as it did before, just without the checks.
+- **With GCC or any Clang** (Xcode's, a stock one), `safec.h` defines every annotation
+  as nothing, or as the plain GNU C it stands for. The same source compiles as ordinary
+  C, without the checks. Two need GNU C: `_Take` is a statement expression (on MSVC it does
+  not build) and `_Drop` is the `cleanup` attribute (on MSVC it expands to nothing, so
+  the cleanup does not run).
 
 `safec.h` is a single file with no dependencies. The Safe C compiler ships it; for other
 compilers, copy [`clang/lib/Headers/safec.h`](../clang/lib/Headers/safec.h) into your project
@@ -60,7 +62,8 @@ Even where Clang has a feature, a set of flags does not give a guarantee:
   `-fsafe-c` rejects the flags that would weaken it (`-fno-bounds-safety` and so on).
 - **The defaults are wrong.** Upstream, an unannotated pointer means "unknown".
   Under `-fsafe-c` it means non-null and exactly one element, so forgetting an
-  annotation is a compile error, not a hole.
+  annotation is a compile error, not a hole. The exception is code you choose to trust:
+  system headers, `-isystem` directories and headers marked legacy.
 - **The escape hatch must be visible.** The only way out is `__unsafe { }` in the
   source, where a reviewer can see and search for it.
 

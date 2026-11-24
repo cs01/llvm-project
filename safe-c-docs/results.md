@@ -57,7 +57,8 @@ the fixed version must run clean and the buggy one must still be caught:
 Rust): null, use after free, uninitialized reads and data races are compile errors in
 Rust, soundly. Bounds are checked at run time in Rust too, so the random-index cases
 above would go unseen there as well, and signed overflow wraps in Rust release builds as
-it does here. Safe C matches Rust today on bounds, null, initialization and integers;
+it does here. Bounds and null are checked at the same points Rust checks them. Locals
+must be set before use, as in Rust, but heap memory is zero-filled rather than tracked.
 On use after free, every pointer outside `__unsafe` is covered in both: Safe C requires every
 pointer in a field or global to say whether it owns its target, and every parameter and
 return to be a borrow, an owner or tied to a parameter. Both trust declarations they cannot
@@ -73,8 +74,10 @@ but not yet that a counted pointer and its count share a lock, nor shared owners
 `_Drop` cleanup ([DROP.md](../safe-c-lean/DROP.md)). Building each found a hole the compiler
 then fixed: a tag test made a member look written after the tag changed, and a `_Drop_free`
 variable could be given a pointer it did not own.
-Both are checked by Lean with no unproved steps. The model covers the rules, not clang's
-implementation of them; Juliet, the ports and adversarial probes test that.
+Each theorem is checked by Lean with no unproved steps. They are separate small models,
+not one composed result, and they leave out casts between layouts, threads, function
+pointers and variadics (each model's README lists what it omits). Nothing proves Clang
+implements the models; Juliet, the ports and the fuzzer test that.
 
 **Real code.** The second number is porting cost. Each port is in
 [safe-c-notes/ports/](../safe-c-notes/ports/), pristine first, so `git log -p` shows what
@@ -88,13 +91,12 @@ it took. The same source builds with Safe C, Apple clang and gcc.
 Both ports found bugs in their test code (unchecked `malloc`, a buffer length that did
 not match its buffer) and drove compiler fixes. Porting cJSON to the ownership rules took
 51 `_Owned`, 85 `_Exclusive` and 22 `_Take`, raised its `__unsafe` count from 9 to 12 (4 of
-them for the doubly linked list's back pointer, which Rust cannot check either), and
+them for the doubly linked list's back pointer, which safe Rust expresses with `Rc`/`Weak`;
+Safe C has no shared-owner type yet), and
 found a soundness hole and a crash in the compiler, both fixed.
 
-**Status.** Early, and moving fast. Ownership is on by default; data races (M5) are
-in progress. A fuzzing pass (random programs compiled under Safe C and, unchecked,
-under AddressSanitizer) found 18 ways to get a memory error past the rules; the four
-in tagged unions are fixed, the rest (views, borrows through getters and aliases,
-`_Drop` copies) are being fixed, each with a test, and the fuzzer is rerun as the
-gate. Open items, and everything found and fixed so far, are tracked in
+**Status.** Early. Ownership is on by default; data races are partly checked. A fuzzing
+pass (random programs compiled under Safe C and, unchecked, under AddressSanitizer) found
+18 ways to get a memory error past the rules; all 18 are fixed, each with a test, and the
+fuzzer is rerun on every compiler change as the gate. Open items, and everything found and fixed so far, are tracked in
 [safe-c-notes/review-2026-11-23.md](../safe-c-notes/review-2026-11-23.md).

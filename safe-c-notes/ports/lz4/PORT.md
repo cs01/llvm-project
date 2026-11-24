@@ -73,8 +73,9 @@ Other changes:
 - 3 that read an unchecked pointer's address as an integer, or move it within
   its history (gap 4).
 
-No `__unsafe` silences a check in the compressor or decompressor loops: those are
-checked code.
+Before the speed work below, no `__unsafe` silenced a check in the compressor or
+decompressor loops. That fully checked build runs at 0.77x (compress) and 0.58x
+(decompress). The shipped port marks the two cores audited (`LZ4_AUDITED`, see Speed).
 
 ## Tests (`test.c`)
 
@@ -161,7 +162,7 @@ its start), then drop `LZ4_AUDITED` and measure again.
    ```
 4. **Two bounded buffers proven adjacent cannot be joined** (inside 2 of the
    gap 1 blocks; usingDict and incomplete lost upstream's faster prefix path). Rust
-   has the same hole (`slice::from_raw_parts`), so this is low priority.
+   needs `unsafe` here too (`slice::from_raw_parts`), so this is low priority.
    ```c
    int dec(const char *__counted_by(d) dict, int d, char *__counted_by(n) dst, int n) {
      if (dict + d == dst) { /* want one pointer over [dict, dst + n): no safe spelling */ }

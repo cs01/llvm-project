@@ -39,6 +39,14 @@
 // MORE-DAG: error: invalid argument '-Xclang -ftrivial-auto-var-init=uninitialized' not allowed with '-fsafe-c'
 // RUN: not %clang -### -fsafe-c -fno-safe-c -c %s 2>&1 | FileCheck %s --check-prefix=NOSAFE
 // NOSAFE: error: invalid argument '-fno-safe-c' not allowed with '-fsafe-c'
+// The -safe-c-* developer switches may turn a rule on from the driver, never off.
+// RUN: not %clang -### -fsafe-c -mllvm -safe-c-ownership=false -mllvm -safe-c-shared-globals=0 \
+// RUN:   -Xclang -mllvm -Xclang -safe-c-ownership=false -c %s 2>&1 | FileCheck %s --check-prefix=MLLVM
+// MLLVM-DAG: error: invalid argument '-mllvm -safe-c-ownership=false' not allowed with '-fsafe-c'
+// MLLVM-DAG: error: invalid argument '-mllvm -safe-c-shared-globals=0' not allowed with '-fsafe-c'
+// MLLVM-DAG: error: invalid argument '-Xclang -mllvm -Xclang -safe-c-ownership=false' not allowed with '-fsafe-c'
+// RUN: %clang -### -fsafe-c -mllvm -safe-c-excl-default=true -c %s 2>&1 | FileCheck %s --check-prefix=MLLVM-ON
+// MLLVM-ON-NOT: error:
 
 // null and vla-bound traps, and const string literals.
 // RUN: %clang -### -fsafe-c -c %s 2>&1 | FileCheck %s --check-prefix=TRAPS

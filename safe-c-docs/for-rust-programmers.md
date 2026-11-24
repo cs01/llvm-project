@@ -210,11 +210,12 @@ builds; division by zero traps.
   in C.
 - **Lifetimes are simpler.** One `_Lifetimebound` parameter per returned
   borrow, no named lifetimes. Some things Rust accepts need restructuring or
-  `__unsafe`, like a doubly linked list's back pointer (which Rust cannot
-  check either).
+  `__unsafe`, like a doubly linked list's back pointer (safe Rust uses
+  `Rc`/`Weak`; Safe C has no shared-owner type yet).
 - **Threads, partly done.** A thread takes ownership of its argument
   (Rust's `Send` on `spawn`), and data marked `_Guarded_by(lock)` is only
-  touched with the lock held. Not yet: requiring every mutable global to be
-  guarded, atomic or thread-local (Rust's `Sync` on statics).
-- **Early.** Two real libraries are ported (jsmn, cJSON), and lz4 is in
-  progress. Results and open issues are in [results](results.md).
+  touched with the lock held. Every mutable global must be guarded, atomic,
+  thread-local or `_Unsynchronized` (writes then sit in `__unsafe`), like Rust's `Sync`
+  on statics. Not yet: a counted pointer and its count under one lock, `Arc`.
+- **Early.** Three real libraries are ported (jsmn, cJSON, lz4), with more
+  under way. Results and open issues are in [results](results.md).

@@ -8360,6 +8360,28 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
         D.Diag(diag::err_drv_argument_not_allowed_with)
             << ("-Xclang " + V).str() << "-fsafe-c";
     }
+    // The -safe-c-* cl::opts are compiler-developer switches (cc1 tests use
+    // them to isolate one rule); from the driver they would be a quiet way to
+    // turn a rule set off, so only turning one on is allowed.
+    auto WeakensSafeC = [](StringRef V) {
+      if (!V.consume_front("-safe-c-"))
+        return false;
+      return !V.ends_with("=true") && !V.ends_with("=1");
+    };
+    for (const Arg *A : Args.filtered(options::OPT_mllvm))
+      if (WeakensSafeC(A->getValue()))
+        D.Diag(diag::err_drv_argument_not_allowed_with)
+            << ("-mllvm " + StringRef(A->getValue())).str() << "-fsafe-c";
+    {
+      bool AfterMllvm = false;
+      for (const Arg *A : Args.filtered(options::OPT_Xclang)) {
+        StringRef V = A->getValue();
+        if (AfterMllvm && WeakensSafeC(V))
+          D.Diag(diag::err_drv_argument_not_allowed_with)
+              << ("-Xclang -mllvm -Xclang " + V).str() << "-fsafe-c";
+        AfterMllvm = V == "-mllvm";
+      }
+    }
     if (const Arg *A = Args.getLastArg(options::OPT_fnullability_default_EQ))
       if (StringRef(A->getValue()) != "nonnull")
         D.Diag(diag::err_drv_argument_not_allowed_with)

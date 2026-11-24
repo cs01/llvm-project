@@ -80,16 +80,17 @@ const pctOf = (x: number, n: number) => `${(Math.floor((1000 * x) / n) / 10).toF
 function summary(): string {
   if (!lastTotals) juliet();
   const { ct, rt } = lastTotals;
-  const reached = rt.n - rt.inputMiss - rt.excused;
-  const pct = pctOf(rt.c + rt.r, reached).slice(0, -1);
+  const caught = rt.c + rt.r, missed = rt.fixedMiss - rt.excused;
+  const n = (x: number) => x.toLocaleString("en-US");
+  const porting = PORTED ? " (those whose fixed version builds after porting)" : "";
+  const missText = missed ? `, ${n(missed)} missed` : "";
   return [
-    `- **Null, double free, use after free: ${ct.c} of ${ct.n} caught at compile time.** Same as Rust.`,
-    `- **Out of bounds, divide by zero: ${pct}% stopped at the bad access** (${rt.c + rt.r} of ${reached}), where Rust would panic.`,
+    `On ${PORTED ? "a ported copy of " : ""}NIST's Juliet suite, ${n(ct.n + rt.n)} of ${n(ct.all + rt.all)} cases in 10 bug classes${porting}:`,
     ``,
-    `Counted only when Safe C gives a compile error or traps at the bug; on the ${ct.n + rt.n} cases`,
-    PORTED
-      ? `whose fixed version builds after porting. [Full table and the port](safe-c-docs/results.md).`
-      : `whose fixed version builds as written. [Full table](safe-c-docs/results.md).`,
+    `- **Null, double free, use after free: ${n(ct.c)} of ${n(ct.n)} rejected at compile time.** Rust also rejects these at compile time.`,
+    `- **Out of bounds, divide by zero: ${n(caught)} of ${n(rt.n)} stopped at the bad access**${missText}. The other ${n(rt.n - caught - missed)}: ${n(rt.inputMiss)} need an input the harness does not give (a random value, a file, a socket), and ${n(rt.excused)} are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated).`,
+    ``,
+    `A case counts only when Safe C gives a compile error or traps at the bug. [Full table, the port and the exclusions](safe-c-docs/results.md).`,
   ].join("\n");
 }
 

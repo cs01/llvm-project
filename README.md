@@ -1,16 +1,16 @@
 # Safe C
 
-**Write C that is as safe as Rust.**
-
-Why rewrite C in a safe language when you can write C *as* a safe language?
+**C with Rust's memory-safety rules, checked by Clang.** An early preview.
 
 A fork of Clang with one flag, `-fsafe-c`:
 
-- Clang's newest safety features, all on.
-- New checks where Clang has gaps.
-- Nothing can switch them off.
+- Clang's newest safety features (bounds checking, null and lifetime analysis), all on.
+- Rust's ownership and borrowing rules, tagged unions and thread rules, added.
+- Safety errors cannot be lowered with `-W` flags or pragmas. The ways out are explicit:
+  `__unsafe`, headers marked legacy, and directories passed with `-isystem`.
 
-**The goal:** code outside `__unsafe` is memory safe, as in Rust.
+**The goal:** code outside `__unsafe` is memory safe, as in Rust. It is not there yet:
+the known gaps are listed under [Status](#status).
 
 ## What it looks like
 
@@ -43,8 +43,10 @@ The same code compiles as plain C on any compiler: the annotations come from one
 
 1. **Build the compiler** ([building](safe-c-docs/building.md)), then compile one file:
    `clang -fsafe-c parser.c`. Start with the file that reads untrusted input.
-2. **Fix what it reports.** Each error says what is wrong and what to write.
-3. **Most code needs four words:**
+2. **Fix what it reports.** Most errors say what is wrong and what to write.
+3. **The annotations you will meet first** (the cJSON port has about 630 annotations in
+   3,300 lines, one every five lines; half are `_Nullable`, then
+   `_Exclusive`, `_Owned` and `_Returns_owned`):
 
    | Write | When |
    |---|---|
@@ -58,42 +60,49 @@ The same code compiles as plain C on any compiler: the annotations come from one
    later.
 
 Every annotation, with its Rust equivalent: [annotations](safe-c-docs/annotations.md).
-Eight real bugs and their errors: [examples](safe-c-docs/examples.md).
+Eight classic bugs, written as small examples, and their errors: [examples](safe-c-docs/examples.md).
 
 ## Status
 
 | Problem | Status |
 |---|---|
-| Out of bounds | done |
-| Null dereference | done |
-| Uninitialized reads | done |
-| Integer UB | done |
-| Type confusion | done: unions holding pointers must be tagged unions, and every read checks the tag |
-| Use after free | on by default; the 18 holes a fuzzing pass found are fixed, re-run pending |
-| Data races | in progress: a thread owns its argument, locked data and signal handlers are checked; globals next |
+| Out of bounds | checked (compile time where provable, a trap otherwise) |
+| Null dereference | checked |
+| Uninitialized reads | locals must be set before use; heap memory is zero-filled (except the bytes `realloc` adds) |
+| Integer UB | division by zero and oversized shifts trap; signed overflow wraps (as in Rust release builds) |
+| Type confusion | unions holding pointers must be tagged unions, and every read checks the tag. Open: raw bytes copied in through a `void *` variable, `va_arg` of a struct holding pointers |
+| Use after free, double free | on by default; the 18 escapes a fuzzer found are fixed. Open: a null check can survive a call that clears the pointer through a global |
+| Data races | a thread owns its argument; locked data, mutable globals and signal handlers are checked. Not yet: a counted pointer and its count under one lock, shared owners (`Arc`) |
 
-"Done" means checked at compile time or trapped, and passing NIST's Juliet suite. Two
-small libraries are ported so far; larger ones are the real test.
+**Maturity.** Early. Tested on macOS (arm64) against Apple's SDK; Linux is being brought
+up in CI. Ported so far: jsmn, cJSON, lz4. The design is proven sound in Lean for small
+models of each rule set, not for Clang itself (see [results](safe-c-docs/results.md)).
+Every open item: [open issues](safe-c-notes/review-2026-11-23.md).
 
 Details: [how each is closed](safe-c-docs/protection.md).
 
 ## Results
 
-The US government's test suite for C security tools (NIST's
-[Juliet](https://samate.nist.gov/SARD/test-suites/112)) is thousands of small programs,
-each with a known memory bug. A normal C compiler builds all of them without a word.
-Safe C:
+NIST's [Juliet](https://samate.nist.gov/SARD/test-suites/112) is the US government's
+test suite for C security tools: thousands of small programs, each with a known bug and a
+fixed version. Juliet is written for plain C, so it was ported first (the changes are
+listed in [results](safe-c-docs/results.md)); 41% of its cases still do not build and are
+not counted.
 
 <!-- generated:summary -->
-- **Null, double free, use after free: 608 of 608 caught at compile time.** Same as Rust.
-- **Out of bounds, divide by zero: 100.0% stopped at the bad access** (5545 of 5545), where Rust would panic.
+On a ported copy of NIST's Juliet suite, 6,773 of 11,522 cases in 10 bug classes (those whose fixed version builds after porting):
 
-Counted only when Safe C gives a compile error or traps at the bug; on the 6773 cases
-whose fixed version builds after porting. [Full table and the port](safe-c-docs/results.md).
+- **Null, double free, use after free: 608 of 608 rejected at compile time.** Rust also rejects these at compile time.
+- **Out of bounds, divide by zero: 5,545 of 6,165 stopped at the bad access**. The other 620: 394 need an input the harness does not give (a random value, a file, a socket), and 226 are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated).
+
+A case counts only when Safe C gives a compile error or traps at the bug. [Full table, the port and the exclusions](safe-c-docs/results.md).
 <!-- end generated:summary -->
 
-Ports: [jsmn](safe-c-notes/ports/jsmn/PORT.md) and [cJSON](safe-c-notes/ports/cjson/PORT.md)
-pass their tests under Safe C, Apple clang and gcc. More in [results](safe-c-docs/results.md).
+Ports: [jsmn](safe-c-notes/ports/jsmn/PORT.md), [cJSON](safe-c-notes/ports/cjson/PORT.md)
+and [lz4](safe-c-notes/ports/lz4/PORT.md) pass their tests under Safe C, Apple clang and
+AddressSanitizer. lz4 runs at Apple clang's speed with its two hot loops marked audited
+(`__unsafe _No_bounds_checks`), and at 0.77x (compress) and 0.58x (decompress) fully
+checked.
 
 ## More
 

@@ -2,7 +2,7 @@
 // a noreturn function that returns, asm labels (bind a declaration to any
 // symbol of any type), setjmp/longjmp (resume a dead frame), and use of a
 // FILE after fclose.
-// RUN: %clang -mllvm -safe-c-shared-globals=false -fsafe-c -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -fsyntax-only -Xclang -verify %s
 // RUN: %clang -fsyntax-only -Xclang -verify=plain %s
 #include <setjmp.h>
 #include <stdio.h>
@@ -15,7 +15,7 @@ __attribute__((noreturn)) void die(int c) {
 
 extern int *view __asm__("_cell"); // expected-error {{an asm label can switch off Safe C's checks}} expected-error {{holds a pointer nothing tracks}}
 
-jmp_buf jb;
+_Thread_local jmp_buf jb;
 void jump(void) {
   longjmp(jb, 1); // expected-error {{'longjmp' can switch off Safe C's checks}}
 }
