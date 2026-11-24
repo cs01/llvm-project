@@ -27,8 +27,8 @@ One flag; no other flags are needed:
 - Clang's thread-safety analysis (`-Wthread-safety`), for `_Guarded_by`,
   `_Requires`, `_Acquires` and `_Releases`.
 - `_FORTIFY_SOURCE` off: its checks are replaced by the bounds checks.
-- Every memory-safety finding is an error, not a warning. Code inside
-  `__unsafe { }` is exempt.
+- Every memory-safety finding is an error, not a warning, and `-w` or
+  `-Wno-...` cannot turn it off. Code inside `__unsafe { }` is exempt.
 
 ## Prior work
 
