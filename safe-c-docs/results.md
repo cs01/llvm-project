@@ -70,9 +70,10 @@ data and signal handlers but not yet every global.
 
 **The Lean core.** [safe-c-lean/](../safe-c-lean/) models the rules as a small calculus.
 `safe_c_sound` covers bounds, null, casts and integers; `own_sound` covers ownership;
-`tag_sound` covers tagged unions ([TAGGED.md](../safe-c-lean/TAGGED.md)), and building it
-found a hole the compiler then fixed: a tag test made a member look written after the tag
-changed.
+`tag_sound` covers tagged unions ([TAGGED.md](../safe-c-lean/TAGGED.md)) and `drop_sound`
+`_Drop` cleanup ([DROP.md](../safe-c-lean/DROP.md)). Building each found a hole the compiler
+then fixed: a tag test made a member look written after the tag changed, and a `_Drop_free`
+variable could be given a pointer it did not own.
 Both are checked by Lean with no unproved steps. The model covers the rules, not clang's
 implementation of them; Juliet, the ports and adversarial probes test that.
 
