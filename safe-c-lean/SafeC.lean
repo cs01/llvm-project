@@ -11,3 +11,6 @@ import SafeC.TagHoles
 import SafeC.Drop
 import SafeC.DropSound
 import SafeC.DropHoles
+import SafeC.Err
+import SafeC.ErrSound
+import SafeC.ErrHoles
