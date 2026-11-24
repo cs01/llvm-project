@@ -157,8 +157,16 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "'__safec_take(...)' of another owned field; this value is borrowed, so "
      "its owner would free it too"},
     {"free-in-place", false,
-     "freeing a pointer that is still stored in %0 leaves %0 dangling; move "
-     "it out first, as in 'free(__safec_take(n->next))'"},
+     "freeing a pointer that is still stored in %0 leaves it dangling; move "
+     "it out first, as in 'free(__safec_take(n->next))', where the place is "
+     "'__safec_owned'"},
+    {"free-borrowed-take", false,
+     "%0 is borrowed, so its owner will free what it points to too; declare "
+     "it '__safec_owned' if this code is responsible for freeing it"},
+    {"alloc-untracked", false,
+     "a new allocation stored in %0 is not tracked, so nothing stops a use "
+     "after it is freed; declare the place '__safec_owned' (for an array: "
+     "'T *__safec_owned a[N]'), or keep the pointer in a local variable"},
     {"owning-struct-copy", false,
      "copying %0 duplicates its owned field %1, and both copies would free "
      "it; pass a pointer to it instead, or move the field out with "
@@ -403,8 +411,10 @@ static bool isOwnedSource(ASTContext &Ctx, const Expr *E) {
   if (const auto *CE = dyn_cast<CStyleCastExpr>(E))
     return isOwnedSource(Ctx, CE->getSubExpr());
   if (const auto *Call = dyn_cast<CallExpr>(E)) {
+    // Taking from a borrowed place gives a borrow.
     if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take)
-      return true;
+      return Call->getNumArgs() == 1 &&
+             safeCPointerKind(Call->getArg(0)->getType()) == "owned";
     const FunctionDecl *F = Call->getDirectCallee();
     if (!F)
       return false;
@@ -423,6 +433,24 @@ static bool isOwnedSource(ASTContext &Ctx, const Expr *E) {
     return VD && VD->isLocalVarDecl() && !VD->isStaticLocal();
   }
   return false;
+}
+
+/// A named local variable or parameter: the places the lifetime analysis
+/// follows.
+static bool isTrackedLocal(const Expr *E) {
+  const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+  const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  return VD && !VD->hasGlobalStorage();
+}
+
+/// How to name the place E stores to in a diagnostic.
+static std::string describe(const Expr *E) {
+  if (const ValueDecl *D = namedStorage(E))
+    return "'" + D->getNameAsString() + "'";
+  E = E->IgnoreParenImpCasts();
+  if (isa<ArraySubscriptExpr>(E))
+    return "an array element";
+  return "memory reached through a pointer";
 }
 
 namespace {
@@ -459,6 +487,14 @@ public:
   explicit PointerKindChecker(Sema &S) : S(S) {}
 
   bool VisitBinaryOperator(BinaryOperator *BO) {
+    if (BO->getOpcode() == BO_Assign && !isTrackedLocal(BO->getLHS()) &&
+        BO->getLHS()->getType()->isPointerType() &&
+        safeCPointerKind(BO->getLHS()->getType()) != "owned") {
+      const auto *Call = dyn_cast<CallExpr>(BO->getRHS()->IgnoreParenCasts());
+      if (Call && isOwnedSource(S.Context, Call))
+        S.SafeCDiag(BO->getRHS()->getExprLoc(), "alloc-untracked")
+            << describe(BO->getLHS());
+    }
     if (BO->getOpcode() == BO_Assign) {
       checkStore(namedStorage(BO->getLHS()), BO->getRHS(), BO->getOperatorLoc());
       const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens());
@@ -527,13 +563,21 @@ public:
     for (unsigned I = 0, N = Call->getNumArgs(); I != N; ++I) {
       if (!safeCTakesParam(Callee, I))
         continue;
+      // Only a named local or parameter is tracked by the lifetime analysis;
+      // anything else (a field, element, global, or *p) still holds the
+      // pointer after the free.
       const Expr *A = Call->getArg(I)->IgnoreParenImpCasts();
-      const ValueDecl *D = namedStorage(A);
-      bool InPlace = isa<MemberExpr>(A) ||
-                     (D && isa<VarDecl>(D) &&
-                      cast<VarDecl>(D)->hasGlobalStorage());
-      if (InPlace && D)
-        S.SafeCDiag(A->getExprLoc(), "free-in-place") << D;
+      if (const auto *Take = dyn_cast<CallExpr>(A);
+          Take && Take->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
+          Take->getNumArgs() == 1 && !isOwnedSource(S.Context, Take)) {
+        S.SafeCDiag(A->getExprLoc(), "free-borrowed-take")
+            << describe(Take->getArg(0));
+        continue;
+      }
+      if (!isTrackedLocal(A) && !isa<CallExpr>(A) &&
+          !A->isNullPointerConstant(S.Context,
+                                    Expr::NPC_ValueDependentIsNotNull))
+        S.SafeCDiag(A->getExprLoc(), "free-in-place") << describe(A);
     }
     return true;
   }

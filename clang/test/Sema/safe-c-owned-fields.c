@@ -34,7 +34,7 @@ void bad_stores(struct list *l, struct node *borrowed) {
 }
 
 void frees(struct list *l) {
-  free(l->head); // expected-error {{freeing a pointer that is still stored in 'head' leaves 'head' dangling; move it out first, as in 'free(__safec_take(n->next))'}}
+  free(l->head); // expected-error {{freeing a pointer that is still stored in 'head' leaves it dangling; move it out first, as in 'free(__safec_take(n->next))', where the place is '__safec_owned'}}
   free(spare);   // expected-error {{freeing a pointer that is still stored in 'spare'}}
   free(__safec_take(l->head));
   free(__safec_take(spare));
@@ -59,4 +59,23 @@ struct nn { int *__safec_owned p; };
 void take_nonnull(struct nn *x) {
   (void)__safec_take(x->p); // expected-error {{'__safec_take' leaves null behind, so 'p' must be declared '_Nullable'}}
   // off-error@-1 {{'__safec_take' leaves null behind}}
+}
+
+// Only named locals are followed by the lifetime analysis: an allocation in
+// an array element or behind a pointer needs an owned place, and is freed
+// only after moving it out.
+void arrays(void) {
+  int *_Nullable arr[2] = {0, 0};
+  arr[0] = malloc(sizeof(int)); // expected-error {{a new allocation stored in an array element is not tracked, so nothing stops a use after it is freed; declare the place '__safec_owned' (for an array: 'T *__safec_owned a[N]'), or keep the pointer in a local variable}}
+  free(arr[0]); // expected-error {{freeing a pointer that is still stored in an array element leaves it dangling}}
+  int *__safec_owned _Nullable own[2] = {0, 0};
+  own[0] = malloc(sizeof(int));
+  free(__safec_take(own[0]));
+}
+void destroy(int *_Nullable *pp) {
+  free(*pp); // expected-error {{freeing a pointer that is still stored in memory reached through a pointer}}
+}
+void destroy_owned(int *__safec_owned _Nullable *pp) { free(__safec_take(*pp)); }
+void destroy_borrowed(int *_Nullable *pp) {
+  free(__safec_take(*pp)); // expected-error {{memory reached through a pointer is borrowed, so its owner will free what it points to too; declare it '__safec_owned' if this code is responsible for freeing it}}
 }
