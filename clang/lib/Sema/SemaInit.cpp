@@ -8942,10 +8942,16 @@ ExprResult InitializationSequence::Perform(Sema &S,
                                       [](const ParmVarDecl *P) {
                                         return P->getType()->isIntegerType();
                                       });
+          // Only an unannotated (single) parameter, and only for calls
+          // from checked code: a parameter that carries its own bounds
+          // already has them, and system headers' calls are trusted.
           if (PT && NoLength && Pointee.isConstQualified() &&
               (Pointee->isCharType() || Pointee->isWideCharType()) &&
               !Step->Type->isValueTerminatedType() &&
-              !Step->Type->isBoundsAttributedType()) {
+              !Step->Type->isBoundsAttributedType() &&
+              !PT->isIndexable() && !PT->isBidiIndexable() &&
+              !PT->isUnsafeIndexable() &&
+              !S.SourceMgr.isInSystemHeader(Init->getExprLoc())) {
             ExprResult Src = S.DefaultFunctionArrayLvalueConversion(Init);
             const auto *SrcPT = Src.isUsable()
                                     ? Src.get()->getType()->getAs<PointerType>()

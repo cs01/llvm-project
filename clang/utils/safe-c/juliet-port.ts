@@ -14,6 +14,7 @@ cpSync(join(import.meta.dir, "juliet_port.h"), join(out, "suite/C/testcasesuppor
 
 const stats: Record<string, number> = { files: 0, nullable: 0, strfns: 0 };
 function port(text: string): string {
+  text = text.replace(/\r\n/g, "\n"); // Juliet ships CRLF
   // (a) A pointer local set to NULL may be null: say so. (Rust: Option<&T>.)
   text = text.replace(/^(\s+)((?:const\s+)?[A-Za-z_][\w ]*?\s*\*+)\s*([A-Za-z_]\w*)\s*=\s*NULL\s*;/gm,
     (_m, ind, ty, name) => { stats.nullable++; return `${ind}${ty.trimEnd()} _Nullable ${name} = NULL;`; });
