@@ -129,8 +129,13 @@ function juliet(): string {
   lastTotals = { ct, rt };
   const runRows = cache[RUN_FILE] ?? [];
   const cwes = new Set(rowsCfg.map((r) => r.cwe));
+  // Flow variants 05-17 set the data only under a condition the compiler
+  // cannot see through (a global from another file, a function's result):
+  // on the other path it is uninitialized or still null.
+  const condVariant = (r: any) => { const v = Number(r.case.match(/_(\d\d)[a-e]?$/)?.[1] ?? -1); return v >= 5 && v <= 17; };
   const excludedUninit = runRows.filter((r: any) => cwes.has(r.cwe) && r.good === "false-positive" &&
-    /error: variable .* (may be uninitialized|is used uninitialized)/.test(r.goodErr ?? "")).length;
+    (/error: variable .* (may be uninitialized|is used uninitialized)/.test(r.goodErr ?? "") ||
+     (condVariant(r) && /error: passing nullable pointer to nonnull parameter|error: dereference of nullable pointer/.test(r.goodErr ?? "")))).length;
   const p = pctOf;
   return [
     ...lines,
@@ -142,7 +147,7 @@ function juliet(): string {
     `**Bugs Rust catches at run time** (bounds, division by zero, where Rust panics): of the ${rt.n - rt.inputMiss - rt.excused} whose bug happens with the harness's input, Safe C traps on ${rt.c + rt.r} (${p(rt.c + rt.r, rt.n - rt.inputMiss - rt.excused)}); the other ${rt.fixedMiss - rt.excused} get past it. ${rt.inputMiss} more need an input the harness does not give (a random value, a socket, a file), so a Rust program would not panic on them in this run either, and ${rt.excused} are not bugs on this target (marked *).`,
     "",
     PORTED
-      ? `Cases are \`strict\`: only those whose fixed \`good()\` version compiles and runs under Safe C after porting (below), ${ct.n + rt.n} of ${ct.all + rt.all}. Of the rest, ${excludedUninit} read a variable that is set only under a condition known at run time, which Rust rejects too (definite initialization); the others still need porting work. Generated from \`safe-c-notes/${RUN_FILE}\` by \`clang/utils/safe-c/gen-readme.ts\`.`
+      ? `Cases are \`strict\`: only those whose fixed \`good()\` version compiles and runs under Safe C after porting (below), ${ct.n + rt.n} of ${ct.all + rt.all}. Of the rest, ${excludedUninit} use a variable that is set only under a condition known at run time (on the other path it is uninitialized or still null), which Rust rejects too; the others still need porting work. Generated from \`safe-c-notes/${RUN_FILE}\` by \`clang/utils/safe-c/gen-readme.ts\`.`
       : `Cases are \`strict\`: only those whose fixed \`good()\` version compiles and runs under Safe C, ${ct.n + rt.n} of ${ct.all + rt.all}. The rest are rejected as written, mostly because Juliet keeps raw pointers in struct fields and possibly-null values where Safe C wants them annotated: that is annotation work, not a bug found. Generated from the saved runs in \`safe-c-notes/\` by \`clang/utils/safe-c/gen-readme.ts\`.`,
   ].join("\n");
 }

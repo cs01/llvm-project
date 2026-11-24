@@ -34,7 +34,7 @@ count as caught: only a compiler error or a compiler-inserted trap does. Harness
 
 **Bugs Rust catches at run time** (bounds, division by zero, where Rust panics): of the 5545 whose bug happens with the harness's input, Safe C traps on 5545 (100.0%); the other 0 get past it. 394 more need an input the harness does not give (a random value, a socket, a file), so a Rust program would not panic on them in this run either, and 226 are not bugs on this target (marked *).
 
-Cases are `strict`: only those whose fixed `good()` version compiles and runs under Safe C after porting (below), 6773 of 11522. Of the rest, 1152 read a variable that is set only under a condition known at run time, which Rust rejects too (definite initialization); the others still need porting work. Generated from `safe-c-notes/juliet-port6-2026-11-24.json` by `clang/utils/safe-c/gen-readme.ts`.
+Cases are `strict`: only those whose fixed `good()` version compiles and runs under Safe C after porting (below), 6773 of 11522. Of the rest, 1804 use a variable that is set only under a condition known at run time (on the other path it is uninitialized or still null), which Rust rejects too; the others still need porting work. Generated from `safe-c-notes/juliet-port6-2026-11-24.json` by `clang/utils/safe-c/gen-readme.ts`.
 <!-- end generated:juliet -->
 
 **How the suite was ported.** Juliet is written for plain C, so most fixed `good()`
