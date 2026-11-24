@@ -933,6 +933,22 @@ void FactsGenerator::VisitCXXFunctionalCastExpr(
   VisitCastExpr(FCE);
 }
 
+// A C compound literal `(T){...}` is an object built from its initializer:
+// what it points to (its inner origins) is what the initializer points to.
+void FactsGenerator::VisitCompoundLiteralExpr(const CompoundLiteralExpr *CLE) {
+  OriginList *Dst = getOriginsList(*CLE);
+  const Expr *Init = CLE->getInitializer();
+  OriginList *Src = Init ? getOriginsList(*Init) : nullptr;
+  if (!Dst || !Src)
+    return;
+  if (CLE->isGLValue())
+    Dst = Dst->peelOuterOrigin();
+  if (Init->isGLValue())
+    Src = Src->peelOuterOrigin();
+  if (Dst && Src)
+    flow(Dst, Src, /*Kill=*/true);
+}
+
 void FactsGenerator::VisitInitListExpr(const InitListExpr *ILE) {
   if (!hasOrigins(ILE))
     return;

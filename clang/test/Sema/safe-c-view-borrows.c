@@ -47,3 +47,12 @@ struct span first_two_ok(const int *__counted_by(n) a _Lifetimebound, int n) {
   struct span s = {a, n < 2 ? n : 2};
   return s;
 }
+
+// A compound literal carries what its initializer borrows.
+struct span literal_ok(const int *__counted_by(n) a _Lifetimebound, int n) {
+  return (struct span){a, n};
+}
+struct span literal_local(void) {
+  int x[2] = {1, 2};
+  return (struct span){x, 2}; // expected-error {{stack memory associated with local variable 'x' is returned}} expected-note {{returned here}}
+}

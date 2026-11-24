@@ -55,6 +55,7 @@ public:
   void VisitCXXOperatorCallExpr(const CXXOperatorCallExpr *OCE);
   void VisitCXXFunctionalCastExpr(const CXXFunctionalCastExpr *FCE);
   void VisitInitListExpr(const InitListExpr *ILE);
+  void VisitCompoundLiteralExpr(const CompoundLiteralExpr *CLE);
   void VisitCXXBindTemporaryExpr(const CXXBindTemporaryExpr *BTE);
   void VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *MTE);
   void VisitLambdaExpr(const LambdaExpr *LE);
