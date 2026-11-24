@@ -206,6 +206,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 is a shared borrow, but this parameter is '_Excl': the callee may "
      "free or replace what it owns while the owner still uses it; pass the "
      "owner, or declare %0 '_Owned' (if it owns the object) or '_Excl'"},
+    {"drop-store", false,
+     "%0 is freed automatically when its scope ends, so it may only hold "
+     "memory it owns; store an allocation, '_Take(...)' of an owner, or "
+     "null, not a pointer borrowed from a local or a parameter"},
     {"drop-moved-by-name", false,
      "%0 is freed automatically at the end of its scope ('_Drop'), so giving "
      "it away here would free it twice; move it out with '_Take(%1)', which "
@@ -762,6 +766,17 @@ static const ValueDecl *exclusiveArgBlocker(ASTContext &Ctx, const Expr *E,
   return VD;
 }
 
+/// A local whose cleanup frees it (`_Drop_free`, safec.h's trusted
+/// cleanup).
+static bool isDropFree(const VarDecl *VD) {
+  const auto *CA = VD->getAttr<CleanupAttr>();
+  const FunctionDecl *F = CA ? CA->getFunctionDecl() : nullptr;
+  return F && llvm::any_of(F->specific_attrs<AnnotateAttr>(),
+                           [](const AnnotateAttr *A) {
+                             return A->getAnnotation() == "safec_cleanup";
+                           });
+}
+
 /// A local with a cleanup (`_Drop`), named directly: giving it away by name
 /// would leave the cleanup to free it again.
 static const VarDecl *dropLocalNamed(const Expr *E) {
@@ -804,6 +819,13 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   void checkStore(const ValueDecl *Dst, const Expr *Src, SourceLocation Loc) {
     if (!Dst)
       return;
+    // A _Drop_free local is freed when its scope ends, so it may only hold
+    // memory it owns (found by the Lean model of _Drop: `p = &local` or a
+    // borrowed parameter made the cleanup free memory it did not own).
+    if (const auto *VD = dyn_cast<VarDecl>(Dst);
+        VD && VD->getType()->isPointerType() && isDropFree(VD) &&
+        !isOwnedSource(S.Context, Src))
+      S.SafeCDiag(Src->getExprLoc(), "drop-store") << VD;
     if (hasKind(Dst, "static") &&
         !isStaticAddress(S.Context, Src))
       S.SafeCDiag(Src->getExprLoc(), "static-store") << Dst;
