@@ -19,7 +19,7 @@ struct P2 { short c; int d; };
 
 void launder(int **pp) {
   char *c = (char *)pp; // expected-error {{can treat memory as the wrong type}}
-  void *v = pp; // expected-warning {{with zero length}}
+  void *v = pp; // expected-warning {{with zero length}} expected-error {{holds pointers, and as a 'void *' kept here}}
   (void)c; (void)v;
 }
 

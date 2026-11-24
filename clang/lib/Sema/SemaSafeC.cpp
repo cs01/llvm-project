@@ -305,6 +305,15 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "also reach %0 by name and free what the callee is using; keep the object "
      "in a local for the call (move its owned fields with '_Take', and move "
      "them back after), or let the callee use the global by name"},
+    {"sort-size", false,
+     "the element size must be the size of %0 (write it with 'sizeof'): %0 "
+     "holds pointers, and sorting pieces of any other size would mix their "
+     "bytes"},
+    {"void-over-pointers", false,
+     "%0 holds pointers, and as a 'void *' kept here its bytes could be "
+     "overwritten (memcpy, memset, read), forging them; keep the pointer's "
+     "own type, use 'const void *' if it is only read, or pass it "
+     "directly in the call that needs 'void *'"},
     {"owned-param-stored", false,
      "%0 is owned by this function, which frees it or gives it on, but a "
      "borrow of it is stored where %1 points, so the caller could use it "
@@ -1172,6 +1181,82 @@ public:
     if (isBorrowSlotPtr(T) ||
         (T->isPointerType() && isBorrowSlotPtr(T->getPointeeType())))
       S.SafeCDiag(E->getExprLoc(), "borrow-slot-value");
+    return true;
+  }
+
+  /// Conversions seen inside a direct call's argument, where the byte-write
+  /// check covers them, or compared.
+  llvm::SmallPtrSet<const Expr *, 16> VoidOk;
+  void allowVoid(const Expr *E) {
+    while (E) {
+      VoidOk.insert(E);
+      if (const auto *C = dyn_cast<CastExpr>(E))
+        E = C->getSubExpr();
+      else if (const auto *P = dyn_cast<ParenExpr>(E))
+        E = P->getSubExpr();
+      else if (const auto *O = dyn_cast<OpaqueValueExpr>(E))
+        E = O->getSourceExpr();
+      else if (const auto *M = dyn_cast<MaterializeSequenceExpr>(E))
+        E = M->getWrappedExpr();
+      else if (const auto *B = dyn_cast<BoundsSafetyPointerPromotionExpr>(E))
+        E = B->getPointer();
+      else if (const auto *BC = dyn_cast<BoundsCheckExpr>(E))
+        E = BC->getGuardedExpr();
+      else
+        break;
+    }
+  }
+  // Before anything else: bounds-safety wrappers can put an argument ahead of
+  // its call in the visit order.
+  bool CollectedVoid = false;
+  void collectVoid() {
+    if (CollectedVoid)
+      return;
+    CollectedVoid = true;
+    struct Finder : RecursiveASTVisitor<Finder> {
+      PointerKindChecker *C;
+      bool VisitCallExpr(CallExpr *Call) {
+        const FunctionDecl *F = Call->getDirectCallee();
+        const Decl *D = Call->getCalleeDecl();
+        for (unsigned I = 0, N = Call->getNumArgs(); I != N; ++I) {
+          // Through a pointer, only an argument that is freed.
+          bool Takes = false;
+          if (D)
+            for (const OwnershipAttr *A : D->specific_attrs<OwnershipAttr>())
+              if (A->isTakes())
+                for (const ParamIdx &P : A->args())
+                  Takes |= P.isValid() && P.getASTIndex() == I;
+          if (F || Takes)
+            C->allowVoid(Call->getArg(I));
+        }
+        return true;
+      }
+      bool VisitBinaryOperator(BinaryOperator *BO) {
+        if (BO->isComparisonOp()) {
+          C->allowVoid(BO->getLHS());
+          C->allowVoid(BO->getRHS());
+        }
+        return true;
+      }
+    } F;
+    F.C = this;
+    F.TraverseStmt(const_cast<Stmt *>(Body));
+  }
+  bool VisitCastExpr(CastExpr *C) {
+    collectVoid();
+    QualType To = C->getType();
+    if (!To->isVoidPointerType() || To->getPointeeType().isConstQualified() ||
+        VoidOk.contains(C))
+      return true;
+    QualType From = C->getSubExpr()->getType();
+    if (!From->isPointerType() || From->isVoidPointerType() ||
+        From->isFunctionPointerType() ||
+        safeCPointerKind(To) == "unchecked")
+      return true;
+    // A pointer to nothing (null) or to pointer-free data is harmless.
+    QualType T = From->getPointeeType();
+    if (!S.isSafeCPlainData(S.Context, T, /*VoidIsPlain=*/true))
+      S.SafeCDiag(C->getExprLoc(), "void-over-pointers") << T;
     return true;
   }
 

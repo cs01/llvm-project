@@ -4993,6 +4993,13 @@ void Sema::CheckConstructorCall(FunctionDecl *FDecl, QualType ThisType,
 static QualType safeCOriginalPointee(const Expr *E) {
   while (true) {
     E = E->IgnoreParenImpCasts();
+    // `(void *)&s` is still s's bytes.
+    if (const auto *CSE = dyn_cast<CStyleCastExpr>(E);
+        CSE && CSE->getType()->isVoidPointerType() &&
+        CSE->getSubExpr()->getType()->isAnyPointerType()) {
+      E = CSE->getSubExpr();
+      continue;
+    }
     if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
       if (!OVE->getSourceExpr())
         break;
@@ -5061,6 +5068,22 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
                          Name)) {
     S.SafeCDiag(TheCall->getExprLoc(), "wide-copy-unchecked") << FD;
     return;
+  }
+  // A sort moves elements of the size it is told: any other size than the
+  // element's mixes the bytes of pointers.
+  if (llvm::is_contained({"qsort", "qsort_r", "qsort_b", "mergesort",
+                          "heapsort"},
+                         Name) &&
+      TheCall->getNumArgs() >= 3) {
+    QualType Elem = safeCOriginalPointee(TheCall->getArg(0));
+    while (!Elem.isNull() && Elem->isArrayType())
+      Elem = S.Context.getBaseElementType(Elem);
+    Expr::EvalResult R;
+    if (!Elem.isNull() && !safeCHoldsNoPointers(S.Context, Elem) &&
+        (!TheCall->getArg(2)->EvaluateAsInt(R, S.Context) ||
+         R.Val.getInt() !=
+             S.Context.getTypeSizeInChars(Elem).getQuantity()))
+      S.SafeCDiag(TheCall->getArg(2)->getExprLoc(), "sort-size") << Elem;
   }
   // These never write bytes of their own into the block: the allocator, and
   // sorts that move whole elements.
