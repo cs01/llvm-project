@@ -238,6 +238,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "a pointer to %0 would outlive a change of the tag '%1', after which "
      "these bytes may be another member's (one that holds pointers); use the "
      "member by name, or copy its value out ('x = s.%2;')"},
+    {"wide-copy-unchecked", false,
+     "%0 can write past the end of its destination, which nothing checks; "
+     "use the size-bounded form, as in 'wcslcat(dst, src, N)' with N the "
+     "destination's length in wide characters"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "

@@ -5046,6 +5046,22 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
   if (S.SourceMgr.isInSystemHeader(TheCall->getExprLoc()))
     return;
   StringRef Name = safeCLibcName(FD);
+  // The wide-string copies have no bounds on their destination (the SDK
+  // annotates strcpy and friends as unavailable, but not these), so they can
+  // write past it; the bounded copies take a count that is not tied to it.
+  // Only where the SDK left the destination with no bounds at all (wcscat):
+  // annotated ones (wcsncpy's count, wcscpy's unsafe pointer) have their own
+  // errors.
+  if (FD->isExternC() && !FD->hasAttr<UnavailableAttr>() &&
+      FD->getNumParams() > 0 &&
+      !FD->getParamDecl(0)->getType()->isBoundsAttributedType() &&
+      !FD->getParamDecl(0)->getType()->isUnsafeIndexablePointerType() &&
+      llvm::is_contained({"wcscpy", "wcscat", "wcpcpy", "wcsncpy", "wcsncat",
+                          "wcpncpy"},
+                         Name)) {
+    S.SafeCDiag(TheCall->getExprLoc(), "wide-copy-unchecked") << FD;
+    return;
+  }
   // These never write bytes of their own into the block: the allocator, and
   // sorts that move whole elements.
   if (llvm::is_contained({"free", "realloc", "reallocf", "qsort", "qsort_r",
