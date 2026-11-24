@@ -18099,7 +18099,7 @@ static void checkSafeCFreedParams(Sema &S, const FunctionDecl *FD,
           if (!PVD || PVD->getDeclContext() != FD ||
               safeCTakesParam(FD, PVD->getFunctionScopeIndex()) ||
               // An exclusive borrow is never freed; that has its own error.
-              lifetimes::safeCParamKind(PVD->getType()) == "excl" ||
+              lifetimes::safeCParamDeclKind(PVD) == "excl" ||
               !Reported.insert(PVD).second)
             continue;
           S.SafeCDiag(DRE->getLocation(), "frees-param") << FD << PVD;

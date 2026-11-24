@@ -10,6 +10,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
@@ -672,9 +673,19 @@ llvm::StringRef safeCParamKind(QualType T) {
   return "excl";
 }
 
+llvm::StringRef safeCParamDeclKind(const ParmVarDecl *P) {
+  // System headers keep their declared meaning: libc's `FILE *` is not
+  // an exclusive borrow.
+  const SourceManager &SM = P->getASTContext().getSourceManager();
+  if (P->getLocation().isValid() && SM.isInSystemHeader(P->getLocation()))
+    return safeCPointerKind(P->getType());
+  return safeCParamKind(P->getType());
+}
+
 llvm::StringRef safeCDeclKind(const ValueDecl *D) {
-  return isa<ParmVarDecl>(D) ? safeCParamKind(D->getType())
-                             : safeCPointerKind(D->getType());
+  if (const auto *P = dyn_cast<ParmVarDecl>(D))
+    return safeCParamDeclKind(P);
+  return safeCPointerKind(D->getType());
 }
 
 const Expr *safeCPeel(const Expr *E) {

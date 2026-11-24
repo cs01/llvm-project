@@ -689,7 +689,7 @@ static bool isExclusiveReborrowCall(ASTContext &Ctx, const Expr *E,
   for (unsigned I = 0, N = std::min(Call->getNumArgs(), F->getNumParams());
        I != N; ++I) {
     const ParmVarDecl *P = F->getParamDecl(I);
-    if (lifetimes::safeCParamKind(P->getType()) == "excl" &&
+    if (lifetimes::safeCParamDeclKind(P) == "excl" &&
         P->hasAttr<LifetimeBoundAttr>() &&
         !exclusiveArgBlocker(Ctx, Call->getArg(I), Body))
       return true;
@@ -1083,7 +1083,7 @@ public:
   /// to holds an owner.
   static bool lentCanFree(const FunctionDecl *F, unsigned I) {
     QualType PT = F->getParamDecl(I)->getType();
-    if (lifetimes::safeCParamKind(PT) != "excl")
+    if (lifetimes::safeCParamDeclKind(F->getParamDecl(I)) != "excl")
       return true;
     return reachesOwner(PT->getPointeeType());
   }
@@ -1097,7 +1097,7 @@ public:
     SmallVector<std::pair<const VarDecl *, unsigned>, 4> Lent;
     for (unsigned I = 0; I != N; ++I) {
       QualType PT = F->getParamDecl(I)->getType();
-      StringRef K = lifetimes::safeCParamKind(PT);
+      StringRef K = lifetimes::safeCParamDeclKind(F->getParamDecl(I));
       if (K != "excl" && !(K == "owned" || safeCTakesParam(F, I)))
         continue;
       if (const VarDecl *Root = lifetimes::safeCRootVar(Call->getArg(I)))

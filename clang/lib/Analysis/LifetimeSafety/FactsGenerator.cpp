@@ -708,9 +708,18 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
     // Borrows of globals are all loans of one place (see rule 14): lending
     // `&g` ends them, as `_Take(g)` does.
     if (Resolved->hasGlobalStorage()) {
-      if (isa<FunctionDecl>(AC.getDecl()))
-        CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
-            safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));
+      if (!isa<FunctionDecl>(AC.getDecl()))
+        return;
+      AccessPath G = safeCGlobalsInterior(AC.getDecl());
+      CurrentBlockFacts.push_back(
+          FactMgr.createFact<ExpireFact>(G, CE->getBeginLoc()));
+      // A local borrowing a global, lent on, is reborrowed as for any root.
+      if (Root != Resolved)
+        if (OriginList *L = getOriginsList(*Root)) {
+          const Loan *Fresh = FactMgr.getLoanMgr().createLoan(G, Place);
+          CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
+              Fresh->getID(), L->getOuterOriginID()));
+        }
       return;
     }
     AccessPath Path = safeCRootInterior(FactMgr.getLoanMgr(), *Resolved);
@@ -765,7 +774,7 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
   if (const FunctionDecl *FD = CE->getDirectCallee()) {
     unsigned N = std::min(CE->getNumArgs(), FD->getNumParams());
     for (unsigned I = 0; I != N; ++I) {
-      StringRef K = safeCParamKind(FD->getParamDecl(I)->getType());
+      StringRef K = safeCParamDeclKind(FD->getParamDecl(I));
       if (K == "excl" || K == "owned")
         EndBorrowsThrough(CE->getArg(I));
     }

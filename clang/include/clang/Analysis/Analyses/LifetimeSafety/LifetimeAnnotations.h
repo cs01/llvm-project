@@ -37,7 +37,9 @@ llvm::StringRef safeCPointerKind(QualType T);
 /// The kind of a parameter of type \p T: its written kind, or (with
 /// -mllvm -safe-c-excl-default) "excl" for a plain pointer to non-const data.
 llvm::StringRef safeCParamKind(QualType T);
-/// safeCParamKind for parameters, safeCPointerKind for other declarations.
+/// safeCParamKind for a parameter declared outside system headers.
+llvm::StringRef safeCParamDeclKind(const ParmVarDecl *P);
+/// safeCParamDeclKind for parameters, safeCPointerKind for other declarations.
 llvm::StringRef safeCDeclKind(const ValueDecl *D);
 
 /// Safe C: whether the M2 ownership rules are on (default; turned off by
