@@ -85,12 +85,12 @@ each with a known memory bug. A normal C compiler builds all of them without a w
 Safe C:
 
 <!-- generated:summary -->
-- **Null, double free, use after free: 498 of 498 caught at compile time.** Same as Rust.
-- **Out of bounds, divide by zero: 94.9% stopped at the bad access** (1915 of 2017), where Rust would panic.
-<!-- end generated:summary -->
+- **Null, double free, use after free: 494 of 494 caught at compile time.** Same as Rust.
+- **Out of bounds, divide by zero: 100.0% stopped at the bad access** (1804 of 1804), where Rust would panic.
 
-Counted only when Safe C gives a compile error or traps at the bug; on the 3011 cases
+Counted only when Safe C gives a compile error or traps at the bug; on the 2804 cases
 whose fixed version builds as written. [Full table](safe-c-docs/results.md).
+<!-- end generated:summary -->
 
 Ports: [jsmn](safe-c-notes/ports/jsmn/PORT.md) and [cJSON](safe-c-notes/ports/cjson/PORT.md)
 pass their tests under Safe C, Apple clang and gcc. More in [results](safe-c-docs/results.md).

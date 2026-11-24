@@ -40,19 +40,24 @@ function annotations(): string {
 }
 
 // How Rust catches each bug class, and which saved run holds Safe C's result.
-type Row = { cwe: string; title: string; rust: "compile time" | "run time"; file: string; fixedMissNote?: string };
+type Row = { cwe: string; title: string; rust: "compile time" | "run time"; file: string; fixedMissNote?: string; excuse?: (r: any) => boolean };
 const rowsCfg: Row[] = [
-  { cwe: "476", title: "NULL dereference", rust: "compile time", file: "juliet-m2-2026-11-23.json" },
-  { cwe: "690", title: "unchecked return value", rust: "compile time", file: "juliet-m2-2026-11-23.json" },
-  { cwe: "415", title: "double free", rust: "compile time", file: "juliet-m2-2026-11-23.json" },
-  { cwe: "416", title: "use after free", rust: "compile time", file: "juliet-m2-2026-11-23.json" },
-  { cwe: "121", title: "stack buffer overflow", rust: "run time", file: "juliet-m2-2026-11-23.json" },
-  { cwe: "122", title: "heap buffer overflow", rust: "run time", file: "juliet-m2-2026-11-23.json",
+  { cwe: "476", title: "NULL dereference", rust: "compile time", file: "juliet-m5-2026-11-23.json" },
+  { cwe: "690", title: "unchecked return value", rust: "compile time", file: "juliet-m5-2026-11-23.json" },
+  { cwe: "415", title: "double free", rust: "compile time", file: "juliet-m5-2026-11-23.json" },
+  { cwe: "416", title: "use after free", rust: "compile time", file: "juliet-m5-2026-11-23.json" },
+  { cwe: "121", title: "stack buffer overflow", rust: "run time", file: "juliet-m5-2026-11-23.json" },
+  { cwe: "122", title: "heap buffer overflow", rust: "run time", file: "juliet-m5-2026-11-23.json",
     fixedMissNote: "overflow only on 32-bit targets" },
-  { cwe: "124", title: "buffer underwrite", rust: "run time", file: "juliet-m2-2026-11-23.json" },
-  { cwe: "126", title: "buffer over-read", rust: "run time", file: "juliet-m2-2026-11-23.json" },
-  { cwe: "127", title: "buffer under-read", rust: "run time", file: "juliet-m2-2026-11-23.json" },
-  { cwe: "369", title: "divide by zero", rust: "run time", file: "juliet-m2-2026-11-23.json",
+  { cwe: "124", title: "buffer underwrite", rust: "run time", file: "juliet-m5-2026-11-23.json" },
+  { cwe: "126", title: "buffer over-read", rust: "run time", file: "juliet-m5-2026-11-23.json",
+    // CWE170 variants copy into a local array without terminating it, then
+    // print it. Safe C zero-fills locals, so the copy is terminated inside
+    // the array and nothing is read past it (Rust requires the init too).
+    excuse: (r: any) => /CWE170/.test(r.case),
+    fixedMissNote: "missing-terminator cases (CWE 170) that cannot over-read under Safe C: local arrays are zero-filled, so the copy stays terminated inside the buffer (Rust requires the same initialization)" },
+  { cwe: "127", title: "buffer under-read", rust: "run time", file: "juliet-m5-2026-11-23.json" },
+  { cwe: "369", title: "divide by zero", rust: "run time", file: "juliet-m5-2026-11-23.json",
     fixedMissNote: "floating-point division, which is defined (infinity) in C and Rust" },
 ];
 
@@ -73,6 +78,9 @@ function summary(): string {
   return [
     `- **Null, double free, use after free: ${ct.c} of ${ct.n} caught at compile time.** Same as Rust.`,
     `- **Out of bounds, divide by zero: ${pct}% stopped at the bad access** (${rt.c + rt.r} of ${reached}), where Rust would panic.`,
+    ``,
+    `Counted only when Safe C gives a compile error or traps at the bug; on the ${ct.n + rt.n} cases`,
+    `whose fixed version builds as written. [Full table](safe-c-docs/results.md).`,
   ].join("\n");
 }
 
@@ -95,14 +103,17 @@ function juliet(): string {
     const fixedMiss = missed.filter((r: any) => !inputDriven(r.files)).length;
     const inputMiss = missed.length - fixedMiss;
     const pct = (x: number) => (n ? `${x} (${((100 * x) / n).toFixed(1)}%)` : "0");
-    lines.push(`| ${row.cwe} ${row.title} | ${row.rust} | ${n} | ${pct(comp)} | ${pct(run)} | ${fixedMiss}${fixedMiss && row.fixedMissNote ? "*" : ""} | ${inputMiss} |`);
-    if (fixedMiss && row.fixedMissNote) notes.push(`\\* CWE ${row.cwe}: the ${fixedMiss} fixed-input misses are ${row.fixedMissNote}.`);
+    const excused = row.excuse
+      ? missed.filter((r: any) => !inputDriven(r.files) && row.excuse!(r)).length
+      : row.fixedMissNote ? fixedMiss : 0;
+    lines.push(`| ${row.cwe} ${row.title} | ${row.rust} | ${n} | ${pct(comp)} | ${pct(run)} | ${fixedMiss}${excused ? (excused === fixedMiss ? "*" : ` (${excused}*)`) : ""} | ${inputMiss} |`);
+    if (excused) notes.push(`\\* CWE ${row.cwe}: ${excused === fixedMiss ? `the ${fixedMiss}` : `${excused} of the ${fixedMiss}`} fixed-input misses are ${row.fixedMissNote}.`);
     const t = tot[row.rust];
     t.n += n; t.c += comp; t.r += run; t.all += all.length;
     if (row.rust === "run time") {
       t.fixedMiss += fixedMiss; t.inputMiss += inputMiss;
       // Only misses with a stated reason (marked *) are not bugs here.
-      if (row.fixedMissNote) t.excused += fixedMiss;
+      t.excused += excused;
     }
   }
   const ct = tot["compile time"], rt = tot["run time"];

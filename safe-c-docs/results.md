@@ -15,25 +15,26 @@ count as caught: only a compiler error or a compiler-inserted trap does. Harness
 <!-- generated:juliet -->
 | CWE | Rust catches it at | Cases | Safe C at compile time | Safe C at run time (trap) | Missed, fixed input | Missed, needs other input |
 |---|---|---|---|---|---|---|
-| 476 NULL dereference | compile time | 84 | 84 (100.0%) | 0 (0.0%) | 0 | 0 |
+| 476 NULL dereference | compile time | 80 | 80 (100.0%) | 0 (0.0%) | 0 | 0 |
 | 690 unchecked return value | compile time | 234 | 234 (100.0%) | 0 (0.0%) | 0 | 0 |
 | 415 double free | compile time | 108 | 108 (100.0%) | 0 (0.0%) | 0 | 0 |
 | 416 use after free | compile time | 72 | 72 (100.0%) | 0 (0.0%) | 0 | 0 |
-| 121 stack buffer overflow | run time | 562 | 0 (0.0%) | 496 (88.3%) | 34 | 32 |
-| 122 heap buffer overflow | run time | 655 | 0 (0.0%) | 489 (74.7%) | 121* | 45 |
-| 124 buffer underwrite | run time | 264 | 0 (0.0%) | 247 (93.6%) | 0 | 17 |
-| 126 buffer over-read | run time | 336 | 0 (0.0%) | 236 (70.2%) | 68 | 32 |
-| 127 buffer under-read | run time | 264 | 0 (0.0%) | 235 (89.0%) | 0 | 29 |
-| 369 divide by zero | run time | 432 | 0 (0.0%) | 212 (49.1%) | 35* | 185 |
+| 121 stack buffer overflow | run time | 510 | 0 (0.0%) | 479 (93.9%) | 0 | 31 |
+| 122 heap buffer overflow | run time | 600 | 0 (0.0%) | 470 (78.3%) | 84* | 46 |
+| 124 buffer underwrite | run time | 248 | 0 (0.0%) | 221 (89.1%) | 0 | 27 |
+| 126 buffer over-read | run time | 320 | 0 (0.0%) | 229 (71.6%) | 68* | 23 |
+| 127 buffer under-read | run time | 248 | 0 (0.0%) | 219 (88.3%) | 0 | 29 |
+| 369 divide by zero | run time | 384 | 0 (0.0%) | 186 (48.4%) | 31* | 167 |
 
-\* CWE 122: the 121 fixed-input misses are overflow only on 32-bit targets.
-\* CWE 369: the 35 fixed-input misses are floating-point division, which is defined (infinity) in C and Rust.
+\* CWE 122: the 84 fixed-input misses are overflow only on 32-bit targets.
+\* CWE 126: the 68 fixed-input misses are missing-terminator cases (CWE 170) that cannot over-read under Safe C: local arrays are zero-filled, so the copy stays terminated inside the buffer (Rust requires the same initialization).
+\* CWE 369: the 31 fixed-input misses are floating-point division, which is defined (infinity) in C and Rust.
 
-**Bugs Rust rejects at compile time** (null, unchecked returns, double free, use after free): Safe C rejects 100.0% of them at compile time (498 of 498).
+**Bugs Rust rejects at compile time** (null, unchecked returns, double free, use after free): Safe C rejects 100.0% of them at compile time (494 of 494).
 
-**Bugs Rust catches at run time** (bounds, division by zero, where Rust panics): of the 2017 whose bug happens with the harness's input, Safe C traps on 1915 (94.9%); the other 102 get past it. 340 more need an input the harness does not give (a random value, a socket, a file), so a Rust program would not panic on them in this run either, and 156 are not bugs on this target (marked *).
+**Bugs Rust catches at run time** (bounds, division by zero, where Rust panics): of the 1804 whose bug happens with the harness's input, Safe C traps on 1804 (100.0%); the other 0 get past it. 323 more need an input the harness does not give (a random value, a socket, a file), so a Rust program would not panic on them in this run either, and 183 are not bugs on this target (marked *).
 
-Cases are `strict`: only those whose fixed `good()` version compiles and runs under Safe C, 3011 of 11522. The rest are rejected as written, mostly because Juliet keeps raw pointers in struct fields and possibly-null values where Safe C wants them annotated: that is annotation work, not a bug found. Generated from the saved runs in `safe-c-notes/` by `clang/utils/safe-c/gen-readme.ts`.
+Cases are `strict`: only those whose fixed `good()` version compiles and runs under Safe C, 2804 of 11522. The rest are rejected as written, mostly because Juliet keeps raw pointers in struct fields and possibly-null values where Safe C wants them annotated: that is annotation work, not a bug found. Generated from the saved runs in `safe-c-notes/` by `clang/utils/safe-c/gen-readme.ts`.
 <!-- end generated:juliet -->
 
 **Why not 100%.** The 102 run-time misses are two gaps, both being fixed:
