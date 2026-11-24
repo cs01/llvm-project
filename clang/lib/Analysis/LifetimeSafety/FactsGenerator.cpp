@@ -266,6 +266,38 @@ static bool safeCCallTouchesGlobals(const CallExpr *CE, const SourceManager &SM,
   return CallsBack || safeCTouchesGlobals(Callee, Depth + 1);
 }
 
+/// Safe C: some `return` in \p FD's body gives a value rooted at a global
+/// (`return g;`, or through a local: `int *r = g; return r;`).
+static bool safeCReturnsGlobalBorrow(const FunctionDecl &FD) {
+  const FunctionDecl *Def = nullptr;
+  if (!FD.hasBody(Def) || !Def)
+    return false;
+  const Stmt *Body = Def->getBody();
+  struct Finder : RecursiveASTVisitor<Finder> {
+    const Stmt *Body;
+    bool Found = false;
+    bool VisitReturnStmt(ReturnStmt *RS) {
+      // Follow plain locals back through their initializers (a few steps).
+      const Expr *E = RS->getRetValue();
+      for (unsigned Step = 0; E && Step != 4; ++Step) {
+        const VarDecl *Root = safeCRootOrGlobal(E);
+        if (!Root)
+          break;
+        if (safeCResolveRoot(Root, Body, 0)->hasGlobalStorage()) {
+          Found = true;
+          break;
+        }
+        E = Root->hasLocalStorage() && !isa<ParmVarDecl>(Root) ? Root->getInit()
+                                                               : nullptr;
+      }
+      return !Found;
+    }
+  } F;
+  F.Body = Body;
+  F.TraverseStmt(const_cast<Stmt *>(Body));
+  return F.Found;
+}
+
 static bool safeCTouchesGlobals(const FunctionDecl *FD, unsigned Depth) {
   const FunctionDecl *Def = nullptr;
   // Unknown bodies, deep chains and recursion count as touching.
@@ -599,6 +631,20 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
     if (!Pure && isa<FunctionDecl>(AC.getDecl())) {
       CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
           safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));
+      // A borrowed pointer returned by a function that reads globals may
+      // borrow one of them (a getter `int *get(void) { return g; }`), so
+      // it ends when they change, like a direct read of g. New memory
+      // (allocators, _Returns_owned) is not a borrow.
+      if (Callee && safeCReturnsGlobalBorrow(*Callee) &&
+          !Callee->hasAttr<OwnershipAttr>() && !isAllocatingFunction(*Callee) &&
+          (CE->getType()->isPointerType() || isSafeCViewType(CE->getType())) &&
+          safeCPointerKind(CE->getType()).empty())
+        if (OriginList *R = getOriginsList(*CE)) {
+          const Loan *L = FactMgr.getLoanMgr().createLoan(
+              safeCGlobalsInterior(AC.getDecl()), CE);
+          CurrentBlockFacts.push_back(
+              FactMgr.createFact<IssueFact>(L->getID(), R->getOuterOriginID()));
+        }
       for (const Expr *Arg : CE->arguments())
         if (Arg->getType()->isPointerType())
           if (OriginList *L = getOriginsList(*Arg))
@@ -617,10 +663,18 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
       CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
           L->getOuterOriginID(), CE));
   auto EndBorrowsThrough = [&](const Expr *Place) {
-    const VarDecl *Root = safeCRootVar(Place);
+    const VarDecl *Root = safeCRootOrGlobal(Place);
     if (!Root)
       return;
     const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
+    // Borrows of globals are all loans of one place (see rule 14): lending
+    // `&g` ends them, as `_Take(g)` does.
+    if (Resolved->hasGlobalStorage()) {
+      if (isa<FunctionDecl>(AC.getDecl()))
+        CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
+            safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));
+      return;
+    }
     AccessPath Path = safeCRootInterior(FactMgr.getLoanMgr(), *Resolved);
     CurrentBlockFacts.push_back(
         FactMgr.createFact<ExpireFact>(Path, CE->getBeginLoc()));
