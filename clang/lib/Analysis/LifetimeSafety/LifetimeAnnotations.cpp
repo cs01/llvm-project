@@ -659,7 +659,7 @@ bool safeCOwnershipFlag() { return SafeCOwnership; }
 static llvm::cl::opt<bool> SafeCExclDefault(
     "safe-c-excl-default",
     llvm::cl::desc("Safe C: an unannotated pointer-to-non-const parameter is "
-                   "_Excl (Rust's &mut), as `const T *` is a shared borrow"),
+                   "_Exclusive (Rust's &mut), as `const T *` is a shared borrow"),
     llvm::cl::init(false));
 
 llvm::StringRef safeCParamKind(QualType T) {

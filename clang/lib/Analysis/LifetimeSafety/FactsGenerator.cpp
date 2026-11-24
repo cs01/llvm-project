@@ -161,7 +161,7 @@ static const VarDecl *safeCValueRoot(const Expr *E, const Stmt *Body,
         return safeCValueRoot(Call->getArg(I), Body, Depth + 1);
     return nullptr;
   }
-  // Globals too: `struct S *_Excl x = &G` borrows G.
+  // Globals too: `struct S *_Exclusive x = &G` borrows G.
   if (const VarDecl *VD = safeCRootOrGlobal(E))
     return safeCResolveRoot(VD, Body, Depth + 1);
   return nullptr;
@@ -175,7 +175,7 @@ static const VarDecl *safeCValueRoot(const Expr *E, const Stmt *Body,
 static const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
                                        unsigned Depth) {
   // Owners (and static or unchecked pointers) are their own roots; a plain
-  // or _Excl local borrows from where its values come from.
+  // or _Exclusive local borrows from where its values come from.
   StringRef Kind = safeCPointerKind(VD->getType());
   if (!Body || Depth > 6 || isa<ParmVarDecl>(VD) || VD->hasGlobalStorage() ||
       !VD->getType()->isPointerType() || (!Kind.empty() && Kind != "excl"))
@@ -781,7 +781,7 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
     // A `_Lifetimebound` parameter makes the result a borrow of its
     // argument's root, so it ends when that root's owned fields change
     // (a getter `get(&s)` of `s.p`, then `_Take(s.p)`) or the root is lent
-    // exclusively again (an `_Excl` reborrow). The result keeps what it
+    // exclusively again (an `_Exclusive` reborrow). The result keeps what it
     // already borrows: the new loan goes through the argument's own origin
     // (consumed by now) and is added, not substituted.
     if (OriginList *Result = getOriginsList(*CE))
