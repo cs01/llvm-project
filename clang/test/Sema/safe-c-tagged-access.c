@@ -91,3 +91,25 @@ int not_one(const struct value *v) {
 int pun(const struct value *v) {
   return *v->p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
 }
+
+// A bool tag (as in a Result): `if (r.ok)`, `!r.ok`, `r.ok && r.value`, and
+// the other edge of each, all name the member; messages say true/false.
+struct res {
+  _Bool ok;
+  union _Tagged_by(ok) {
+    long value _When(1);
+    int err _When(0);
+  };
+};
+long use_res(struct res r) {
+  if (r.ok && r.value > 0)
+    return r.value;
+  if (!r.ok)
+    return r.err;
+  return r.value;
+}
+long use_res_bad(struct res r) {
+  if (r.ok)
+    return r.err; // expected-error {{reading 'err' needs the tag 'ok' known to be false here}}
+  return 0;
+}

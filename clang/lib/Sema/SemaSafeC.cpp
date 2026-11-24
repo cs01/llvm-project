@@ -1086,6 +1086,17 @@ static bool matchTagTest(const ASTContext &Ctx, const Expr *Cond, TagPath &P,
     Eq = !Eq;
     return true;
   }
+  // A bare tag as a condition (`if (r.ok)`) tests it against true.
+  if (const auto *ME = dyn_cast<MemberExpr>(Cond))
+    if (const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl());
+        F && isTagField(F) && F->getType()->isBooleanType())
+      if (std::optional<TagPath> Path = structPath(ME)) {
+        P = *Path;
+        V = llvm::APSInt(llvm::APInt(Ctx.getIntWidth(F->getType()), 1),
+                         /*isUnsigned=*/true);
+        Eq = true;
+        return true;
+      }
   const auto *BO = dyn_cast<BinaryOperator>(Cond);
   if (!BO || !BO->isEqualityOp())
     return false;
@@ -1178,8 +1189,14 @@ static TagFacts edgeFacts(const ASTContext &Ctx, const CFGBlock &B,
     TagPath P;
     llvm::APSInt V;
     bool Eq;
-    if (matchTagTest(Ctx, Cond, P, V, Eq) && ((I == 0) == Eq))
-      setFact(F, P, V);
+    if (matchTagTest(Ctx, Cond, P, V, Eq)) {
+      if ((I == 0) == Eq)
+        setFact(F, P, V);
+      else if (P.Fields.back()->getType()->isBooleanType())
+        // A bool that is not one value is the other.
+        setFact(F, P, llvm::APSInt(llvm::APInt(V.getBitWidth(), V == 0),
+                                   V.isUnsigned()));
+    }
   }
   if (const auto *SS = dyn_cast_or_null<SwitchStmt>(Term); SS && Succ)
     if (const auto *CS = dyn_cast_or_null<CaseStmt>(Succ->getLabel()))
@@ -1285,7 +1302,9 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
                     return;
                   Mine.push_back(V);
                   if (Want.empty()) {
-                    Want = toString(V, 10);
+                    Want = TagF->getType()->isBooleanType()
+                               ? (V == 0 ? "false" : "true")
+                               : toString(V, 10);
                     if (const auto *ET = TagF->getType()->getAs<EnumType>())
                       for (const EnumConstantDecl *EC :
                            ET->getOriginalDecl()->getDefinitionOrSelf()->enumerators())
