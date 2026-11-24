@@ -581,7 +581,8 @@ static bool isCLibraryFunction(const FunctionDecl &FD,
 bool isAllocatingFunction(const FunctionDecl &FD) {
   // The C library's handles (FILE, DIR) are allocated and freed like memory.
   if (isCLibraryFunction(FD, {"malloc", "calloc", "realloc", "reallocf",
-                              "aligned_alloc", "fopen", "fdopen", "popen",
+                              "aligned_alloc", "strdup", "strndup", "wcsdup",
+                              "fopen", "fdopen", "popen",
                               "tmpfile", "opendir", "fdopendir"}))
     return true;
   switch (FD.getBuiltinID()) {

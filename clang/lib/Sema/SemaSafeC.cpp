@@ -328,6 +328,27 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"alloc-pointers", false,
      "the memory %0 returns is not zeroed, and %1 holds pointers, which would "
      "be garbage; use 'calloc' (or 'malloc', which Safe C zeroes)"},
+    {"printf-star", false,
+     "nothing checks that this buffer holds as many characters as '%%.*s' is "
+     "told to print; print it with 'fwrite(p, 1, n, file)', or pass a "
+     "terminated string ('__null_terminated')"},
+    {"scanf-size", false,
+     "this conversion can store %0 characters here, so the argument must be an "
+     "array of at least that size; lower the width, or enlarge the array"},
+    {"scanf-arg", false,
+     "scanf stores a whole value here unchecked; pass '&variable' of exactly "
+     "the conversion's type, with no cast, that cannot be null"},
+    {"builtin-unchecked", false,
+     "%0 is a compiler builtin that accesses memory without any check; call "
+     "the library function it stands for ('memcpy', 'strlcpy', 'snprintf', or "
+     "'<stdatomic.h>' operations on an '_Atomic' object)"},
+    {"free-handle", false,
+     "a %0 is closed, not freed, and only its own library makes one; use "
+     "'fclose', 'pclose' or 'closedir'"},
+    {"owned-store-unnamed", false,
+     "this slot is '_Owned', so it must be given a pointer it may free: a new "
+     "allocation, an owned local (which is then moved), or '_Take(...)' of "
+     "another owned field"},
     {"owned-in-union", false,
      "%0 is an '_Owned' member of an untagged union, so another member could "
      "read and free the same pointer; tag the union ('_Tagged_by', '_When'), "
@@ -1297,6 +1318,15 @@ public:
           safeCPointerKind(BO->getLHS()->getType()) == "owned")
         checkOwnershipRoot(S, BO->getLHS(), 1, Body);
       checkStore(namedStorage(BO->getLHS()), BO->getRHS(), BO->getOperatorLoc());
+      // An owned array element or `*slot` has no name.
+      if (!namedStorage(BO->getLHS()) &&
+          BO->getLHS()->getType()->isPointerType() &&
+          safeCPointerKind(BO->getLHS()->getType()) == "owned") {
+        if (!isOwnedSource(S.Context, BO->getRHS()))
+          S.SafeCDiag(BO->getRHS()->getExprLoc(), "owned-store-unnamed");
+        else
+          checkGive(BO->getRHS());
+      }
       checkViewWriteThroughPointer(BO);
     }
     if (BO->isEqualityOp()) {
@@ -1396,7 +1426,22 @@ public:
     F.C = this;
     F.TraverseStmt(const_cast<Stmt *>(Body));
   }
+  bool isLibraryHandle(QualType T) {
+    const RecordDecl *RD = T->getAsRecordDecl();
+    return RD && S.getSourceManager().isInSystemHeader(RD->getLocation()) &&
+           llvm::is_contained({"__sFILE", "_IO_FILE", "_dirdesc", "__dirstream",
+                               "DIR"},
+                              RD->getName());
+  }
   bool VisitCastExpr(CastExpr *C) {
+    // `FILE *f = malloc(...)`: nothing but the library makes a FILE.
+    if (C->getType()->isPointerType() &&
+        isLibraryHandle(C->getType()->getPointeeType()) &&
+        C->getSubExpr()->getType()->isVoidPointerType() &&
+        !C->getSubExpr()->isNullPointerConstant(
+            S.Context, Expr::NPC_ValueDependentIsNotNull))
+      S.SafeCDiag(C->getExprLoc(), "free-handle")
+          << C->getType()->getPointeeType();
     collectVoid();
     QualType To = C->getType();
     if (!To->isVoidPointerType() || To->getPointeeType().isConstQualified() ||
@@ -1701,6 +1746,16 @@ public:
         S.SafeCDiag(E->getExprLoc(), "borrow-slot-value");
     }
     checkGlobalLent(Call);
+    // FILE and DIR are the library's: never freed as memory, never allocated.
+    if (const FunctionDecl *F = Call->getDirectCallee();
+        F && F->isExternC() && F->getIdentifier() && Call->getNumArgs() >= 1 &&
+        llvm::is_contained({"free", "realloc", "reallocf"}, F->getName())) {
+      QualType T = lifetimes::safeCPeel(Call->getArg(0))
+                       ->IgnoreParenCasts()
+                       ->getType();
+      if (T->isPointerType() && isLibraryHandle(T->getPointeeType()))
+        S.SafeCDiag(Call->getExprLoc(), "free-handle") << T->getPointeeType();
+    }
     if (const FunctionDecl *F = Call->getDirectCallee();
         F && F->getIdentifier() &&
         (F->getName() == "realloc" || F->getName() == "reallocf") &&

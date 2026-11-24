@@ -5077,6 +5077,38 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
     S.SafeCDiag(TheCall->getExprLoc(), "wide-format") << FD;
     return;
   }
+  // Compiler builtins that take pointers: only those whose accesses are
+  // checked (or that make none).
+  if (FD->getBuiltinID() && FD->getIdentifier() &&
+      FD->getName().starts_with("__") &&
+      llvm::any_of(TheCall->arguments(), [](const Expr *A) {
+        return A->getType()->isAnyPointerType() || A->getType()->isArrayType();
+      })) {
+    StringRef B = FD->getName();
+    bool Known =
+        B.starts_with("__builtin_safec_") || B.starts_with("__c11_atomic_") ||
+        B.starts_with("__builtin_va_") ||
+        B.starts_with("__builtin_get_pointer_") ||
+        (B.starts_with("__builtin_") && B.ends_with("_overflow")) ||
+        B.starts_with("__builtin_nan") ||
+        llvm::is_contained(
+            {"__builtin_memcpy", "__builtin_memmove", "__builtin_memset",
+             "__builtin_memcmp", "__builtin_bzero", "__builtin___memcpy_chk",
+             "__builtin___memmove_chk", "__builtin___memset_chk",
+             "__builtin___snprintf_chk", "__builtin___vsnprintf_chk",
+             "__builtin___strlcpy_chk", "__builtin___strlcat_chk",
+             "__builtin_malloc", "__builtin_calloc", "__builtin_realloc",
+             "__builtin_free", "__builtin_alloca", "__builtin_object_size",
+             "__builtin_dynamic_object_size", "__builtin_constant_p",
+             "__builtin_choose_expr", "__builtin_types_compatible_p",
+             "__builtin_expect", "__builtin_prefetch", "__builtin_trap",
+             "__builtin_unreachable", "__builtin_classify_type"},
+            B);
+    if (!Known) {
+      S.SafeCDiag(TheCall->getExprLoc(), "builtin-unchecked") << FD;
+      return;
+    }
+  }
   // A sort moves elements of the size it is told: any other size than the
   // element's mixes the bytes of pointers.
   if (llvm::is_contained({"qsort", "qsort_r", "qsort_b", "mergesort",
@@ -10583,6 +10615,38 @@ bool CheckScanfHandler::HandleScanfSpecifier(
   const Expr *Ex = getDataArg(argIndex);
   if (!Ex)
     return true;
+
+  if (S.getLangOpts().SafeC && !S.getLangOpts().CPlusPlus) {
+    // scanf gets no bounds with its arguments: show that each one is big
+    // enough here.
+    const Expr *Arg = Ex->IgnoreParenImpCasts();
+    if (CS.getKind() == ConversionSpecifier::sArg ||
+        CS.getKind() == ConversionSpecifier::ScanListArg ||
+        CS.getKind() == ConversionSpecifier::cArg ||
+        CS.getKind() == ConversionSpecifier::SArg ||
+        CS.getKind() == ConversionSpecifier::CArg) {
+      uint64_t Need = Amt.getHowSpecified() == OptionalAmount::Constant
+                          ? Amt.getConstantAmount()
+                          : 1;
+      if (CS.getKind() != ConversionSpecifier::cArg &&
+          CS.getKind() != ConversionSpecifier::CArg)
+        ++Need;
+      const auto *CAT = S.Context.getAsConstantArrayType(Arg->getType());
+      uint64_t Have = CAT ? CAT->getSize().getZExtValue() : 0;
+      // `%c` into one char.
+      if (const auto *UO = dyn_cast<UnaryOperator>(Arg);
+          UO && UO->getOpcode() == UO_AddrOf)
+        Have = 1;
+      if (Have < Need)
+        S.SafeCDiag(Ex->getExprLoc(), "scanf-size") << unsigned(Need);
+    } else if (isa<CStyleCastExpr>(Arg) ||
+               !Ex->getType()->isAnyPointerType()) {
+      S.SafeCDiag(Ex->getExprLoc(), "scanf-arg");
+    } else if (auto N = Ex->getType()->getNullability();
+               N && *N != NullabilityKind::NonNull) {
+      S.SafeCDiag(Ex->getExprLoc(), "scanf-arg");
+    }
+  }
 
   const analyze_format_string::ArgType &AT = FS.getArgType(S.Context);
 

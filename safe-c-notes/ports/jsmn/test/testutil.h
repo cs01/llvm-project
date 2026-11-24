@@ -58,8 +58,9 @@ static int vtokeq(const char *_Nullable s _Noescape, jsmntok_t *__counted_by(num
                has none, and the length is known, so compare bytes. */
             memcmp(p, __null_terminated_to_indexable(value),
                    t[i].end - t[i].start) != 0) {
-          printf("token %lu value is %.*s, not %s\n", i, t[i].end - t[i].start,
-                 sb + t[i].start, value);
+          printf("token %lu value is ", i);
+          fwrite(sb + t[i].start, 1, (size_t)(t[i].end - t[i].start), stdout);
+          printf(", not %s\n", value);
           return 0;
         }
       }

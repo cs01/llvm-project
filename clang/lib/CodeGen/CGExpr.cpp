@@ -5811,7 +5811,9 @@ CodeGenFunction::EmitWidePtrArraySubscriptExpr(const ArraySubscriptExpr *E,
   Addr = emitArraySubscriptGEP(*this, Addr, Idx, E->getType(),
                                /*inbounds*/ false, IdxSigned, E->getExprLoc(),
                                ArrayTyPtr, E->getBase());
-  if (Accessed) {
+  // Safe C: a row of a two-dimensional array is never accessed itself; what
+  // is made from it carries the row's bounds, so the row must be in range.
+  if (Accessed || (getLangOpts().SafeC && E->getType()->isArrayType())) {
     // __indexable pointers should have been cast to __bidi_indexable in Sema.
     assert(E->getBase()->getType()->isBidiIndexablePointerType());
     if (WidePtrAddr.isValid()) {

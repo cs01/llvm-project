@@ -7148,22 +7148,29 @@ Sema::ConvertArgumentsForCall(CallExpr *Call, Expr *Fn,
 }
 
 namespace {
-/// Collects the data-argument indices of %s conversions without a precision
-/// (they read up to the terminator).
+/// The data-argument indices of %s conversions, with their precision: a
+/// constant, -1 for none (they read up to the terminator), -2 for `*`.
+using SafeCPrecisions = llvm::SmallDenseMap<unsigned, int64_t, 4>;
+/// Collects them.
 class SafeCStringConversions
     : public analyze_format_string::FormatStringHandler {
 public:
-  llvm::SmallDenseSet<unsigned, 4> &Out;
-  explicit SafeCStringConversions(llvm::SmallDenseSet<unsigned, 4> &Out)
+  SafeCPrecisions &Out;
+  explicit SafeCStringConversions(SafeCPrecisions &Out)
       : Out(Out) {}
   bool HandlePrintfSpecifier(const analyze_printf::PrintfSpecifier &FS,
                              const char *, unsigned,
                              const TargetInfo &) override {
     if (FS.getConversionSpecifier().getKind() ==
-            analyze_format_string::ConversionSpecifier::sArg &&
-        FS.getPrecision().getHowSpecified() ==
-            analyze_format_string::OptionalAmount::NotSpecified)
-      Out.insert(FS.getArgIndex());
+            analyze_format_string::ConversionSpecifier::sArg) {
+      using analyze_format_string::OptionalAmount;
+      const OptionalAmount &P = FS.getPrecision();
+      Out[FS.getArgIndex()] =
+          P.getHowSpecified() == OptionalAmount::NotSpecified ? -1
+          : P.getHowSpecified() == OptionalAmount::Constant
+              ? int64_t(P.getConstantAmount())
+              : -2;
+    }
     return true;
   }
 };
@@ -7173,7 +7180,7 @@ public:
 /// index of the first data argument, or 0 when there is nothing to check.
 static unsigned safeCPrintfStringArgs(Sema &S, const FunctionDecl *FD,
                                       ArrayRef<Expr *> Args,
-                                      llvm::SmallDenseSet<unsigned, 4> &Out) {
+                                      SafeCPrecisions &Out) {
   for (const auto *FA : FD->specific_attrs<FormatAttr>()) {
     FormatStringType T = Sema::GetFormatStringType(FA);
     if (T != FormatStringType::Printf &&
@@ -7336,7 +7343,7 @@ bool Sema::GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
 
     // Otherwise do argument promotion, (C99 6.5.2.2p7).
     } else {
-      llvm::SmallDenseSet<unsigned, 4> SafeCStrArgs;
+      SafeCPrecisions SafeCStrArgs;
       unsigned SafeCFirstDataArg = 0;
       if (getLangOpts().SafeC && getLangOpts().BoundsSafety && FDecl)
         SafeCFirstDataArg = safeCPrintfStringArgs(*this, FDecl, Args,
@@ -7347,8 +7354,21 @@ bool Sema::GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
         // within its bounds, and the call traps if there is none; printf
         // keeps no copy of the pointer, so the check holds for the call.
         if (SafeCFirstDataArg && J >= SafeCFirstDataArg &&
-            SafeCStrArgs.contains(J - SafeCFirstDataArg))
-          A = safeCTerminatedStringArg(*this, A);
+            SafeCStrArgs.contains(J - SafeCFirstDataArg)) {
+          // With a precision the terminator may be missing if the buffer
+          // holds that many characters: an array's size shows it.
+          int64_t Prec = SafeCStrArgs.lookup(J - SafeCFirstDataArg);
+          const auto *CAT = Context.getAsConstantArrayType(
+              A->IgnoreParens()->getType());
+          if (Prec == -2) {
+            const auto *PT = A->getType()->getAs<PointerType>();
+            if (!isa<StringLiteral>(A->IgnoreParenImpCasts()) &&
+                !A->getType()->isValueTerminatedType() && (CAT || PT))
+              SafeCDiag(A->getExprLoc(), "printf-star");
+          } else if (Prec < 0 || !CAT || CAT->getSize().ult(Prec)) {
+            A = safeCTerminatedStringArg(*this, A);
+          }
+        }
         ExprResult Arg = DefaultVariadicArgumentPromotion(A, CallType, FDecl);
         Invalid |= Arg.isInvalid();
         AllArgs.push_back(Arg.get());
