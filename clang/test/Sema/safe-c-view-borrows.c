@@ -39,7 +39,8 @@ int fine(const int *__counted_by(4) a) {
   return s.p ? s.p[1] : 0;
 }
 
-struct span first_two(const int *__counted_by(n) a, int n) { // expected-error {{'first_two' returns a pointer borrowed from 'a'}}
+struct span first_two(const int *__counted_by(n) a, int n, const int *b) { // expected-error {{'first_two' returns a pointer borrowed from 'a'}}
+  (void)b;
   struct span s = {a, n < 2 ? n : 2};
   return s; // expected-note {{param returned here}}
 }

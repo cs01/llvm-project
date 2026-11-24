@@ -6,9 +6,13 @@
 
 struct obj { int v; int arr[4]; };
 
-int *field_of(struct obj *o) { // expected-error {{'field_of' returns a pointer borrowed from 'o', so it is valid only as long as what 'o' points to; mark the parameter '_Lifetimebound'}}
+int *field_of(struct obj *o, struct obj *other) { // expected-error {{'field_of' returns a pointer borrowed from 'o', so it is valid only as long as what 'o' points to; mark the parameter '_Lifetimebound'}}
+  (void)other;
   return &o->v;                // expected-note {{returned here}}
 }
+
+// One pointer parameter: elided, the result borrows o.
+int *field_elided(struct obj *o) { return &o->v; }
 
 int *field_ok(struct obj *o _Lifetimebound) { return &o->v; }
 

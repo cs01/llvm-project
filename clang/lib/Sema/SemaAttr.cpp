@@ -243,6 +243,41 @@ void Sema::inferLifetimeBoundAttribute(FunctionDecl *FD) {
   if (!isa<CXXConstructorDecl>(FD) && FD->getReturnType()->isVoidType())
     return;
 
+  // Safe C lifetime elision (Rust's rule): a function returning a borrowed
+  // pointer or view with exactly one borrowed parameter returns a borrow of
+  // that parameter, so `struct node *next(struct node *n)` needs no
+  // _Lifetimebound. Owners, _Static and _Unchecked pointers, function
+  // pointers and functions returning new memory are not borrows. System
+  // headers keep their declared meaning.
+  if (getLangOpts().SafeC &&
+      !SourceMgr.isInSystemHeader(FD->getLocation())) {
+    auto Borrowed = [](QualType T) {
+      if (lifetimes::isSafeCViewType(T))
+        return true;
+      if (!T->isPointerType() || T->isFunctionPointerType())
+        return false;
+      StringRef K = lifetimes::safeCPointerKind(T);
+      return K.empty() || K == "excl";
+    };
+    if (Borrowed(FD->getReturnType()) && !FD->hasAttr<OwnershipAttr>() &&
+        !FD->hasAttr<RestrictAttr>() && !FD->hasAttr<AllocSizeAttr>()) {
+      ParmVarDecl *Only = nullptr;
+      unsigned Count = 0;
+      bool Explicit = false;
+      for (ParmVarDecl *P : FD->parameters()) {
+        Explicit |= P->hasAttr<LifetimeBoundAttr>();
+        // A _Noescape parameter cannot be returned.
+        if (Borrowed(P->getType()) && !P->hasAttr<NoEscapeAttr>()) {
+          Only = P;
+          ++Count;
+        }
+      }
+      if (Count == 1 && !Explicit)
+        Only->addAttr(
+            LifetimeBoundAttr::CreateImplicit(Context, Only->getLocation()));
+    }
+  }
+
   if (unsigned BuiltinID = FD->getBuiltinID()) {
     // Add lifetime attribute to std::move, std::fowrard et al.
     switch (BuiltinID) {

@@ -623,7 +623,10 @@ public:
         continue;
       bool isImplicit = PVD->getAttr<LifetimeBoundAttr>()->isImplicit();
       bool Escapes = VerifiedLiftimeboundEscapes.contains(PVD);
-      assert((!isImplicit || Escapes || isInStlNamespace(FD)) &&
+      // Safe C's lifetime elision infers the attribute from the signature
+      // alone, so it need not escape (the result may be a global).
+      assert((!isImplicit || Escapes || isInStlNamespace(FD) ||
+              FD->getASTContext().getLangOpts().SafeC) &&
              "Implicit lifetimebound parameters "
              "should escape through return");
       if (!isImplicit && !Escapes)

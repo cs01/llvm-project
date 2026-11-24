@@ -163,11 +163,11 @@ _Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithOpts(const char *_N
 _Returns_owned CJSON_PUBLIC(cJSON *_Nullable) cJSON_ParseWithLengthOpts(const char *_Nullable __counted_by_or_null(buffer_length) value, size_t buffer_length, const char *_Nullable __unsafe_indexable *_Nullable return_parse_end, cJSON_bool require_null_terminated);
 
 /* Render a cJSON entity to text for transfer/storage. */
-CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_Print(const cJSON *_Nullable item);
+_Returns_owned CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_Print(const cJSON *_Nullable item);
 /* Render a cJSON entity to text for transfer/storage without any formatting. */
-CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_PrintUnformatted(const cJSON *_Nullable item);
+_Returns_owned CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_PrintUnformatted(const cJSON *_Nullable item);
 /* Render a cJSON entity to text using a buffered strategy. prebuffer is a guess at the final size. guessing well reduces reallocation. fmt=0 gives unformatted, =1 gives formatted */
-CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_PrintBuffered(const cJSON *_Nullable item, int prebuffer, cJSON_bool fmt);
+_Returns_owned CJSON_PUBLIC(char *_Nullable __null_terminated) cJSON_PrintBuffered(const cJSON *_Nullable item, int prebuffer, cJSON_bool fmt);
 /* Render a cJSON entity to text using a buffer already allocated in memory with given length. Returns 1 on success and 0 on failure. */
 /* NOTE: cJSON is not always 100% accurate in estimating how much memory it will use, so to be safe allocate 5 bytes more than you actually need */
 CJSON_PUBLIC(cJSON_bool) cJSON_PrintPreallocated(cJSON *_Nullable item, char *_Nullable __counted_by_or_null(length) buffer, const int length, const cJSON_bool format);
