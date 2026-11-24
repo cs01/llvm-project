@@ -94,12 +94,24 @@ static void test_io(void) {
   CHECK(write_all(1, S("io ")));
 }
 
+static void test_result(void) {
+  long_result r = str_to_long(S("-1234"));
+  CHECK(r.ok && r.value == -1234);
+  long_result bad = str_to_long(S("12x"));
+  CHECK(!bad.ok);
+  if (!bad.ok)
+    CHECK(bad.err == PARSE_NOT_A_NUMBER);
+  long_result big = str_to_long(S("99999999999999999999"));
+  CHECK(!big.ok);
+}
+
 int main(void) {
   test_str();
   test_string();
   test_vec();
   test_drop();
   test_io();
+  test_result();
   printf(failures ? "%d failed\n" : "ok\n", failures);
   return failures != 0;
 }

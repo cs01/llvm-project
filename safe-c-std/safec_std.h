@@ -133,6 +133,61 @@ static inline void string_free(string *_Excl s) {
   s->len = 0;
 }
 
+/* ---- RESULT and OPTION: tagged unions (Rust's Result and Option) -------- */
+
+/* RESULT(name, T, E) declares `struct name { bool ok; T value or E err; }`.
+   Reading value without checking ok first is a compile error, and so is a
+   switch on ok that forgets a case. TRY(r) returns r's error early. */
+#define RESULT(name, T, E)                                                     \
+  struct name {                                                                \
+    bool ok;                                                                   \
+    union _Tagged_by(ok) {                                                     \
+      T value _When(true);                                                     \
+      E err _When(false);                                                      \
+    };                                                                         \
+  }
+
+#define OK(name, v) ((struct name){.ok = true, .value = (v)})
+#define ERR(name, e) ((struct name){.ok = false, .err = (e)})
+
+/* OPTION(name, T): a value that may be absent, like Rust's Option<T>. */
+#define OPTION(name, T)                                                        \
+  struct name {                                                                \
+    bool some;                                                                 \
+    union _Tagged_by(some) {                                                   \
+      T value _When(true);                                                     \
+      char none_ _When(false);                                                 \
+    };                                                                         \
+  }
+
+#define SOME(name, v) ((struct name){.some = true, .value = (v)})
+#define NONE(name) ((struct name){.some = false, .none_ = 0})
+
+/* Parses a decimal integer; the error says why it is not one. */
+enum parse_error { PARSE_EMPTY, PARSE_NOT_A_NUMBER, PARSE_OVERFLOW };
+typedef RESULT(long_result, long, enum parse_error) long_result;
+
+static inline long_result str_to_long(str s) {
+  if (s.len == 0)
+    return ERR(long_result, PARSE_EMPTY);
+  size_t i = 0;
+  bool neg = s.p[0] == '-';
+  if (neg || s.p[0] == '+')
+    i = 1;
+  if (i == s.len)
+    return ERR(long_result, PARSE_NOT_A_NUMBER);
+  long v = 0;
+  for (; i < s.len; i++) {
+    char c = s.p[i];
+    if (c < '0' || c > '9')
+      return ERR(long_result, PARSE_NOT_A_NUMBER);
+    if (v > (__LONG_MAX__ - (c - '0')) / 10)
+      return ERR(long_result, PARSE_OVERFLOW);
+    v = v * 10 + (c - '0');
+  }
+  return OK(long_result, neg ? -v : v);
+}
+
 /* ---- io ------------------------------------------------------------------ */
 
 /* A path as a terminated string, for the C library. */
