@@ -6,7 +6,7 @@
 
 struct obj { int v; int arr[4]; };
 
-int *field_of(struct obj *o) { // expected-error {{should be marked [[clang::lifetimebound]]}}
+int *field_of(struct obj *o) { // expected-error {{'field_of' returns a pointer borrowed from 'o', so it is valid only as long as what 'o' points to; mark the parameter '__safec_lifetimebound'}}
   return &o->v;                // expected-note {{returned here}}
 }
 

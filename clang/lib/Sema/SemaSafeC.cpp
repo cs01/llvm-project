@@ -191,6 +191,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 is lent exclusively to this call, so no other argument may reach "
      "it (the callee could free or replace what that argument points to); "
      "pass it once, or finish with the other use before the call"},
+    {"return-needs-lifetimebound", false,
+     "%0 returns a pointer borrowed from %1, so it is valid only as long as what %1 "
+     "points to; mark the parameter '__safec_lifetimebound' so callers keep "
+     "it alive, or return an owned copy"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "

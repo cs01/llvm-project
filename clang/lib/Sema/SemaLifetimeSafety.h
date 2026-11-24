@@ -512,9 +512,17 @@ public:
     if (!IsDiagEnabledExcludingWeverything(DiagID, InsertionPoint))
       return;
 
-    S.Diag(InsertionPoint, DiagID)
-        << ParmToAnnotate->getSourceRange()
-        << FixItHint::CreateInsertion(InsertionPoint, FixItText);
+    // Safe C: say why, and spell the fix with safec.h's name.
+    const auto *Fn = dyn_cast<FunctionDecl>(ParmToAnnotate->getDeclContext());
+    if (S.getLangOpts().SafeC && Fn && isa<const Expr *>(Target))
+      S.SafeCDiag(InsertionPoint, "return-needs-lifetimebound")
+          << Fn << ParmToAnnotate << ParmToAnnotate->getSourceRange()
+          << FixItHint::CreateInsertion(InsertionPoint,
+                                        " __safec_lifetimebound");
+    else
+      S.Diag(InsertionPoint, DiagID)
+          << ParmToAnnotate->getSourceRange()
+          << FixItHint::CreateInsertion(InsertionPoint, FixItText);
 
     if (const auto *EscapeExpr = dyn_cast<const Expr *>(Target))
       S.Diag(EscapeExpr->getBeginLoc(),
