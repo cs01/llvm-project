@@ -94,7 +94,27 @@ static void test_io(void) {
   CHECK(write_all(1, S("io ")));
 }
 
+typedef SLICE(int) int_slice;
+static long sum(int_slice s) {
+  long t = 0;
+  for (size_t i = 0; i < s.len; i++)
+    t += s.p[i];
+  return t;
+}
+
+static long_result add_two(str a, str b) {
+  long x = TRY(str_to_long(a), long_result);
+  long y = TRY(str_to_long(b), long_result);
+  return OK(long_result, x + y);
+}
+
 static void test_result(void) {
+  int arr[4] = {1, 2, 3, 4};
+  CHECK(sum((int_slice){arr, 4}) == 10);
+  long_result ok2 = add_two(S("40"), S("2"));
+  CHECK(ok2.ok && ok2.value == 42);
+  long_result bad2 = add_two(S("40"), S("x"));
+  CHECK(!bad2.ok && bad2.err == PARSE_NOT_A_NUMBER);
   long_result r = str_to_long(S("-1234"));
   CHECK(r.ok && r.value == -1234);
   long_result bad = str_to_long(S("12x"));

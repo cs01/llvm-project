@@ -87,6 +87,16 @@ static inline bool str_split(str *rest, char sep, str *out) {
   return true;
 }
 
+/* ---- SLICE(T): borrowed array, like Rust's &[T] ------------------------- */
+
+/* typedef SLICE(int) int_slice; then int_slice s = {arr, n}. Never null;
+   every index is checked against len. */
+#define SLICE(T)                                                               \
+  struct _View {                                                               \
+    T *__counted_by(len) p;                                                    \
+    size_t len;                                                                \
+  }
+
 /* ---- string: owned text ------------------------------------------------- */
 
 typedef struct string_ {
@@ -149,6 +159,20 @@ static inline void string_free(string *_Excl s) {
 
 #define OK(name, v) ((struct name){.ok = true, .value = (v)})
 #define ERR(name, e) ((struct name){.ok = false, .err = (e)})
+
+/* TRY(expr, name): like Rust's `?`. Evaluates expr (a result); on error,
+   returns ERR(name, its err) from the current function, whose result type
+   is struct name; otherwise gives the value. The error types must match.
+     long_result parse_two(str a, str b) {
+       long x = TRY(str_to_long(a), long_result);
+       ...                                                          */
+#define TRY(expr, name)                                                        \
+  ({                                                                           \
+    __typeof__(expr) safec_try_ = (expr);                                      \
+    if (!safec_try_.ok)                                                        \
+      return ERR(name, safec_try_.err);                                        \
+    safec_try_.value;                                                          \
+  })
 
 /* OPTION(name, T): a value that may be absent, like Rust's Option<T>. */
 #define OPTION(name, T)                                                        \
