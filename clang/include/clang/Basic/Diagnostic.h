@@ -21,6 +21,7 @@
 #include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/FunctionExtras.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/SmallString.h"
@@ -323,6 +324,7 @@ private:
   // diagnostic state. This is used for temporary overrides and is not
   // stored as location-specific state in modules.
   bool ForceSystemWarnings = false;
+  llvm::DenseSet<unsigned> Unsilenceable;
 
   // Elide common types of templates.
   bool ElideType = true;
@@ -783,6 +785,14 @@ public:
   bool getSuppressAllDiagnostics() const { return SuppressAllDiagnostics; }
 
   void setForceSystemWarnings(bool Val) { ForceSystemWarnings = Val; }
+
+  /// Safe C: \p DiagID reports a memory-safety violation, so it is an error
+  /// that -w, -Wno-* and pragmas cannot turn off (only Safe C's own
+  /// __unsafe blocks can, at emission). System headers are still exempt.
+  void setUnsilenceable(unsigned DiagID) { Unsilenceable.insert(DiagID); }
+  bool isUnsilenceable(unsigned DiagID) const {
+    return !Unsilenceable.empty() && Unsilenceable.contains(DiagID);
+  }
   bool getForceSystemWarnings() const { return ForceSystemWarnings; }
 
   /// Set type eliding, to skip outputting same types occurring in

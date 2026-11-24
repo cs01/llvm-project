@@ -1,4 +1,5 @@
 #include "clang/Sema/SemaBase.h"
+#include "SafeCState.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaCUDA.h"
@@ -65,6 +66,17 @@ SemaBase::SemaDiagnosticBuilder::getDeviceDeferredDiags() const {
 /// nullability-safety groups, and the bounds-safety warnings that default to
 /// error (Apple's "this is an error, but you may downgrade it" class).
 /// System headers keep the original warning: they are not Safe C code.
+static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID);
+
+void safeCMarkSafetyDiagsUnsilenceable(DiagnosticsEngine &Diags) {
+  DiagnosticIDs &IDs = *Diags.getDiagnosticIDs();
+  std::vector<diag::kind> All;
+  DiagnosticIDs::getAllDiagnostics(diag::Flavor::WarningOrError, All);
+  for (diag::kind ID : All)
+    if (isSafeCSafetyDiag(IDs, ID))
+      Diags.setUnsilenceable(ID);
+}
+
 static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
   if (!IDs.isWarningOrExtension(DiagID))
     return false;
@@ -149,6 +161,14 @@ Sema::SemaDiagnosticBuilder SemaBase::Diag(SourceLocation Loc,
         ++SemaRef.NumSafeCSafetyErrors;
       else
         SemaRef.noteSafeCUnsafeRegionUsed(Loc);
+    } else if (IDs.isDefaultMappingAsError(DiagID) &&
+               DiagnosticIDs::getCategoryNameFromID(
+                   DiagnosticIDs::getCategoryNumberForDiag(DiagID))
+                   .starts_with("BoundsSafety")) {
+      // Apple's bounds errors (a count that cannot fit its buffer) report a
+      // bug in valid code; like Safe C's own errors they must not stop the
+      // analyses that find the next bug.
+      ++SemaRef.NumSafeCSafetyErrors;
     }
   }
   bool IsError =

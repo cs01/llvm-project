@@ -19,6 +19,9 @@
 #include "llvm/ADT/SmallVector.h"
 
 namespace clang {
+class DiagnosticsEngine;
+/// Makes the safety diagnostics errors -w and -Wno-* cannot turn off.
+void safeCMarkSafetyDiagsUnsilenceable(DiagnosticsEngine &Diags);
 
 class ASTContext;
 class CallExpr;

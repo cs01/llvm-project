@@ -563,6 +563,14 @@ diag::Severity DiagnosticIDs::getDiagnosticListHighestSeverity(
     bool IsCustomDiag = DiagnosticIDs::IsCustomDiag(DiagID);
     assert(getDiagClass(DiagID) != CLASS_NOTE);
 
+    if (Diag.isUnsilenceable(DiagID)) {
+      if (Diag.hasSourceManager() && State->SuppressSystemWarnings &&
+          !Diag.getForceSystemWarnings() &&
+          shouldSuppressAsSystemWarning(DiagID, Loc, Diag))
+        return diag::Severity::Ignored;
+      return diag::Severity::Error;
+    }
+
     // Specific non-error diagnostics may be mapped to various levels from
     // ignored to error.  Errors can only be mapped to fatal.
     diag::Severity Result = diag::Severity::Fatal;

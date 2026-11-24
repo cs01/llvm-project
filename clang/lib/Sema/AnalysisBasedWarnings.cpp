@@ -3795,7 +3795,9 @@ static void setLifetimeSafetyCFGBuildOptions(AnalysisDeclContext &AC) {
 // context (which is handled later at instantiation time).
 static bool shouldSkipAnalysisForDecl(Sema &S, const Decl *D) {
   DiagnosticsEngine &Diags = S.getDiagnostics();
-  if (Diags.getIgnoreAllWarnings() ||
+  // Safe C: the analyses report safety errors, which -w does not turn off
+  // (its other warnings are still dropped when emitted).
+  if ((Diags.getIgnoreAllWarnings() && !S.getLangOpts().SafeC) ||
       (Diags.getSuppressSystemWarnings() &&
        S.SourceMgr.isInSystemHeader(D->getLocation())))
     return true;
@@ -4071,7 +4073,8 @@ void clang::sema::AnalysisBasedWarnings::IssueWarnings(
 
   DiagnosticsEngine &Diags = S.getDiagnostics();
 
-  if (S.hasUncompilableErrorOccurred() || Diags.getIgnoreAllWarnings())
+  if (S.hasUncompilableErrorOccurred() ||
+      (Diags.getIgnoreAllWarnings() && !S.getLangOpts().SafeC))
     // exit if having uncompilable errors or ignoring all warnings:
     return;
 

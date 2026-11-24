@@ -461,6 +461,9 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
   if (getLangOpts().CPlusPlus)
     FieldCollector.reset(new CXXFieldCollector());
 
+  if (getLangOpts().SafeC)
+    safeCMarkSafetyDiagsUnsilenceable(Diags);
+
   // Tell diagnostics how to render things from the AST library.
   Diags.SetArgToStringFn(&FormatASTNodeDiagnosticArgument, &Context);
 
