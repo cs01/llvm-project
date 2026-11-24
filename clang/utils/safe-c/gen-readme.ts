@@ -39,25 +39,30 @@ function annotations(): string {
   ].join("\n");
 }
 
+// The saved run the docs report, and whether it is of the suite as written or
+// after clang/utils/safe-c/juliet-port.ts (listed in results.md).
+const RUN_FILE = "juliet-m5-2026-11-23.json";
+const PORTED = false;
+
 // How Rust catches each bug class, and which saved run holds Safe C's result.
 type Row = { cwe: string; title: string; rust: "compile time" | "run time"; file: string; fixedMissNote?: string; excuse?: (r: any) => boolean };
 const rowsCfg: Row[] = [
-  { cwe: "476", title: "NULL dereference", rust: "compile time", file: "juliet-m5-2026-11-23.json" },
-  { cwe: "690", title: "unchecked return value", rust: "compile time", file: "juliet-m5-2026-11-23.json" },
-  { cwe: "415", title: "double free", rust: "compile time", file: "juliet-m5-2026-11-23.json" },
-  { cwe: "416", title: "use after free", rust: "compile time", file: "juliet-m5-2026-11-23.json" },
-  { cwe: "121", title: "stack buffer overflow", rust: "run time", file: "juliet-m5-2026-11-23.json" },
-  { cwe: "122", title: "heap buffer overflow", rust: "run time", file: "juliet-m5-2026-11-23.json",
+  { cwe: "476", title: "NULL dereference", rust: "compile time", file: RUN_FILE },
+  { cwe: "690", title: "unchecked return value", rust: "compile time", file: RUN_FILE },
+  { cwe: "415", title: "double free", rust: "compile time", file: RUN_FILE },
+  { cwe: "416", title: "use after free", rust: "compile time", file: RUN_FILE },
+  { cwe: "121", title: "stack buffer overflow", rust: "run time", file: RUN_FILE },
+  { cwe: "122", title: "heap buffer overflow", rust: "run time", file: RUN_FILE,
     fixedMissNote: "overflow only on 32-bit targets" },
-  { cwe: "124", title: "buffer underwrite", rust: "run time", file: "juliet-m5-2026-11-23.json" },
-  { cwe: "126", title: "buffer over-read", rust: "run time", file: "juliet-m5-2026-11-23.json",
+  { cwe: "124", title: "buffer underwrite", rust: "run time", file: RUN_FILE },
+  { cwe: "126", title: "buffer over-read", rust: "run time", file: RUN_FILE,
     // CWE170 variants copy into a local array without terminating it, then
     // print it. Safe C zero-fills locals, so the copy is terminated inside
     // the array and nothing is read past it (Rust requires the init too).
     excuse: (r: any) => /CWE170/.test(r.case),
     fixedMissNote: "missing-terminator cases (CWE 170) that cannot over-read under Safe C: local arrays are zero-filled, so the copy stays terminated inside the buffer (Rust requires the same initialization)" },
-  { cwe: "127", title: "buffer under-read", rust: "run time", file: "juliet-m5-2026-11-23.json" },
-  { cwe: "369", title: "divide by zero", rust: "run time", file: "juliet-m5-2026-11-23.json",
+  { cwe: "127", title: "buffer under-read", rust: "run time", file: RUN_FILE },
+  { cwe: "369", title: "divide by zero", rust: "run time", file: RUN_FILE,
     fixedMissNote: "floating-point division, which is defined (infinity) in C and Rust" },
 ];
 
@@ -80,7 +85,9 @@ function summary(): string {
     `- **Out of bounds, divide by zero: ${pct}% stopped at the bad access** (${rt.c + rt.r} of ${reached}), where Rust would panic.`,
     ``,
     `Counted only when Safe C gives a compile error or traps at the bug; on the ${ct.n + rt.n} cases`,
-    `whose fixed version builds as written. [Full table](safe-c-docs/results.md).`,
+    PORTED
+      ? `whose fixed version builds after porting. [Full table and the port](safe-c-docs/results.md).`
+      : `whose fixed version builds as written. [Full table](safe-c-docs/results.md).`,
   ].join("\n");
 }
 
@@ -118,6 +125,10 @@ function juliet(): string {
   }
   const ct = tot["compile time"], rt = tot["run time"];
   lastTotals = { ct, rt };
+  const runRows = cache[RUN_FILE] ?? [];
+  const cwes = new Set(rowsCfg.map((r) => r.cwe));
+  const excludedUninit = runRows.filter((r: any) => cwes.has(r.cwe) && r.good === "false-positive" &&
+    /error: variable .* (may be uninitialized|is used uninitialized)/.test(r.goodErr ?? "")).length;
   const p = (x: number, n: number) => `${((100 * x) / n).toFixed(1)}%`;
   return [
     ...lines,
@@ -128,7 +139,9 @@ function juliet(): string {
     "",
     `**Bugs Rust catches at run time** (bounds, division by zero, where Rust panics): of the ${rt.n - rt.inputMiss - rt.excused} whose bug happens with the harness's input, Safe C traps on ${rt.c + rt.r} (${p(rt.c + rt.r, rt.n - rt.inputMiss - rt.excused)}); the other ${rt.fixedMiss - rt.excused} get past it. ${rt.inputMiss} more need an input the harness does not give (a random value, a socket, a file), so a Rust program would not panic on them in this run either, and ${rt.excused} are not bugs on this target (marked *).`,
     "",
-    `Cases are \`strict\`: only those whose fixed \`good()\` version compiles and runs under Safe C, ${ct.n + rt.n} of ${ct.all + rt.all}. The rest are rejected as written, mostly because Juliet keeps raw pointers in struct fields and possibly-null values where Safe C wants them annotated: that is annotation work, not a bug found. Generated from the saved runs in \`safe-c-notes/\` by \`clang/utils/safe-c/gen-readme.ts\`.`,
+    PORTED
+      ? `Cases are \`strict\`: only those whose fixed \`good()\` version compiles and runs under Safe C after porting (below), ${ct.n + rt.n} of ${ct.all + rt.all}. Of the rest, ${excludedUninit} read a variable that is set only under a condition known at run time, which Rust rejects too (definite initialization); the others still need porting work. Generated from \`safe-c-notes/${RUN_FILE}\` by \`clang/utils/safe-c/gen-readme.ts\`.`
+      : `Cases are \`strict\`: only those whose fixed \`good()\` version compiles and runs under Safe C, ${ct.n + rt.n} of ${ct.all + rt.all}. The rest are rejected as written, mostly because Juliet keeps raw pointers in struct fields and possibly-null values where Safe C wants them annotated: that is annotation work, not a bug found. Generated from the saved runs in \`safe-c-notes/\` by \`clang/utils/safe-c/gen-readme.ts\`.`,
   ].join("\n");
 }
 
