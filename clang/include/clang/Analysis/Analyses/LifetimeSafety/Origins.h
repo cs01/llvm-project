@@ -136,6 +136,10 @@ class OriginManager {
 public:
   explicit OriginManager(const AnalysisDeclContext &AC);
 
+  /// Safe C: the origin list of field \p FD of local struct \p VD (what
+  /// `VD.FD` points to), or null if the field holds no pointer.
+  OriginList *getOrCreateLocalFieldList(const VarDecl *VD, const FieldDecl *FD);
+
   /// Gets or creates the OriginList for a given ValueDecl.
   ///
   /// Creates a list structure mirroring the levels of indirection in the
@@ -226,6 +230,11 @@ private:
   llvm::BumpPtrAllocator ListAllocator;
   llvm::DenseMap<const clang::ValueDecl *, OriginList *> DeclToList;
   llvm::DenseMap<const clang::Expr *, OriginList *> ExprToList;
+  /// Safe C: one origin list per field of a local struct (`a.p`), so a
+  /// pointer stored in a field keeps its loans for later reads of it.
+  llvm::DenseMap<std::pair<const clang::VarDecl *, const clang::FieldDecl *>,
+                 OriginList *>
+      LocalFieldToList;
   std::optional<OriginList *> ThisOrigins;
   /// Types that are not inherently pointer-like but require origin tracking
   /// because of lifetime annotations (currently [[clang::lifetimebound]]) on

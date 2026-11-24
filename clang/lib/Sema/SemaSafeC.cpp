@@ -208,6 +208,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 is freed automatically at the end of its scope ('_Drop'), so giving "
      "it away here would free it twice; move it out with '_Take(%1)', which "
      "leaves null for the cleanup"},
+    {"owning-struct-byte-copy", false,
+     "copying %0 byte by byte duplicates its owned field %1, and both copies "
+     "would free it; move the field with '_Take' and assign the others, or "
+     "pass a pointer to the struct instead"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
@@ -408,6 +412,8 @@ static bool isOwnedStorage(const ValueDecl *D) {
 }
 
 /// The first owned field of \p T, looking into nested structs and arrays.
+static const FieldDecl *ownedFieldOf(QualType T);
+const FieldDecl *clang::safeCOwnedFieldOf(QualType T) { return ownedFieldOf(T); }
 static const FieldDecl *ownedFieldOf(QualType T) {
   while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
     T = AT->getElementType();

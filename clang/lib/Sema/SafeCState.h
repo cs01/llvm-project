@@ -32,6 +32,11 @@ class Decl;
 class Sema;
 class Stmt;
 
+class FieldDecl;
+/// The first _Owned field of \p T (looking into nested structs and arrays),
+/// or null: a struct holding one may not be copied.
+const FieldDecl *safeCOwnedFieldOf(QualType T);
+
 /// Whether \p D takes ownership of (frees) parameter \p Idx (0-based), as
 /// free and realloc do, or as ownership_takes says.
 bool safeCTakesParam(const Decl *D, unsigned Idx);

@@ -355,6 +355,33 @@ void FactsGenerator::VisitDeclStmt(const DeclStmt *DS) {
   for (const Decl *D : DS->decls())
     if (const auto *VD = dyn_cast<VarDecl>(D))
       if (const Expr *InitExpr = VD->getInit()) {
+        // Safe C: `struct S s = {p, ...}` puts p's loans in s's field, so
+        // freeing the block through two owners is seen as a double free.
+        if (const auto *ILE =
+                dyn_cast<InitListExpr>(InitExpr->IgnoreParenImpCasts());
+            ILE && AC.getASTContext().getLangOpts().SafeC)
+          if (const RecordDecl *RD = VD->getType()->getAsRecordDecl();
+              RD && !RD->isUnion() && !isSafeCViewType(VD->getType())) {
+            const InitListExpr *Sem =
+                ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
+            if (!Sem)
+              Sem = ILE;
+            unsigned I = 0;
+            for (const FieldDecl *FD : RD->fields()) {
+              if (FD->isUnnamedBitField())
+                continue;
+              if (I >= Sem->getNumInits())
+                break;
+              const Expr *Init = Sem->getInit(I++);
+              if (!Init)
+                continue;
+              if (OriginList *FL =
+                      FactMgr.getOriginMgr().getOrCreateLocalFieldList(VD, FD))
+                if (OriginList *IL = getOriginsList(*Init))
+                  flow(FL, Init->isGLValue() ? IL->peelOuterOrigin() : IL,
+                       /*Kill=*/true);
+            }
+          }
         OriginList *VDList = getOriginsList(*VD);
         if (!VDList)
           continue;
@@ -524,6 +551,17 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
   };
   if (CE->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
       CE->getNumArgs() == 1) {
+    // The result is what the place held: keep its loans, so freeing it twice
+    // (through two owners of one block) is still seen.
+    if (OriginList *Dst = getOriginsList(*CE))
+      if (OriginList *Src = getOriginsList(*CE->getArg(0)))
+        if (OriginList *Val = Src->peelOuterOrigin()) {
+          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+              Dst->getOuterOriginID(), Val->getOuterOriginID(), /*Kill=*/true));
+          // The place is null afterwards: it holds nothing.
+          CurrentBlockFacts.push_back(
+              FactMgr.createFact<KillOriginFact>(Val->getOuterOriginID()));
+        }
     EndBorrowsThrough(CE->getArg(0));
     if (const VarDecl *Root = safeCRootOrGlobal(CE->getArg(0));
         Root && Root->hasGlobalStorage() && isa<FunctionDecl>(AC.getDecl()))
