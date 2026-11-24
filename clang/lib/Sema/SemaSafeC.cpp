@@ -232,8 +232,8 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"union-member-unchecked", false,
      "%select{reading|writing}0 %1 needs the tag '%2' known to be %3 here, "
      "or the union's bytes could be another member's; check it first (as in "
-     "'if (x.%2 == %3)' or 'case %3:')%select{|, or set it ('x.%2 = %3;') "
-     "before writing}0"},
+     "%select{'if (x.%2 == %3)' or 'case %3:'|'if (x.%2)'|'if (!x.%2)'}4)"
+     "%select{|, or set it ('x.%2 = %3;') before writing}0"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
@@ -1315,8 +1315,11 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
                 });
                 if (!Ok && !Want.empty()) {
                   bool IsWrite = false; // set by the enclosing assignment
+                  unsigned Hint = !TagF->getType()->isBooleanType() ? 0
+                                  : Want == "true"                   ? 1
+                                                                     : 2;
                   S.SafeCDiag(ME->getMemberLoc(), "union-member-unchecked")
-                      << (IsWrite ? 1 : 0) << M << Tag << Want;
+                      << (IsWrite ? 1 : 0) << M << Tag << Want << Hint;
                 }
               }
             }
