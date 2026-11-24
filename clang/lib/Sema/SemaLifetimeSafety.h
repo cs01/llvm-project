@@ -15,6 +15,7 @@
 #ifndef LLVM_CLANG_LIB_SEMA_SEMALIFETIMESAFETY_H
 #define LLVM_CLANG_LIB_SEMA_SEMALIFETIMESAFETY_H
 
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeSafety.h"
 #include "clang/Basic/DiagnosticSema.h"
@@ -551,6 +552,10 @@ public:
     if (!IsDiagEnabledExcludingWeverything(DiagID, InsertionPoint))
       return;
 
+    // Safe C: __unsafe around the return lifts it, as for other errors.
+    if (const auto *EscapeExpr = dyn_cast<const Expr *>(Target);
+        EscapeExpr && inSafeCUnsafe(EscapeExpr->getBeginLoc()))
+      return;
     // Safe C: say why, and spell the fix with safec.h's name.
     const auto *Fn = dyn_cast<FunctionDecl>(ParmToAnnotate->getDeclContext());
     if (S.getLangOpts().SafeC && Fn && isa<const Expr *>(Target))
@@ -573,8 +578,38 @@ public:
           << EscapeField->getSourceRange();
   }
 
+  /// Safe C: the violation is reported at the parameter, not at a return, so
+  /// __unsafe lifts it only when every pointer return of the function is
+  /// inside __unsafe (an unverified return outside still errors).
+  bool allPointerReturnsInSafeCUnsafe(const FunctionDecl *FD) {
+    if (!S.getLangOpts().SafeC || !FD || !FD->getBody())
+      return false;
+    struct Finder : RecursiveASTVisitor<Finder> {
+      Sema &S;
+      llvm::SmallVector<SourceLocation, 4> Returns;
+      bool AllUnsafe = true;
+      bool VisitReturnStmt(ReturnStmt *RS) {
+        if (const Expr *V = RS->getRetValue();
+            V && V->getType()->isPointerType()) {
+          Returns.push_back(RS->getBeginLoc());
+          AllUnsafe &= S.isInSafeCUnsafeRegion(RS->getBeginLoc());
+        }
+        return true;
+      }
+    } F{{}, S};
+    F.TraverseStmt(FD->getBody());
+    if (F.Returns.empty() || !F.AllUnsafe)
+      return false;
+    for (SourceLocation L : F.Returns)
+      S.noteSafeCUnsafeRegionUsed(L);
+    return true;
+  }
+
   void reportLifetimeboundViolation(
       const ParmVarDecl *ParmWithLifetimebound) override {
+    if (allPointerReturnsInSafeCUnsafe(dyn_cast<FunctionDecl>(
+            ParmWithLifetimebound->getDeclContext())))
+      return;
     const auto *Attr = ParmWithLifetimebound->getAttr<LifetimeBoundAttr>();
     StringRef ParamName = ParmWithLifetimebound->getName();
     bool HasName = ParamName.size() > 0;

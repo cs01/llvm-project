@@ -10,3 +10,6 @@
 struct T { int *_Owned _Nullable item; };
 int *_Nullable get(struct T *t) { return t->item; } // expected-error {{'get' returns a pointer borrowed from 't', so it is valid only as long as what 't' points to; mark the parameter '_Lifetimebound' so callers keep it alive, or return an owned copy}} expected-note {{param returned here}}
 int *_Nullable get2(struct T *t _Lifetimebound) { return t->item; }
+
+// __unsafe around the return lifts the error, as for other Safe C errors.
+int *_Nullable get3(struct T *t) { __unsafe { return t->item; } }
