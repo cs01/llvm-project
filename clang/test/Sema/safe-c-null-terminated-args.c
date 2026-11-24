@@ -9,7 +9,7 @@
 #include <ptrcheck.h>
 typedef __SIZE_TYPE__ size_t;
 size_t my_strlen(const char *__null_terminated s __attribute__((noescape)));
-struct S { const char *__null_terminated name; };
+struct S { const char *__null_terminated name; }; // expected-error {{holds a pointer nothing tracks}}
 
 size_t arg(void) {
   char buf[16] = "hello";

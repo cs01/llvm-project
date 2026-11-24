@@ -4,7 +4,7 @@
 // reports none of these.
 // RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -mllvm -safe-c-ownership -verify %s
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-ownership=false -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify=off %s
 // off-no-diagnostics
 

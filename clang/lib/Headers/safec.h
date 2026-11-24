@@ -21,7 +21,7 @@
    from these lines (clang/utils/safe-c/gen-readme.ts), so keep them current.
    @annotation `_Nullable` | Clang | may be null; must be checked before use (with `__counted_by(n)`: null, or `n` elements) | `Option<&T>`: plain `&T` is never null | `char *_Nullable getenv(const char *name);`
    @annotation `__counted_by(n)` | Apple | points to `n` elements; `n` is another parameter or field | `&[T]` (a slice: pointer plus length) | `int sum(const int *__counted_by(n) v, size_t n);`
-   @annotation `__counted_by_or_null(n)` | Apple | the same as `_Nullable __counted_by(n)` under Safe C; kept for code written for Apple's compiler | `Option<&[T]>` | `struct buf { char *_Nullable __counted_by_or_null(len) data; size_t len; };`
+   @annotation `__counted_by_or_null(n)` | Apple | the same as `_Nullable __counted_by(n)` under Safe C; kept for code written for Apple's compiler | `Option<&[T]>` | `struct buf { char *_Owned _Nullable __counted_by_or_null(len) data; size_t len; };`
    @annotation `__sized_by(n)` | Apple | points to `n` bytes | `&[u8]` | `void fill(void *__sized_by(n) dst, size_t n);`
    @annotation `__ended_by(end)` | Apple | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`) | `int scan(const char *__ended_by(end) p, const char *end);`
    @annotation `__null_terminated` | Apple | a string ending in 0 (string literals and libc strings are already) | `&CStr` | `size_t my_strlen(const char *__null_terminated s);`

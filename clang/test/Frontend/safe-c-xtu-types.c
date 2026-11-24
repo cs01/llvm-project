@@ -21,6 +21,9 @@ int add(int a, int b);
 int main(void) { return tbl[0] + (int)shared + add(1, 2); }
 #else
 extern int tbl[1000];
-extern int *_Nullable shared;
+#ifndef __SAFEC_H
+#define _Static /* plain clang: no safec.h */
+#endif
+extern int *_Static _Nullable shared;
 int main(void) { tbl[900] = 1; return shared ? *shared : 0; }
 #endif

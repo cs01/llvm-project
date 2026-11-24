@@ -13,7 +13,7 @@ __attribute__((noreturn)) void die(int c) {
     exit(1);
 } // expected-error {{function declared 'noreturn' should not return}} plain-warning {{function declared 'noreturn' should not return}}
 
-extern int *view __asm__("_cell"); // expected-error {{an asm label can switch off Safe C's checks}}
+extern int *view __asm__("_cell"); // expected-error {{an asm label can switch off Safe C's checks}} expected-error {{holds a pointer nothing tracks}}
 
 jmp_buf jb;
 void jump(void) {
@@ -22,7 +22,7 @@ void jump(void) {
 
 void free_local(void) {
   int x = 0;
-  free(&x); // expected-error {{attempt to call free on non-heap object 'x'}} plain-warning {{attempt to call free on non-heap object 'x'}}
+  free(&x); // expected-error {{attempt to call free on non-heap object 'x'}} expected-error {{freeing a pointer that is still stored}} plain-warning {{attempt to call free on non-heap object 'x'}}
 }
 
 void drop(int *_Nullable p) __attribute__((ownership_takes(malloc, 1)));

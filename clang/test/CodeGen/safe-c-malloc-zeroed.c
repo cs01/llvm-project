@@ -11,7 +11,7 @@
 typedef __SIZE_TYPE__ size_t;
 void *malloc(size_t);
 
-struct node { int v; struct node *next; };
+struct node { int v; long next; };
 
 __attribute__((ownership_returns(malloc))) struct node *make(void) { return malloc(sizeof(struct node)); }
 

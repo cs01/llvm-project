@@ -649,8 +649,9 @@ const Expr *ignoreParensAndImpCasts(const Expr *E) {
 
 static llvm::cl::opt<bool>
     SafeCOwnership("safe-c-ownership",
-                   llvm::cl::desc("Safe C: enforce the M2 ownership rules"),
-                   llvm::cl::init(false));
+                   llvm::cl::desc("Safe C: enforce the M2 ownership rules (on by "
+                                  "default; =false for comparisons)"),
+                   llvm::cl::init(true));
 
 bool safeCOwnershipFlag() { return SafeCOwnership; }
 

@@ -7,7 +7,7 @@
 
 typedef __SIZE_TYPE__ size_t;
 struct holder {
-  int *data; // expected-note {{holder::data declared here}} plain-note {{holder::data declared here}}
+  int *data; // expected-note {{holder::data declared here}} plain-note {{holder::data declared here}} expected-error {{holds a pointer nothing tracks}}
 };
 
 int field(struct holder *h, size_t i) {

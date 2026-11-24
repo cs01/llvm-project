@@ -35,8 +35,8 @@ bool isPointerLikeType(QualType QT);
 /// Arrays give their elements' kind.
 llvm::StringRef safeCPointerKind(QualType T);
 
-/// Safe C: whether the M2 ownership rules are on (-mllvm -safe-c-ownership,
-/// while they are staged).
+/// Safe C: whether the M2 ownership rules are on (default; turned off by
+/// -mllvm -safe-c-ownership=false).
 bool safeCOwnershipFlag();
 
 /// Safe C: the local variable or parameter a place is reached from (`l` in

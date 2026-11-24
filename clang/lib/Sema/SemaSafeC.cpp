@@ -473,12 +473,17 @@ static std::string describe(const Expr *E) {
 /// An ownership operation through \p Place is allowed when its root is a
 /// stack object, or a pointer that owns it or borrows it exclusively. Reports
 /// and returns false otherwise.
-static void checkOwnershipRoot(Sema &S, const Expr *Place, unsigned Op) {
+static bool isInferredOwnerLocal(ASTContext &Ctx, const VarDecl *VD,
+                                 const Stmt *Body);
+
+static void checkOwnershipRoot(Sema &S, const Expr *Place, unsigned Op,
+                               const Stmt *Body) {
   const VarDecl *Root = lifetimes::safeCRootVar(Place);
   if (!Root || !Root->getType()->isPointerType())
     return; // a global (rejected elsewhere) or a stack object
   StringRef K = safeCPointerKind(Root->getType());
-  if (K == "owned" || K == "excl" || isOwnedStorage(Root))
+  if (K == "owned" || K == "excl" || isOwnedStorage(Root) ||
+      isInferredOwnerLocal(S.Context, Root, Body))
     return;
   S.SafeCDiag(Place->getExprLoc(), "ownership-through-borrow")
       << Op << Root->getName() << (isa<ParmVarDecl>(Root) ? 1 : 0);
@@ -634,7 +639,7 @@ public:
     if (BO->getOpcode() == BO_Assign) {
       if (!isTrackedLocal(BO->getLHS()) &&
           safeCPointerKind(BO->getLHS()->getType()) == "owned")
-        checkOwnershipRoot(S, BO->getLHS(), 1);
+        checkOwnershipRoot(S, BO->getLHS(), 1, Body);
       checkStore(namedStorage(BO->getLHS()), BO->getRHS(), BO->getOperatorLoc());
       const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens());
       if (ME && ME->isArrow() && holdsBorrow(ME->getType()) &&
@@ -738,7 +743,7 @@ public:
     checkCallAliasing(Call);
     if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
         Call->getNumArgs() == 1)
-      checkOwnershipRoot(S, Call->getArg(0), 0);
+      checkOwnershipRoot(S, Call->getArg(0), 0, Body);
     const Decl *Callee = Call->getCalleeDecl();
     if (!Callee)
       return true;

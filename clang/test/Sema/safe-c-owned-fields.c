@@ -5,7 +5,7 @@
 // which is checked whenever the builtin is used.
 // RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -mllvm -safe-c-ownership -verify %s
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-ownership=false -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify=off %s
 
 typedef __SIZE_TYPE__ size_t;

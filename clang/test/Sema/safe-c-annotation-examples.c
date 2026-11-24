@@ -12,7 +12,7 @@ struct conn;
 struct json;
 char *_Nullable getenv(const char *name);
 int sum(const int *__counted_by(n) v, size_t n);
-struct buf { char *_Nullable __counted_by_or_null(len) data; size_t len; };
+struct buf { char *_Owned _Nullable __counted_by_or_null(len) data; size_t len; };
 void fill(void *__sized_by(n) dst, size_t n);
 int scan(const char *__ended_by(end) p, const char *end);
 size_t my_strlen(const char *__null_terminated s);

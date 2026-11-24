@@ -7,7 +7,7 @@
 typedef __SIZE_TYPE__ size_t;
 struct dn { int x; };
 struct eng { int a; int cpu; };
-struct srv { struct eng eng; struct dn *tas; size_t cur_dn_index; };
+struct srv { struct eng eng; struct dn *tas; size_t cur_dn_index; }; // expected-error {{holds a pointer nothing tracks}}
 #define ENG ((struct eng *)(void *)((unsigned char *)t0ctx - __builtin_offsetof(struct eng, cpu)))
 #define CTX ((struct srv *)ENG)
 void run(void *t0ctx) {

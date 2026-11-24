@@ -7,7 +7,7 @@
 // plain-no-diagnostics
 
 typedef __SIZE_TYPE__ size_t;
-struct buf { unsigned char *_Nullable __counted_by_or_null(len) p; size_t len; };
+struct buf { unsigned char *_Nullable __counted_by_or_null(len) p; size_t len; }; // expected-error {{holds a pointer nothing tracks}}
 int use(const unsigned char *q);
 
 int checked(struct buf *b) {

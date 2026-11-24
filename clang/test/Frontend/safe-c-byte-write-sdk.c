@@ -11,7 +11,7 @@
 #include <strings.h>
 #include <unistd.h>
 
-struct H { int *p; };
+struct H { int *p; }; // expected-error {{holds a pointer nothing tracks}}
 struct Bytes { long a[2]; };
 void my_free(void *p) __attribute__((ownership_takes(malloc, 1)));
 

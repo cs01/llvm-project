@@ -6,8 +6,8 @@
 // RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=plain %s
 // plain-no-diagnostics
 
-struct S { int *_Nullable p; };
-static int *_Nullable g; // expected-note {{this global dangles}}
+struct S { int *_Nullable p; }; // expected-error {{holds a pointer nothing tracks}}
+static int *_Nullable g; // expected-note {{this global dangles}} expected-error {{holds a pointer nothing tracks}}
 
 void outp(int *_Nullable *out) {
   int y = 2;

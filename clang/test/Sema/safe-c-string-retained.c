@@ -7,7 +7,7 @@
 // RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=plain %s
 // plain-no-diagnostics
 
-static char *_Nullable __null_terminated keep;
+static char *_Nullable __null_terminated keep; // expected-error {{holds a pointer nothing tracks}}
 void retain(char *__null_terminated s) { keep = s; }
 int length(const char *__null_terminated s __attribute__((noescape)));
 

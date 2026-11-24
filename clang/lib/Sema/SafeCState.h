@@ -40,8 +40,8 @@ bool safeCTakesParam(const Decl *D, unsigned Idx);
 /// field or global, leaving null (and a zero count). Returns true on error.
 bool checkSafeCTakeBuiltin(Sema &S, CallExpr *TheCall);
 
-/// M2 ownership checks, staged behind -mllvm -safe-c-ownership until the
-/// ports are annotated for them.
+/// M2 ownership checks: on by default under -fsafe-c; turned off only with
+/// -mllvm -safe-c-ownership=false (for comparisons and older control runs).
 bool safeCOwnershipEnabled(const Sema &S);
 
 /// Rule 10: a struct field or global holds no borrow. Its pointers are

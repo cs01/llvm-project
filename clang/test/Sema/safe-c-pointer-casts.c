@@ -12,8 +12,8 @@ typedef __SIZE_TYPE__ size_t;
 void *_Nullable malloc(size_t);
 void *_Nullable realloc(void *_Nullable, size_t);
 
-struct A { int x; int *p; };
-struct B { long y; int *q; };
+struct A { int x; int *p; }; // expected-error {{holds a pointer nothing tracks}}
+struct B { long y; int *q; }; // expected-error {{holds a pointer nothing tracks}}
 struct P1 { int a; short b; };
 struct P2 { short c; int d; };
 
@@ -43,7 +43,7 @@ void fnptr(void) {
 // Separate functions: realloc frees its argument, so a second realloc of the
 // same pointer would be a use after free.
 __safec_takes(1) void grow_other(long *_Nullable l) {
-  int *_Nullable *_Nullable pp = realloc(l, 2 * sizeof(int *)); // expected-error {{can treat memory as the wrong type}}
+  int *_Nullable *_Nullable pp = realloc(l, 2 * sizeof(int *)); // expected-error {{can treat memory as the wrong type}} expected-error {{this heap memory holds pointers}}
   (void)pp;
 }
 __safec_takes(1) void grow_same(long *_Nullable l) {

@@ -9,7 +9,7 @@
 typedef __SIZE_TYPE__ size_t;
 int sum1(const int *_Nullable __counted_by(n) v, size_t n);
 int sum2(const int *__counted_by(n) _Nullable v, size_t n);
-struct buf { char *_Nullable __counted_by(len) data; size_t len; };
+struct buf { char *_Owned _Nullable __counted_by(len) data; size_t len; };
 
 void f(void) {
   (void)sum1(0, 4);

@@ -11,7 +11,7 @@ void *_Nullable malloc(size_t);
 void *memset(void *, int, size_t);
 
 static int counter;
-struct node { int v; struct node *_Nullable next; };
+struct node { int v; struct node *_Nullable next; }; // expected-error {{holds a pointer nothing tracks}}
 
 __attribute__((alloc_size(1))) void *_Nullable my_alloc(size_t n) {
   void *_Nullable p = malloc(n);

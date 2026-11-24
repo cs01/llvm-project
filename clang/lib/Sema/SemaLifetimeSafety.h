@@ -610,9 +610,9 @@ public:
     if (allPointerReturnsInSafeCUnsafe(dyn_cast<FunctionDecl>(
             ParmWithLifetimebound->getDeclContext())))
       return;
-    // Safe C without the M2 rules: a pointer read from a field carries no
-    // borrow yet, so a lifetimebound getter can never be verified. Remove
-    // when M2 is on by default.
+    // Safe C with the M2 rules turned off (-mllvm -safe-c-ownership=false): a
+    // pointer read from a field carries no borrow, so a lifetimebound getter
+    // can never be verified.
     if (S.getLangOpts().SafeC && !lifetimes::safeCOwnershipFlag())
       return;
     const auto *Attr = ParmWithLifetimebound->getAttr<LifetimeBoundAttr>();

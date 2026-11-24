@@ -20,7 +20,7 @@ int *_Nullable take(void) { return _Take(next()->data); }
 
 // A local pointer to the struct is a wide (bounds-carrying) pointer, and an
 // array element has no pointer at all; both used to crash.
-struct counted *_Nullable pick(void);
+_Returns_owned struct counted *_Nullable pick(void);
 int *_Nullable take_local(void) {
   struct counted *_Nullable p = pick();
   if (!p)
@@ -30,7 +30,7 @@ int *_Nullable take_local(void) {
 // CHECK-LABEL: define {{.*}} @take_local(
 // CHECK: store ptr null
 // CHECK: store i64 0
-int *_Nullable take_elem(struct counted *__counted_by(2) a) {
+int *_Nullable take_elem(struct counted *_Excl __counted_by(2) a) {
   return __safec_take(a[1].data);
 }
 // CHECK-LABEL: define {{.*}} @take_elem(
