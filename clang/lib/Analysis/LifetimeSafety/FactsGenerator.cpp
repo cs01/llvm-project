@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <cassert>
+#include <functional>
 #include <string>
 
 #include "clang/AST/Decl.h"
@@ -392,6 +393,9 @@ void FactsGenerator::VisitDeclStmt(const DeclStmt *DS) {
         flow(VDList, InitList, /*Kill=*/true);
       }
 }
+
+static void safeCLiteralsIn(const Expr *E,
+                            llvm::SmallVectorImpl<const CompoundLiteralExpr *> &Out);
 
 void FactsGenerator::VisitDeclRefExpr(const DeclRefExpr *DRE) {
   // Skip function references as their lifetimes are not interesting. Skip non
@@ -793,6 +797,39 @@ void FactsGenerator::VisitUnaryOperator(const UnaryOperator *UO) {
 }
 
 void FactsGenerator::VisitReturnStmt(const ReturnStmt *RS) {
+  // Safe C: compound literals not tied to a local die with the frame. (Those
+  // initializing a local expire with it, at its lifetime end.)
+  if (AC.getASTContext().getLangOpts().SafeC) {
+    if (!SafeCUnanchoredLiterals) {
+      SafeCUnanchoredLiterals.emplace();
+      llvm::SmallPtrSet<const CompoundLiteralExpr *, 8> Anchored;
+      llvm::SmallVector<const CompoundLiteralExpr *, 8> All;
+      std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
+        if (!S)
+          return;
+        if (const auto *DS = dyn_cast<DeclStmt>(S))
+          for (const Decl *D : DS->decls())
+            if (const auto *VD = dyn_cast<VarDecl>(D);
+                VD && VD->hasLocalStorage()) {
+              llvm::SmallVector<const CompoundLiteralExpr *, 2> In;
+              safeCLiteralsIn(VD->getInit(), In);
+              Anchored.insert(In.begin(), In.end());
+            }
+        if (const auto *CLE = dyn_cast<CompoundLiteralExpr>(S);
+            CLE && !CLE->isFileScope())
+          All.push_back(CLE);
+        for (const Stmt *C : S->children())
+          Walk(C);
+      };
+      Walk(AC.getBody());
+      for (const CompoundLiteralExpr *CLE : All)
+        if (!Anchored.contains(CLE))
+          SafeCUnanchoredLiterals->push_back(CLE);
+    }
+    for (const CompoundLiteralExpr *CLE : *SafeCUnanchoredLiterals)
+      CurrentBlockFacts.push_back(
+          FactMgr.createFact<ExpireFact>(AccessPath(CLE), RS->getEndLoc()));
+  }
   if (const Expr *RetExpr = RS->getRetValue()) {
     if (OriginList *List = getOriginsList(*RetExpr))
       for (OriginList *L = List; L != nullptr; L = L->peelOuterOrigin())
@@ -1011,7 +1048,44 @@ void FactsGenerator::VisitCXXFunctionalCastExpr(
 
 // A C compound literal `(T){...}` is an object built from its initializer:
 // what it points to (its inner origins) is what the initializer points to.
+/// Safe C: the block-scope compound literals an initializer stores into its
+/// variable (directly, by address, or inside an initializer list). Their
+/// storage lives exactly as long as the variable: same block.
+static void safeCLiteralsIn(const Expr *E,
+                            llvm::SmallVectorImpl<const CompoundLiteralExpr *> &Out) {
+  if (!E)
+    return;
+  E = E->IgnoreParenCasts();
+  if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E))
+    return safeCLiteralsIn(OVE->getSourceExpr(), Out);
+  if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E))
+    return safeCLiteralsIn(MSE->getWrappedExpr(), Out);
+  if (const auto *PPE = dyn_cast<BoundsSafetyPointerPromotionExpr>(E))
+    return safeCLiteralsIn(PPE->getPointer(), Out);
+  if (const auto *UO = dyn_cast<UnaryOperator>(E);
+      UO && UO->getOpcode() == UO_AddrOf)
+    return safeCLiteralsIn(UO->getSubExpr(), Out);
+  if (const auto *ILE = dyn_cast<InitListExpr>(E)) {
+    const InitListExpr *Sem = ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
+    for (const Expr *I : (Sem ? Sem : ILE)->inits())
+      safeCLiteralsIn(I, Out);
+    return;
+  }
+  if (const auto *CLE = dyn_cast<CompoundLiteralExpr>(E))
+    if (!CLE->isFileScope())
+      Out.push_back(CLE);
+}
+
 void FactsGenerator::VisitCompoundLiteralExpr(const CompoundLiteralExpr *CLE) {
+  // Safe C: a block-scope compound literal is unnamed local storage; its
+  // address is a borrow that ends with the block (C11 6.5.2.5p5).
+  if (AC.getASTContext().getLangOpts().SafeC && !CLE->isFileScope() &&
+      CLE->isGLValue())
+    if (OriginList *L = getOriginsList(*CLE)) {
+      const Loan *Loan = FactMgr.getLoanMgr().createLoan(AccessPath(CLE), CLE);
+      CurrentBlockFacts.push_back(
+          FactMgr.createFact<IssueFact>(Loan->getID(), L->getOuterOriginID()));
+    }
   OriginList *Dst = getOriginsList(*CLE);
   const Expr *Init = CLE->getInitializer();
   OriginList *Src = Init ? getOriginsList(*Init) : nullptr;
@@ -1309,6 +1383,13 @@ void FactsGenerator::handleLifetimeEnds(const CFGLifetimeEnds &LifetimeEnds) {
       LSOpts.CheckDestructorUses &&
       Ty.isDestructedType() == QualType::DK_cxx_destructor &&
       !isGslOwnerType(AC.getASTContext().getBaseElementType(Ty));
+  if (AC.getASTContext().getLangOpts().SafeC) {
+    llvm::SmallVector<const CompoundLiteralExpr *, 2> Literals;
+    safeCLiteralsIn(LifetimeEndsVD->getInit(), Literals);
+    for (const CompoundLiteralExpr *CLE : Literals)
+      CurrentBlockFacts.push_back(
+          FactMgr.createFact<ExpireFact>(AccessPath(CLE), EndLoc));
+  }
   if (HasCleanup || IsDestructorUse)
     if (OriginList *List = getOriginsList(*LifetimeEndsVD))
       CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(

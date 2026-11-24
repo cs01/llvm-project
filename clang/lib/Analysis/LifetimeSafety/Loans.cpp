@@ -23,6 +23,9 @@ void AccessPath::dump(llvm::raw_ostream &OS) const {
       OS << "$this";
     else if (const auto *FD = PB->getFieldDecl())
       OS << "$this." << FD->getNameAsString();
+  } else if (const auto *CLE = dyn_cast_or_null<clang::CompoundLiteralExpr>(
+                 dyn_cast<const clang::Expr *>(Base))) {
+    OS << "CompoundLiteral at " << CLE;
   } else if (const auto *E = getAsAllocation()) {
     if (isa<CXXNewExpr>(E))
       OS << "NewAllocation at " << E;

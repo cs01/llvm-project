@@ -196,6 +196,10 @@ private:
   // appended at the end of CurrentBlockFacts to ensure they appear after
   // ExpireFact entries.
   llvm::SmallVector<Fact *> EscapesInCurrentBlock;
+  /// Safe C: block-scope compound literals not initializing a local, whose
+  /// storage is expired at every return (computed on first use).
+  std::optional<llvm::SmallVector<const CompoundLiteralExpr *, 4>>
+      SafeCUnanchoredLiterals;
   // Lifetime-extended temporaries, keyed by the variable they expire with.
   llvm::DenseMap<const ValueDecl *,
                  llvm::SmallVector<const MaterializeTemporaryExpr *, 1>>

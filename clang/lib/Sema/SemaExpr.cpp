@@ -18103,6 +18103,32 @@ static const VarDecl *safeCAddressOfLocal(const Expr *E) {
   return nullptr;
 }
 
+/// Safe C: \p E is the address of a block-scope compound literal.
+static bool safeCAddressOfBlockLiteral(const Expr *E) {
+  while (true) {
+    E = E->IgnoreParenCasts();
+    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E)) {
+      if (!OVE->getSourceExpr())
+        return false;
+      E = OVE->getSourceExpr();
+    } else if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E)) {
+      E = MSE->getWrappedExpr();
+    } else if (const auto *PPE =
+                   dyn_cast<BoundsSafetyPointerPromotionExpr>(E)) {
+      E = PPE->getPointer();
+    } else {
+      break;
+    }
+  }
+  if (const auto *UO = dyn_cast<UnaryOperator>(E);
+      UO && UO->getOpcode() == UO_AddrOf)
+    E = UO->getSubExpr()->IgnoreParens();
+  else if (!E->getType()->isArrayType())
+    return false;
+  const auto *CLE = dyn_cast<CompoundLiteralExpr>(E);
+  return CLE && !CLE->isFileScope();
+}
+
 QualType Sema::CheckAssignmentOperands(Expr *LHSExpr, ExprResult &RHS,
                                        SourceLocation Loc,
                                        QualType CompoundType,
@@ -18118,6 +18144,12 @@ QualType Sema::CheckAssignmentOperands(Expr *LHSExpr, ExprResult &RHS,
         Local && !safeCLocalStorage(LHSExpr))
       Diag(Loc, diag::warn_safe_c_stack_escape)
           << Local << LHSExpr->getSourceRange() << RHS.get()->getSourceRange();
+  // A compound literal assigned by address lives only to the end of the
+  // block it is written in, which the pointer may outlive (an initializer
+  // ties it to the new variable instead, whose block is the same).
+  if (getLangOpts().SafeC && RHS.isUsable() && CompoundType.isNull() &&
+      !SourceMgr.isInSystemHeader(Loc) && safeCAddressOfBlockLiteral(RHS.get()))
+    SafeCDiag(RHS.get()->getBeginLoc(), "compound-literal-store");
 
   // Verify that LHS is a modifiable lvalue, and emit error if not.
   if (CheckForModifiableLvalue(LHSExpr, Loc, *this))

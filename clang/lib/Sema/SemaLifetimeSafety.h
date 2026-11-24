@@ -1160,6 +1160,8 @@ private:
       return getDiagSubjectDescription(DAE->getExpr()->IgnoreParenBaseCasts());
     if (isa<MaterializeTemporaryExpr>(E))
       return "temporary object";
+    if (isa<CompoundLiteralExpr>(E))
+      return "compound literal";
     if (isa<CXXNewExpr>(E))
       return "allocated object";
     if (const auto *DRE = dyn_cast<DeclRefExpr>(E))

@@ -262,6 +262,11 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"union-init-mismatch", false,
      "this initializer sets the tag to %0 but fills %1, which is not live "
      "for that tag; initialize the member the tag names"},
+    {"compound-literal-store", false,
+     "this compound literal's storage ends with the block it is written in, "
+     "and the pointer assigned here may outlive it; declare it as a named "
+     "variable in the block where the pointer is used (as in "
+     "'int vals[] = {1, 2};'), or initialize a new pointer with it"},
     {"used-after-drop", false,
      "this memory was freed when the '_Drop' variable holding it went out "
      "of scope; keep the variable alive as long as the copy, or move the "

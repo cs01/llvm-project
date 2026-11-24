@@ -144,6 +144,8 @@ public:
   AccessPath(const PlaceholderBase *PB) : Base(PB) {}
   AccessPath(const clang::CXXNewExpr *New) : Base(New) {}
   AccessPath(const clang::CallExpr *CE) : Base(CE) {}
+  /// Safe C: a block-scope compound literal's storage.
+  AccessPath(const clang::CompoundLiteralExpr *CLE) : Base(CLE) {}
 
   /// Creates an extended access path by appending a path element.
   /// Example: AccessPath(x_path, field) creates path to `x.field`.
