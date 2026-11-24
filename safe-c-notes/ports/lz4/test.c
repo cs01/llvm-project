@@ -5,7 +5,7 @@
 #include <string.h>
 #include "lz4.h"
 
-static int failures = 0;
+static _Thread_local int failures = 0;
 #define CHECK(c, ...) do { if (!(c)) { failures++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
 
 /* compress, decompress, compare; then corrupt and truncate the block */

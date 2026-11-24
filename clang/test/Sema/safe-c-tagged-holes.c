@@ -4,9 +4,9 @@
 //  07 a member reached through an array element (not followed: now an error)
 //  12 an initializer naming a member the tag does not make live
 //  14 a call that changes a global's tag
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
-// RUN: %clang_cc1 -mllvm -safe-c-ownership=false -fsyntax-only -fsafe-c -fbounds-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-ownership=false -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety \
 // RUN:   -fnullability-safety -fnullability-default=nonnull -include safec.h -verify=off %s
 // off-no-diagnostics
 

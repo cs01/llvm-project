@@ -242,6 +242,17 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 can write past the end of its destination, which nothing checks; "
      "use the size-bounded form, as in 'wcslcat(dst, src, N)' with N the "
      "destination's length in wide characters"},
+    {"global-unshared", false,
+     "%0 is a mutable global, so every thread shares it and two threads can "
+     "write it at once; make it '_Thread_local' (one copy per thread, the "
+     "usual fix for single-threaded code), '_Atomic', guarded by a lock "
+     "('_Guarded_by(m)'), or 'const' if it never changes; if it is written "
+     "only before any thread starts, mark it '_Unsynchronized'"},
+    {"global-unshared-write", true, "%0 is written here"},
+    {"unsynchronized-write", false,
+     "%0 is '_Unsynchronized': it is shared without a lock, so a write is "
+     "safe only before any thread starts; put this write inside "
+     "'__unsafe { }' to say it is one of those"},
     {"signal-handler-global", false,
      "%0 is a signal handler, so it can run in the middle of any code, "
      "including code that is using %1; a handler may only touch globals "
@@ -1700,4 +1711,141 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
   for (const CFGBlock *B : *G)
     if (Done.count(B))
       Run(*B, In[B], /*Report=*/true);
+}
+
+// M5 rule 2 (Rust's `static` must be `Sync`): a mutable global is shared by
+// every thread, so it must be one copy per thread, atomic, or behind a lock.
+// A file-static global that its file never writes (no assignment, ++/--,
+// address taken, or array handed out as writable) is a constant in all but
+// name, as Juliet's `static int staticTrue = 1;` is, and needs nothing.
+static llvm::cl::opt<bool> SafeCSharedGlobals(
+    "safe-c-shared-globals", llvm::cl::init(true),
+    llvm::cl::desc("Safe C: require mutable globals to be thread-local, "
+                   "atomic, guarded or unsynchronized (M5 rule 2)"));
+
+void clang::checkSafeCSharedGlobals(Sema &S) {
+  SourceManager &SM = S.getSourceManager();
+  auto Shareable = [](const VarDecl *VD) {
+    QualType T = VD->getType();
+    QualType Base = VD->getASTContext().getBaseElementType(T);
+    if (T.isConstQualified() || Base.isConstQualified() || T->isAtomicType() ||
+        Base->isAtomicType() || VD->getTLSKind() != VarDecl::TLS_None ||
+        VD->hasAttr<GuardedByAttr>() || VD->hasAttr<PtGuardedByAttr>())
+      return true;
+    // volatile sig_atomic_t: C's own type for flags set by signal handlers.
+    // Locks and once-flags synchronize themselves.
+    for (QualType Cur = Base; const auto *TT = Cur->getAs<TypedefType>();
+         Cur = TT->getDecl()->getUnderlyingType()) {
+      StringRef N = TT->getDecl()->getName();
+      if ((N == "sig_atomic_t" && T.isVolatileQualified()) ||
+          N == "pthread_mutex_t" || N == "pthread_rwlock_t" ||
+          N == "pthread_cond_t" || N == "pthread_once_t" ||
+          N == "pthread_spinlock_t" || N == "mtx_t" || N == "cnd_t" ||
+          N == "once_flag")
+        return true;
+    }
+    if (const RecordDecl *RD = Base->getAsRecordDecl())
+      if (RD->hasAttr<CapabilityAttr>())
+        return true;
+    return false;
+  };
+  auto Unsynchronized = [](const VarDecl *VD) {
+    for (const VarDecl *R : VD->redecls())
+      for (const auto *A : R->specific_attrs<AnnotateAttr>())
+        if (A->getAnnotation() == "safec_unsynchronized")
+          return true;
+    return false;
+  };
+  struct Finder : RecursiveASTVisitor<Finder> {
+    llvm::DenseMap<const VarDecl *, const Expr *> Written;
+    llvm::SmallVector<const VarDecl *, 16> Globals;
+    // Decays and address-ofs only read through (a pointer-to-const, or a
+    // subscript).
+    llvm::SmallPtrSet<const Expr *, 8> ReadOnlyDecay;
+    bool shouldVisitImplicitCode() const { return false; }
+    static const VarDecl *root(const Expr *E) {
+      while (true) {
+        E = E->IgnoreParenImpCasts();
+        if (const auto *ME = dyn_cast<MemberExpr>(E); ME && !ME->isArrow())
+          E = ME->getBase();
+        else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E);
+                 ASE && ASE->getBase()->IgnoreParenImpCasts()->getType()->isArrayType())
+          E = ASE->getBase();
+        else
+          break;
+      }
+      const auto *DRE = dyn_cast<DeclRefExpr>(E);
+      const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+      return VD && VD->hasGlobalStorage() ? VD : nullptr;
+    }
+    llvm::SmallVector<std::pair<const VarDecl *, const Expr *>, 8> AllWrites;
+    void write(const Expr *Place, const Expr *At) {
+      if (const VarDecl *VD = root(Place)) {
+        Written.try_emplace(VD->getCanonicalDecl(), At);
+        AllWrites.push_back({VD->getCanonicalDecl(), At});
+      }
+    }
+    bool VisitVarDecl(VarDecl *VD) {
+      if (VD->hasGlobalStorage() && !isa<ParmVarDecl>(VD) &&
+          VD->isThisDeclarationADefinition() != VarDecl::DeclarationOnly)
+        Globals.push_back(VD);
+      return true;
+    }
+    bool VisitBinaryOperator(BinaryOperator *BO) {
+      if (BO->isAssignmentOp())
+        write(BO->getLHS(), BO);
+      return true;
+    }
+    bool VisitUnaryOperator(UnaryOperator *UO) {
+      if (UO->isIncrementDecrementOp() ||
+          (UO->getOpcode() == UO_AddrOf && !ReadOnlyDecay.contains(UO)))
+        write(UO->getSubExpr(), UO);
+      return true;
+    }
+    bool VisitImplicitCastExpr(ImplicitCastExpr *ICE) {
+      // `&g` converted to a pointer-to-const is read through, not written.
+      if (const auto *UO = dyn_cast<UnaryOperator>(ICE->getSubExpr()->IgnoreParens());
+          UO && UO->getOpcode() == UO_AddrOf && ICE->getType()->isPointerType() &&
+          ICE->getType()->getPointeeType().isConstQualified())
+        ReadOnlyDecay.insert(UO);
+      // An array decayed to a pointer-to-const is read, not written.
+      if (const auto *Sub = dyn_cast<ImplicitCastExpr>(ICE->getSubExpr()->IgnoreParens());
+          Sub && Sub->getCastKind() == CK_ArrayToPointerDecay &&
+          ICE->getType()->isPointerType() &&
+          ICE->getType()->getPointeeType().isConstQualified())
+        ReadOnlyDecay.insert(Sub);
+      if (ICE->getCastKind() == CK_ArrayToPointerDecay &&
+          !ReadOnlyDecay.contains(ICE) &&
+          !ICE->getType()->getPointeeType().isConstQualified())
+        write(ICE->getSubExpr(), ICE);
+      return true;
+    }
+    // `a[i]` decays a to index it: a read, unless the element is written,
+    // which the assignment or ++ sees. (Parents are visited first.)
+    bool VisitArraySubscriptExpr(ArraySubscriptExpr *ASE) {
+      if (const auto *D = dyn_cast<ImplicitCastExpr>(ASE->getBase()->IgnoreParens());
+          D && D->getCastKind() == CK_ArrayToPointerDecay)
+        ReadOnlyDecay.insert(D);
+      return true;
+    }
+  } F;
+  F.TraverseDecl(S.Context.getTranslationUnitDecl());
+  if (!SafeCSharedGlobals)
+    return;
+  for (auto [VD, At] : F.AllWrites)
+    if (Unsynchronized(VD) && !SM.isInSystemHeader(At->getExprLoc()) &&
+        !S.isInSafeCUnsafeRegion(At->getExprLoc()))
+      S.SafeCDiag(At->getExprLoc(), "unsynchronized-write") << VD;
+  for (const VarDecl *VD : F.Globals) {
+    if (SM.isInSystemHeader(VD->getLocation()) || Shareable(VD) ||
+        Unsynchronized(VD))
+      continue;
+    const Expr *W = F.Written.lookup(VD->getCanonicalDecl());
+    bool Internal = !VD->isExternallyVisible();
+    if (Internal && !W)
+      continue; // never written: a constant
+    S.SafeCDiag(VD->getLocation(), "global-unshared") << VD;
+    if (W)
+      S.SafeCDiag(W->getExprLoc(), "global-unshared-write") << VD;
+  }
 }

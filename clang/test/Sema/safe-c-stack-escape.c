@@ -1,7 +1,7 @@
 // Under -fsafe-c the address of a local may be stored only in locals of the
 // same function; through a pointer or in a global it outlives the local
 // (audit probes r03 outp, r17 fill).
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
 // RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=plain %s
 // plain-no-diagnostics

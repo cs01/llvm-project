@@ -1,7 +1,7 @@
 // Under -fsafe-c, ownership_takes on a function pointer (a field or variable)
 // makes calls through it free their argument for the lifetime analysis; a
 // function that frees may be stored only into a pointer declared to free.
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
 // RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=plain %s
 // plain-no-diagnostics

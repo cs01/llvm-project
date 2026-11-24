@@ -40,7 +40,7 @@ static __safec_takes(1) void CJSON_CDECL normal_free(void *_Nullable __unsafe_in
     free(pointer);
 }
 
-static cJSON_Hooks failing_hooks = {
+static _Thread_local cJSON_Hooks failing_hooks = {
     failing_malloc,
     normal_free
 };

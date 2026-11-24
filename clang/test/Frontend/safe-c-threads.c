@@ -3,8 +3,8 @@
 // it handed over, and a start routine whose types differ from the SDK's only
 // in sugar is accepted, as long as its parameter accepts null.
 // REQUIRES: system-darwin
-// RUN: %clang -fsafe-c -fsyntax-only -Xclang -verify %s
-// RUN: %clang -fsafe-c -mllvm -safe-c-ownership=false -fsyntax-only -Xclang -verify=off %s
+// RUN: %clang -mllvm -safe-c-shared-globals=false -fsafe-c -fsyntax-only -Xclang -verify %s
+// RUN: %clang -mllvm -safe-c-shared-globals=false -fsafe-c -mllvm -safe-c-ownership=false -fsyntax-only -Xclang -verify=off %s
 #include <pthread.h>
 #include <stdlib.h>
 static int config;

@@ -92,7 +92,8 @@ typedef struct {
     const unsigned char *_Nullable _Unchecked __bidi_indexable json;
     size_t position;
 } error;
-static error global_error = { NULL, 0 };
+/* Safe C: one per thread (cJSON_GetErrorPtr reports this thread's last error). */
+static _Thread_local error global_error = { NULL, 0 };
 
 CJSON_PUBLIC(const char *_Nullable __unsafe_indexable) cJSON_GetErrorPtr(void)
 {
@@ -222,7 +223,8 @@ _Returns_owned static cJSON *_Nullable allocate_item(const internal_hooks * cons
 /* strlen of character literals resolved at compile time */
 #define static_strlen(string_literal) (sizeof(string_literal) - sizeof(""))
 
-static internal_hooks global_hooks = { internal_malloc, internal_free, internal_realloc };
+/* Safe C: set by cJSON_InitHooks, which must run before any thread uses cJSON. */
+static internal_hooks global_hooks _Unsynchronized = { internal_malloc, internal_free, internal_realloc };
 
 _Returns_owned static char *_Nullable __null_terminated cJSON_strdup(const char *_Nullable __null_terminated string, const internal_hooks * const hooks)
 {
@@ -251,33 +253,25 @@ _Returns_owned static char *_Nullable __null_terminated cJSON_strdup(const char 
 
 CJSON_PUBLIC(void) cJSON_InitHooks(cJSON_Hooks* hooks)
 {
-    if (hooks == NULL)
+    internal_hooks h = { internal_malloc, internal_free, internal_realloc };
+    if (hooks != NULL)
     {
-        /* Reset hooks */
-        global_hooks.allocate = internal_malloc;
-        global_hooks.deallocate = internal_free;
-        global_hooks.reallocate = internal_realloc;
-        return;
+        if (hooks->malloc_fn != NULL)
+        {
+            h.allocate = hooks->malloc_fn;
+        }
+        if (hooks->free_fn != NULL)
+        {
+            h.deallocate = hooks->free_fn;
+        }
+        /* use realloc only if both free and malloc are used */
+        if ((h.allocate != internal_malloc) || (h.deallocate != internal_free))
+        {
+            h.reallocate = NULL;
+        }
     }
-
-    global_hooks.allocate = internal_malloc;
-    if (hooks->malloc_fn != NULL)
-    {
-        global_hooks.allocate = hooks->malloc_fn;
-    }
-
-    global_hooks.deallocate = internal_free;
-    if (hooks->free_fn != NULL)
-    {
-        global_hooks.deallocate = hooks->free_fn;
-    }
-
-    /* use realloc only if both free and malloc are used */
-    global_hooks.reallocate = NULL;
-    if ((global_hooks.allocate == internal_malloc) && (global_hooks.deallocate == internal_free))
-    {
-        global_hooks.reallocate = internal_realloc;
-    }
+    /* Safe C: global_hooks is _Unsynchronized; this is the only write. */
+    __unsafe { global_hooks = h; }
 }
 
 /* Internal constructor. */

@@ -40,6 +40,7 @@
    @annotation `_Tagged_by(f)`, `_When(V)` | Safe C | a union whose live member is named by the sibling field `f`: a member is read or written only where `f` is known to be one of its `_When` values; a `switch` on `f` must handle every value | an `enum` with data, and `match` | `struct shape { int kind; union _Tagged_by(kind) { double radius _When(0); double side _When(1); }; };`
    @annotation `_Drop(fn)` | Safe C (the `cleanup` attribute) | calls `fn(&x)` when `x` goes out of scope, on every path; `x` is never given away by name, only through `_Take` | `Drop` | `struct guard { int held; }; void release(struct guard *g); void use_guard(void) { struct guard g _Drop(release) = {1}; }`
    @annotation `_Guarded_by(m)` | Safe C (Clang's `guarded_by`) | data read or written only while holding lock `m`; Clang's thread-safety analysis checks it | `Mutex<T>` | `struct _Capability("mutex") mtx { int state; }; struct mtx stats_lock; int hits _Guarded_by(stats_lock);`
+   @annotation `_Unsynchronized` | Safe C | on a global written only before any thread starts (settings, hooks): it needs no lock, but every write must be inside `__unsafe` | `static mut` | `static struct hooks g_hooks _Unsynchronized;`
    @annotation `_Requires(m)`, `_Acquires(m)`, `_Releases(m)` | Safe C (Clang's thread-safety attributes) | a function's callers must hold `m`; or it takes or releases `m` | a `MutexGuard` held across a call | `void bump(void) _Requires(&stats_lock);`
    @annotation `__unsafe` | Safe C | a block or function where Safe C's rules are lifted, for code that cannot be checked | `unsafe { }` | `int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }`
    @annotation `#pragma clang safe_c legacy` | Safe C | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C | first line of a header not yet ported
@@ -203,6 +204,9 @@ char *getenv(const char *__null_terminated);
 #endif
 /* On a struct: holds borrows, so it lives only in locals and parameters. */
 #define __safec_view __attribute__((annotate("safec_view")))
+/* On a global: shared without a lock because it is written only before any
+   thread starts; every write must be inside __unsafe. Rust's static mut. */
+#define __safec_unsynchronized __attribute__((annotate("safec_unsynchronized")))
 /* Move an owned pointer out of a field or global, leaving null (and a zero
    count): free(__safec_take(n->next)). Like Rust's Option::take. */
 #if defined(__SAFE_C__)
@@ -219,6 +223,7 @@ char *getenv(const char *__null_terminated);
 #define __safec_static
 #define __safec_unchecked
 #define __safec_view
+#define __safec_unsynchronized
 #define __safec_excl
 /* Evaluates lv twice; fine for the plain lvalues take is used on. */
 #define __safec_take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })
@@ -237,6 +242,7 @@ char *getenv(const char *__null_terminated);
 #define _Static __safec_static
 #define _Unchecked __safec_unchecked
 #define _View __safec_view
+#define _Unsynchronized __safec_unsynchronized
 #define _Take(lv) __safec_take(lv)
 #define _Returns_owned __safec_returns_owned
 #define _Lifetimebound __safec_lifetimebound

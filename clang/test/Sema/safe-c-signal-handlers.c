@@ -2,7 +2,7 @@
 // code, so it may only touch globals that are _Atomic, volatile sig_atomic_t
 // or const (C11 7.14.1.1p5), also through the functions it calls. Checked
 // for signal() and sigaction's handler fields. The control run is plain C.
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
 // RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=off %s
 // off-no-diagnostics

@@ -68,6 +68,9 @@ void checkSafeCPointerKindsIn(Sema &S, Decl *GlobalVar);
 /// tag is known to name it (after `if (s->kind == V)`, in `case V:`, or after
 /// `s->kind = V`).
 void checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body);
+/// M5 rule 2: every mutable global is thread-local, atomic, guarded by a
+/// lock, or never written (run once, at the end of the translation unit).
+void checkSafeCSharedGlobals(Sema &S);
 
 class SafeCState {
 public:

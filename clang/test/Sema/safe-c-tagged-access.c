@@ -3,9 +3,9 @@
 // `!=` early return), in `case V:`, or after `x.tag = V`. A call that may
 // modify the struct forgets what was known. The control run pins the M2/M4
 // rules off.
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
-// RUN: %clang_cc1 -mllvm -safe-c-ownership=false -fsyntax-only -fsafe-c -fbounds-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-ownership=false -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety \
 // RUN:   -fnullability-safety -fnullability-default=nonnull -include safec.h -verify=off %s
 // off-no-diagnostics
 

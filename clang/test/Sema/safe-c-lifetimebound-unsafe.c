@@ -3,9 +3,9 @@
 // Here the getter returns a borrow of an owned field through a path the
 // analysis cannot follow (a cast). The control run checks that a return
 // outside __unsafe still errors.
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -mllvm -safe-c-ownership -verify %s
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -mllvm -safe-c-ownership -DCONTROL -verify=control %s
 // expected-no-diagnostics
 

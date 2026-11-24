@@ -2,10 +2,10 @@
 // types do not link (audit probes w10, v05: int tbl[1] defined, extern int
 // tbl[1000] used; long defined, int * used).
 // RUN: rm -rf %t && mkdir -p %t
-// RUN: %clang -fsafe-c -c %S/Inputs/safe-c-xtu-def.c -o %t/def.o
-// RUN: %clang -fsafe-c -c %s -DGOOD -o %t/good.o
+// RUN: %clang -mllvm -safe-c-shared-globals=false -fsafe-c -c %S/Inputs/safe-c-xtu-def.c -o %t/def.o
+// RUN: %clang -mllvm -safe-c-shared-globals=false -fsafe-c -c %s -DGOOD -o %t/good.o
 // RUN: %clang %t/good.o %t/def.o -o %t/good
-// RUN: %clang -fsafe-c -c %s -o %t/bad.o
+// RUN: %clang -mllvm -safe-c-shared-globals=false -fsafe-c -c %s -o %t/bad.o
 // RUN: not %clang %t/bad.o %t/def.o -o %t/bad 2>&1 | FileCheck %s
 // Plain C links the mismatch, as C allows.
 // RUN: %clang -c %S/Inputs/safe-c-xtu-def.c -o %t/pdef.o

@@ -1,8 +1,8 @@
 #ifndef __TEST_H__
 #define __TEST_H__
 
-static int test_passed = 0;
-static int test_failed = 0;
+static _Thread_local int test_passed = 0;
+static _Thread_local int test_failed = 0;
 
 /* Terminate current test with error */
 #define fail() return __LINE__

@@ -3,7 +3,7 @@
 
 #include "../safec_std.h"
 
-static int failures;
+static _Thread_local int failures;
 #define CHECK(c)                                                               \
   do {                                                                         \
     if (!(c)) {                                                                \

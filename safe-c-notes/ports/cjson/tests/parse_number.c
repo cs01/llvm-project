@@ -28,7 +28,7 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static cJSON item[1];
+static _Thread_local cJSON item[1];
 
 static void assert_is_number(cJSON *number_item)
 {
