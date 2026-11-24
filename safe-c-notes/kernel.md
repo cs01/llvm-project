@@ -28,9 +28,18 @@ dereference, at an address near the top of memory.
   second fact per pointer ("may be an error"), narrowed by calls to `IS_ERR`
   and `IS_ERR_OR_NULL` recognized by name (they are inline functions in
   `err.h`). `PTR_ERR(p)` is allowed only where `IS_ERR(p)` is known.
-- **Lean:** extend the null-safety core (`Sound.lean`) with an error value
-  distinct from null; one hole per rule (deref without the test, test of the
-  wrong pointer, a join that loses the narrowing).
+- **Lean:** done, `safe-c-lean/ERRPTR.md` (`err_sound`, one hole per rule). It
+  changed the design in three places:
+  1. `!IS_ERR(p)` clears only the error fact, never null (`IS_ERR(NULL)` is
+     false). Reusing the null analysis's narrowing for `IS_ERR` would mark `p`
+     non-null: that is the `isErrKeepsNull` hole. Only `!IS_ERR_OR_NULL` clears
+     both. A function that may also return NULL is `_Nullable _Err_or`.
+  2. `PTR_ERR(p)` needs a *must-be-error* fact, intersected at joins, not just
+     "may be error". `IS_ERR_OR_NULL(p)` being true does not grant it (on NULL,
+     `PTR_ERR` gives 0, "success": the `PTR_ERR_OR_ZERO` bug class).
+  3. The error fact must share the null analysis's alias map (`Aliases`, cleared
+     by `invalidateAliasesFor` and `forgetFactsAbout`), not a parallel one: a
+     copy narrowed after its source is reassigned is the `aliasDiesOnWrite` hole.
 
 ## 2. `container_of`: from a member back to its struct
 
