@@ -206,6 +206,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 is a shared borrow, but this parameter is '_Exclusive': the callee may "
      "free or replace what it owns while the owner still uses it; pass the "
      "owner, or declare %0 '_Owned' (if it owns the object) or '_Exclusive'"},
+    {"no-bounds-checks-needs-unsafe", false,
+     "%0 is '_No_bounds_checks', which compiles it without run-time bounds "
+     "checks; that is a promise only an audited function can make, so mark "
+     "it '__unsafe' too (and say in a comment why every access is in bounds)"},
     {"outparam-local-type", true,
      "the callee stores a pointer without bounds into %0, but a local "
      "pointer carries them by default; declare it as '%1;'"},

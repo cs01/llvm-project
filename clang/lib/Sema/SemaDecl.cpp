@@ -18738,6 +18738,16 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   if (getLangOpts().SafeC && FD && Body &&
       !SourceMgr.isInSystemHeader(FD->getLocation()))
     checkSafeCReturnsOwned(*this, FD, Body);
+  // _No_bounds_checks lifts run-time checks, so it is an unsafe promise:
+  // only on a function that is itself `__unsafe` (and listed as such).
+  if (getLangOpts().SafeC && FD &&
+      llvm::any_of(FD->specific_attrs<AnnotateAttr>(), [](const AnnotateAttr *A) {
+        return A->getAnnotation() == "safec_no_bounds_checks";
+      }) &&
+      !llvm::any_of(FD->specific_attrs<SuppressAttr>(), [](const SuppressAttr *A) {
+        return llvm::is_contained(A->diagnosticIdentifiers(), "safe-c");
+      }))
+    SafeCDiag(FD->getLocation(), "no-bounds-checks-needs-unsafe") << FD;
   if (getLangOpts().SafeC && FD && Body &&
       !SourceMgr.isInSystemHeader(FD->getLocation()))
     checkSafeCPointerKindsIn(*this, Body);

@@ -1764,11 +1764,25 @@ void CodeGenFunction::EmitFlexibleArrayCountCheck(
     EmitBlock(NullBB);
 }
 
+/// Safe C: an `__unsafe _No_bounds_checks` function is compiled without
+/// run-time bounds checks; its author has audited every access (Sema rejects
+/// the attribute on a function that is not `__unsafe`).
+static bool safeCNoBoundsChecks(const Decl *D) {
+  const auto *FD = dyn_cast_or_null<FunctionDecl>(D);
+  if (!FD)
+    return false;
+  return llvm::any_of(FD->specific_attrs<AnnotateAttr>(), [](const AnnotateAttr *A) {
+    return A->getAnnotation() == "safec_no_bounds_checks";
+  });
+}
+
 void CodeGenFunction::EmitBoundsSafetyTrapCheck(const Expr *Cond,
                                              BoundsSafetyTrapKind kind) {
   auto OptRemark = GetBoundsSafetyOptRemarkForTrap(kind);
   assert(BoundsSafetyOptRemarkScope::InScope(this, OptRemark));
   llvm::Value *CondVal = EvaluateExprAsBool(Cond);
+  if (safeCNoBoundsChecks(CurFuncDecl))
+    return; // evaluated for its bindings, not checked
 
   // The result of `EvaluateExprAsBool()` might be a phi instruction
   // which is not created via `Builder` which means BoundsSafetyOptRemarkScope
@@ -5419,6 +5433,8 @@ void CodeGenFunction::EmitTrapCheck(llvm::Value *Checked,
 void CodeGenFunction::EmitBoundsSafetyTrapCheck(
     llvm::Value *Checked, BoundsSafetyTrapKind kind,
     BoundsSafetyTrapCtx::Kind TrapCtx, TrapReason *TR) {
+  if (safeCNoBoundsChecks(CurFuncDecl))
+    return;
   auto OptRemark = GetBoundsSafetyOptRemarkForTrap(kind);
   assert(BoundsSafetyOptRemarkScope::InScope(this, OptRemark));
 

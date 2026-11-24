@@ -159,6 +159,16 @@ char *getenv(const char *__null_terminated);
 #define __unsafe
 #endif
 
+/* _No_bounds_checks on an `__unsafe` function: compiled without run-time
+   bounds checks, for an audited hot loop whose own tests already keep every
+   access in bounds (say which, in a comment). Use as a last resort for speed;
+   the compiler should remove such checks itself. */
+#if defined(__SAFE_C__)
+#define _No_bounds_checks __attribute__((annotate("safec_no_bounds_checks")))
+#else
+#define _No_bounds_checks
+#endif
+
 /* Nullability qualifiers are Clang keywords; other compilers do not have them. */
 /* Ownership at interfaces, read by Clang's lifetime analysis. _Takes(N):
    the function frees (or keeps) its Nth parameter, so the caller must not use

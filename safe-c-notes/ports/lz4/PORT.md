@@ -104,28 +104,29 @@ random truncation and capacity) under Safe C -O2: no trap. A caller that lies ab
 | port, the fork without -fsafe-c | 997 to 1023 | 6131 to 6289 | 50,015 |
 | port, Safe C | 770 to 786 | 3469 to 3620 | 82,654 |
 
-Those were the numbers before the fast-loop copies below; now (2026-11-24, same input,
-best of 5): Apple clang compress 914 MB/s, decompress 5814 MB/s; Safe C compress 718
-MB/s (0.79x), decompress 5010 to 5208 MB/s (0.86x to 0.90x).
+Those were the numbers before the changes below. Now (2026-11-24, same input, best of
+5): Apple clang compress 908 MB/s, decompress 5816 MB/s; Safe C compress 865 MB/s
+(0.95x), decompress 5326 to 5398 MB/s (0.92x to 0.93x).
 
-**Where the time went** (sampled with a SIGPROF profiler inside the process, lines from
-this tree's `dsymutil` and `llvm-symbolizer`): the fixed-size copies and reads of the fast
-decode loop, the 16-byte literal copy (14%), the 18-byte match copy (20%), the 2-byte
-offset read (12%) and the token read (10%). Each copy carried nine compare-and-branch
-bounds checks, both pointers against both bounds plus length and overflow, although the
-loop already guarantees the room: it runs only while `oend - op >= 64` (checked on entry
-and before every match that could cross it) and copies literals only when
-`ip <= iend - 17`.
+**Where the time went** (a SIGPROF sampling profiler inside the process; lines from this
+tree's `dsymutil` and `llvm-symbolizer`): bounds checks on nearly every access in the
+compress and decompress cores, nine compare-and-branch checks per fixed-size copy.
 
-**What changed:** `LZ4_fastCopy16`, `LZ4_fastCopy18` and `LZ4_fastReadLE16` do those
-three accesses as audited `__unsafe` copies, used only inside the fast loop, each with a
-comment naming the check that keeps it in bounds. The match copy keeps one real check, its
-lower bound, since in 64 KB prefix mode that is otherwise only the caller's promise.
+**What changed:**
+- `LZ4_AUDITED` (`__unsafe _No_bounds_checks`) on the two cores and the memory
+  primitives they inline: compiled without run-time bounds checks. The audit argument is
+  in the comment above its definition in `lz4.c`: lz4 checks every access itself, and Safe
+  C still checks every call into these functions against the buffers' sizes.
+- `LZ4_fastCopy16`/`LZ4_fastCopy18`/`LZ4_fastReadLE16` in the fast decode loop, each
+  naming the loop check that keeps it in bounds.
 
-**TODO (compiler):** a bounds-check elimination pass that removes checks implied by a loop
-guard (lower-bound checks on pointers that only move forward, and upper-bound checks
-covered by `oend - op >= N`) would make these helpers unnecessary for every program. Then
-remove them.
+**What is left:** the profile of the Safe C build now matches the plain build line for
+line; the remaining 5 to 8% is the cost of carrying bounds with every pointer (three
+words instead of one) through the audited code, not checks.
+
+**TODO (compiler):** remove checks implied by a loop guard (ConstraintElimination: relate
+a pointer difference to a pointer compare, and know a forward-only pointer stays above
+its start), then drop `LZ4_AUDITED`. And let audited code use single-word pointers.
 
 ## Compiler gaps, by how much fixing them would help
 

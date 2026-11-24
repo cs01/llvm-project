@@ -378,27 +378,49 @@ static unsigned LZ4_isLittleEndian(void)
  * of `void*`: a byte view of `void*` is rejected (bytes written through it could forge
  * a pointer), and a plain (single) pointer allows no arithmetic. The helpers are
  * always inlined, so the wide pointers cost no calling convention. */
-static U16 LZ4_read16(const BYTE* __bidi_indexable memPtr)
+/* LZ4_AUDITED (Safe C): the compressor and decompressor cores and the memory
+ * primitives they inline are compiled without run-time bounds checks, to run
+ * within 1% of plain C. This is an audited promise, not a proof:
+ *  - lz4 checks every access itself, against ilimit/iend/matchlimit for input,
+ *    oend/olimit for output, and hash-table indices by construction (a hash is
+ *    shifted down to the table's bit width). LZ4_decompress_safe is meant to be
+ *    safe for any input and is fuzzed continuously upstream (OSS-Fuzz).
+ *  - Safe C still checks everything at the API boundary: the buffers passed in
+ *    carry their sizes (__counted_by), and every call into these functions is
+ *    checked against them.
+ *  - The compressor's unlimited-output mode trusts that dst holds
+ *    LZ4_compressBound(srcSize); LZ4_compress_generic_validated checks that
+ *    on entry (see below) and otherwise takes the limited-output path.
+ * TODO(safe-c): remove once the compiler eliminates checks a loop guard
+ * implies (ConstraintElimination: pointer differences vs pointer compares,
+ * forward-only pointers); see PORT.md, "Speed". */
+#if defined(__SAFE_C__)
+#define LZ4_AUDITED __unsafe _No_bounds_checks
+#else
+#define LZ4_AUDITED
+#endif
+
+LZ4_AUDITED static U16 LZ4_read16(const BYTE* __bidi_indexable memPtr)
 {
     U16 val; LZ4_memcpy(&val, memPtr, sizeof(val)); return val;
 }
 
-static U32 LZ4_read32(const BYTE* __bidi_indexable memPtr)
+LZ4_AUDITED static U32 LZ4_read32(const BYTE* __bidi_indexable memPtr)
 {
     U32 val; LZ4_memcpy(&val, memPtr, sizeof(val)); return val;
 }
 
-static reg_t LZ4_read_ARCH(const BYTE* __bidi_indexable memPtr)
+LZ4_AUDITED static reg_t LZ4_read_ARCH(const BYTE* __bidi_indexable memPtr)
 {
     reg_t val; LZ4_memcpy(&val, memPtr, sizeof(val)); return val;
 }
 
-static void LZ4_write16(BYTE* __bidi_indexable memPtr, U16 value)
+LZ4_AUDITED static void LZ4_write16(BYTE* __bidi_indexable memPtr, U16 value)
 {
     LZ4_memcpy(memPtr, &value, sizeof(value));
 }
 
-static void LZ4_write32(BYTE* __bidi_indexable memPtr, U32 value)
+LZ4_AUDITED static void LZ4_write32(BYTE* __bidi_indexable memPtr, U32 value)
 {
     LZ4_memcpy(memPtr, &value, sizeof(value));
 }
@@ -465,14 +487,14 @@ LZ4_FORCE_INLINE void LZ4_wildCopyRun(BYTE* __bidi_indexable d, const BYTE* __bi
 }
 
 /* customized variant of memcpy, which can overwrite up to 8 bytes beyond dstEnd */
-LZ4_FORCE_INLINE
+LZ4_AUDITED LZ4_FORCE_INLINE
 void LZ4_wildCopy8(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPtr, BYTE* __bidi_indexable dstEnd)
 {
     BYTE* d = dstPtr;
     const BYTE* s = srcPtr;
     BYTE* const e = dstEnd;
 
-    LZ4_wildCopyRun(d, s, e, 8, 8);
+    do { LZ4_memcpy(d,s,8); d+=8; s+=8; } while (d<e);
 }
 
 static const unsigned inc32table[8] = {0, 1, 2,  1,  0,  4, 4, 4};
@@ -536,40 +558,40 @@ LZ4_memcpy_using_offset_base(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_i
 
 #if LZ4_WILDCOPY64
 /* customized variant of memcpy, which can overwrite up to 64 bytes beyond dstEnd */
-LZ4_FORCE_INLINE void
+LZ4_AUDITED LZ4_FORCE_INLINE void
 LZ4_wildCopy64(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPtr, BYTE* __bidi_indexable dstEnd)
 {
     BYTE* d = dstPtr;
     const BYTE* s = srcPtr;
     BYTE* const e = dstEnd;
 
-    LZ4_wildCopyRun(d, s, e, 64, 64);
+    do { LZ4_memcpy(d,s,64); d+=64; s+=64; } while (d<e);
 }
 #endif
 
 /* customized variant of memcpy, which can overwrite up to 32 bytes beyond dstEnd
  * this version copies two times 16 bytes (instead of one time 32 bytes)
  * because it must be compatible with offsets >= 16. */
-LZ4_FORCE_INLINE void
+LZ4_AUDITED LZ4_FORCE_INLINE void
 LZ4_wildCopy32(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPtr, BYTE* __bidi_indexable dstEnd)
 {
     BYTE* d = dstPtr;
     const BYTE* s = srcPtr;
     BYTE* const e = dstEnd;
 
-    LZ4_wildCopyRun(d, s, e, 16, 32);
+    do { LZ4_memcpy(d,s,16); LZ4_memcpy(d+16,s+16,16); d+=32; s+=32; } while (d<e);
 }
 
 /* customized variant of memcpy, which can overwrite up to 16 bytes beyond dstEnd,
  * for non-overlapping buffers */
-LZ4_FORCE_INLINE void
+LZ4_AUDITED LZ4_FORCE_INLINE void
 LZ4_wildCopy16(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPtr, BYTE* __bidi_indexable dstEnd)
 {
     BYTE* d = dstPtr;
     const BYTE* s = srcPtr;
     BYTE* const e = dstEnd;
 
-    LZ4_wildCopyRun(d, s, e, 16, 16);
+    do { LZ4_memcpy(d,s,16); d+=16; s+=16; } while (d<e);
 }
 
 /* Fast-loop copies without per-copy bounds checks (Safe C).
@@ -620,7 +642,7 @@ LZ4_FORCE_INLINE U16 LZ4_fastReadLE16(const BYTE* __bidi_indexable ip)
 /* LZ4_memcpy_using_offset()  presumes :
  * - dstEnd >= dstPtr + MINMATCH
  * - there is at least 12 bytes available to write after dstEnd */
-LZ4_FORCE_INLINE void
+LZ4_AUDITED LZ4_FORCE_INLINE void
 LZ4_memcpy_using_offset(BYTE* __bidi_indexable dstPtr, const BYTE* __bidi_indexable srcPtr, BYTE* __bidi_indexable dstEnd, const size_t offset)
 {
     BYTE v[8];
@@ -765,7 +787,7 @@ static unsigned LZ4_NbCommonBytes (reg_t val)
 
 
 #define STEPSIZE sizeof(reg_t)
-LZ4_FORCE_INLINE
+LZ4_AUDITED LZ4_FORCE_INLINE
 unsigned LZ4_count(const BYTE* __bidi_indexable pIn, const BYTE* __bidi_indexable pMatch, const BYTE* __bidi_indexable pInLimit)
 {
     const BYTE* const pStart = pIn;
@@ -899,7 +921,7 @@ LZ4_FORCE_INLINE U32 LZ4_hashPosition(const BYTE* __bidi_indexable const p, tabl
 /* Safe C port: the tables are the U32 array of LZ4_stream_t_internal (byU16 views it as
  * U16), so they take that array instead of `void*`. byPtr mode (32-bit targets only:
  * the table held pointers) is removed; 32-bit targets use byU32. */
-LZ4_FORCE_INLINE void LZ4_clearHash(U32 h, U32* __bidi_indexable tableBase, tableType_t const tableType)
+LZ4_AUDITED LZ4_FORCE_INLINE void LZ4_clearHash(U32 h, U32* __bidi_indexable tableBase, tableType_t const tableType)
 {
     switch (tableType)
     {
@@ -911,7 +933,7 @@ LZ4_FORCE_INLINE void LZ4_clearHash(U32 h, U32* __bidi_indexable tableBase, tabl
     }
 }
 
-LZ4_FORCE_INLINE void LZ4_putIndexOnHash(U32 idx, U32 h, U32* __bidi_indexable tableBase, tableType_t const tableType)
+LZ4_AUDITED LZ4_FORCE_INLINE void LZ4_putIndexOnHash(U32 idx, U32 h, U32* __bidi_indexable tableBase, tableType_t const tableType)
 {
     switch (tableType)
     {
@@ -937,7 +959,7 @@ LZ4_FORCE_INLINE void LZ4_putPosition(const BYTE* __bidi_indexable p, U32* __bid
  * Assumption 1 : only valid if tableType == byU32 or byU16.
  * Assumption 2 : h is presumed valid (within limits of hash table)
  */
-LZ4_FORCE_INLINE U32 LZ4_getIndexOnHash(U32 h, const U32* __bidi_indexable tableBase, tableType_t tableType)
+LZ4_AUDITED LZ4_FORCE_INLINE U32 LZ4_getIndexOnHash(U32 h, const U32* __bidi_indexable tableBase, tableType_t tableType)
 {
     LZ4_STATIC_ASSERT(LZ4_MEMORY_USAGE > 2);
     if (tableType == byU32) {
@@ -1025,7 +1047,7 @@ typedef struct {
  *  and `dictCtx` (usingDictCtx; else any stream, unused). In withPrefix64k mode the
  *  lower bound of `source` covers the dictSize bytes before it.
  */
-LZ4_FORCE_INLINE int LZ4_compress_generic_validated(
+LZ4_AUDITED LZ4_FORCE_INLINE int LZ4_compress_generic_validated(
                  LZ4_stream_t_internal* const cctx,
                  const char* __bidi_indexable const source,
                  char* __bidi_indexable const dest,
@@ -2150,7 +2172,7 @@ LZ4_copyExtDictMatch(BYTE* __bidi_indexable op _Lifetimebound, const BYTE* __bid
  *  Note that it is important for performance that this function really get inlined,
  *  in order to remove useless branches during compilation optimization.
  */
-LZ4_FORCE_INLINE int
+LZ4_AUDITED LZ4_FORCE_INLINE int
 LZ4_decompress_generic(
                  const char* __bidi_indexable const src,
                  char* __bidi_indexable const dst,
