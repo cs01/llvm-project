@@ -10,17 +10,17 @@
 
 typedef __SIZE_TYPE__ size_t;
 void free(void *_Nullable);
-struct node { int v; struct node *__safec_owned _Nullable next; };
-struct list { struct node *__safec_owned _Nullable head; int n; };
+struct node { int v; struct node *_Owned _Nullable next; };
+struct list { struct node *_Owned _Nullable head; int n; };
 
-void clear(struct list *__safec_excl l) { free(__safec_take(l->head)); }
-void move_head(struct list *__safec_excl dst, struct list *__safec_excl src) {
-  dst->head = __safec_take(src->head);
+void clear(struct list *_Excl l) { free(_Take(l->head)); }
+void move_head(struct list *_Excl dst, struct list *_Excl src) {
+  dst->head = _Take(src->head);
 }
-int peek(struct list *__safec_excl l, const struct node *_Nullable n);
-void drop(struct list *__safec_owned _Nullable l);
+int peek(struct list *_Excl l, const struct node *_Nullable n);
+void drop(struct list *_Owned _Nullable l);
 
-void calls(struct list *__safec_excl a, struct list *__safec_excl b, struct list *other) {
+void calls(struct list *_Excl a, struct list *_Excl b, struct list *other) {
   move_head(a, b);
   move_head(a, a); // expected-error {{'a' is lent exclusively to this call, so no other argument may reach it (the callee could free or replace what that argument points to); pass it once, or finish with the other use before the call}} expected-error {{'a' is lent exclusively}}
   (void)peek(a, a->head); // expected-error {{'a' is lent exclusively to this call}}
@@ -28,12 +28,12 @@ void calls(struct list *__safec_excl a, struct list *__safec_excl b, struct list
   (void)other;
 }
 
-void reassign(struct list *__safec_excl l, struct list *__safec_excl m) {
+void reassign(struct list *_Excl l, struct list *_Excl m) {
   l = m; // expected-error {{'l' is an exclusive borrow of the caller's object, which the caller still owns after the call; assigning a new pointer to it would leave the caller with the wrong object; use a local variable instead}}
 }
-void give_away(struct list *__safec_excl m) {
+void give_away(struct list *_Excl m) {
   drop(m); // expected-error {{'m' is an exclusive borrow of the caller's object, which the caller still owns after the call; giving it away would leave the caller with the wrong object}}
 }
-void free_excl(struct list *__safec_excl l) {
+void free_excl(struct list *_Excl l) {
   free(l); // expected-error {{'l' is an exclusive borrow}}
 }

@@ -71,6 +71,6 @@ free(p);   // note: freed here
 *p = 1;    // note: later used here
 ```
 
-This works for local variables and through calls annotated `__safec_owned` or
+This works for local variables and through calls annotated `_Owned` or
 `__safec_takes`. Through struct fields, arrays and globals it is not caught yet (see the
 status table).

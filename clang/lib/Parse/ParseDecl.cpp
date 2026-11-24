@@ -6596,8 +6596,8 @@ void Parser::ParseTypeQualifierListOpt(
     SourceLocation Loc = Tok.getLocation();
 
     // Safe C: a pointer kind ([[clang::annotate_type]], from safec.h) may
-    // follow other qualifiers, so `T *_Nullable __safec_owned` and
-    // `T *__safec_owned _Nullable` both work.
+    // follow other qualifiers, so `T *_Nullable _Owned` and
+    // `T *_Owned _Nullable` both work.
     if (getLangOpts().SafeC && (AttrReqs & AR_CXX11AttributesParsed) &&
         isAllowedCXX11AttributeSpecifier()) {
       ParsedAttributes Attrs(AttrFactory);

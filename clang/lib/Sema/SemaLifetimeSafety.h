@@ -522,7 +522,7 @@ public:
       S.SafeCDiag(InsertionPoint, "return-needs-lifetimebound")
           << Fn << ParmToAnnotate << ParmToAnnotate->getSourceRange()
           << FixItHint::CreateInsertion(InsertionPoint,
-                                        " __safec_lifetimebound");
+                                        " _Lifetimebound");
     else
       S.Diag(InsertionPoint, DiagID)
           << ParmToAnnotate->getSourceRange()

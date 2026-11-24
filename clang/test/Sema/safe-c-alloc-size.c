@@ -31,7 +31,7 @@ __attribute__((alloc_size(1))) void *_Nullable lies(size_t n) {
   return pool; // expected-error {{'lies' is marked 'alloc_size', so callers give its result a type as fresh memory, but this returns something else}}
 }
 
-__safec_returns_owned struct node *_Nullable make(void) {
+_Returns_owned struct node *_Nullable make(void) {
   struct node *_Nullable n = wraps(sizeof(struct node));
   return n;
 }

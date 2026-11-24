@@ -10,10 +10,10 @@ typedef __SIZE_TYPE__ size_t;
 void free(void *_Nullable);
 void *_Nullable realloc(void *_Nullable, size_t) __attribute__((alloc_size(2)));
 struct node { int v; };
-__safec_returns_owned struct node *_Nullable malloc_node(void);
+_Returns_owned struct node *_Nullable malloc_node(void);
 
 void node_free(struct node *_Nullable n) {
-  free(n); // expected-error {{'node_free' frees its parameter 'n', but callers are not told and may use it afterwards; mark the parameter '__safec_owned'}}
+  free(n); // expected-error {{'node_free' frees its parameter 'n', but callers are not told and may use it afterwards; mark the parameter '_Owned'}}
 }
 
 __safec_takes(1) void node_free_ok(struct node *_Nullable n) { free(n); }
@@ -30,12 +30,12 @@ __safec_takes(2) void wrapper_ok(struct node *_Nullable a,
 }
 
 // Bounds safety wraps an allocator's result; the call inside is still seen.
-__safec_returns_owned void *_Nullable grow(void *_Nullable p, size_t n) {
+_Returns_owned void *_Nullable grow(void *_Nullable p, size_t n) {
   return realloc(p, n); // expected-error {{'grow' frees its parameter 'p'}}
 }
 
 // The parameter form: no index to keep in sync.
-void node_free_param(struct node *_Nullable __safec_owned n) { free(n); }
+void node_free_param(struct node *_Nullable _Owned n) { free(n); }
 int use_after_param_free(void) {
   struct node *_Nullable n = malloc_node(); // expected-error {{does not live long enough}}
   node_free_param(n);                       // expected-note {{freed here}}

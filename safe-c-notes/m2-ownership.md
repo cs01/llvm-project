@@ -12,15 +12,15 @@ compilers.
 
 | Kind | Spelling | Meaning | Rust analogue |
 |---|---|---|---|
-| owned | `T *__safec_owned` | the one pointer responsible for freeing; copying it moves it | `Box<T>` |
+| owned | `T *_Owned` | the one pointer responsible for freeing; copying it moves it | `Box<T>` |
 | borrow | plain `T *` | uses memory someone else owns, for a bounded time | `&T` / `&mut T` |
-| exclusive borrow | `T *__safec_excl` | a borrow through which ownership may change (free, realloc, owned-field writes) | `&mut T` |
-| unchecked | `T *__safec_unchecked` | may be stored anywhere; dereferencing it needs `__unsafe` | `*const T` |
+| exclusive borrow | `T *_Excl` | a borrow through which ownership may change (free, realloc, owned-field writes) | `&mut T` |
+| unchecked | `T *_Unchecked` | may be stored anywhere; dereferencing it needs `__unsafe` | `*const T` |
 
 **Kinds are types** (decided by claude, 2026-11-23): `[[clang::annotate_type("safec_owned")]]`
 through `safec.h`, written right after the `*` it describes, so an inner pointer can have
-one: `char *__safec_owned *__safec_owned items` is a vector of owned strings. A fifth kind,
-`__safec_static` (Rust `&'static`), holds only string literals, globals and functions, so
+one: `char *_Owned *_Owned items` is a vector of owned strings. A fifth kind,
+`_Static` (Rust `&'static`), holds only string literals, globals and functions, so
 string tables need no `__unsafe`. Heap memory may hold only kinded pointers.
 
 ## Where each kind may live
@@ -30,7 +30,7 @@ string tables need no `__unsafe`. Heap memory may hold only kinded pointers.
   anywhere that outlives the call, or return them unless `lifetimebound`. An owned
   parameter takes ownership (`ownership_takes` is implied).
 - **Struct fields and globals:** owned or unchecked pointers only. A plain pointer field
-  is an error, except in a struct marked `__safec_view`. A view holds borrows, lives only
+  is an error, except in a struct marked `_View`. A view holds borrows, lives only
   in locals and parameters, and is never stored in the heap or a global.
 - **Returns:** owned (`ownership_returns`), or a borrow with a `lifetimebound` parameter.
 
@@ -74,7 +74,7 @@ above and is the implementation spec.
 1. **Type layer (Sema, per expression, cheap):** where each kind may be stored; moves;
    which operations need an owner or an exclusive borrow; `noescape` by default; plain
    pointer fields outside views. Errors say what to write (make the field
-   `__safec_owned`, mark the struct `__safec_view`, or use `__safec_unchecked` and
+   `_Owned`, mark the struct `_View`, or use `_Unchecked` and
    `__unsafe` at the dereference).
 2. **Flow layer (Clang's lifetime analysis):** loans from owned locals and owned field
    paths, ended by moves, frees, reallocs and owned-field writes; a use of a dead loan is

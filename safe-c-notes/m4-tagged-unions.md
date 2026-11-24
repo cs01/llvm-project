@@ -10,21 +10,21 @@ member is live.
 ```c
 struct shape {
   enum shape_kind kind;
-  union __safec_tagged_by(kind) {
-    struct circle c __safec_when(CIRCLE);
-    struct rect   r __safec_when(RECT);
+  union _Tagged_by(kind) {
+    struct circle c _When(CIRCLE);
+    struct rect   r _When(RECT);
   };
 };
 ```
 
-- `__safec_tagged_by(f)`: on a union that is a member (named or anonymous) of a
+- `_Tagged_by(f)`: on a union that is a member (named or anonymous) of a
   struct; `f` is a sibling field of enum or integer type.
-- `__safec_when(V, ...)`: on each union member; the tag values for which it is live.
-  A value may name at most one member. Members without `__safec_when` are errors.
-- Both are decl attributes (annotate), like `__safec_view`: a union member is never
+- `_When(V, ...)`: on each union member; the tag values for which it is live.
+  A value may name at most one member. Members without `_When` are errors.
+- Both are decl attributes (annotate), like `_View`: a union member is never
   an inner pointer, so no type attribute is needed.
 
-`Result` is the two-member case with a `bool ok` tag (`__safec_when(true)` and
+`Result` is the two-member case with a `bool ok` tag (`_When(true)` and
 `(false)`), declared by `SAFEC_RESULT(name, T, E)`.
 
 ## Rules
@@ -42,7 +42,7 @@ struct shape {
    ownership operations (M2): changing the tag of a union whose live member owns
    memory must take it first, or it leaks / dangles.
 4. **Exhaustive switch.** A `switch` on a tag field must cover every enumerator that
-   some member is `__safec_when` for, or have `default`. Built on `-Wswitch` (made an
+   some member is `_When` for, or have `default`. Built on `-Wswitch` (made an
    unsilenceable error for tag switches only, so plain enum switches keep C rules).
 5. **No punning.** Taking the address of a member (`&s.c`) gives a borrow that is
    ended by any tag write (M2 flow layer: the tag field is the loan root).
@@ -62,7 +62,7 @@ struct shape {
 
 ## Open questions (decided by claude unless the user objects)
 
-- Integer tags with `#define` values are allowed (`__safec_when` takes constant
+- Integer tags with `#define` values are allowed (`_When` takes constant
   expressions), so existing C compiles after annotation without introducing enums.
 - No run-time trap fallback for unprovable reads: an error with "check `kind` first"
   is the pit of success, and it keeps the rule static like Rust's `match`.

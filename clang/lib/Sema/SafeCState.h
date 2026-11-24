@@ -45,12 +45,12 @@ bool checkSafeCTakeBuiltin(Sema &S, CallExpr *TheCall);
 bool safeCOwnershipEnabled(const Sema &S);
 
 /// Rule 10: a struct field or global holds no borrow. Its pointers are
-/// __safec_owned, __safec_static or __safec_unchecked, unless the struct is a
-/// __safec_view (which lives only in locals and parameters).
+/// _Owned, _Static or _Unchecked, unless the struct is a
+/// _View (which lives only in locals and parameters).
 void checkSafeCPointerStorage(Sema &S, Decl *D);
 
-/// Rules 11 and 12 and the static kind, per expression: a __safec_static
-/// holds only static addresses, an __safec_unchecked is read only in
+/// Rules 11 and 12 and the static kind, per expression: a _Static
+/// holds only static addresses, an _Unchecked is read only in
 /// __unsafe (or copied to another unchecked), a view is written only by name.
 /// Run on a function body or a global's initializer.
 void checkSafeCPointerKindsIn(Sema &S, Stmt *Body);

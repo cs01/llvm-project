@@ -13470,11 +13470,6 @@ def warn_safe_c_stack_escape : Warning<
   "outlive %0; return the value instead, or allocate the object with malloc "
   "and store the pointer to that">,
   InGroup<SafeCOwnership>, DefaultError;
-def warn_safe_c_frees_param : Warning<
-  "%0 frees its parameter %1, but callers are not told and may use it "
-  "afterwards; mark the parameter '__safec_owned' (or declare the function "
-  "'__attribute__((ownership_takes(malloc, %2)))')">,
-  InGroup<SafeCOwnership>, DefaultError;
 def warn_safe_c_pure_body : Warning<
   "%select{'pure'|'const'}0 function %1 %select{writes memory other than its "
   "own local variables|calls %3, which is not marked 'pure' or 'const'|calls "

@@ -16,7 +16,7 @@ struct json *_Nullable parse_untold(void) {
   return calloc(1, sizeof(struct json)); // expected-error {{'parse_untold' returns memory it allocated, but callers are not told}}
 }
 
-__safec_returns_owned struct json *_Nullable parse(void) {
+_Returns_owned struct json *_Nullable parse(void) {
   struct json *_Nullable j = calloc(1, sizeof(struct json));
   return j;
 }

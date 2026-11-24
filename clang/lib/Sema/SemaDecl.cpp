@@ -11928,7 +11928,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   // Safe C: `int main(int argc, char *argv[])` (or `char **argv`) means argv
   // has argc elements; say so in the type, so the most common main signature
   // compiles and argv[i] is bounds-checked against argc.
-  // Safe C: __safec_owned on a parameter means the function takes ownership of
+  // Safe C: _Owned on a parameter means the function takes ownership of
   // it. Express that as ownership_takes at the parameter's own index, which
   // the lifetime analysis and the body checks already understand, so the
   // annotation never names a parameter by a number that can drift.
@@ -18098,8 +18098,7 @@ static void checkSafeCFreedParams(Sema &S, const FunctionDecl *FD,
               safeCPointerKind(PVD->getType()) == "excl" ||
               !Reported.insert(PVD).second)
             continue;
-          S.Diag(DRE->getLocation(), diag::warn_safe_c_frees_param)
-              << FD << PVD << (PVD->getFunctionScopeIndex() + 1);
+          S.SafeCDiag(DRE->getLocation(), "frees-param") << FD << PVD;
         }
     // Storing a freeing function into a function pointer.
     if (const auto *BO = dyn_cast<BinaryOperator>(St);

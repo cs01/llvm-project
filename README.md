@@ -18,11 +18,11 @@ A fork of Clang with one flag, `-fsafe-c`:
 int sum(const int *__counted_by(n) v,
         size_t n);
 
-__safec_returns_owned
+_Returns_owned
 struct json *parse(const char *text);
 
 void json_delete(
-    struct json *__safec_owned j);
+    struct json *_Owned j);
 
 int x[3];
 // error: passing array 'x' (which has

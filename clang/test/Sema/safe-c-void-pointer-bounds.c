@@ -8,7 +8,7 @@
 typedef __SIZE_TYPE__ size_t;
 void *__sized_by_or_null(n) realloc(void *_Nullable p, size_t n);
 
-__safec_takes(1) __safec_returns_owned int *_Nullable grow(int *_Nullable old, size_t n) {
+__safec_takes(1) _Returns_owned int *_Nullable grow(int *_Nullable old, size_t n) {
   int *_Nullable p = realloc(old, n * sizeof(int));
   return p;
 }

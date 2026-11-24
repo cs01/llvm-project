@@ -11,7 +11,7 @@
 typedef __SIZE_TYPE__ size_t;
 void free(void *_Nullable);
 struct node { int v; };
-struct node *__safec_owned _Nullable cur;
+struct node *_Owned _Nullable cur;
 
 void reset(void);
 __attribute__((pure)) int score(const struct node *n);
@@ -37,4 +37,4 @@ int passed_to_impure(void) {
   return show(r); // expected-note {{the borrow ends here}} expected-note {{later used here}}
 }
 
-void take_global(void) { free(__safec_take(cur)); }
+void take_global(void) { free(_Take(cur)); }
