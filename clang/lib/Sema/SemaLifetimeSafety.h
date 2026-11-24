@@ -265,7 +265,11 @@ public:
       return;
     // Safe C (M2): a borrow read out of an owned field, ended by taking,
     // replacing or lending the place it came from.
-    if (S.getLangOpts().SafeC && !isa<DeclRefExpr>(IssueExpr->IgnoreParens()) &&
+    const auto *IssueDRE = dyn_cast<DeclRefExpr>(IssueExpr->IgnoreParens());
+    const auto *IssueVar =
+        IssueDRE ? dyn_cast<VarDecl>(IssueDRE->getDecl()) : nullptr;
+    if (S.getLangOpts().SafeC &&
+        (!IssueDRE || (IssueVar && IssueVar->hasGlobalStorage())) &&
         lifetimes::safeCPointerKind(IssueExpr->getType()) == "owned") {
       S.SafeCDiag(IssueExpr->getExprLoc(), "field-borrow-ended")
           << Lexer::getSourceText(

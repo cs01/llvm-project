@@ -135,6 +135,34 @@ static const Loan *createNewAllocLoan(FactManager &FactMgr,
 // operation through that variable (a take, an owned-field store, or lending it
 // to an exclusive parameter) ends every such borrow. The loan's path is the
 // root's interior, so the root itself stays usable.
+/// The variable a place is reached from, globals included.
+static const VarDecl *safeCRootOrGlobal(const Expr *E) {
+  if (const VarDecl *VD = safeCRootVar(E))
+    return VD;
+  while (true) {
+    E = E->IgnoreParenImpCasts();
+    if (const auto *ME = dyn_cast<MemberExpr>(E))
+      E = ME->getBase();
+    else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
+      E = ASE->getBase();
+    else if (const auto *UO = dyn_cast<UnaryOperator>(E);
+             UO && (UO->getOpcode() == UO_Deref || UO->getOpcode() == UO_AddrOf))
+      E = UO->getSubExpr();
+    else
+      break;
+  }
+  const auto *DRE = dyn_cast<DeclRefExpr>(E);
+  const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+  return VD && VD->hasGlobalStorage() ? VD : nullptr;
+}
+
+/// Safe C rule 14: all globals act as one struct G, lent to every call that
+/// may touch globals. The function's own declaration stands for G's root, so
+/// these loans never meet a scope end.
+static AccessPath safeCGlobalsInterior(const Decl *Fn) {
+  return AccessPath(AccessPath(cast<ValueDecl>(Fn)), PathElement::getInterior());
+}
+
 static AccessPath safeCRootInterior(LoanManager &LM, const VarDecl &VD) {
   if (const auto *PVD = dyn_cast<ParmVarDecl>(&VD))
     return AccessPath(AccessPath(LM.getOrCreatePlaceholderBase(PVD)),
@@ -328,6 +356,28 @@ void FactsGenerator::VisitMemberExpr(const MemberExpr *ME) {
 }
 
 void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
+  if (safeCOwnershipOn(AC.getASTContext())) {
+    // Rule 14: a call that may touch globals ends every borrow rooted at them,
+    // including ones passed to it, which it could free (so its arguments are
+    // used again after the expiry).
+    const FunctionDecl *Callee = CE->getDirectCallee();
+    // Library builtins touch no user globals, unless they call back into
+    // user code (qsort's comparator).
+    bool Pure = Callee && (Callee->hasAttr<PureAttr>() ||
+                           Callee->hasAttr<ConstAttr>() ||
+                           (CE->getBuiltinCallee() &&
+                            llvm::none_of(CE->arguments(), [](const Expr *A) {
+                              return A->getType()->isFunctionPointerType();
+                            })));
+    if (!Pure && isa<FunctionDecl>(AC.getDecl())) {
+      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
+          safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));
+      for (const Expr *Arg : CE->arguments())
+        if (Arg->getType()->isPointerType())
+          if (OriginList *L = getOriginsList(*Arg))
+            CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(*Arg, L));
+    }
+  }
   handleFunctionCall(CE);
   if (!safeCOwnershipOn(AC.getASTContext()))
     return;
@@ -339,8 +389,13 @@ void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
   if (CE->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
       CE->getNumArgs() == 1) {
     EndBorrowsThrough(CE->getArg(0));
+    if (const VarDecl *Root = safeCRootOrGlobal(CE->getArg(0));
+        Root && Root->hasGlobalStorage() && isa<FunctionDecl>(AC.getDecl()))
+      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
+          safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));
     return;
   }
+
   // An argument lent to an exclusive parameter may have its owned fields
   // taken or replaced by the callee.
   if (const FunctionDecl *FD = CE->getDirectCallee())
@@ -370,13 +425,20 @@ void FactsGenerator::VisitCastExpr(const CastExpr *CE) {
     // points to), not the outer origin (the pointer's storage location).
     flow(Dest, readValue(SubExpr), /*Kill=*/true);
     if (Dest && safeCOwnershipOn(AC.getASTContext()) &&
-        !isa<DeclRefExpr>(SubExpr->IgnoreParens()) &&
         safeCPointerKind(SubExpr->getType()) == "owned")
-      if (const VarDecl *Root = safeCRootVar(SubExpr)) {
-        const Loan *L = FactMgr.getLoanMgr().createLoan(
-            safeCRootInterior(FactMgr.getLoanMgr(), *Root), SubExpr);
-        CurrentBlockFacts.push_back(
-            FactMgr.createFact<IssueFact>(L->getID(), Dest->getOuterOriginID()));
+      if (const VarDecl *Root = safeCRootOrGlobal(SubExpr)) {
+        bool Global = Root->hasGlobalStorage();
+        // Reading an owned local by name moves or copies it; only places
+        // reached through something, and owned globals, are borrows.
+        if (Global ? isa<FunctionDecl>(AC.getDecl())
+                   : !isa<DeclRefExpr>(SubExpr->IgnoreParens())) {
+          const Loan *L = FactMgr.getLoanMgr().createLoan(
+              Global ? safeCGlobalsInterior(AC.getDecl())
+                     : safeCRootInterior(FactMgr.getLoanMgr(), *Root),
+              SubExpr);
+          CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
+              L->getID(), Dest->getOuterOriginID()));
+        }
       }
     return;
   case CK_NullToPointer:
