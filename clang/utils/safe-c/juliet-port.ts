@@ -47,7 +47,7 @@ function port(text: string): string {
     (_m, pre, ty, post) => { stats.slices = (stats.slices ?? 0) + 1; return `${pre}${ty} *__bidi_indexable data${post}`; });
   text = text.replace(/\(\*funcPtr\) \(((?:const\s+)?[A-Za-z_]\w*) \*\)/g, "(*funcPtr) ($1 *__bidi_indexable)");
   // (b) strcpy/strcat/wcscpy/wcscat: checked copies that trap (juliet_port.h).
-  if (/\b(strcpy|strcat|wcscpy|wcscat|strncat|wcsncat)\s*\(/.test(text)) {
+  if (/\b(strcpy|strcat|wcscpy|wcscat|strncat|wcsncat|strncpy|wcsncpy)\s*\(/.test(text)) {
     stats.strfns++;
     text = text.replace(/#include "std_testcase.h"\n/, '#include "std_testcase.h"\n#include "juliet_port.h"\n');
   }

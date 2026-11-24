@@ -66,7 +66,30 @@ static inline wchar_t *juliet_wcsncat(wchar_t *_Nonnull __bidi_indexable d,
   d[e + i] = 0;
   return d;
 }
+static inline char *juliet_strncpy(char *_Nonnull __bidi_indexable d,
+                                   const char *_Nonnull __bidi_indexable s,
+                                   size_t n) {
+  /* Exactly n bytes, zero-padded past the end of s, as C's strncpy. */
+  size_t i = 0;
+  for (; i < n && s[i]; i++)
+    d[i] = s[i];
+  for (; i < n; i++)
+    d[i] = 0;
+  return d;
+}
+static inline wchar_t *juliet_wcsncpy(wchar_t *_Nonnull __bidi_indexable d,
+                                      const wchar_t *_Nonnull __bidi_indexable s,
+                                      size_t n) {
+  size_t i = 0;
+  for (; i < n && s[i]; i++)
+    d[i] = s[i];
+  for (; i < n; i++)
+    d[i] = 0;
+  return d;
+}
 #define strcpy(d, s) juliet_strcpy((d), (s))
+#define strncpy(d, s, n) juliet_strncpy((d), (s), (n))
+#define wcsncpy(d, s, n) juliet_wcsncpy((d), (s), (n))
 #define strncat(d, s, n) juliet_strncat((d), (s), (n))
 #define wcsncat(d, s, n) juliet_wcsncat((d), (s), (n))
 #define strcat(d, s) juliet_strcat((d), (s))
