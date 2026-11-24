@@ -4031,9 +4031,11 @@ static bool samePointerLoose(ASTContext &Ctx, QualType S, QualType D,
   // A parameter: the caller (through Dst) may pass null unless it promises
   // not to, so the callee (Src) must accept it. A return: the callee may
   // return null only if the caller expects it.
-  // Unannotated on both sides is the same type, which a plain assignment
-  // converts without a cast; a cast must not be stricter.
-  bool Same = !SN && !DN;
+  // Unannotated on both sides is the same type when both are Safe C code
+  // (where that means non-null, and the pointer is implicitly __single). A
+  // system header's unannotated parameter is unspecified: it may pass null.
+  bool Same = !SN && !DN && SP->getPointerAttributes().isSingle() &&
+              DP->getPointerAttributes().isSingle();
   if (!Same && (IsParam ? (DNull && !SNull) : (SNull && DN && !DNull)))
     return false;
   QualType SPt = SP->getPointeeType(), DPt = DP->getPointeeType();
