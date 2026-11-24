@@ -6038,6 +6038,19 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
     // keeps its bounds checks (a wide base pointer is checked as usual).
     const Expr *Arg = E->getArg(0)->IgnoreParens();
     LValue LV = EmitLValue(Arg);
+    // A wide (bounds-carrying) local pointer is an aggregate: copy it out
+    // whole, bounds included, then zero it.
+    if (!hasScalarEvaluationKind(Arg->getType())) {
+      // Write into the caller's slot (the variable being initialized) when
+      // it gives one; otherwise into a temporary.
+      Address Tmp = ReturnValue.isNull()
+                        ? Address(CreateMemTemp(Arg->getType(), "safec.take"))
+                        : ReturnValue.getAddress();
+      LValue TmpLV = MakeAddrLValue(Tmp, Arg->getType());
+      EmitAggregateCopy(TmpLV, LV, Arg->getType(), AggValueSlot::DoesNotOverlap);
+      EmitNullInitialization(LV.getAddress(), Arg->getType());
+      return RValue::getAggregate(Tmp);
+    }
     llvm::Value *V = EmitLoadOfScalar(LV, E->getExprLoc());
     EmitStoreOfScalar(llvm::Constant::getNullValue(V->getType()), LV);
     const auto *ME = dyn_cast<MemberExpr>(Arg);
