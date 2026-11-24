@@ -49,8 +49,8 @@ double by_case(const struct shape *s) {
 double after_call(struct shape *s) {
   if (s->kind != CIRCLE)
     return 0;
-  show(s);    // const: cannot change the tag
-  double r = s->radius;
+  show(s);    // const, but *s may be a global that show changes by name
+  double r = s->radius; // expected-error {{reading 'radius' needs the tag 'kind' known to be CIRCLE here}}
   reshape(s); // may change the tag
   return r + s->radius; // expected-error {{reading 'radius' needs the tag 'kind' known to be CIRCLE here}}
 }
@@ -58,7 +58,7 @@ double after_call(struct shape *s) {
 void set_then_write(struct shape *s) {
   s->kind = RECT;
   s->width = 2;
-  s->radius = 1; // expected-error {{reading 'radius' needs the tag 'kind' known to be CIRCLE here}}
+  s->radius = 1; // expected-error {{writing 'radius' needs the tag 'kind' known to be CIRCLE here}}
 }
 
 double locals(void) {

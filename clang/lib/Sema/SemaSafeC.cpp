@@ -251,6 +251,17 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "now; using it here too is a data race; give the thread its own copy, "
      "or share it through a lock"},
     {"spawned-here", true, "handed to the thread here"},
+    {"union-member-untracked", false,
+     "%0 is reached through something whose tag cannot be followed here (an "
+     "array element or a call result); take a pointer to the struct first "
+     "('struct T *e = &a[i];') and check 'e''s tag before using 'e->...'"},
+    {"union-member-unwritten", false,
+     "the tag '%1' now names %0, but %0 has not been written since the tag "
+     "changed, so the union still holds another member's bytes; write %0 "
+     "first"},
+    {"union-init-mismatch", false,
+     "this initializer sets the tag to %0 but fills %1, which is not live "
+     "for that tag; initialize the member the tag names"},
     {"field-borrow-ended", false,
      "this pointer is borrowed from '%0', and the borrow ends (the field is "
      "taken, replaced, or lent to an exclusive parameter) before its last "
@@ -1106,7 +1117,12 @@ static std::optional<TagPath> structPath(const Expr *E) {
 
 /// The values a tag may hold on every path here (a case list can give
 /// several, as `case RECT: case SQUARE:` does).
-using TagValues = llvm::SmallVector<llvm::APSInt, 2>;
+/// Written is false after a tag write until the member it names is written:
+/// until then the union still holds the old member's bytes.
+struct TagValues : llvm::SmallVector<llvm::APSInt, 2> {
+  using llvm::SmallVector<llvm::APSInt, 2>::SmallVector;
+  bool Written = true;
+};
 using TagFacts = llvm::SmallVector<std::pair<TagPath, TagValues>, 4>;
 
 static const TagValues *lookupFact(const TagFacts &F, const TagPath &P) {
@@ -1116,10 +1132,13 @@ static const TagValues *lookupFact(const TagFacts &F, const TagPath &P) {
   return nullptr;
 }
 static void setFact(TagFacts &F, const TagPath &P,
-                    std::optional<llvm::APSInt> V) {
+                    std::optional<llvm::APSInt> V, bool Written = true) {
   llvm::erase_if(F, [&](const auto &KV) { return KV.first == P; });
-  if (V)
-    F.push_back({P, TagValues{*V}});
+  if (V) {
+    TagValues Vs{*V};
+    Vs.Written = Written;
+    F.push_back({P, Vs});
+  }
 }
 static bool hasValue(const TagValues &Vs, const llvm::APSInt &V) {
   return llvm::any_of(Vs, [&](const llvm::APSInt &W) {
@@ -1132,6 +1151,10 @@ static void killRoot(TagFacts &F, const ValueDecl *Root) {
 
 /// A tag field: an integer field whose struct has a union tagged by it.
 static bool isTagField(const FieldDecl *F) {
+  // An unnamed field (an anonymous union) is never a tag; without this its
+  // empty name would match the empty name of a non-union sibling.
+  if (F->getName().empty())
+    return false;
   for (const FieldDecl *Sib : F->getParent()->fields())
     if (taggedByName(Sib->getType()) == F->getName())
       return true;
@@ -1232,10 +1255,20 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F,
             return KV.first.Fields.back() == Fld && KV.first.Root != P->Root &&
                    mayBeAliased(KV.first.Root, AddrTaken);
           });
+          // The union still holds the old member's bytes until the newly
+          // named member is written.
           setFact(F, *P,
                   BO->getOpcode() == BO_Assign
                       ? BO->getRHS()->getIntegerConstantExpr(Ctx)
-                      : std::nullopt);
+                      : std::nullopt,
+                  /*Written=*/false);
+          return;
+        } else {
+          // A tag written through a place the analysis cannot name (a[j].k):
+          // it may be any struct's tag of this kind.
+          llvm::erase_if(F, [&](const auto &KV) {
+            return KV.first.Fields.back() == Fld;
+          });
           return;
         }
     // Reassigning a variable, or a struct holding a tag, forgets its tags.
@@ -1248,20 +1281,32 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F,
       UO && UO->isIncrementDecrementOp())
     if (std::optional<TagPath> P = structPath(UO->getSubExpr()))
       setFact(F, *P, std::nullopt);
-  // A call given a pointer to a modifiable object may change any tag that
-  // can be reached through a pointer, not only the argument's.
-  if (const auto *Call = dyn_cast<CallExpr>(St))
+  // A call may change any tag it can reach: through a modifiable pointer
+  // argument, or through globals (any function not known to touch none).
+  if (const auto *Call = dyn_cast<CallExpr>(St)) {
+    const FunctionDecl *Callee = Call->getDirectCallee();
+    bool CallsBack = llvm::any_of(Call->arguments(), [](const Expr *A) {
+      return A->getType()->isFunctionPointerType();
+    });
+    bool Library = Callee && (Call->getBuiltinCallee() ||
+                              Ctx.getSourceManager().isInSystemHeader(
+                                  Callee->getCanonicalDecl()->getLocation()));
+    bool Pure = Callee && (Callee->hasAttr<PureAttr>() ||
+                           Callee->hasAttr<ConstAttr>());
+    bool Modifies = !(Pure || (Library && !CallsBack));
     for (const Expr *A : Call->arguments()) {
       QualType T = A->getType();
       if (!T->isPointerType() || T->getPointeeType().isConstQualified())
         continue;
+      Modifies = true;
       if (const VarDecl *Root = lifetimes::safeCRootVar(A))
         killRoot(F, Root);
+    }
+    if (Modifies)
       llvm::erase_if(F, [&](const auto &KV) {
         return mayBeAliased(KV.first.Root, AddrTaken);
       });
-      break;
-    }
+  }
 }
 
 /// Facts on the edge from block B to successor index I (true = 0, false = 1
@@ -1305,6 +1350,7 @@ static TagFacts meet(const TagFacts &A, const TagFacts &B) {
       for (const llvm::APSInt &X : *W)
         if (!hasValue(U, X))
           U.push_back(X);
+      U.Written = V.Written && W->Written;
       R.push_back({K, U});
     }
   return R;
@@ -1314,12 +1360,66 @@ static bool sameFacts(const TagFacts &A, const TagFacts &B) {
     return false;
   for (const auto &[K, V] : A) {
     const TagValues *W = lookupFact(B, K);
-    if (!W || W->size() != V.size())
+    if (!W || W->size() != V.size() || W->Written != V.Written)
       return false;
   }
   return true;
 }
 } // namespace
+
+/// `struct T x = {.tag = V, .m = ...}` must fill a member live for V.
+static void checkTagInits(Sema &S, const DeclStmt *DS) {
+  for (const Decl *D : DS->decls()) {
+    const auto *VD = dyn_cast<VarDecl>(D);
+    const auto *ILE = VD && VD->getInit() ? dyn_cast<InitListExpr>(
+                                                VD->getInit()->IgnoreParenImpCasts())
+                                          : nullptr;
+    const RecordDecl *RD = VD ? VD->getType()->getAsRecordDecl() : nullptr;
+    if (!ILE || !RD)
+      continue;
+    if (const InitListExpr *Sem = ILE->getSemanticForm())
+      ILE = Sem;
+    std::optional<llvm::APSInt> TagV;
+    const FieldDecl *TagF = nullptr;
+    unsigned I = 0;
+    llvm::SmallVector<std::pair<const FieldDecl *, const Expr *>, 4> Inits;
+    for (const FieldDecl *F : RD->fields()) {
+      if (F->isUnnamedBitField())
+        continue;
+      if (I >= ILE->getNumInits())
+        break;
+      Inits.push_back({F, ILE->getInit(I++)});
+    }
+    for (auto [F, Init] : Inits)
+      if (Init && isTagField(F)) {
+        TagF = F;
+        TagV = Init->getIntegerConstantExpr(S.Context);
+      }
+    if (!TagF || !TagV)
+      continue;
+    for (auto [F, Init] : Inits) {
+      if (taggedByName(F->getType()) != TagF->getName() || !Init)
+        continue;
+      const auto *UILE = dyn_cast<InitListExpr>(Init->IgnoreParenImpCasts());
+      if (!UILE)
+        continue;
+      if (const InitListExpr *Sem = UILE->getSemanticForm())
+        UILE = Sem;
+      const FieldDecl *Member = UILE->getInitializedFieldInUnion();
+      if (!Member || UILE->getNumInits() == 0)
+        continue;
+      bool Live = false;
+      whenValues(S.Context, F->getType()->getAsRecordDecl(),
+                 [&](const FieldDecl *M, llvm::APSInt V, SourceLocation) {
+                   if (M == Member && llvm::APSInt::isSameValue(V, *TagV))
+                     Live = true;
+                 });
+      if (!Live)
+        S.SafeCDiag(UILE->getBeginLoc(), "union-init-mismatch")
+            << toString(*TagV, 10) << Member;
+    }
+  }
+}
 
 void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
   if (!Fn || !Body || !safeCOwnershipEnabled(S))
@@ -1369,6 +1469,19 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
   } Addr;
   Addr.TraverseStmt(Body);
 
+  // Members written (`x.m = v`): a write needs the tag set, and makes the
+  // member written; a read needs both.
+  struct LHSFinder : RecursiveASTVisitor<LHSFinder> {
+    llvm::DenseSet<const MemberExpr *> Writes;
+    bool VisitBinaryOperator(BinaryOperator *BO) {
+      if (BO->getOpcode() == BO_Assign)
+        if (const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens()))
+          Writes.insert(ME);
+      return true;
+    }
+  } LHS;
+  LHS.TraverseStmt(Body);
+
   CFG::BuildOptions Opts;
   Opts.setAllAlwaysAdd(); // every member access is its own element
   std::unique_ptr<CFG> G = CFG::buildCFG(Fn, Body, &S.Context, Opts);
@@ -1388,6 +1501,9 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
         continue;
       const Stmt *St = CS->getStmt();
       if (Report)
+        if (const auto *DS = dyn_cast<DeclStmt>(St))
+          checkTagInits(S, DS);
+      {
         if (const auto *ME = dyn_cast<MemberExpr>(St)) {
           const auto *M = dyn_cast<FieldDecl>(ME->getMemberDecl());
           const RecordDecl *U = M ? M->getParent() : nullptr;
@@ -1396,8 +1512,14 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
           const auto *UnionME =
               Tag.empty() ? nullptr
                           : dyn_cast<MemberExpr>(ME->getBase()->IgnoreParenImpCasts());
-          if (UnionME)
-            if (std::optional<TagPath> P = structPath(UnionME->getBase())) {
+          bool IsWrite = LHS.Writes.count(ME);
+          std::optional<TagPath> P =
+              UnionME ? structPath(UnionME->getBase()) : std::nullopt;
+          if (UnionME && !P && Report)
+            // Reached through something the analysis cannot follow (an
+            // array element, a call result): it cannot know the tag.
+            S.SafeCDiag(ME->getMemberLoc(), "union-member-untracked") << M;
+          if (UnionME && P) {
               const FieldDecl *TagF = nullptr;
               const RecordDecl *Outer =
                   cast<FieldDecl>(UnionME->getMemberDecl())->getParent();
@@ -1429,17 +1551,26 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
                 bool Ok = Known && llvm::all_of(*Known, [&](const llvm::APSInt &V) {
                   return hasValue(Mine, V);
                 });
+                if (Ok && IsWrite)
+                  for (auto &KV : F)
+                    if (KV.first == *P)
+                      KV.second.Written = true;
+                bool Unwritten = Ok && !IsWrite && !Known->Written;
+                if (Unwritten && Report)
+                  S.SafeCDiag(ME->getMemberLoc(), "union-member-unwritten")
+                      << M << Tag;
                 if (!Ok && !Want.empty()) {
-                  bool IsWrite = false; // set by the enclosing assignment
                   unsigned Hint = !TagF->getType()->isBooleanType() ? 0
                                   : Want == "true"                   ? 1
                                                                      : 2;
-                  S.SafeCDiag(ME->getMemberLoc(), "union-member-unchecked")
-                      << (IsWrite ? 1 : 0) << M << Tag << Want << Hint;
+                  if (Report)
+                    S.SafeCDiag(ME->getMemberLoc(), "union-member-unchecked")
+                        << (IsWrite ? 1 : 0) << M << Tag << Want << Hint;
                 }
               }
             }
         }
+      }
       transfer(Ctx, St, F, Addr.Taken);
     }
     return F;
