@@ -51,8 +51,8 @@ function collect(): Case[] {
   return cases;
 }
 
-const sh = async (cmd: string[], o: { cwd?: string; timeoutMs?: number; input?: string } = {}) => {
-  const p = Bun.spawn(cmd, { cwd: o.cwd, stdin: o.input !== undefined ? new TextEncoder().encode(o.input) : "ignore", stdout: "pipe", stderr: "pipe" });
+const sh = async (cmd: string[], o: { cwd?: string; timeoutMs?: number; input?: string; env?: Record<string, string> } = {}) => {
+  const p = Bun.spawn(cmd, { cwd: o.cwd, env: o.env ? { ...process.env, ...o.env } : undefined, stdin: o.input !== undefined ? new TextEncoder().encode(o.input) : "ignore", stdout: "pipe", stderr: "pipe" });
   let timedOut = false;
   const t = o.timeoutMs ? setTimeout(() => { timedOut = true; p.kill("SIGKILL"); }, o.timeoutMs) : null;
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
@@ -98,54 +98,121 @@ async function build(c: Case, variant: "bad" | "good", dir: string, support: str
   return { stage: "ok" as const, exe, err: "" };
 }
 
-async function runExe(exe: string, cwd: string, cwe: string) {
+type Input = { stdin: string; env?: Record<string, string> };
+function inputsFor(c: Case): Input[] {
   // Juliet bad paths read their bad value from stdin (fgets/fscanf): a zero
   // divisor for CWE 369, an out-of-range index or size for the buffer CWEs.
   // 124/127 (underwrite/underread) need a negative index: their bad paths check
   // only the upper bound.
-  const input = (cwe === "369" ? "0\n" : cwe === "124" || cwe === "127" ? "-1\n" : "100\n").repeat(64);
-  const r = await sh([ exe ], {cwd, timeoutMs : 20000, input});
+  const cwe = c.cwe;
+  const stdin = (cwe === "369" ? "0\n" : cwe === "124" || cwe === "127" ? "-1\n" : "100\n").repeat(64);
+  // Cases that read rand() run once per list of numbers it returns (see
+  // juliet_rand.c). RAND32() uses four: the first one's low bit picks the sign.
+  // Variant 12 (globalReturnsTrueOrFalse) uses one more before and after, and
+  // an odd one takes the buggy branch.
+  if (!c.files.some(f => /\b(RAND32|RAND64|rand|globalReturnsTrueOrFalse)\s*\(/.test(readFileSync(f, "latin1").replace(/srand\s*\(/g, "")))) return [{ stdin }];
+  return ["1",            // RAND32() = 0x40008001, both variant-12 branches true
+          "0",            // RAND32() = -1, branches false
+          "1,0,0,0",      // RAND32() = 0
+          "1,0,0,0,0,1",  // true, RAND32() = -1, true
+          "1,1,0,0,0,1",  // true, RAND32() = 0, true
+  ].map(r => ({ stdin, env: { JULIET_RAND: r } }));
+}
+
+async function runExe(exe: string, cwd: string, input: Input) {
+  const r = await sh([ exe ], {cwd, timeoutMs : 20000, input: input.stdin, env: input.env});
   return { signal: r.timedOut ? "TIMEOUT" : r.signal, code: r.code };
+}
+
+// --asan: build only bad() with the baseline compiler under ASan and UBSan and
+// record whether it misbehaves. Run on the pristine suite and on a ported tree,
+// it shows whether a porter transform removed a bug: a case that misbehaves
+// before porting must still misbehave after. safec.h is force-included so the
+// ported tree's annotations expand to nothing for the plain compiler.
+const asanMode = args.includes("--asan");
+const safecH = join(import.meta.dir, "../../lib/Headers/safec.h");
+const asanFlags = ["-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-g", "-O0"];
+async function asanCase(c: Case, dir: string, support: string[]) {
+  const res: any = { cwe: c.cwe, case: c.key, files: c.files.map(f => basename(f)) };
+  const objs: string[] = [];
+  for (const [i, f] of c.files.entries()) {
+    const o = join(dir, `asan${i}.o`);
+    const r = await sh([baselineCc, "-w", "-include", safecH, "-I", SUP, "-DINCLUDEMAIN", "-DOMITGOOD", "-D_FORTIFY_SOURCE=0",
+                        ...asanFlags, ...sys, "-I", dirname(f), "-c", f, "-o", o]);
+    if (r.code !== 0) { res.asan = "buildfail"; res.asanErr = firstError(r.err); return res; }
+    objs.push(o);
+  }
+  const exe = join(dir, "asan-bad");
+  const l = await sh([baselineCc, ...asanFlags, ...sys, ...objs, ...support, "-lm", "-lpthread", "-o", exe]);
+  if (l.code !== 0) { res.asan = "buildfail"; res.asanErr = firstError(l.err); return res; }
+  for (const input of inputsFor(c)) {
+    const r = await sh([exe], { cwd: dir, timeoutMs: 20000, input: input.stdin, env: input.env });
+    const kind = /Sanitizer|runtime error/.test(r.err) ? "report" : r.timedOut ? "timeout" : r.signal ? "crash" : "clean";
+    if (kind !== "clean" || !res.asan) res.asan = kind;
+    if (kind === "report") { res.asanErr = (r.err.split("\n").find(s => /Sanitizer|runtime error/.test(s)) ?? "").slice(0, 200); break; }
+  }
+  return res;
 }
 
 async function doCase(c: Case, ioObj: string, thrObj: string) {
   const dir = join(BUILD, `${c.cwe}_${c.key}`.replace(/[^\w.-]/g, "_"));
   mkdirSync(dir, { recursive: true });
   const needThr = c.files.some(f => /std_thread|stdThread/.test(readFileSync(f, "latin1")));
-  const support = needThr ? [ioObj, thrObj] : [ioObj];
+  const support = needThr ? [ioObj, randObj, thrObj] : [ioObj, randObj];
+  if (asanMode) { const r = await asanCase(c, dir, support); rmSync(dir, { recursive: true, force: true }); return r; }
   const res: any = { cwe: c.cwe, case: c.key, files: c.files.map(f => basename(f)) };
   const b = await build(c, "bad", dir, support);
   if (b.stage === "compile") { res.bad = "rejected"; res.badErr = b.err; }
   else if (b.stage === "link") { res.bad = "linkfail"; res.badErr = b.err; }
   else if (!doRun) res.bad = "compiled";
   else {
-    const r = await runExe(b.exe!, dir, c.cwe);
-    // Only compiler-inserted traps count (brk -> SIGTRAP, ud2 -> SIGILL). A SIGSEGV or
-    // SIGABRT is the UB happening to crash, not a safety check, so it scores as missed.
-    if (r.signal === "SIGTRAP" || r.signal === "SIGILL") { res.bad = "trapped"; res.badSignal = r.signal; } else { res.bad = "missed"; res.badExit = r.signal ?? r.code; }
-    // A trap the plain build also hits is the platform's, not ours.
-    if (res.bad === "trapped") {
-      const p = await build(c, "bad", dir, support, true);
-      if (p.stage === "ok") {
-        const pr = await runExe(p.exe!, dir, c.cwe);
-        if (pr.signal === r.signal) { res.bad = "missed"; res.badExit = "platform " + r.signal; }
+    // bad() is caught if any of the case's inputs makes it trap; each input is
+    // a separate run, as a fuzzer would try them.
+    let plain: Awaited<ReturnType<typeof build>> | undefined;
+    for (const [i, input] of inputsFor(c).entries()) {
+      const r = await runExe(b.exe!, dir, input);
+      // Only compiler-inserted traps count (brk -> SIGTRAP, ud2 -> SIGILL). A SIGSEGV or
+      // SIGABRT is the UB happening to crash, not a safety check, so it scores as missed.
+      if (r.signal !== "SIGTRAP" && r.signal !== "SIGILL") {
+        if (!res.bad) { res.bad = "missed"; res.badExit = r.signal ?? r.code; }
+        continue;
       }
+      // A trap the plain build also hits on the same input is the platform's, not ours.
+      plain ??= await build(c, "bad", dir, support, true);
+      if (plain.stage === "ok" && (await runExe(plain.exe!, dir, input)).signal === r.signal) {
+        res.bad = "missed"; res.badExit = "platform " + r.signal; continue;
+      }
+      res.bad = "trapped"; res.badSignal = r.signal; delete res.badExit;
+      if (i > 0) res.badInput = i;
+      break;
     }
   }
   const g = await build(c, "good", dir, support);
   if (g.stage !== "ok") { res.good = "false-positive"; res.goodErr = `${g.stage}: ${g.err}`; }
   else if (!doRun) res.good = "accepted";
   else {
-    const r = await runExe(g.exe!, dir, c.cwe);
-    if (r.signal || r.code !== 0) { res.good = "false-positive"; res.goodErr = `run: ${r.signal ?? "exit " + r.code}`; } else res.good = "accepted";
+    res.good = "accepted";
+    // The fixed version must run clean on every input bad() was given.
+    for (const input of inputsFor(c)) {
+      const r = await runExe(g.exe!, dir, input);
+      if (r.signal || r.code !== 0) { res.good = "false-positive"; res.goodErr = `run: ${r.signal ?? "exit " + r.code}`; break; }
+    }
   }
   rmSync(dir, { recursive: true, force: true });
   return res;
 }
 
+const randObj = join(BUILD, "juliet_rand.o");
 let all = collect();
 const counts: Record<string, number> = {};
 for (const c of all) counts[c.cwe] = (counts[c.cwe] ?? 0) + 1;
+// --cases <file>: only the case keys listed (one per line), for gating a
+// porter change on exactly the cases it touches.
+const casesFile = opt("cases");
+if (casesFile) {
+  const want = new Set(readFileSync(casesFile, "utf8").split("\n").map(s => s.trim()).filter(Boolean));
+  all = all.filter(c => want.has(c.key));
+}
 if (isFinite(limit)) { // --limit applies per CWE
   const seen: Record<string, number> = {};
   all = all.filter(c => (seen[c.cwe] = (seen[c.cwe] ?? 0) + 1) <= limit);
@@ -153,14 +220,26 @@ if (isFinite(limit)) { // --limit applies per CWE
 // support objects built once; they do not depend on OMITBAD/OMITGOOD
 const ioObj = join(BUILD, "io.o"), thrObj = join(BUILD, "std_thread.o");
 for (const [s, o] of [["io.c", ioObj], ["std_thread.c", thrObj]]) {
-  const r = await sh([cc!, ...supBase, "-c", join(SUP, s), "-o", o]);
+  const r = await sh(asanMode ? [baselineCc, ...supBase, ...asanFlags, "-c", join(SUP, s), "-o", o]
+                              : [cc!, ...supBase, "-c", join(SUP, s), "-o", o]);
   if (r.code !== 0) { console.error("support build failed:", r.err); process.exit(1); }
+}
+{
+  const r = await sh([baselineCc, "-w", ...sys, ...(asanMode ? asanFlags : []), "-c", join(import.meta.dir, "juliet_rand.c"), "-o", randObj]);
+  if (r.code !== 0) { console.error("rand build failed:", r.err); process.exit(1); }
 }
 const results: any[] = []; let next = 0;
 await Promise.all(Array.from({ length: jobs }, async () => {
   while (next < all.length) results.push(await doCase(all[next++], ioObj, thrObj));
 }));
 rmSync(BUILD, { recursive: true, force: true });
+if (asanMode) {
+  const t: Record<string, Record<string, number>> = {};
+  for (const r of results) (t[r.cwe] ??= {})[r.asan] = (t[r.cwe][r.asan] ?? 0) + 1;
+  console.log(JSON.stringify(t));
+  if (outFile) writeFileSync(outFile, JSON.stringify(results.sort((a, b) => a.case.localeCompare(b.case)), null, 1).split(ROOT + "/").join(""));
+  process.exit(0);
+}
 
 const pct = (a: number, b: number) => (b ? (100 * a / b).toFixed(1) + "%" : "-");
 // strict%: of the cases whose good() is accepted, the share whose bad() is

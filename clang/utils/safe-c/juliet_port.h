@@ -87,6 +87,18 @@ static inline wchar_t *juliet_wcsncpy(wchar_t *_Nonnull __bidi_indexable d,
     d[i] = 0;
   return d;
 }
+/* io.c's flags are set once and never written, but live in another file, so
+ * the compiler cannot see which branch of `if (globalTrue)` runs. A ported
+ * project would make them constants in the header; their values are io.c's,
+ * so every branch is taken exactly as before. */
+#ifndef JULIET_PORT_NO_CONST_FLAGS
+#define GLOBAL_CONST_TRUE 1
+#define GLOBAL_CONST_FALSE 0
+#define GLOBAL_CONST_FIVE 5
+#define globalTrue 1
+#define globalFalse 0
+#define globalFive 5
+#endif
 #define strcpy(d, s) juliet_strcpy((d), (s))
 #define strncpy(d, s, n) juliet_strncpy((d), (s), (n))
 #define wcsncpy(d, s, n) juliet_wcsncpy((d), (s), (n))
