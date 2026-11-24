@@ -514,6 +514,14 @@ void FactsGenerator::VisitMemberExpr(const MemberExpr *ME) {
     CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
         Dst->getOuterOriginID(), Src->getOuterOriginID(),
         /*Kill=*/true));
+    // Safe C: a field of a view (a pointer, or a nested view or array)
+    // holds what the view borrows.
+    if (!ME->isArrow() && isSafeCViewType(ME->getBase()->getType()))
+      if (OriginList *Field = Dst->peelOuterOrigin())
+        if (OriginList *Agg = Src->peelOuterOrigin())
+          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+              Field->getOuterOriginID(), Agg->getOuterOriginID(),
+              /*Kill=*/true));
   }
 }
 
@@ -708,6 +716,13 @@ void FactsGenerator::VisitCastExpr(const CastExpr *CE) {
     assert(Src && "Array expression should have origins as it is GL value");
     CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
         Dest->getOuterOriginID(), Src->getOuterOriginID(), /*Kill=*/true));
+    // Safe C: the array's aggregate origin (what its elements borrow) is
+    // what the decayed pointer's pointees borrow.
+    if (OriginList *Elems = Src->peelOuterOrigin())
+      if (OriginList *Pointees = Dest->peelOuterOrigin())
+        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+            Pointees->getOuterOriginID(), Elems->getOuterOriginID(),
+            /*Kill=*/true));
     return;
   case CK_FunctionToPointerDecay:
   case CK_BuiltinFnToFnPtr:
@@ -852,15 +867,30 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
       break;
     LHSExpr = ignoreParensAndImpCasts(Addr->getSubExpr());
   }
-  // Safe C: `s.p = x` on a view adds x's loans to the view (the view keeps
-  // borrows of every field; Sema allows such writes only by name).
-  if (const auto *ME = dyn_cast<MemberExpr>(LHSExpr);
-      ME && !ME->isArrow() && isSafeCViewType(ME->getBase()->getType()))
-    if (OriginList *Base = getOriginsList(*ME->getBase()))
-      if (OriginList *Agg = Base->peelOuterOrigin())
-        if (OriginList *RHS = readValue(RHSExpr))
-          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-              Agg->getOuterOriginID(), RHS->getOuterOriginID(), /*Kill=*/false));
+  // Safe C: `s.p = x` on a view, or `a[i] = x` on a local array, adds x's
+  // loans to the aggregate (which keeps the borrows of every field or
+  // element), and to each one enclosing it (`w.s.p`, `arr[1].p`).
+  if (AC.getASTContext().getLangOpts().SafeC)
+    if (OriginList *RHS = readValue(RHSExpr))
+      for (const Expr *Part = LHSExpr;;) {
+        const Expr *Base = nullptr;
+        if (const auto *ME = dyn_cast<MemberExpr>(Part);
+            ME && !ME->isArrow() && isSafeCViewType(ME->getBase()->getType()))
+          Base = ME->getBase()->IgnoreParens();
+        else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(Part)) {
+          const Expr *B = ASE->getBase()->IgnoreParenImpCasts();
+          if (B->getType()->isArrayType())
+            Base = B;
+        }
+        if (!Base)
+          break;
+        if (OriginList *BL = getOriginsList(*Base))
+          if (OriginList *Agg = BL->peelOuterOrigin())
+            CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+                Agg->getOuterOriginID(), RHS->getOuterOriginID(),
+                /*Kill=*/false));
+        Part = Base;
+      }
   handleAccess(LHSExpr);
   OriginList *RHSList = readValue(RHSExpr);
   OriginList *LHSList = nullptr;
@@ -1103,7 +1133,8 @@ void FactsGenerator::VisitInitListExpr(const InitListExpr *ILE) {
   if (!hasOrigins(ILE))
     return;
   // Safe C: a view's origin holds the loans of every pointer it is built from.
-  if (isSafeCViewType(ILE->getType())) {
+  if (isSafeCViewType(ILE->getType()) ||
+      (AC.getASTContext().getLangOpts().SafeC && ILE->getType()->isArrayType())) {
     const InitListExpr *Sem =
         ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
     if (!Sem)
@@ -1219,6 +1250,14 @@ void FactsGenerator::VisitArraySubscriptExpr(const ArraySubscriptExpr *ASE) {
   assert(Src && "Base of array subscript should have origins");
   CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
       Dst->getOuterOriginID(), Src->getOuterOriginID(), /*Kill=*/true));
+  // Safe C: `p[i]` is `*(p + i)`: the element holds what p's pointees
+  // borrow (for a local array, its aggregate origin, through the decay).
+  if (AC.getASTContext().getLangOpts().SafeC)
+    if (OriginList *Elem = Dst->peelOuterOrigin())
+      if (OriginList *Pointee = Src->peelOuterOrigin())
+        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
+            Elem->getOuterOriginID(), Pointee->getOuterOriginID(),
+            /*Kill=*/true));
 }
 
 bool FactsGenerator::handlePlacementNew(const CXXNewExpr *NE,

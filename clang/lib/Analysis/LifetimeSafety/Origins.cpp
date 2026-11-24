@@ -150,6 +150,11 @@ bool OriginManager::hasOrigins(QualType QT, bool IntrinsicOnly) const {
   // as a lambda does for its captures.
   if (isSafeCViewType(QT))
     return true;
+  // Safe C: an array of borrows (pointers or views) gets one origin for what
+  // all its elements borrow, as a view does for its fields.
+  if (AST.getLangOpts().SafeC)
+    if (const ArrayType *AT = AST.getAsArrayType(QT))
+      return hasOrigins(AT->getElementType(), IntrinsicOnly);
   const auto *RD = QT->getAsCXXRecordDecl();
   if (!RD)
     return false;
