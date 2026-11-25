@@ -693,6 +693,10 @@ class InitListChecker {
   void diagnoseInitOverride(Expr *OldInit, SourceRange NewInitRange,
                             bool UnionOverride = false,
                             bool FullyOverwritten = true) {
+    // Part of a whole value replaced: the rest may depend on it (a count and
+    // its pointer).
+    if (SemaRef.getLangOpts().SafeC && !VerifyOnly && !FullyOverwritten)
+      SemaRef.SafeCDiag(NewInitRange.getBegin(), "init-override");
     // Overriding an initializer via a designator is valid with C99 designated
     // initializers, but ill-formed with C++20 designated initializers.
     unsigned DiagID =

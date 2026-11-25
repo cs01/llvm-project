@@ -12,7 +12,7 @@ int overflow_out(int c, int *__counted_by(4) p, struct cnt *x) {
   int ok;
   int r = __builtin_mul_overflow(c, 2, &ok);
   r |= __builtin_mul_overflow(c, 1, &p[c]); // expected-error {{writes through this pointer unchecked}}
-  r |= __builtin_add_overflow(c, 2, &x->n); // expected-error {{writes through this pointer unchecked}}
+  r |= __builtin_add_overflow(c, 2, &x->n); // expected-error {{is the count of another field}} expected-error {{writes through this pointer unchecked}}
   return r + ok;
 }
 double math_out(double d, double *__counted_by(2) p, int *__counted_by(2) e) {

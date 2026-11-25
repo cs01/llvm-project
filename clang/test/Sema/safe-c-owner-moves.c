@@ -4,9 +4,9 @@
 // with an owned field is a copy of the owner. The control run pins the
 // ownership rules off.
 // off-no-diagnostics
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
-// RUN: %clang_cc1 -mllvm -safe-c-ownership=false -fsyntax-only -fsafe-c -fbounds-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -mllvm -safe-c-ownership=false -fsyntax-only -fsafe-c -fbounds-safety \
 // RUN:   -fnullability-default=nonnull -fnullability-safety -include safec.h -verify=off %s
 
 typedef __SIZE_TYPE__ size_t;

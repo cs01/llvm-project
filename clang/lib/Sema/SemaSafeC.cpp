@@ -417,6 +417,27 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"library-global-write", false,
      "%0 belongs to the C library and every thread shares it, unguarded; use "
      "the library's functions that do not need it"},
+    {"atomic-pointer", false,
+     "this pointer's bounds are not checked by an atomic operation; pass "
+     "'&variable' or '&s.field', or store it in a '__single' pointer first"},
+    {"redeclared", false,
+     "%0 is a library function; include its header, whose declaration says "
+     "what it accesses"},
+    {"cast-incomplete", false,
+     "%0 is not complete here, so nothing says what the memory holds; move "
+     "the cast after the struct's definition"},
+    {"init-override", false,
+     "this replaces part of a value given whole earlier in the same braces, "
+     "and the rest may depend on it; assign it after the declaration"},
+    {"count-address", false,
+     "%0 is the count of another field, and a write through its address would "
+     "not be checked; use a local variable and assign '%0' from it"},
+    {"flex-cast", false,
+     "nothing says the memory behind this pointer has the array that %0 ends "
+     "with, or its length; allocate a %0 and fill it field by field"},
+    {"flex-nested", false,
+     "%0 ends in an array whose length is a field, and inside another struct "
+     "that length is not checked; keep a pointer to it"},
     {"nested-count", false,
      "%0 holds the count of another field, so replacing it whole would change "
      "that count unseen; assign its fields one by one"},
@@ -696,6 +717,22 @@ static const AnnotateAttr *getSafeCAnnotation(const Decl *D, StringRef Name) {
   return nullptr;
 }
 
+/// A struct that ends in an array counted by one of its own fields.
+static bool flexRecord(const RecordDecl *RD) {
+  RD = RD ? RD->getDefinition() : nullptr;
+  if (!RD || !RD->hasFlexibleArrayMember())
+    return false;
+  const FieldDecl *Last = nullptr;
+  for (const FieldDecl *F : RD->fields())
+    Last = F;
+  return Last && (Last->getType()->getAs<CountAttributedType>() ||
+                  flexRecord(Last->getType()->getAsRecordDecl()));
+}
+static bool flexRecord(QualType T) { return flexRecord(T->getAsRecordDecl()); }
+static bool flexRecord(const DeclContext *DC) {
+  return flexRecord(dyn_cast<RecordDecl>(DC));
+}
+
 static bool holdsPointer(QualType T) {
   T = T.getCanonicalType();
   if (const auto *AT = T->getAsArrayTypeUnsafe())
@@ -790,8 +827,18 @@ void clang::checkSafeCFunctionConversion(Sema &S, QualType Dst,
   if (!DP || !SP || DP->getNumParams() != SP->getNumParams() ||
       S.getSourceManager().isInSystemHeader(Src->getExprLoc()))
     return;
+  // What ends a string is part of what the callee does with it.
+  auto Ends = [&](QualType T) {
+    const auto *VT = T->getAs<ValueTerminatedType>();
+    return VT ? toString(VT->getTerminatorValue(S.Context), 10) : std::string();
+  };
+  if (Ends(DP->getReturnType()) != Ends(SP->getReturnType())) {
+    S.SafeCDiag(Src->getExprLoc(), "fn-promise") << "the result" << Dst;
+    return;
+  }
   for (unsigned I = 0, N = DP->getNumParams(); I != N; ++I)
-    if (lifetimes::safeCPromise(DP->getParamType(I)) != lifetimes::safeCPromise(SP->getParamType(I))) {
+    if (lifetimes::safeCPromise(DP->getParamType(I)) != lifetimes::safeCPromise(SP->getParamType(I)) ||
+        Ends(DP->getParamType(I)) != Ends(SP->getParamType(I))) {
       S.SafeCDiag(Src->getExprLoc(), "fn-promise")
           << ("parameter " + std::to_string(I + 1)) << Dst;
       return;
@@ -808,6 +855,10 @@ void clang::checkSafeCPointerStorage(Sema &S, Decl *D) {
     return !safeCPointerKind(X->getType()).empty();
   };
   if (auto *RD = dyn_cast<RecordDecl>(D)) {
+    for (const FieldDecl *FD : RD->fields())
+      if (flexRecord(S.Context.getBaseElementType(FD->getType())))
+        S.SafeCDiag(FD->getLocation(), "flex-nested")
+            << S.Context.getBaseElementType(FD->getType());
     checkTaggedUnions(S, RD);
     if (hasSafeCAnnotation(RD, "safec_view")) {
       // The inner views' borrows would be tracked by neither struct.
@@ -1545,14 +1596,25 @@ public:
       : S(S), Body(Body) {}
 
   /// `s->h = z`, `&s->h`, where a count `__counted_by(h.n)` is inside h.
-  void checkNestedCount(const Expr *E) {
+  void checkNestedCount(const Expr *E, bool Address = false) {
     const auto *ME = dyn_cast<MemberExpr>(E->IgnoreParens());
+    if (Address && ME && ME->getType()->isIntegralOrEnumerationType() &&
+        ME->getMemberDecl()->hasAttr<DependerDeclsAttr>())
+      S.SafeCDiag(E->getExprLoc(), "count-address") << ME->getMemberDecl();
+    // `s->h.n = k`, where the count is h.n.
+    for (const auto *B = ME ? dyn_cast<MemberExpr>(ME->getBase()->IgnoreParens())
+                            : nullptr;
+         B; B = dyn_cast<MemberExpr>(B->getBase()->IgnoreParens()))
+      if (B->getType()->isRecordType() &&
+          B->getMemberDecl()->hasAttr<DependerDeclsAttr>() &&
+          flexRecord(B->getMemberDecl()->getDeclContext()))
+        S.SafeCDiag(E->getExprLoc(), "nested-count") << B->getMemberDecl();
     if (ME && ME->getType()->isRecordType() &&
         ME->getMemberDecl()->hasAttr<DependerDeclsAttr>())
       S.SafeCDiag(E->getExprLoc(), "nested-count") << ME->getMemberDecl();
   }
   bool VisitBinaryOperator(BinaryOperator *BO) {
-    if (BO->getOpcode() == BO_Assign)
+    if (BO->isAssignmentOp())
       checkNestedCount(BO->getLHS());
     if (BO->isCompoundAssignmentOp())
       if (const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens()))
@@ -1685,7 +1747,13 @@ public:
   }
   bool VisitMatrixOrVector(const Expr *Base, const Expr *Idx) {
     if (Base->IgnoreParenImpCasts()->getType()->isVectorType() &&
-        !Idx->isIntegerConstantExpr(S.Context))
+        [&] {
+          auto V = Idx->getIntegerConstantExpr(S.Context);
+          const auto *VT = Base->IgnoreParenImpCasts()
+                               ->getType()
+                               ->getAs<VectorType>();
+          return !V || !VT || V->isNegative() || V->uge(VT->getNumElements());
+        }())
       S.SafeCDiag(Idx->getExprLoc(), "vector-index");
     return true;
   }
@@ -1815,7 +1883,30 @@ public:
       }
     return true;
   }
+  /// `atomic_store(a + i, v)`: the operation takes a plain address.
+  void checkAtomicPointer(const Expr *P) {
+    if (!P->getType()->isPointerType())
+      return;
+    P = lifetimes::safeCPeel(P)->IgnoreParenCasts();
+    if (const auto *UO = dyn_cast<UnaryOperator>(P);
+        UO && UO->getOpcode() == UO_AddrOf) {
+      const Expr *L = UO->getSubExpr()->IgnoreParens();
+      const auto *DRE = dyn_cast<DeclRefExpr>(L);
+      if (DRE && DRE->getDecl()->hasAttr<DependerDeclsAttr>())
+        S.SafeCDiag(P->getExprLoc(), "count-address") << DRE->getDecl();
+      if (DRE || isa<MemberExpr>(L))
+        return;
+      S.SafeCDiag(P->getExprLoc(), "atomic-pointer");
+      return;
+    }
+    if (P->getType()->isArrayType() || P->getType()->isPointerTypeWithBounds() ||
+        P->getType()->isBoundsAttributedType())
+      S.SafeCDiag(P->getExprLoc(), "atomic-pointer");
+  }
   bool VisitAtomicExpr(AtomicExpr *E) {
+    checkAtomicPointer(E->getPtr());
+    if (E->isCmpXChg())
+      checkAtomicPointer(E->getVal1());
     if (E->getOpAsString().starts_with("__atomic_") ||
         E->getOpAsString().starts_with("__scoped_"))
       S.SafeCDiag(E->getExprLoc(), "builtin-unchecked-name")
@@ -2033,17 +2124,24 @@ public:
   bool VisitCastExpr(CastExpr *C) {
     QualType FromT = C->getSubExpr()->getType(), ToT = C->getType();
     if (FromT->isPointerType() && ToT->isPointerType()) {
-      const auto *RD = FromT->getPointeeType()->getAsRecordDecl();
-      RD = RD ? RD->getDefinition() : nullptr;
-      if (RD && RD->hasFlexibleArrayMember() && !FlexMayConvert.count(C) &&
-          !ToT->getPointeeType()->isRecordType() &&
-          !ToT->getPointeeType().isConstQualified()) {
-        const FieldDecl *Last = nullptr;
-        for (const FieldDecl *F : RD->fields())
-          Last = F;
-        if (Last && Last->getType()->getAs<CountAttributedType>())
-          S.SafeCDiag(C->getExprLoc(), "flex-bytes") << FromT->getPointeeType();
-      }
+      const bool Same = S.Context.hasSameUnqualifiedType(
+          FromT->getPointeeType(), ToT->getPointeeType());
+      if (!Same && flexRecord(FromT->getPointeeType()) &&
+          !FlexMayConvert.count(C) && !ToT->getPointeeType().isConstQualified())
+        S.SafeCDiag(C->getExprLoc(), "flex-bytes") << FromT->getPointeeType();
+      if (const RecordDecl *To = ToT->getPointeeType()->getAsRecordDecl();
+          !Same && To && !To->getDefinition() && !FromT->isVoidPointerType() &&
+          C->getCastKind() != CK_NullToPointer && isa<ExplicitCastExpr>(C))
+        S.SafeCDiag(C->getExprLoc(), "cast-incomplete") << ToT->getPointeeType();
+      if (const RecordDecl *From = FromT->getPointeeType()->getAsRecordDecl();
+          !Same && From && !From->getDefinition() && !ToT->isVoidPointerType() &&
+          isa<ExplicitCastExpr>(C))
+        S.SafeCDiag(C->getExprLoc(), "cast-incomplete")
+            << FromT->getPointeeType();
+      if (!Same && flexRecord(ToT->getPointeeType()) &&
+          !FromT->isVoidPointerType() &&
+          C->getCastKind() != CK_NullToPointer)
+        S.SafeCDiag(C->getExprLoc(), "flex-cast") << ToT->getPointeeType();
       if (ToT->getPointeeType()->isVariablyModifiedType() &&
           !FromT->getPointeeType()->isVariablyModifiedType() &&
           C->getCastKind() != CK_ArrayToPointerDecay)
@@ -2228,6 +2326,8 @@ public:
     StringRef Tag;
     VisitGuardedAddress(UO);
     if (UO->getOpcode() == UO_AddrOf)
+      checkNestedCount(UO->getSubExpr(), /*Address=*/true);
+    if (UO->isIncrementDecrementOp())
       checkNestedCount(UO->getSubExpr());
     if (UO->getOpcode() == UO_AddrOf || UO->isIncrementDecrementOp())
       if (const auto *ME = dyn_cast<MemberExpr>(UO->getSubExpr()->IgnoreParens()))
@@ -2445,6 +2545,21 @@ public:
     }
     // An out pointer the compiler or library writes whole: only a plain local,
     // which is not null, not out of bounds and not the count of a pointer.
+    // Builtins that check their own arguments never reach the list in
+    // SemaChecking.cpp.
+    if (unsigned ID = F->getBuiltinID();
+        ID && S.Context.BuiltinInfo.hasCustomTypechecking(ID) &&
+        F->getName().starts_with("__builtin_") && !N.ends_with("_overflow") &&
+        !N.starts_with("safec_") && !N.starts_with("va_") &&
+        !N.starts_with("get_pointer_") &&
+        !llvm::is_contained({"constant_p", "choose_expr", "classify_type",
+                             "types_compatible_p", "expect", "launder",
+                             "object_size", "dynamic_object_size"},
+                            N) &&
+        llvm::any_of(Call->arguments(), [](const Expr *A) {
+          return A->getType()->isAnyPointerType() || A->getType()->isArrayType();
+        }))
+      S.SafeCDiag(Call->getExprLoc(), "builtin-unchecked") << F;
     if (!(F->getBuiltinID() && N.ends_with("_overflow")) &&
         !(F->isExternC() &&
           llvm::is_contained({"frexp", "frexpf", "frexpl", "modf", "modff",
@@ -3445,7 +3560,35 @@ static const char *unknownType(QualType T, unsigned Depth = 0) {
 
 /// Kinds of declarations and types that Safe C has rules for (see VisitStmt
 /// for statements); anything else is an error.
+// Off only for lit tests, which have no system headers to include (the driver
+// refuses it).
+static llvm::cl::opt<bool> SafeCRedeclared(
+    "safe-c-redeclared",
+    llvm::cl::desc("Safe C: reject hand-written declarations of library "
+                   "functions that access memory"),
+    llvm::cl::init(true));
+
 static void checkDeclAllowed(Sema &S, const Decl *D) {
+  if (const auto *FD = dyn_cast<FunctionDecl>(D);
+      FD && SafeCRedeclared && FD->getIdentifier() && FD->isExternC() &&
+      !S.getSourceManager().isInSystemHeader(FD->getLocation())) {
+    // The header's declaration says how much these access; one written by hand
+    // says whatever it likes.
+    static const llvm::StringSet<> Memory = {
+        "memcpy", "memmove", "memset", "memcmp", "memchr", "bzero", "bcopy",
+        "strlen", "strcpy", "strncpy", "strcat", "strncat", "strcmp", "strncmp",
+        "strchr", "strrchr", "strstr", "strlcpy", "strlcat"};
+    auto Bounded = [](QualType T) {
+      return T->isBoundsAttributedType() || T->isPointerTypeWithBounds();
+    };
+    bool Marked = Bounded(FD->getReturnType()) ||
+                  llvm::any_of(FD->parameters(), [&](const ParmVarDecl *P) {
+                    return Bounded(P->getType());
+                  });
+    if (!FD->isThisDeclarationADefinition() && FD->getBuiltinID() &&
+        (Marked || Memory.contains(FD->getName())))
+      S.SafeCDiag(FD->getLocation(), "redeclared") << FD;
+  }
   if (D->isImplicit() ||
       S.getSourceManager().isInSystemHeader(D->getLocation()))
     return;

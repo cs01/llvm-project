@@ -1,9 +1,9 @@
 // Under -fsafe-c: va_arg needs __unsafe (nothing checks the count or types),
 // scanf's %p is rejected (it makes up a pointer from text), and main's argv
 // holds terminated strings, so argv[1] can go to strcmp.
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
-// RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=plain %s
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -fsyntax-only -include safec.h -verify=plain %s
 // plain-no-diagnostics
 
 typedef __builtin_va_list va_list;

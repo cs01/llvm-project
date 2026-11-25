@@ -98,7 +98,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 
 **Type attributes** (24): `PtrBidiIndexable`, `PtrIndexable`, `PtrSingle`, `PtrUnsafeIndexable`, `PtrTerminatedBy`, `PtrEndedBy`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `TypeNonNull`, `TypeNullable`, `TypeNullableResult`, `TypeNullUnspecified`, `AnnotateType`, `LifetimeBound`, `NoEscape`, `VectorSize`, `ExtVectorType`, `NoReturn`, `MayAlias`, `Mode`, `CDecl`, `NoThrow`
 
-**Errors** (109; the bounds, null and lifetime errors of Clang itself are not listed):
+**Errors** (116; the bounds, null and lifetime errors of Clang itself are not listed):
 
 | Rule | Message |
 |---|---|
@@ -107,6 +107,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `alloca` | 'alloca' is checked only with a constant size and in a function with no variable-length array; use a fixed-size array, or 'malloc' and 'free' |
 | `atomic-cast` | a pointer to an '_Atomic' object used as a plain pointer makes unsynchronized accesses; keep the '_Atomic' type |
 | `atomic-member` | a field of an '_Atomic' struct is accessed without synchronization; load or store the whole struct |
+| `atomic-pointer` | this pointer's bounds are not checked by an atomic operation; pass '&variable' or '&s.field', or store it in a '__single' pointer first |
 | `attr-not-in-safe-c` | Safe C has no rules for the attribute '%0', which may change what the compiler believes; remove it |
 | `block` | blocks are not checked: what one captures may be gone when it runs; use a function and pass it what it needs |
 | `borrow-slot` | %select{local\|field}0 %1 points to a place that holds a borrow, so a store through it changes what that place borrows without naming it; %select{write '&place' where it is used instead of keeping it\|pass the place's address as its own parameter}0 |
@@ -114,8 +115,10 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `builtin-unchecked` | %0 is a compiler builtin that accesses memory without any check; call the library function it stands for ('memcpy', 'strlcpy', 'snprintf', or '<stdatomic.h>' operations on an '_Atomic' object) |
 | `builtin-unchecked-name` | '%0' is a compiler builtin that accesses memory without any check; use '<stdatomic.h>' operations on an '_Atomic' object |
 | `cast-align` | %0 needs stricter alignment than %1 has, and the address may not have it; 'memcpy' the bytes into a variable of type %0 |
+| `cast-incomplete` | %0 is not complete here, so nothing says what the memory holds; move the cast after the struct's definition |
 | `compound-literal-store` | this compound literal's storage ends with the block it is written in, and the pointer assigned here may outlive it; declare it as a named variable in the block where the pointer is used (as in 'int vals[] = {1, 2};'), or initialize a new pointer with it |
 | `const-search` | %0 drops the 'const' of what it searches, so this could write memory that must not change; keep the result in a 'const' pointer |
+| `count-address` | %0 is the count of another field, and a write through its address would not be checked; use a local variable and assign '%0' from it |
 | `drop-moved-by-name` | %0 is freed automatically at the end of its scope ('_Drop'), so giving it away here would free it twice; move it out with '_Take(%1)', which leaves null for the cleanup |
 | `drop-return` | %0 is cleaned up as this function returns, so the copy returned would hold freed memory; return a variable without '_Drop' |
 | `drop-store` | %0 is freed automatically when its scope ends, so it may only hold memory it owns; store an allocation, '_Take(...)' of an owner, or null, not a pointer borrowed from a local or a parameter |
@@ -126,6 +129,8 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `extern-local` | declare %0 at file scope (in a header), where its type and whether it may be shared are checked |
 | `field-borrow-ended` | this pointer is borrowed from '%0', and the borrow ends (the field is taken, replaced, or lent to an exclusive parameter) before its last use; read '%0' again after that point, or finish using the pointer first |
 | `flex-bytes` | %0 keeps the length of its own array, so writing its bytes can make the length wrong; assign its fields by name |
+| `flex-cast` | nothing says the memory behind this pointer has the array that %0 ends with, or its length; allocate a %0 and fill it field by field |
+| `flex-nested` | %0 ends in an array whose length is a field, and inside another struct that length is not checked; keep a pointer to it |
 | `fn-library-pointer` | %0 is checked only when called by name; call it inside a function of your own and use that one's address |
 | `fn-promise` | %0 of this function has different ownership or bounds annotations than in %1, so a call through the pointer would not be checked the same way; write the function's annotations in the pointer's type |
 | `format-pointer` | only a function can check its arguments against a format, and this is not one; call the function by name |
@@ -141,6 +146,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `guarded-address` | %0 is guarded by a lock, and a pointer to it kept here could be used without the lock; pass '&%0' directly to the function that needs it |
 | `heap-slot-borrow` | this heap memory holds pointers of type %0, which nothing tracks, so they can outlive what they point to; give the inner pointer a kind, as in 'T *_Owned *' if the memory owns what they point to, or 'T *_Static *' |
 | `helper-place` | which object this call's result reaches cannot be told, so what borrows it would not end; name the object directly |
+| `init-override` | this replaces part of a value given whole earlier in the same braces, and the rest may depend on it; assign it after the declaration |
 | `library-field` | the fields of %0 belong to the library; use its functions |
 | `library-global-write` | %0 belongs to the C library and every thread shares it, unguarded; use the library's functions that do not need it |
 | `library-unchecked` | nothing says how much memory %0 accesses or keeps, so this call cannot be checked; use a checked function ('snprintf', 'fread', 'strtol'), or write one wrapper for it that checks its sizes, with the call itself in '__unsafe' |
@@ -165,6 +171,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `printf-star` | nothing checks that this buffer holds as many characters as '%%.*s' is told to print; print it with 'fwrite(p, 1, n, file)', or pass a terminated string ('__null_terminated') |
 | `realloc-pointers` | %0 holds pointers, and the memory 'realloc' adds is not zeroed, so its pointers would be garbage; 'calloc' the larger array and move the elements over ('_Take' each owned pointer) |
 | `reborrow-ended` | %0 returns a borrow of '%1', which ends (an owned field of it is taken or replaced, or it is lent exclusively or given away) before this pointer's last use; call %0 again after that point, or finish using the pointer first |
+| `redeclared` | %0 is a library function; include its header, whose declaration says what it accesses |
 | `restrict` | 'restrict' promises that nothing else reaches this memory, and nothing checks it; leave it out |
 | `return-needs-lifetimebound` | %0 returns a pointer borrowed from %1, so it is valid only as long as what %1 points to; mark the parameter '_Lifetimebound' so callers keep it alive, or return an owned copy |
 | `returns-fresh` | %0 returns memory it allocated, but callers are not told, so a use after they free it goes unchecked; declare it '__attribute__((ownership_returns(malloc)))' (safec.h: '_Returns_owned') |

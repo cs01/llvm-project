@@ -2,7 +2,7 @@
 // byte-write check, so memcpy, memset or read could forge its pointers (hole
 // 13 of the 2026-11-23 review). Now it becomes a writable `void *` only in
 // the call that needs one, where the check sees its type.
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
 typedef __SIZE_TYPE__ size_t;
 void *memcpy(void *__sized_by(n) d, const void *__sized_by(n) s, size_t n);

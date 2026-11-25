@@ -2,9 +2,9 @@
 // CodeGen marks every call memory(read) or memory(none), so a body that
 // writes memory (or, for const, reads it) lets the optimizer merge or drop
 // calls. The body is checked; system-header declarations stay trusted.
-// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
-// RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=plain %s
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -fsyntax-only -include safec.h -verify=plain %s
 
 __SIZE_TYPE__ strlen(const char *);
 int counter;

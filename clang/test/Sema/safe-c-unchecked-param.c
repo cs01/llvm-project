@@ -1,8 +1,8 @@
 // Under -fsafe-c, passing a pointer with bounds to an '__unsafe_indexable'
 // parameter is an error: the callee would access it unchecked.
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -D__LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES -include safec.h -verify %s
-// RUN: %clang_cc1 -fsyntax-only -fbounds-safety -D__LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES -include safec.h -verify=plain %s
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -fsyntax-only -fbounds-safety -D__LIBC_STAGED_BOUNDS_SAFETY_ATTRIBUTES -include safec.h -verify=plain %s
 // plain-no-diagnostics
 
 typedef __SIZE_TYPE__ size_t;

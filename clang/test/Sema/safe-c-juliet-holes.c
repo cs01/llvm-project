@@ -1,7 +1,7 @@
 // Found running more Juliet classes (2026-11-24): an _Owned member of an
 // untagged union read through another member (double free), wide formats
 // (no compiler checks them), and realloc's unzeroed growth read as pointers.
-// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -mllvm -safe-c-redeclared=false -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
 typedef __SIZE_TYPE__ size_t;
 typedef __WCHAR_TYPE__ wchar_t;
