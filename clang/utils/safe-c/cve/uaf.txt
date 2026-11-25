@@ -1,0 +1,89 @@
+//// PNG002
+// libpng CVE-2019-7317: png_safe_execute uses image->opaque after the function it ran freed it.
+struct control { int error_buf; };
+struct image { struct control *_Owned _Nullable opaque; };
+static int free_function(struct image *i) { free(_Take(i->opaque)); return 1; }
+static int safe_execute(struct image *i, int (*function)(struct image *)) {
+  struct control *_Nullable c = i->opaque;
+  if (!c) return 0;
+  int saved = c->error_buf;
+  int result = function(i);
+  if (GOOD) c = i->opaque;
+  if (c) c->error_buf = saved;
+  return result;
+}
+int main(void) { struct image i = {NULL}; i.opaque = calloc(1, sizeof(struct control)); return safe_execute(&i, free_function) - 1; }
+//// SSL002
+// OpenSSL CVE-2016-6309: the message buffer is reallocated, and the pointer into it is not moved.
+struct buf { size_t max; unsigned char *_Owned _Nullable __counted_by(max) data; };
+static int grow(struct buf *b, size_t n) {
+  unsigned char *_Owned _Nullable p = calloc(n, 1);
+  if (!p) return 0;
+  if (b->data && b->max <= n) memcpy(p, b->data, b->max);
+  free(_Take(b->data));
+  b->data = p; b->max = n;
+  return 1;
+}
+static int read_message(struct buf *b) {
+  if (!b->data || b->max < 8) return 0;
+  const unsigned char *msg = b->data + 4;
+  if (!grow(b, 1 << 20)) return 0;
+  if (GOOD) { if (!b->data) return 0; msg = b->data + 4; }
+  return msg[0];
+}
+int main(void) { struct buf b = {0, NULL}; if (!grow(&b, 64)) return 1; int r = read_message(&b); free(_Take(b.data)); return r; }
+//// SSL002f
+// The same with the pointer in a field, as OpenSSL has it (s->init_msg).
+#if GOOD
+struct ssl { size_t max; unsigned char *_Owned _Nullable __counted_by(max) data; size_t init_msg; };
+static int first(const struct ssl *s) { return s->data && s->init_msg < s->max ? s->data[s->init_msg] : 0; }
+int main(void) { struct ssl s = {0, NULL, 4}; return first(&s); }
+#else
+struct ssl { size_t max; unsigned char *_Owned _Nullable __counted_by(max) data; unsigned char *_Nullable init_msg; };
+static int first(const struct ssl *s) { return s->init_msg ? *s->init_msg : 0; }
+int main(void) { struct ssl s = {0, NULL, NULL}; return first(&s); }
+#endif
+//// XML012
+// libxml2 CVE-2016-1836: 'end' points into the input, which growing the input moves.
+struct in { size_t len; char *_Owned _Nullable __counted_by(len) base; size_t cur; };
+static int grow(struct in *i) {
+  size_t n = i->len * 2 + 16;
+  char *_Owned _Nullable p = calloc(n, 1);
+  if (!p) return 0;
+  if (i->base) memcpy(p, i->base, i->len);
+  free(_Take(i->base));
+  i->base = p; i->len = n;
+  return 1;
+}
+static int name(struct in *i, size_t len) {
+  if (!i->base || i->cur >= i->len) return -1;
+  const char *end = i->base + i->cur;
+  if (!grow(i)) return -1;
+  i->cur += len;
+  if (GOOD) { if (!i->base) return -1; end = i->base; }
+  return end[0];
+}
+int main(void) { struct in i = {0, NULL, 0}; if (!grow(&i)) return 1; int r = name(&i, 3); free(_Take(i.base)); return r; }
+//// XML013
+// libxml2 CVE-2016-1837: the start of a literal is kept as a pointer while the parser reads on.
+struct in { size_t len; char *_Owned _Nullable __counted_by(len) base; size_t cur; };
+static int next(struct in *i) {
+  if (i->cur + 1 < i->len) { i->cur++; return 1; }
+  size_t n = i->len + 16;
+  char *_Owned _Nullable p = calloc(n, 1);
+  if (!p) return 0;
+  if (i->base) memcpy(p, i->base, i->len);
+  free(_Take(i->base));
+  i->base = p; i->len = n;
+  i->cur++;
+  return 1;
+}
+static int literal(struct in *i) {
+  if (!i->base || i->cur >= i->len) return -1;
+  size_t start = i->cur;
+  const char *q = i->base + start;
+  while (i->cur < 40) if (!next(i)) return -1;
+  if (GOOD) { if (!i->base || start >= i->len) return -1; q = i->base + start; }
+  return *q;
+}
+int main(void) { struct in i = {0, NULL, 0}; if (!next(&i)) return 1; int r = literal(&i); free(_Take(i.base)); return r; }
