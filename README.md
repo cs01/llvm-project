@@ -74,8 +74,9 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 | Data races | a thread owns its argument; locked data, mutable globals and signal handlers are checked. Not yet: a counted pointer and its count under one lock, shared owners (`Arc`) |
 
 **Maturity.** Early. Tested on macOS (arm64) against Apple's SDK. Linux builds but is not usable yet
-(glibc's headers have no annotations). Ported so far: jsmn, cJSON, lz4, inih. The design is proven sound in Lean for small
-models of each rule set, not for Clang itself (see [results](safe-c-docs/results.md)).
+(glibc's headers have no annotations). Ported so far: jsmn, cJSON, lz4, inih. Some rule sets have small Lean models with
+soundness proofs; they are not Clang, and Clang is not sound (see
+[results](safe-c-docs/results.md)).
 Every open item: [open issues](safe-c-notes/review-2026-11-23.md).
 
 **Not sound, in any row.** On 2026-11-24 two independent attackers, each with only the user
