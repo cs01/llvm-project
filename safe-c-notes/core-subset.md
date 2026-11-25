@@ -102,3 +102,13 @@ Corpus of the earlier attacks: 0 of the 351 programs ASan called use after free,
 accepted. That says little: only 8 of 459 ASan-clean corpus programs are accepted, since those use marks and
 headers outside the subset. Two accepted programs fail in ASan for other reasons (b1r_bb37 SEGV, void_v08
 stack overflow, which Safe C is recorded as trapping at run time; not rechecked here).
+
+## Variety (2026-11-24; user: are we overindexing on parson?)
+
+Functions in unmodified code that hit none of the bans a script can see (`core/variety.ts`, a crude proxy:
+it counts every memcpy as a void pointer, and parson scores 43% though its core was written in the subset):
+lua 58%, bearssl 54%, redis 47%, parson 43%, zlib 42%, cmark 41%, sds 40%, lz4 34%, libyaml 28%. Functions that
+store a pointer in memory other than a fresh allocation or null: bearssl 2%, sds 5%, parson 10%, lz4 11%, lua 17%, redis 18%,
+cmark 21%, zlib 22%, libyaml 34%. No Linux source is on this machine; nothing is known about it.
+
+Added gate, before any verdict: slices of cmark's node tree, redis dict, zlib inflate and a Linux-style file.
