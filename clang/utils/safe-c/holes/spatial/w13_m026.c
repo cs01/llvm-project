@@ -1,0 +1,1 @@
+typedef int v4 __attribute__((vector_size(16)));__attribute__((noinline)) int f(v4*a,int*__counted_by(n)b,int n){return b[(*a)[4]];}int main(void){v4 a[2]={{0},{100000,0}};int b[2]={1,2};return f(a,b,2);}

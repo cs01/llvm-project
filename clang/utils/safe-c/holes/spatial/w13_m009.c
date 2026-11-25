@@ -1,0 +1,1 @@
+void*memmove(void*__sized_by(1) d,const void*__sized_by(1) s,unsigned long n);struct S{char b[4];char k[4];};int main(void){struct S s={{1},{1}};char q[8];for(int i=0;i<8;i++)q[i]=42;volatile int k=8;memmove(s.b,q,k);return s.k[0];}
