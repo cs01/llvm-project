@@ -5,5 +5,5 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-static const char*names[]={"a","b"};
+static const char*const names[]={"a","b"};
 int main(void){ puts(names[1]); }

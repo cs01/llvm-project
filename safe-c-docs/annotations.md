@@ -33,6 +33,8 @@ safe choice. You annotate only where a pointer does more:
 | `_Guarded_by(m)` | data read or written only while holding lock `m`; Clang's thread-safety analysis checks it | `Mutex<T>` | `struct _Capability("mutex") mtx { int state; }; struct mtx stats_lock; int hits _Guarded_by(stats_lock);` | Safe C (Clang's `guarded_by`) |
 | `_Unsynchronized` | on a global written only before any thread starts (settings, hooks): it needs no lock, but every write must be inside `__unsafe` | `static mut` | `static int log_level _Unsynchronized;` | Safe C |
 | `_Requires(m)`, `_Acquires(m)`, `_Releases(m)` | a function's callers must hold `m`; or it takes or releases `m` | a `MutexGuard` held across a call | `void bump(void) _Requires(&stats_lock);` | Safe C (Clang's thread-safety attributes) |
+| `_Taken_if_true`, `_Taken_if_zero` | on a parameter: the function takes ownership only when it returns true (or zero) | returning the `Box` back in `Err` | `_Bool append(struct node *list, struct node *_Taken_if_true n);` | Safe C |
+| `_Trusted` | a function whose ownership is not checked inside; its callers are held to its signature | a safe function around an `unsafe` body | `_Trusted void swap(struct node *a, struct node *b);` | Safe C |
 | `__unsafe` | a block or function where Safe C's rules are lifted, for code that cannot be checked | `unsafe { }` | `int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }` | Safe C |
 | `#pragma clang safe_c legacy` | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C | first line of a header not yet ported | Safe C |
 

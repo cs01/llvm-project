@@ -32,4 +32,6 @@ struct guard { int held; }; void release(struct guard *g); void use_guard(void) 
 struct _Capability("mutex") mtx { int state; }; struct mtx stats_lock; int hits _Guarded_by(stats_lock);
 static int log_level _Unsynchronized;
 void bump(void) _Requires(&stats_lock);
+_Bool append(struct node *list, struct node *_Taken_if_true n);
+_Trusted void swap(struct node *a, struct node *b);
 int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }

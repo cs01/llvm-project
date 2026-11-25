@@ -47,9 +47,8 @@ bool ownedAtEveryLevel(QualType T) {
 
 //===----------------------------------------------------------------------===//
 // Library contracts, by what a call does with pointers. A function whose
-// prototype has no pointer needs none. Left out on purpose: strtok, realloc,
-// callbacks (qsort, signal), va_list, and whatever keeps a pointer (putenv,
-// setvbuf, pthread_create).
+// prototype has no pointer needs none. Left out on purpose: strtok, va_list, and
+// whatever keeps a pointer (putenv, setvbuf, pthread_create).
 //===----------------------------------------------------------------------===//
 
 enum class Lib {
@@ -59,6 +58,12 @@ enum class Lib {
   ZeroedOwner,  // the same, zero-filled
   Reads,        // accesses memory during the call only, returns no pointer
   InsideFirst,  // the same, and the result is null or inside the first argument
+  InsideSecond, // the same, the second
+  Callback,     // reads, and calls the function it is given during the call or,
+                // when that takes no pointer, at any time
+  EndOut,       // reads, and sets *arg 2 to null or inside the first argument
+  OwnerOut,     // reads, and sets *arg 1 to a new owner, or null, or not at all
+  Reallocs,     // takes the owner in the first argument, returns a new one
   Stops,        // never returns
   Static,       // returns a pointer to storage that lives as long as the program
   UntilNextCall // returns a pointer into storage a later call may change
@@ -70,6 +75,12 @@ Lib libraryContract(StringRef N) {
   N.consume_back("_chk");
   return llvm::StringSwitch<Lib>(N)
       .Cases({"free", "fclose", "pclose", "closedir"}, Lib::Frees)
+      .Case("realloc", Lib::Reallocs)
+      .Cases({"qsort", "signal", "atexit"}, Lib::Callback)
+      .Case("bsearch", Lib::InsideSecond)
+      .Cases({"strtol", "strtoul", "strtoll", "strtoull", "strtod", "strtof"},
+             Lib::EndOut)
+      .Case("asprintf", Lib::OwnerOut)
       .Cases({"malloc", "strdup", "strndup", "fopen", "fdopen", "popen", "opendir"},
              Lib::Owner)
       .Case("calloc", Lib::ZeroedOwner)
@@ -95,9 +106,8 @@ Lib libraryContract(StringRef N) {
              Lib::Reads)
       .Cases({"strlen", "strnlen", "strcmp", "strncmp", "strcasecmp",
               "strncasecmp", "memcmp", "strcspn", "strspn", "strlcpy", "strlcat",
-              "bzero", "atoi", "atol", "atof", "strtol", "strtoul", "strtoll",
-              "strtoull", "strtod", "strtof", "time", "clock_gettime",
-              "gettimeofday", "mktime", "strftime", "pthread_mutex_lock",
+              "bzero", "atoi", "atol", "atof", "time", "clock_gettime",
+              "setenv", "unsetenv", "gettimeofday", "mktime", "strftime", "pthread_mutex_lock",
               "pthread_mutex_unlock", "pthread_mutex_trylock", "sigemptyset",
               "sigfillset", "sigaddset"},
              Lib::Reads)
@@ -152,6 +162,7 @@ struct Val {
   enum Kind { Pointer, Address, Local, Null, Owner, OwnerOf, Static, Function } K;
   Value Of; // Pointer, Address: the node; Local, OwnerOf: the variable
   bool Zeroed = false, Typed = false; // Owner
+  bool Table = false; // Static: inside a constant table of static pointers
 };
 
 struct Rejected {
@@ -205,6 +216,50 @@ public:
     D.Report(L, D.getCustomDiagID(DiagnosticsEngine::Error, "%0")) << Msg.str();
   }
 
+  /// Constant at every level, so its pointers are the ones it was initialized
+  /// with, and those are addresses of globals and literals.
+  bool isTable(QualType T) const {
+    QualType E = Ctx.getBaseElementType(T);
+    if (!E.isConstQualified())
+      return false;
+    if (E->isPointerType())
+      return !E->getPointeeType()->isPointerType() && !E->isFunctionPointerType() &&
+             !isOwned(E) && !hasOwners(E->getPointeeType());
+    const RecordDecl *RD = E->getAsRecordDecl();
+    RD = RD ? RD->getDefinition() : nullptr;
+    return RD && mine(RD) && !RD->isUnion() &&
+           llvm::all_of(RD->fields(), [&](const FieldDecl *F) {
+             return !hasOwners(F->getType()) ||
+                    pointerKind(F->getType()) == "static";
+           });
+  }
+
+  /// What a function type promises about its pointers; nothing if it has no rule.
+  std::optional<SmallVector<std::string, 4>> marks(const FunctionProtoType *P) const {
+    if (!P || P->isVariadic())
+      return std::nullopt;
+    SmallVector<std::string, 4> Out;
+    auto Add = [&](QualType T) {
+      if (T->isPointerType()
+              ? T->getPointeeType()->isPointerType() || T->isFunctionPointerType()
+              : hasOwners(T))
+        return false;
+      Out.push_back(pointerKind(T).str());
+      return true;
+    };
+    for (QualType T : P->getParamTypes())
+      if (!Add(T))
+        return std::nullopt;
+    if (!Add(P->getReturnType()))
+      return std::nullopt;
+    return Out;
+  }
+  static const FunctionProtoType *pointedProto(QualType T) {
+    return T->isFunctionPointerType()
+               ? T->getPointeeType()->getAs<FunctionProtoType>()
+               : nullptr;
+  }
+
   void field(const FieldDecl *F) {
     QualType T = F->getType(), E = Ctx.getBaseElementType(T);
     if (!E->isPointerType()) {
@@ -220,6 +275,8 @@ public:
     else if (F->getParent()->isUnion())
       error(F->getLocation(), "a union holding pointers has no checked access; "
                               "use one field per member");
+    else if (pointerKind(T) == "static" && !hasOwners(E->getPointeeType()))
+      return;
     else if (!ownedAtEveryLevel(T))
       error(F->getLocation(),
             "'" + F->getNameAsString() +
@@ -228,11 +285,16 @@ public:
                 "pass the pointer as a parameter or keep an index");
   }
   void global(const VarDecl *V) {
-    if (hasOwners(V->getType()))
-      error(V->getLocation(), "'" + V->getNameAsString() +
-                                  "' is shared by the whole program and holds a "
-                                  "pointer; keep it in a struct that main owns "
-                                  "and pass that");
+    if (!hasOwners(V->getType()) || isTable(V->getType()))
+      return;
+    bool Pointers = Ctx.getBaseElementType(V->getType())->isPointerType();
+    error(V->getLocation(), "'" + V->getNameAsString() +
+                                "' is shared by the whole program and holds a "
+                                "pointer" +
+                                (Pointers ? "; if it never changes put 'const' "
+                                            "after the '*', otherwise keep it"
+                                          : "; keep it") +
+                                " in a struct that main owns and pass that");
   }
   void function(const FunctionDecl *FD) {
     auto Bad = [&](SourceLocation L, const Twine &M) { error(L, M); };
@@ -240,14 +302,21 @@ public:
     if (R->isPointerType() && R->getPointeeType()->isPointerType())
       Bad(FD->getLocation(), "returns a pointer to a pointer, which has no rule; "
                              "return the inner pointer");
+    if (R->isPointerType() && pointerKind(R) == "static" &&
+        hasOwners(R->getPointeeType()))
+      Bad(FD->getLocation(), "a '_Static' result points to nothing that owns memory");
     if (!R->isPointerType() && hasOwners(R))
       Bad(FD->getLocation(), "a struct that owns memory is returned by value, "
                              "which copies its owners; fill one through a pointer");
     for (const ParmVarDecl *P : FD->parameters()) {
       QualType T = P->getType();
-      if (T->isFunctionPointerType())
-        Bad(P->getLocation(), "a function pointer parameter has no ownership rule");
-      else if (T->isPointerType() && T->getPointeeType()->isPointerType() &&
+      if (T->isFunctionPointerType()) {
+        if (!marks(pointedProto(T)))
+          Bad(P->getLocation(), "this function pointer's type has no rule: its "
+                                "parameters may not be pointers to pointers, "
+                                "function pointers, '...' or structs that own "
+                                "memory");
+      } else if (T->isPointerType() && T->getPointeeType()->isPointerType() &&
                !FD->isMain())
         Bad(P->getLocation(), "a pointer to a pointer parameter has no rule; "
                               "pass the struct that holds the pointer");
@@ -255,6 +324,9 @@ public:
         Bad(P->getLocation(), "a struct that owns memory is passed by value, "
                               "which copies its owners; pass a pointer");
     }
+    if (const FunctionDecl *Prev = FD->getPreviousDecl())
+      if (pointerKind(Prev->getReturnType()) != pointerKind(R))
+        Bad(FD->getLocation(), "an earlier declaration marks the result differently");
     if (const FunctionDecl *Prev = FD->getPreviousDecl())
       for (unsigned I = 0; I < FD->getNumParams() && I < Prev->getNumParams(); ++I)
         if (pointerKind(FD->getParamDecl(I)->getType()) !=
@@ -291,6 +363,8 @@ public:
           return true;
         Locals[V->getName()].push_back({V, Scope});
         QualType T = V->getType(), E = R.Ctx.getBaseElementType(T);
+        if (V->hasGlobalStorage() && R.isTable(T))
+          return true;
         if (V->isStaticLocal() && R.hasOwners(T))
           R.error(V->getLocation(), "a static local holding a pointer has no rule; "
                                     "pass it as a parameter");
@@ -325,7 +399,8 @@ public:
             !C->getSubExpr()->isNullPointerConstant(
                 R.Ctx, Expr::NPC_ValueDependentIsNotNull))
           R.error(C->getExprLoc(), "a pointer cast has no ownership rule; declare "
-                                   "the pointer with the type it has");
+                                   "the pointer with the type it has, or cast in a "
+                                   "small function marked '_Trusted'");
         return true;
       }
     } W(*this);
@@ -618,6 +693,112 @@ private:
                "'_Take(...)', or pass on an '_Owned' variable");
   }
 
+  /// A signal arrives in the middle of anything, 'malloc' included.
+  void signalHandler(Value V) {
+    auto It = Globals.find(V);
+    const auto *F = It == Globals.end()
+                        ? nullptr
+                        : dyn_cast_or_null<FunctionDecl>(
+                              Gen.getDeclForMangledName(It->second));
+    const FunctionDecl *Def = F ? F->getDefinition() : nullptr;
+    if (!Def)
+      return fail("a signal handler is named, and defined in this file");
+    if (R.trusted(Def))
+      return;
+    struct Calls : RecursiveASTVisitor<Calls> {
+      const CallExpr *Bad = nullptr;
+      bool VisitCallExpr(CallExpr *C) {
+        const FunctionDecl *D = C->getDirectCallee();
+        StringRef N = D && D->getIdentifier() ? D->getName() : StringRef();
+        if (N != "_exit" && N != "write")
+          Bad = C;
+        return true;
+      }
+    } W;
+    W.TraverseStmt(Def->getBody());
+    if (W.Bad)
+      fail("a signal may arrive in the middle of 'malloc' or 'printf', so a handler "
+           "calls nothing but 'write' and '_exit'; set a 'volatile sig_atomic_t' and "
+           "act on it later");
+  }
+  /// The field an address is in, or is an element of.
+  const FieldDecl *fieldOf(Value Addr) const {
+    while (mlir::Operation *Op = Addr.getDefiningOp()) {
+      if (auto M = mlir::dyn_cast<cir::GetMemberOp>(Op)) {
+        auto RT = mlir::dyn_cast<cir::RecordType>(pointee(M.getAddr().getType()));
+        auto It = RT && RT.getName() ? Records.find(RT.getName().getValue())
+                                     : Records.end();
+        if (It == Records.end() || M.getName().empty())
+          return nullptr;
+        for (const FieldDecl *F : It->second->fields())
+          if (F->getName() == M.getName())
+            return F;
+        return nullptr;
+      }
+      auto C = mlir::dyn_cast<cir::CastOp>(Op);
+      if (!(C && C.getKind() == cir::CastKind::array_to_ptrdecay) &&
+          !mlir::isa<cir::PtrStrideOp, cir::GetElementOp>(Op))
+        return nullptr;
+      Addr = Op->getOperand(0);
+    }
+    return nullptr;
+  }
+  bool inStaticField(Value Addr) const {
+    const FieldDecl *F = fieldOf(Addr);
+    return F && pointerKind(F->getType()) == "static";
+  }
+  bool isStatic(Value V) {
+    Val *X = val(V);
+    if (!X)
+      return false;
+    if (X->K == Val::Null || X->K == Val::Static)
+      return true;
+    const Node *N = X->K == Val::Pointer ? node(X->Of) : nullptr;
+    return N && N->K == Node::Static;
+  }
+  /// A function pointer parameter read from its variable.
+  const FunctionProtoType *calledThrough(Value V) const {
+    auto L = V.getDefiningOp<cir::LoadOp>();
+    auto It = L ? Vars.find(L.getAddr()) : Vars.end();
+    if (It == Vars.end() || !isa_and_nonnull<ParmVarDecl>(It->second.VD))
+      return nullptr;
+    return FileRules::pointedProto(It->second.VD->getType());
+  }
+  bool ours(const FunctionDecl *F) const {
+    return F && R.mine(F) && !F->getBuiltinID();
+  }
+  /// Is V a function that promises exactly what Formal does? A library's
+  /// prototype promises nothing, so its functions are not passed.
+  void functionArgument(Value V, const FunctionProtoType *Formal) {
+    auto Want = R.marks(Formal);
+    if (!Want)
+      return fail("this function pointer's type has no ownership rule");
+    const FunctionProtoType *Got = calledThrough(V);
+    if (!Got) {
+      auto It = Globals.find(V);
+      mlir::Operation *Op = V.getDefiningOp();
+      while (It == Globals.end() && Op && mlir::isa<cir::CastOp>(Op)) {
+        It = Globals.find(Op->getOperand(0));
+        Op = Op->getOperand(0).getDefiningOp();
+      }
+      const auto *F = It == Globals.end()
+                          ? nullptr
+                          : dyn_cast_or_null<FunctionDecl>(
+                                Gen.getDeclForMangledName(It->second));
+      if (!ours(F) || libraryContract(It->second) != Lib::None)
+        return fail("only a function of this program may be passed, by name or from "
+                    "a parameter; write a small function that calls this one");
+      Got = F->getType()->getAs<FunctionProtoType>();
+    }
+    if (!Got || !R.Ctx.hasSameType(QualType(Got, 0), QualType(Formal, 0)))
+      return fail("this function's type differs from the parameter's");
+    auto Has = R.marks(Got);
+    if (!Has || *Has != *Want)
+      fail("this function's parameters or result are marked differently from the "
+           "function pointer's; write the same marks in both");
+  }
+  void assignBorrow(Value A, Value P, bool Cap);
+
   void operation(mlir::Operation *Op);
   void call(cir::CallOp Op);
   void ret(cir::ReturnOp Op);
@@ -893,6 +1074,10 @@ void FunctionCheck::cast(cir::CastOp Op) {
   }
   if (K != CK::bitcast)
     return fail("this pointer conversion has no ownership rule");
+  if (From != To && (mlir::isa<cir::FuncType>(pointee(From)) ||
+                     mlir::isa<cir::FuncType>(pointee(To))) &&
+      !(val(Src) && val(Src)->K == Val::Null))
+    return fail("a function pointer conversion has no ownership rule");
   Val *P = val(Src);
   if (!P)
     return fail("this value has no ownership rule");
@@ -923,11 +1108,18 @@ void FunctionCheck::cast(cir::CastOp Op) {
     return Rename(N);
   }
   auto OnlyFreed = [&] {
-    return llvm::all_of(Res.getUsers(), [](mlir::Operation *U) {
+    return llvm::all_of(Res.getUsers(), [&](mlir::Operation *U) {
       auto C = mlir::dyn_cast<cir::CallOp>(U);
-      return C && C.getCallee() && cName(*C.getCallee()) == "free";
+      if (!C || !C.getCallee())
+        return false;
+      StringRef N = cName(*C.getCallee());
+      // What realloc adds is not null.
+      return N == "free" || (N == "realloc" && !ownersIn(F));
     });
   };
+  if (ToVoid && OnlyFreed() && libraryRecord(F))
+    return fail("the library made this and only its own function closes it, as "
+                "'fclose' does");
   if (ToVoid && OnlyFreed()) {
     if (V.K == Val::Owner)
       return Rename(mk(Val::Owner));
@@ -950,8 +1142,10 @@ void FunctionCheck::cast(cir::CastOp Op) {
     Vals[Res] = V;
     return;
   }
-  if (!ownersIn(F) && !ownersIn(T) && !mlir::isa<cir::RecordType>(F) &&
-      !mlir::isa<cir::RecordType>(T) && V.K != Val::Owner) {
+  // Nothing turns a 'void *' back into a struct but a '_Trusted' function.
+  bool Bytes = !mlir::isa<cir::RecordType>(F) || (ToVoid && !libraryRecord(F));
+  if (!ownersIn(F) && !ownersIn(T) && Bytes && !mlir::isa<cir::RecordType>(T) &&
+      V.K != Val::Owner) {
     if (V.K == Val::Local) {
       if (Vars.lookup(V.Of).Pointer)
         return fail("the address of a pointer variable has no rule");
@@ -965,7 +1159,8 @@ void FunctionCheck::cast(cir::CastOp Op) {
     }
     return;
   }
-  fail("a pointer conversion between different types has no ownership rule");
+  fail("a pointer conversion between different types has no ownership rule; "
+       "convert it in a small function marked '_Trusted'");
 }
 
 void FunctionCheck::load(cir::LoadOp Op) {
@@ -1018,6 +1213,11 @@ void FunctionCheck::load(cir::LoadOp Op) {
     S->F.erase(Res);
     return;
   }
+  if (inStaticField(Addr) || (V->K == Val::Static && V->Table)) {
+    setNode(Res, plain(Node::Static));
+    Vals[Res] = mk(Val::Pointer, Res);
+    return;
+  }
   if (isStaticBase(B)) {
     // stdin, stdout, stderr and main's arguments live as long as the program.
     std::string G = Globals.lookup(Addr);
@@ -1058,6 +1258,37 @@ void FunctionCheck::load(cir::LoadOp Op) {
   bool Cap = capable(node(*B));
   setNode(Res, borrow(*B, Cap));
   Vals[Res] = mk(Val::Pointer, Res);
+}
+
+/// The pointer variable A now points into what P names.
+void FunctionCheck::assignBorrow(Value A, Value P, bool Cap) {
+  Var X = Vars[A];
+  reparent(A);
+  S->N.erase(A);
+  // Hang off a named variable, not off a temporary that will be reused.
+  while (P) {
+    Node *N = node(P);
+    bool Temp = !Vars.count(P) && N && N->K == Node::Borrow && N->Parent;
+    if (P != A && !Temp)
+      break;
+    P = N ? N->Parent : Value();
+  }
+  if (!P)
+    return fail("this would make " + nameOf(A) + " borrow from itself");
+  // A variable may not be pointed to from outside its block.
+  Value Root = rootOf(*S, P);
+  auto RIt = Vars.find(Root);
+  if (RIt != Vars.end() && !RIt->second.Pointer) {
+    const Var &RV = RIt->second;
+    if (RV.Scope.empty() || X.Scope.empty())
+      return fail(nameOf(A) + " points to a variable or temporary with no known "
+                              "block");
+    if (!StringRef(X.Scope).starts_with(RV.Scope))
+      return fail(nameOf(A) + " outlives " + nameOf(Root) +
+                  ", which it would point to; declare " + nameOf(Root) +
+                  " in the same block or an outer one");
+  }
+  S->N[A] = borrow(P, Cap);
 }
 
 void FunctionCheck::store(cir::StoreOp Op) {
@@ -1102,6 +1333,8 @@ void FunctionCheck::store(cir::StoreOp Op) {
       }
       return;
     }
+    if (X.VD && X.VD->getType()->isFunctionPointerType())
+      return fail("a function pointer parameter may not be assigned");
     Val *XV = val(V);
     if (!XV)
       return fail("a pointer value with no ownership rule");
@@ -1133,33 +1366,7 @@ void FunctionCheck::store(cir::StoreOp Op) {
     }
     bool Cap = capable(node(*B)) && X.Capable;
     Value P = SV.K == Val::OwnerOf ? SV.Of : *B;
-    reparent(A);
-    S->N.erase(A);
-    // Hang off a named variable, not off a temporary that will be reused.
-    while (P) {
-      Node *N = node(P);
-      bool Temp = !Vars.count(P) && N && N->K == Node::Borrow && N->Parent;
-      if (P != A && !Temp)
-        break;
-      P = N ? N->Parent : Value();
-    }
-    if (!P)
-      return fail("this would make " + nameOf(A) + " borrow from itself");
-    // A variable may not be pointed to from outside its block.
-    Value Root = rootOf(*S, P);
-    auto RIt = Vars.find(Root);
-    if (RIt != Vars.end() && !RIt->second.Pointer) {
-      const Var &RV = RIt->second;
-      if (RV.Scope.empty() || X.Scope.empty())
-        return fail(nameOf(A) + " points to a variable or temporary with no known "
-                                "block");
-      if (!StringRef(X.Scope).starts_with(RV.Scope))
-        return fail(nameOf(A) + " outlives " + nameOf(Root) +
-                    ", which it would point to; declare " + nameOf(Root) +
-                    " in the same block or an outer one");
-    }
-    S->N[A] = borrow(P, Cap);
-    return;
+    return assignBorrow(A, P, Cap);
   }
   if (!isPtr(T)) {
     if (!base(D, "write"))
@@ -1167,6 +1374,13 @@ void FunctionCheck::store(cir::StoreOp Op) {
     if (ownersIn(T))
       return fail("this copies a struct that owns memory; move its fields one by "
                   "one");
+    return;
+  }
+  if (inStaticField(D)) {
+    if (!base(D, "write"))
+      return;
+    if (!isStatic(V))
+      fail("a '_Static' field holds only literals and the addresses of globals");
     return;
   }
   // The null half of '_Take'.
@@ -1210,10 +1424,19 @@ void FunctionCheck::call(cir::CallOp Op) {
     }
   }
   Used.assign(Expiring.begin(), Expiring.end());
-  if (Op.isIndirect())
-    return fail("a call through a function pointer has no ownership rule; call the "
-                "function by name");
-  StringRef Sym = *Op.getCallee(), Name = cName(Sym);
+  // A call through a pointer: the rules read a signature, never a body, and a
+  // function passed as that parameter has the same one.
+  const FunctionProtoType *Through = nullptr;
+  std::string PointerName;
+  if (Op.isIndirect()) {
+    Through = calledThrough(Op.getIndirectCall());
+    if (!Through || !R.marks(Through))
+      return fail("a call through a function pointer has no ownership rule unless the "
+                  "pointer is a parameter; call the function by name");
+    PointerName = "the function pointer";
+  }
+  StringRef Sym = Through ? StringRef() : *Op.getCallee();
+  StringRef Name = Through ? StringRef(PointerName) : cName(Sym);
   if (Res) {
     for (auto &KV : S->N)
       if (KV.second.K == Node::Maybe && KV.second.Token == Res) {
@@ -1228,20 +1451,45 @@ void FunctionCheck::call(cir::CallOp Op) {
       S->F.erase(V);
   }
   const auto *Callee =
-      dyn_cast_or_null<FunctionDecl>(Gen.getDeclForMangledName(Sym));
+      Through ? nullptr
+              : dyn_cast_or_null<FunctionDecl>(Gen.getDeclForMangledName(Sym));
+  const bool Ours = Through || ours(Callee);
+  const Lib K0 = Ours ? Lib::None : libraryContract(Name);
+  const int OutArg = K0 == Lib::EndOut ? 1 : K0 == Lib::OwnerOut ? 0 : -1;
+  auto NumParams = [&] {
+    return Through ? Through->getNumParams() : Callee->getNumParams();
+  };
+  auto ParamType = [&](unsigned I) {
+    return Through ? Through->getParamType(I) : Callee->getParamDecl(I)->getType();
+  };
   mlir::OperandRange Args = Op.getArgOperands();
   bool ResPtr = Res && isPtr(Res.getType());
-  for (Value A : Args) {
+  for (auto [I, A] : llvm::enumerate(Args)) {
     if (!isPtr(A.getType()))
       continue;
     Val *V = val(A);
     if (!V)
       return fail("this argument has no ownership rule");
+    if (int(I) == OutArg && (V->K == Val::Local || V->K == Val::Null))
+      continue;
     if (V->K == Val::Local && Vars.lookup(V->Of).Pointer)
       return fail("the address of a pointer variable is passed, which has no rule; "
                   "pass the struct that holds the pointer, or return the pointer");
-    if (V->K == Val::Function)
-      return fail("a function passed as an argument has no ownership rule");
+    if (V->K == Val::Function || mlir::isa<cir::FuncType>(pointee(A.getType()))) {
+      const FunctionProtoType *Formal =
+          I < (Through || Callee ? NumParams() : 0)
+              ? FileRules::pointedProto(ParamType(I))
+              : nullptr;
+      if (V->K == Val::Null && Formal)
+        continue;
+      if (!Formal || !(Ours || K0 == Lib::Callback || K0 == Lib::InsideSecond))
+        return fail("a function passed here has no ownership rule");
+      functionArgument(A, Formal);
+      if (!Failed() && !Ours && Name == "signal")
+        signalHandler(A);
+      if (Failed())
+        return;
+    }
   }
   auto NewOwner = [&](bool Zeroed, bool Typed) {
     setNode(Res, plain(Node::Own));
@@ -1250,9 +1498,8 @@ void FunctionCheck::call(cir::CallOp Op) {
     N.Typed = Typed;
     Vals[Res] = N;
   };
-  const bool Ours = Callee && R.mine(Callee) && !Callee->getBuiltinID();
   if (!Ours) {
-    Lib K = libraryContract(Name);
+    Lib K = K0;
     if (K == Lib::None && !ResPtr && Callee && !Callee->isVariadic() &&
         llvm::none_of(Callee->parameters(), [](const ParmVarDecl *P) {
           return P->getType()->isAnyPointerType();
@@ -1273,8 +1520,13 @@ void FunctionCheck::call(cir::CallOp Op) {
         S->F.erase(Res);
       return;
     }
-    for (Value A : Args) {
-      if (!isPtr(A.getType()))
+    if (K == Lib::Reallocs) {
+      takeOwner(Args[0], "passed to 'realloc' (which may free it)");
+      return Failed() ? void() : NewOwner(false, false);
+    }
+    for (auto [I, A] : llvm::enumerate(Args)) {
+      if (!isPtr(A.getType()) || int(I) == OutArg ||
+          mlir::isa<cir::FuncType>(pointee(A.getType())))
         continue;
       if (!base(A, "passed to '" + Name + "'"))
         return;
@@ -1293,8 +1545,48 @@ void FunctionCheck::call(cir::CallOp Op) {
       Temporaries.insert(Res);
       Vals[Res] = mk(Val::Pointer, Res);
       return;
-    case Lib::InsideFirst: {
+    case Lib::EndOut:
+    case Lib::OwnerOut: {
+      if (ResPtr)
+        return fail("the result of '" + Name + "' has no rule");
+      if (Res)
+        S->F.erase(Res);
+      if (val(Args[OutArg])->K == Val::Null)
+        return;
+      Value A = val(Args[OutArg])->Of;
+      Var X = Vars.lookup(A);
+      if (!X.Pointer)
+        return fail("this is not a pointer variable");
+      if (K == Lib::OwnerOut) {
+        if (!X.Owned)
+          return fail("'" + Name + "' makes a new owner; declare " + nameOf(A) +
+                      " '_Owned'");
+        // A failed call may leave it as it was.
+        const Node *N = node(A);
+        if (!N || N->K != Node::Own)
+          return fail("a failed '" + Name + "' may leave " + nameOf(A) +
+                      " as it was; set it to NULL first");
+        killDescendants(A, "'" + Name + "' gave its owner another value" + here());
+        return;
+      }
+      if (X.Owned)
+        return fail("'" + Name + "' makes " + nameOf(A) + " point into its first "
+                    "argument, so it is not an owner");
       std::optional<Value> B = base(Args[0], "passed");
+      if (!B)
+        return;
+      if (isStaticBase(B)) {
+        reparent(A);
+        S->N[A] = plain(Node::Static);
+        return;
+      }
+      Val *From = val(Args[0]);
+      return assignBorrow(A, From->K == Val::OwnerOf ? From->Of : *B, false);
+    }
+    case Lib::InsideFirst:
+    case Lib::InsideSecond: {
+      std::optional<Value> B =
+          base(Args[K == Lib::InsideSecond ? 1 : 0], "passed");
       if (!B || !Res)
         return;
       if (!*B) {
@@ -1306,6 +1598,8 @@ void FunctionCheck::call(cir::CallOp Op) {
       return;
     }
     default:
+      if (ResPtr && K == Lib::Callback && Res.use_empty())
+        return;
       if (ResPtr)
         return fail("the result of '" + Name + "' has no rule");
       if (Res)
@@ -1313,7 +1607,7 @@ void FunctionCheck::call(cir::CallOp Op) {
       return;
     }
   }
-  if (Args.size() > Callee->getNumParams())
+  if (Args.size() > NumParams())
     return fail("a variadic function has no ownership rule");
   struct Use {
     Value Base;
@@ -1322,8 +1616,9 @@ void FunctionCheck::call(cir::CallOp Op) {
   };
   SmallVector<Use, 4> Uses;
   for (unsigned I = 0; I < Args.size(); ++I) {
-    QualType PT = Callee->getParamDecl(I)->getType();
-    if (!PT->isPointerType() || isOwned(PT) || isTaken(PT))
+    QualType PT = ParamType(I);
+    if (!PT->isPointerType() || PT->isFunctionPointerType() || isOwned(PT) ||
+        isTaken(PT))
       continue;
     std::optional<Value> B = base(Args[I], "passed to '" + Name + "'");
     if (!B)
@@ -1344,9 +1639,10 @@ void FunctionCheck::call(cir::CallOp Op) {
                     "may change one; make that parameter 'const', or pass a copy");
   // A result that is a borrow comes from the first borrowed parameter.
   int First = -1;
-  for (unsigned I = 0; I < Callee->getNumParams() && First < 0; ++I) {
-    QualType PT = Callee->getParamDecl(I)->getType();
-    if (PT->isPointerType() && !isOwned(PT) && !isTaken(PT))
+  for (unsigned I = 0; I < NumParams() && First < 0; ++I) {
+    QualType PT = ParamType(I);
+    if (PT->isPointerType() && !PT->isFunctionPointerType() && !isOwned(PT) &&
+        !isTaken(PT))
       First = I;
   }
   const Use *From = nullptr;
@@ -1356,7 +1652,7 @@ void FunctionCheck::call(cir::CallOp Op) {
   bool FromCap = From && capable(node(From->Base));
   SmallVector<std::pair<Value, bool>, 2> Pending;
   for (unsigned I = 0; I < Args.size(); ++I) {
-    QualType PT = Callee->getParamDecl(I)->getType();
+    QualType PT = ParamType(I);
     if (!PT->isPointerType() || !(isOwned(PT) || isTaken(PT)))
       continue;
     if (!isTaken(PT)) {
@@ -1409,12 +1705,19 @@ void FunctionCheck::call(cir::CallOp Op) {
       fail("a struct that owns memory is returned by value");
     return;
   }
-  if (isOwned(Callee->getReturnType()))
+  QualType RT = Through ? Through->getReturnType() : Callee->getReturnType();
+  if (isOwned(RT))
     return NewOwner(true, true);
+  if (pointerKind(RT) == "static") {
+    setNode(Res, plain(Node::Static));
+    Vals[Res] = mk(Val::Pointer, Res);
+    return;
+  }
   if (!From) {
     if (First < 0)
       return fail("'" + Name + "' returns a borrow of nothing; if the caller frees "
-                               "the result, mark it '_Owned'");
+                               "the result, mark it '_Owned'; if it is a literal or a "
+                  "global, '_Static'");
     setNode(Res, plain(Node::Static));
     Vals[Res] = mk(Val::Pointer, Res);
     return;
@@ -1459,6 +1762,9 @@ void FunctionCheck::ret(cir::ReturnOp Op) {
       return fail("the returned value has no ownership rule");
     if (isOwned(FD->getReturnType())) {
       takeOwner(V, "returned");
+    } else if (pointerKind(FD->getReturnType()) == "static") {
+      if (!isStatic(V))
+        return fail("a '_Static' result is a literal or the address of a global");
     } else if (X->K != Val::Null && X->K != Val::Static) {
       std::optional<Value> B = base(V, "returned");
       if (!B)
@@ -1468,7 +1774,8 @@ void FunctionCheck::ret(cir::ReturnOp Op) {
         if (FirstBorrow < 0 || Root != Fn.getArgument(FirstBorrow))
           return fail("a borrow may only be returned from inside the first "
                       "parameter that is not '_Owned'; if the caller frees it, "
-                      "mark the result '_Owned'");
+                      "mark the result '_Owned'; if it is a literal or a "
+                      "global, '_Static'");
       }
     }
     if (Failed())
@@ -1520,7 +1827,13 @@ void FunctionCheck::operation(mlir::Operation *Op) {
     }
     Vals[Res] = mk(Val::Static);
     const auto *D = dyn_cast_or_null<VarDecl>(Gen.getDeclForMangledName(G.getName()));
-    if (D && R.mine(D) && ownersIn(pointee(Res.getType())))
+    if (!D)
+      for (auto &KV : Locals) // a static local is 'function.variable'
+        if (KV.second.size() == 1 && KV.second.front().VD->isStaticLocal() &&
+            G.getName() == (Fn.getSymName() + "." + KV.first()).str())
+          D = KV.second.front().VD;
+    Vals[Res].Table = D && R.mine(D) && R.isTable(D->getType());
+    if (D && !Vals[Res].Table && R.mine(D) && ownersIn(pointee(Res.getType())))
       fail("this global holds pointers");
     return;
   }
@@ -1538,7 +1851,8 @@ void FunctionCheck::operation(mlir::Operation *Op) {
       return;
     }
     if (V->K == Val::Static) {
-      Vals[Res] = mk(Val::Static);
+      Val Copy = *V;
+      Vals[Res] = Copy;
       return;
     }
     std::optional<Value> B = base(Src, "use");
@@ -1714,6 +2028,11 @@ std::optional<Rejected> FunctionCheck::run() {
       return Failure;
     }
     Value A = Entry.getArgument(I);
+    if (T->isFunctionPointerType()) {
+      St.N[A] = plain(Node::Static);
+      Vals[A] = mk(Val::Pointer, A);
+      continue;
+    }
     if (isOwned(T) || isTaken(T)) {
       St.N[A] = plain(Node::Own);
     } else {
