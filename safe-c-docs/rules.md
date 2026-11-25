@@ -101,7 +101,7 @@ Not covered: every other data race.
 
 **Type attributes** (24): `PtrBidiIndexable`, `PtrIndexable`, `PtrSingle`, `PtrUnsafeIndexable`, `PtrTerminatedBy`, `PtrEndedBy`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `TypeNonNull`, `TypeNullable`, `TypeNullableResult`, `TypeNullUnspecified`, `AnnotateType`, `LifetimeBound`, `NoEscape`, `VectorSize`, `ExtVectorType`, `NoReturn`, `MayAlias`, `Mode`, `CDecl`, `NoThrow`
 
-**Errors** (77; the bounds, null and lifetime errors of Clang itself are not listed):
+**Errors** (78; the bounds, null and lifetime errors of Clang itself are not listed):
 
 | Rule | Message |
 |---|---|
@@ -121,7 +121,7 @@ Not covered: every other data race.
 | `count-address` | %0 is the count of another field, and a write through its address would not be checked; use a local variable and assign '%0' from it |
 | `count-behind` | a count behind a pointer can be changed through another name; pass the count by value and return the new one |
 | `count-group-base` | a pointer and its count are set together, through a plain variable ('p->n', 's.n'); make a pointer to the element first |
-| `count-group-between` | %0 changes between a pointer and its count, which are set together; move this before or after them |
+| `count-group-between` | a pointer and its count are set together, with nothing between them; move this before or after them, or use '_Set' |
 | `flex-bytes` | %0 keeps the length of its own array, so writing its bytes can make the length wrong; assign its fields by name |
 | `flex-cast` | nothing says the memory behind this pointer has the array that %0 ends with, or its length; allocate a %0 and fill it field by field |
 | `flex-nested` | %0 ends in an array whose length is a field, and inside another struct that length is not checked; keep a pointer to it |
@@ -172,6 +172,7 @@ Not covered: every other data race.
 | `union-member-unchecked` | %select{reading\|writing}0 %1 needs the tag '%2' known to be %3 here, or the union's bytes could be another member's; check it first (as in %select{'if (x.%2 == %3)' or 'case %3:'\|'if (x.%2)'\|'if (!x.%2)'}4)%select{\|, or set it ('x.%2 = %3;') before writing}0 |
 | `union-member-untracked` | %0 is reached through something whose tag cannot be followed here (an array element or a call result); take a pointer to the struct first ('struct T *e = &a[i];') and check 'e''s tag before using 'e->...' |
 | `union-member-unwritten` | the tag '%1' now names %0, but %0 has not been written since the tag changed, so the union still holds another member's bytes; write %0 first |
+| `unsafe-function` | '%0' %1; use %2 |
 | `valist` | nothing checks these arguments against the format; write one function marked 'format(printf, ...)' that passes its own format and '...' on once, between 'va_start' and 'va_end' |
 | `vector-index` | the lane index of a vector is not checked; use a constant, or store the vector into an array first |
 | `vla-param` | a parameter whose row length is another parameter is not checked; pass one row at a time, or a flat array with '__counted_by(rows * cols)' |

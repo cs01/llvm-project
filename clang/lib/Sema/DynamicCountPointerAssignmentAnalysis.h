@@ -304,7 +304,9 @@ struct ReplaceDeclRefWithRHS : public TreeTransform<ReplaceDeclRefWithRHS> {
     auto It = DeclToNewValue.find(E->getDecl());
     if (It == DeclToNewValue.end()) {
       if (auto *Field = dyn_cast<FieldDecl>(E->getDecl())) {
-        assert(MemberBase);
+        // The assignments are of different objects, already reported.
+        if (!MemberBase)
+          return ExprError();
         bool IsArrow = MemberBase->getType()->isPointerType();
         return MemberExpr::CreateImplicit(getSema().Context, MemberBase,
                                           IsArrow, Field, Field->getType(),

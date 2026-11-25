@@ -267,8 +267,8 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "a pointer and its count are set together, through a plain variable "
      "('p->n', 's.n'); make a pointer to the element first"},
     {"count-group-between", false,
-     "%0 changes between a pointer and its count, which are set together; "
-     "move this before or after them"},
+     "a pointer and its count are set together, with nothing between them; "
+     "move this before or after them, or use '_Set'"},
     {"count-behind", false,
      "a count behind a pointer can be changed through another name; pass the "
      "count by value and return the new one"},
@@ -901,6 +901,11 @@ public:
     SmallVector<const Stmt *, 8> Body;
     for (const Stmt *St : CS->body())
       flatten(St, Body);
+    checkGroups(Body);
+    return true;
+  }
+  llvm::DenseSet<SourceLocation> Between;
+  void checkGroups(ArrayRef<const Stmt *> Body) {
     for (size_t I = 0; I < Body.size(); ++I) {
       GroupPart A = groupPart(Body[I]);
       if (!A.Set)
@@ -913,12 +918,11 @@ public:
           if (groupPart(Body[K]).Set)
             continue;
           const Expr *L = assigned(written(Body[K]));
-          if (!L->getType()->isArithmeticType())
-            S.SafeCDiag(L->getExprLoc(), "count-group-between") << "a pointer";
+          if (Between.insert(L->getExprLoc()).second)
+            S.SafeCDiag(L->getExprLoc(), "count-group-between");
         }
       }
     }
-    return true;
   }
 
   /// `s->h = z`, `&s->h`, where a count `__counted_by(h.n)` is inside h.
@@ -956,6 +960,11 @@ public:
                  ME->getType()->getAs<CountAttributedType>()) &&
           !groupPart(BO).Base)
         S.SafeCDiag(BO->getOperatorLoc(), "count-group-base");
+    }
+    if (BO->getOpcode() == BO_Comma) {
+      SmallVector<const Stmt *, 4> Body;
+      flatten(BO, Body);
+      checkGroups(Body);
     }
     if (BO->isAssignmentOp())
       checkNestedCount(BO->getLHS());

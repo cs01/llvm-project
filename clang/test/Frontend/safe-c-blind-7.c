@@ -32,7 +32,7 @@ int base_group(void) {
   struct h x = {1, A}, y = {1, A};
   struct h *p = &x;
   p->n = 3;
-  p = &y; // expected-error {{changes between a pointer and its count}}
+  p = &y; // expected-error {{set together, with nothing between them}}
   p->f = B;
   return x.f[2];
 }

@@ -231,6 +231,11 @@ char *getenv(const char *__null_terminated);
 #endif
 
 
+/* Set a pointer and its count together: _Set(s->p, s->n, new_p, new_n). Both
+   new values are read, and checked against each other, before either is set. */
+#define _Set(ptr, count, new_ptr, new_count) \
+  ((void)((ptr) = (new_ptr), (count) = (new_count)))
+
 /* Tagged unions, like Rust's enums with data:
      struct shape {
        enum kind kind;
