@@ -6,6 +6,7 @@
      num r = parse(s);
      if (!r.ok) ... r.err ...
      use(r.value);
+   A result is used: in Safe C dropping one is an error, unless it is cast to (void).
    TRY(expr, name), like Rust's '?', gives expr's value, or returns its error
    from a function whose result is struct name. It uses a GNU extension, which
    gcc and clang have. */
@@ -14,8 +15,13 @@
 #include "safec.h"
 #include <stdbool.h>
 
+#if defined(__clang__)
+#define SAFEC_MUST_USE __attribute__((warn_unused_result))
+#else
+#define SAFEC_MUST_USE
+#endif
 #define RESULT(name, T, E)                                                     \
-  struct name {                                                                \
+  struct SAFEC_MUST_USE name {                                                                \
     bool ok;                                                                   \
     union _Tagged_by(ok) {                                                     \
       T value _When(true);                                                     \

@@ -310,7 +310,7 @@ int main(int argc, char *__null_terminated *__counted_by(argc) argv) {
   if (argc != 2)
     return fputs("usage: edit FILE\n", stderr), 1;
   struct editor e = {.rows = 24, .columns = 80};
-  file_read(argv[1], &e.doc); /* a new file starts empty */
+  (void)file_read(argv[1], &e.doc); /* a new file starts empty */
   text_set(&e.message, STR("^S save  ^Q quit  ^Z undo  ^Y redo  ^F find"));
   struct termios before;
   int raw = terminal_raw(&before);

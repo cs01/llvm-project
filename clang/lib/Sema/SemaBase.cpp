@@ -1,6 +1,7 @@
 #include "clang/Sema/SemaBase.h"
 #include "SafeCState.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Basic/DiagnosticSema.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaCUDA.h"
 
@@ -78,6 +79,10 @@ void safeCMarkSafetyDiagsUnsilenceable(DiagnosticsEngine &Diags) {
 }
 
 static bool isSafeCSafetyDiag(DiagnosticIDs &IDs, unsigned DiagID) {
+  // A result that says whether it worked is used, or cast to (void): reading
+  // what a failed call did not set is a memory error.
+  if (DiagID == diag::warn_unused_result || DiagID == diag::warn_unused_return_type)
+    return true;
   if (!IDs.isWarningOrExtension(DiagID))
     return false;
   StringRef Group = IDs.getWarningOptionForDiag(DiagID);
