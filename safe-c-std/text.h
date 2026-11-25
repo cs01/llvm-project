@@ -133,6 +133,20 @@ static inline int text_set(struct text *t, struct str from) {
   return text_add(t, from.p, from.len);
 }
 
+/* Replaces n bytes at 'at' with others: 1, or 0 and no change. */
+static inline int text_splice(struct text *t, size_t at, size_t n, struct str with) {
+  if (at > t->len || n > t->len - at)
+    return 0;
+  size_t old = t->len, tail = old - at - n;
+  /* Adding it first makes room, and is all there is to do at the end. */
+  if (!text_add(t, with.p, with.len) || !t->p)
+    return 0;
+  memmove(t->p + at + with.len, t->p + at + n, tail);
+  memcpy(t->p + at, with.p, with.len);
+  t->len = old - n + with.len;
+  return 1;
+}
+
 /* The next line, without its '\n': 1, or 0 at the end. */
 static inline int text_line(struct text *t, FILE *f) {
   char part[256];

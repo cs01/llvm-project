@@ -137,8 +137,21 @@ struct Node {
   Value Parent;          // Borrow
   bool Capable = false;  // Borrow: may change what the object owns
   std::string Why;       // Dead: what ended it
+  // Borrow: exactly this field of what Parent means now. Dropped whenever the
+  // node is hung from something else ('n = n->next' makes a field of the old n a
+  // part of what n came from, and no one field of that).
+  int Field = -1;
+  mlir::Type Record;
+  bool Same = false; // Borrow: the very pointer Parent is now. Dropped likewise.
   bool sameAs(const Node &O) const {
-    return K == O.K && Parent == O.Parent;
+    return K == O.K && Parent == O.Parent && Field == O.Field &&
+           Record == O.Record && Same == O.Same;
+  }
+  void hang(Value From) {
+    Parent = From;
+    Field = -1;
+    Record = {};
+    Same = false;
   }
 };
 
@@ -788,8 +801,55 @@ private:
     for (auto &KV : S->N)
       if (KV.second.K == Node::Borrow && P(KV.first))
         Out.push_back(KV.first);
+    // What hangs off one that ends ends too: cut off from its root, nothing
+    // could end it later.
+    llvm::DenseSet<Value> Ended(Out.begin(), Out.end());
+    for (auto &KV : S->N)
+      if (KV.second.K == Node::Borrow && !Ended.contains(KV.first))
+        for (Value A : ancestors(*S, KV.first))
+          if (Ended.contains(A)) {
+            Out.push_back(KV.first);
+            break;
+          }
     for (Value V : Out)
       kill(V, Why);
+  }
+  /// X and V are in different fields of one struct, whose owners are separate
+  /// trees: what V's owns may change without ending X.
+  bool disjoint(Value X, Value V) const {
+    auto Path = [&](Value Q) {
+      SmallVector<Value, 8> Out = {Q};
+      Out.append(ancestors(*S, Q));
+      llvm::erase_if(Out, [&](Value P) {
+        const Node *N = node(*S, P);
+        return N && N->K == Node::Borrow && N->Same;
+      });
+      return Out;
+    };
+    SmallVector<Value, 8> A = Path(X), B = Path(V);
+    for (unsigned I = 0; I < A.size(); ++I) {
+      auto It = llvm::find(B, A[I]);
+      if (It == B.end())
+        continue;
+      if (I == 0 || It == B.begin())
+        return false;
+      const Node *M = node(*S, A[I - 1]), *N = node(*S, *std::prev(It));
+      return M && N && M->Field >= 0 && N->Field >= 0 && M->Field != N->Field &&
+             M->Record == N->Record;
+    }
+    return false;
+  }
+  /// Res is the address of a field of the struct Of points to.
+  void markField(Value Res, mlir::Operation *Op) {
+    auto M = mlir::dyn_cast<cir::GetMemberOp>(Op);
+    Node *N = node(Res);
+    if (!M || !N || N->K != Node::Borrow)
+      return;
+    auto RT = mlir::dyn_cast<cir::RecordType>(pointee(M.getAddr().getType()));
+    if (!RT || RT.isUnion())
+      return;
+    N->Field = M.getIndex();
+    N->Record = RT;
   }
   void killDescendants(Value Of, const Twine &Why) {
     killIf([&](Value V) { return V != Of && isAncestor(*S, Of, V); }, Why);
@@ -808,7 +868,14 @@ private:
     SmallVector<Value, 8> Anc = ancestors(*S, V);
     killIf(
         [&](Value X) {
-          return X != V && !llvm::is_contained(Anc, X) && rootOf(*S, X) == Root;
+          // (A load of a pointer that goes on is that pointer.)
+          const Node *N = node(*S, X);
+          while (N && N->K == Node::Borrow && N->Same) {
+            X = N->Parent;
+            N = node(*S, X);
+          }
+          return X != V && !llvm::is_contained(Anc, X) && rootOf(*S, X) == Root &&
+                 !disjoint(X, V);
         },
         Why);
   }
@@ -819,7 +886,7 @@ private:
     for (auto &KV : S->N)
       if (KV.second.Parent == V) {
         if (P) {
-          KV.second.Parent = P;
+          KV.second.hang(P);
         } else {
           KV.second = Node();
           KV.second.Why = "its source was reassigned";
@@ -1310,8 +1377,10 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
       J.Capable = X.Capable && Y->Capable;
     } else if (X.K == Node::Static && Y->K == Node::Borrow) {
       J = *Y;
+      J.hang(Y->Parent);
     } else if (Y->K == Node::Static && X.K == Node::Borrow) {
       J = X;
+      J.hang(X.Parent);
     } else if (X.K == Node::Borrow && Y->K == Node::Borrow) {
       SmallVector<Value, 8> AX = ancestors(Was, K), AY = ancestors(O, K);
       auto C = llvm::find_if(AX, [&](Value A) { return llvm::is_contained(AY, A); });
@@ -1347,7 +1416,7 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
           }
       Changed = true;
       if (Up) {
-        N.Parent = Up;
+        N.hang(Up);
       } else {
         N = Node();
         N.Why = "its source is gone";
@@ -1652,6 +1721,7 @@ void FunctionCheck::load(cir::LoadOp Op) {
       New = *N;
     else
       New = borrow(A, X.Owned ? true : N->Capable);
+    New.Same = New.K == Node::Borrow;
     S->N[Res] = New;
     Vals[Res] = X.Owned ? mk(Val::OwnerOf, A) : mk(Val::Pointer, Res);
     return;
@@ -1728,11 +1798,18 @@ void FunctionCheck::assignBorrow(Value A, Value P, bool Cap) {
   reparent(A);
   S->N.erase(A);
   // Hang off a named variable, not off a temporary that will be reused.
+  // (Still inside the field of it that the last temporary was.)
+  int Field = -1;
+  mlir::Type Record;
   while (P) {
     Node *N = node(P);
     bool Temp = !Vars.count(P) && N && N->K == Node::Borrow && N->Parent;
     if (P != A && !Temp)
       break;
+    if (P == A || !N || !N->Same) {
+      Field = Temp && P != A ? N->Field : -1;
+      Record = Field >= 0 ? N->Record : mlir::Type();
+    }
     P = N ? N->Parent : Value();
   }
   if (!P)
@@ -1754,6 +1831,10 @@ void FunctionCheck::assignBorrow(Value A, Value P, bool Cap) {
                   " in the same block or an outer one");
   }
   S->N[A] = borrow(P, Cap);
+  if (S->N[A].K == Node::Borrow) {
+    S->N[A].Field = Field;
+    S->N[A].Record = Record;
+  }
 }
 
 void FunctionCheck::store(cir::StoreOp Op) {
@@ -2200,7 +2281,8 @@ void FunctionCheck::call(cir::CallOp Op) {
   }
   for (const Use &U : Uses)
     for (const Use &W : Uses)
-      if (&U != &W && U.Changes && rootOf(*S, U.Base) == rootOf(*S, W.Base))
+      if (&U != &W && U.Changes && rootOf(*S, U.Base) == rootOf(*S, W.Base) &&
+          !disjoint(U.Base, W.Base))
         return fail("two arguments of '" + Name + "' reach the same owner and it "
                     "may change one; make that parameter 'const', or pass a copy");
   // A result that is a borrow comes from the first borrowed parameter.
@@ -2433,6 +2515,8 @@ void FunctionCheck::operation(mlir::Operation *Op) {
               return;
             }
       setNode(Res, borrow(Of, true));
+      if (!Vars[Of].View)
+        markField(Res, Op);
       Vals[Res] = mk(Val::Address, Res);
       return;
     }
@@ -2451,6 +2535,7 @@ void FunctionCheck::operation(mlir::Operation *Op) {
     }
     bool Cap = capable(node(*B));
     setNode(Res, borrow(*B, Cap));
+    markField(Res, Op);
     Vals[Res] = mk(Val::Address, Res);
     return;
   }
