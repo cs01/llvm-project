@@ -166,3 +166,17 @@ is the same kind of model that wrote the checker, and was told, not forced, to s
 
 Its 12 most common false rejections are the real cost: forwarding a take (`return put(p, x)`), `exit` not ending a path,
 `?:` on owners, disjoint fields and elements, struct initializers, stdio, most of the library, callbacks, out parameters, `main(argc, argv)`.
+
+## Eighty functions chosen by hash (2026-11-24)
+
+80 of 1,986 functions (5 to 80 lines, at most 3 per project, 39 projects), converted by two agents, all rejudged by the maintainer
+of this note with the script as of 4ef31d68 (an earlier version skipped unused static functions and over-counted). 57 accepted, 5 of them with one `_Trusted`
+helper; 23 rejected. The agents' classes: fits with marks only 21, small edits 5, rewrite 24; the other 7 accepted are ones they had classed as
+blocked (2 only by the missing floating point rule, 5 they accept with a trusted helper or a reshaped function). In set a 26 of 40 conversions
+replaced or dropped a type (void *, T **, function pointers, by-value structs), so "fits" often means after a redesign.
+
+One planted bug in each of 55: 13 rejected by today's default and by the new script, 10 only by the new script (all about ownership), 32
+by neither at compile time (bounds: the agents ran 28 and saw a trap, 4 not run). Bugs chosen by the agents.
+
+Blockers, in order: stored borrows and shared structures; missing library rules (stdio, ctype, errno, assert); variadics; argv and T **;
+function pointers; void * and struct casts.
