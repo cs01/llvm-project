@@ -102,7 +102,7 @@ Lib libraryContract(StringRef N) {
               "remove", "rename", "mkdir", "rmdir", "access", "stat", "fstat",
               "lstat", "bind", "connect", "accept", "listen", "setsockopt",
               "getsockopt", "send", "recv", "sendto", "recvfrom", "select",
-              "poll", "pipe", "waitpid"},
+              "poll", "pipe", "waitpid", "system"},
              Lib::Reads)
       .Cases({"strlen", "strnlen", "strcmp", "strncmp", "strcasecmp",
               "strncasecmp", "memcmp", "strcspn", "strspn", "strlcpy", "strlcat",

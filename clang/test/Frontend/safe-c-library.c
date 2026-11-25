@@ -17,7 +17,7 @@ void bad(int fd) {
   send(fd, b, 5000, 0); // expected-error {{nothing says how much memory 'send' accesses}}
   struct in_addr a;
   inet_pton(AF_INET6, "1:2::3", &a); // expected-error {{nothing says how much memory 'inet_pton' accesses}}
-  setvbuf(stdout, b, _IOFBF, 4);     // expected-error {{nothing says how much memory 'setvbuf' accesses}}
+  setvbuf(stdout, b, _IOFBF, 4);     // expected-error {{'setvbuf' keeps the buffer it is given}}
   setenv("A", "b", 1);               // expected-error {{nothing says how much memory 'setenv' accesses}}
 }
 int good(void) {

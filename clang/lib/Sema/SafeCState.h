@@ -39,6 +39,10 @@ class Stmt;
 /// field or global, leaving null (and a zero count). Returns true on error.
 bool checkSafeCTakeBuiltin(Sema &S, CallExpr *TheCall);
 
+/// A library function with no safe use: an error that says what to use.
+class FunctionDecl;
+bool checkSafeCUnsafeFunction(Sema &S, const FunctionDecl *F, SourceLocation Loc);
+
 /// What a function pointer promises must be what the function promises.
 void checkSafeCFunctionConversion(Sema &S, QualType Dst, const Expr *Src);
 /// The fields of a struct or union.
@@ -66,6 +70,8 @@ public:
     bool Used = false;
   };
 
+  /// Calls already reported as having no safe use.
+  llvm::SmallVector<SourceLocation, 4> UnsafeCalls;
   /// Regions being parsed: diagnostics raised now are inside them.
   unsigned Depth = 0;
   /// Every region seen, for diagnostics raised after parsing (end-of-function

@@ -7009,6 +7009,10 @@ Sema::ConvertArgumentsForCall(CallExpr *Call, Expr *Fn,
                               ArrayRef<Expr *> Args,
                               SourceLocation RParenLoc,
                               bool IsExecConfig) {
+  if (getLangOpts().SafeC && Call &&
+      checkSafeCUnsafeFunction(*this, FDecl, Call->getExprLoc()) &&
+      !isInSafeCUnsafeRegion(Call->getExprLoc()) && !inSafeCUnsafeParse())
+    return true;
   // Bail out early if calling a builtin with custom typechecking.
   // For HLSL builtin aliases, argument conversion is still needed because
   // overload resolution may have selected a conversion sequence (e.g.,

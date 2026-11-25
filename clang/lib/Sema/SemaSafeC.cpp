@@ -259,6 +259,7 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"flex-bytes", false,
      "%0 keeps the length of its own array, so writing its bytes can make the "
      "length wrong; assign its fields by name"},
+    {"unsafe-function", false, "'%0' %1; use %2"},
     {"order", false,
      "C does not say which side of this runs first, and one reads a pointer "
      "from memory that the other may change or free; do it in two statements"},
@@ -409,6 +410,70 @@ Sema::SemaDiagnosticBuilder Sema::SafeCDiag(SourceLocation Loc,
                        D.Text,
                        InUnsafe ? DiagnosticIDs::CLASS_WARNING
                                 : DiagnosticIDs::CLASS_ERROR)));
+}
+
+namespace {
+struct UnsafeFunction {
+  StringRef Name, Why, Instead;
+};
+} // namespace
+/// Library functions with no safe use, or none that can be checked. (Apple's
+/// headers already name the replacements of gets, strcpy, strcat, sprintf...)
+static const UnsafeFunction UnsafeFunctions[] = {
+    {"strtok", "writes into the string and remembers it between calls",
+     "'strcspn' and 'strspn' for where each word starts and ends"},
+    {"strtok_r", "writes into the string and remembers it between calls",
+     "'strcspn' and 'strspn' for where each word starts and ends"},
+    {"strsep", "writes into the string and moves your pointer to it",
+     "'strcspn' for where each part ends"},
+    {"realpath", "writes a path of any length into the buffer it is given",
+     "'realpath(path, NULL)' in a small '_Trusted' function that returns "
+     "'char *_Owned _Nullable'"},
+    {"getwd", "writes a path of any length", "'getcwd(buffer, sizeof buffer)'"},
+    {"tmpnam", "names a file that another program may create first", "'mkstemp'"},
+    {"tempnam", "names a file that another program may create first", "'mkstemp'"},
+    {"mktemp", "names a file that another program may create first", "'mkstemp'"},
+    {"asctime", "writes into one buffer the whole program shares", "'strftime'"},
+    {"asctime_r", "writes a string of any length", "'strftime'"},
+    {"ctime_r", "writes a string of any length", "'localtime_r' and 'strftime'"},
+    {"putenv", "keeps the string it is given", "'setenv'"},
+    {"stpcpy", "does not know how big the buffer is", "'strlcpy'"},
+    {"stpncpy", "may leave the string with no terminator", "'strlcpy'"},
+    {"strxfrm", "returns a length that may be more than it wrote", "'strcoll'"},
+    {"setbuf", "does not know how big the buffer is", "the buffer the stream has"},
+    {"setvbuf", "keeps the buffer it is given", "the buffer the stream has"},
+    {"setbuffer", "keeps the buffer it is given", "the buffer the stream has"},
+    {"gethostbyname", "returns memory the next call changes", "'getaddrinfo'"},
+    {"gethostbyaddr", "returns memory the next call changes", "'getnameinfo'"},
+    {"inet_ntoa", "returns memory the next call changes", "'inet_ntop'"},
+    {"getlogin", "returns memory the next call changes", "'getlogin_r'"},
+    {"ttyname", "returns memory the next call changes", "'ttyname_r'"},
+    {"ptsname", "returns memory the next call changes", "'ptsname_r'"},
+    {"cuserid", "writes into a buffer of unknown size", "'getlogin_r'"},
+    {"swab", "reads and writes a length it cannot check", "a loop"},
+    {"valloc", "returns memory that is not zeroed", "'calloc'"},
+    {"memccpy", "returns a pointer past what it wrote", "'memchr' and 'memcpy'"},
+    {"vfork", "shares the parent's memory", "'posix_spawn'"},
+    {"brk", "takes memory away from under 'malloc'", "'malloc'"},
+    {"sbrk", "takes memory away from under 'malloc'", "'malloc'"},
+    {"atoi", "is undefined for a number too big", "'strtol'"},
+    {"atol", "is undefined for a number too big", "'strtol'"},
+    {"atoll", "is undefined for a number too big", "'strtoll'"},
+};
+
+bool clang::checkSafeCUnsafeFunction(Sema &S, const FunctionDecl *F,
+                                     SourceLocation Loc) {
+  if (!S.getLangOpts().SafeC || !F || !F->getIdentifier() || !F->isExternC() ||
+      S.getSourceManager().isInSystemHeader(Loc) ||
+      !S.getSourceManager().isInSystemHeader(F->getLocation()))
+    return false;
+  for (const UnsafeFunction &U : UnsafeFunctions)
+    if (F->getName() == U.Name) {
+      S.SafeCDiag(Loc, "unsafe-function") << U.Name << U.Why << U.Instead;
+      S.safeC().UnsafeCalls.push_back(Loc);
+      return true;
+    }
+  return false;
 }
 
 StringRef clang::safeCPointerKind(QualType T) {
@@ -1160,6 +1225,8 @@ public:
   bool VisitDeclRefExpr(DeclRefExpr *E) {
     collectVoid();
     const auto *F = dyn_cast<FunctionDecl>(E->getDecl());
+    if (F && llvm::is_contained(S.safeC().UnsafeCalls, E->getExprLoc()))
+      return true;
     // Lock requirements are not part of a pointer's type.
     if (F && !DirectCallees.contains(E) &&
         (F->hasAttr<RequiresCapabilityAttr>() ||
