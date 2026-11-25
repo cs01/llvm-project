@@ -42,7 +42,7 @@ static void assert_is_string(cJSON *string_item)
     assert_has_no_string(string_item);
 }
 
-static void assert_parse_string(cJSON *_Exclusive item, const char *string, const char *expected)
+static void assert_parse_string(cJSON *item, const char *string, const char *expected)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -58,7 +58,7 @@ static void assert_parse_string(cJSON *_Exclusive item, const char *string, cons
     global_hooks.deallocate(_Take(item[0].valuestring));
 }
 
-static void assert_not_parse_string(cJSON *_Exclusive item, const char * const string)
+static void assert_not_parse_string(cJSON *item, const char * const string)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */

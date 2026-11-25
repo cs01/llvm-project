@@ -123,25 +123,8 @@ public:
   Lattice transfer(Lattice In, const IssueFact &F) {
     OriginID OID = F.getOriginID();
     LoanID LID = F.getLoanID();
-    if (const Loan *Earlier =
-            FactMgr.getLoanMgr().getLoan(LID)->getEarlierIterations())
-      In = renameLoan(In, LID, Earlier->getID());
     LoanSet NewLoans = LoanSetFactory.add(LoanSetFactory.getEmptySet(), LID);
     return setLoans(In, OID, NewLoans);
-  }
-
-  /// Every origin holding From holds To instead (see Loan::EarlierIterations).
-  Lattice renameLoan(Lattice In, LoanID From, LoanID To) {
-    auto Rename = [&](const OriginLoanMap &M) {
-      OriginLoanMap Out = M;
-      for (const auto &[OID, Loans] : M)
-        if (Loans.contains(From))
-          Out = OriginLoanMapFactory.add(
-              Out, OID,
-              LoanSetFactory.add(LoanSetFactory.remove(Loans, From), To));
-      return Out;
-    };
-    return Lattice(Rename(In.PersistentOrigins), Rename(In.BlockLocalOrigins));
   }
 
   /// A flow from source to destination. If `KillDest` is true, this replaces
@@ -199,10 +182,6 @@ public:
     };
 
     llvm::SmallVector<DFSNode> PendingStates;
-    // A loan for earlier loop iterations has no IssueFact (see
-    // Loan::EarlierIterations); the chain then ends where it was renamed, and
-    // the longest one found is the best account of how it got here.
-    llvm::SmallVector<OriginID> Longest;
     llvm::SmallSet<SearchState, 16> VistedStates;
     llvm::ImmutableList<OriginID>::Factory OriginFlowChainFactory;
     PendingStates.push_back(
@@ -230,12 +209,6 @@ public:
         CurrOID = BuildResult.back();
       }
 
-      if (size_t(std::distance(CurrNode.OriginFlowChain.begin(),
-                               CurrNode.OriginFlowChain.end())) > Longest.size()) {
-        Longest.assign(CurrNode.OriginFlowChain.begin(),
-                       CurrNode.OriginFlowChain.end());
-        std::reverse(Longest.begin(), Longest.end());
-      }
       // If we found the IssueFact, we're done
       if (Complete) {
         llvm::SmallVector<OriginID> Result(CurrNode.OriginFlowChain.begin(),
@@ -254,8 +227,6 @@ public:
       }
     }
 
-    if (FactMgr.getLoanMgr().getLoan(TargetLoan)->isEarlierIterations())
-      return Longest;
     llvm_unreachable("Could not reconstruct origin flow. Search finished "
                      "without reaching IssueFact");
   }

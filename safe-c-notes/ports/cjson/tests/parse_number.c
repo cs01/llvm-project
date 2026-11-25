@@ -42,7 +42,7 @@ static void assert_is_number(cJSON *number_item)
     assert_has_no_string(number_item);
 }
 
-static void assert_parse_number(cJSON *_Exclusive item, const char *string, int integer, double real)
+static void assert_parse_number(cJSON *item, const char *string, int integer, double real)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -57,7 +57,7 @@ static void assert_parse_number(cJSON *_Exclusive item, const char *string, int 
     TEST_ASSERT_EQUAL_DOUBLE(real, item->valuedouble);
 }
 
-static void assert_parse_big_number(cJSON *_Exclusive item, const char *string)
+static void assert_parse_big_number(cJSON *item, const char *string)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */

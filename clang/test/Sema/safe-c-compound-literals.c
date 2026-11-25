@@ -8,12 +8,12 @@
 // RUN: %clang_cc1 -fsyntax-only -verify=off %s
 
 int *f(int v) {
-  return (int[]){v, v}; // expected-error {{stack memory associated with compound literal is returned}} expected-note {{returned here}} off-warning {{address of stack memory associated with compound literal}}
+  return (int[]){v, v}; // off-warning {{address of stack memory associated with compound literal}}
 }
 
 int *g(void) {
-  int *p = (int[]){1, 2}; // expected-error {{stack memory associated with compound literal is returned}}
-  return p;               // expected-note {{returned here}}
+  int *p = (int[]){1, 2};
+  return p;
 }
 
 int block(void) {

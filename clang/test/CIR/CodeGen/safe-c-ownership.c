@@ -1,9 +1,9 @@
 // Ownership, checked on ClangIR inside the compile (SafeCOwnership.cpp).
 // RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety -fnullability-default=nonnull -triple arm64-apple-macosx13 \
-// RUN:   -mllvm -safe-c-ownership=false -mllvm -safe-c-ownership-ir=true -mllvm -safe-c-redeclared=false -verify %s
+// RUN: -mllvm -safe-c-ownership=true -mllvm -safe-c-redeclared=false -verify %s
 // The same at -O2, where CIR would have lifetime markers.
 // RUN: %clang_cc1 -emit-llvm -O2 -o /dev/null -fsafe-c -fbounds-safety -fnullability-safety -fnullability-default=nonnull -triple arm64-apple-macosx13 \
-// RUN:   -mllvm -safe-c-ownership=false -mllvm -safe-c-ownership-ir=true -mllvm -safe-c-redeclared=false -verify %s
+// RUN: -mllvm -safe-c-ownership=true -mllvm -safe-c-redeclared=false -verify %s
 #define _Owned [[clang::annotate_type("safec_owned")]]
 #define _Taken_if_true [[clang::annotate_type("safec_taken_if_true")]]
 #define _Trusted __attribute__((annotate("safec_trusted")))
@@ -60,7 +60,7 @@ int stale(struct list *l) {
 }
 void ignored(struct node *p, struct node *_Owned n) {
   add(p, n);
-  free(n); // expected-error {{test its result first}}
+  free(n); // expected-error {{test that call's result first}}
 }
 _Bool lies(struct node *p, struct node *_Taken_if_true n) {
   p->next = n;
@@ -78,6 +78,16 @@ int other(struct list *l, const struct list *k) {
 }
 int aliased(struct list *l) {
   return other(l, l); // expected-error {{reach the same owner}}
+}
+void touch(char *p);
+char peek(char *_Owned p, const char *_Owned q) {
+  free(p);
+  touch(p); // expected-error {{after freed on line}}
+  return q[0];
+}
+void copies(char *_Owned p) {
+  free(p);
+  __builtin_memset(p, 0, 1); // expected-error {{after freed on line}}
 }
 void believed(int c) {
   if (c)

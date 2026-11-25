@@ -9,11 +9,11 @@ void *memcpy(void *__sized_by(n) d, const void *__sized_by(n) s, size_t n);
 void *memset(void *__sized_by(n) d, int c, size_t n);
 void qsort(void *__sized_by(n * w) base, size_t n, size_t w, int (*cmp)(const void *, const void *));
 struct B { int *_Owned _Nullable p; };
-struct _View V { int *_Nullable p; };
+struct V { int *_Nullable p; };
 struct plain { int a[4]; };
 void take(void *p, size_t n);
 
-void *bad(struct B *__bidi_indexable b _Lifetimebound, struct V *__bidi_indexable v, int c, void *__bidi_indexable other) {
+void *bad(struct B *__bidi_indexable b, struct V *__bidi_indexable v, int c, void *__bidi_indexable other) {
   void *a = b;                // expected-error {{'struct B' holds pointers, and as a 'void *' kept here}}
   void *d = (void *)v;        // expected-error {{'struct V' holds pointers}}
   a = c ? other : (void *)b;  // expected-error {{'struct B' holds pointers}}

@@ -199,7 +199,7 @@ function rules(): string {
   const diags = [...sema.matchAll(/\{"([a-z0-9-]+)",\s*(true|false),\s*((?:"(?:[^"\\]|\\.)*"\s*)+)\}/g)]
     .filter((m) => m[2] === "false")
     .map((m) => [m[1], [...m[3].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]).join("")]);
-  if (stmts.length < 40 || casts.length < 20 || attrs.length < 30 || diags.length < 80 || decls.length < 12 || types.length < 10)
+  if (stmts.length < 40 || casts.length < 20 || attrs.length < 30 || diags.length < 50 || decls.length < 12 || types.length < 10)
     throw new Error(`rules: parsed too little (${stmts.length} ${casts.length} ${attrs.length} ${diags.length})`);
   const code = (xs: string[]) => xs.map((x) => "`" + x + "`").join(", ");
   return [

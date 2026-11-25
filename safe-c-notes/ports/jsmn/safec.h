@@ -22,25 +22,16 @@
    from these lines (clang/utils/safe-c/gen-readme.ts), so keep them current.
    @annotation `_Nullable` | Clang | may be null; must be checked before use (with `__counted_by(n)`: null, or `n` elements) | `Option<&T>`: plain `&T` is never null | `char *_Nullable getenv(const char *name);`
    @annotation `__counted_by(n)` | Apple | points to `n` elements; `n` is another parameter or field | `&[T]` (a slice: pointer plus length) | `int sum(const int *__counted_by(n) v, size_t n);`
-   @annotation `__counted_by_or_null(n)` | Apple | the same as `_Nullable __counted_by(n)` under Safe C; kept for code written for Apple's compiler | `Option<&[T]>` | `struct buf { char *_Owned _Nullable __counted_by_or_null(len) data; size_t len; };`
    @annotation `__sized_by(n)` | Apple | points to `n` bytes | `&[u8]` | `void fill(void *__sized_by(n) dst, size_t n);`
    @annotation `__ended_by(end)` | Apple | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`) | `int scan(const char *__ended_by(end) p, const char *end);`
    @annotation `__null_terminated` | Apple | a string ending in 0 (string literals and libc strings are already) | `&CStr` | `size_t my_strlen(const char *__null_terminated s);`
-   @annotation `_Takes(i)` | Safe C (Clang's `ownership_takes`) | old form of `_Owned` on a parameter, by index; the function frees (or keeps) its `i`th parameter; callers may not use it afterwards | taking a `Box<T>` by value (a move) | `_Takes(1) void json_free(struct json *item);` (prefer `_Owned` on the parameter)
    @annotation `_Owned` | Safe C | on a parameter: the function takes ownership (frees it, or keeps it to free later); the caller may not use it afterwards | taking a `Box<T>` by value (a move) | `void json_delete(struct json *_Owned item);`
-   @annotation `T *_Owned` (field, global) | Safe C | this pointer is responsible for freeing its target; it is moved, never copied | `Box<T>` | `struct node { int v; struct node *_Owned _Nullable next; };`
-   @annotation `_Take(place)` | Safe C | moves an owned pointer out of a field or global, leaving null | `Option::take` | `struct node *_Nullable pop(struct node *_Exclusive n) { return _Take(n->next); }`
-   @annotation `T *_Exclusive` | Safe C | an exclusive borrow: the function may take, free or replace owned fields through it | `&mut T` | `void clear(struct node *_Exclusive n);`
+   @annotation `T *_Owned` (field, local, result) | Safe C | this pointer is responsible for freeing its target; it is moved, never copied | `Box<T>` | `struct node { int v; struct node *_Owned _Nullable next; };`
+   @annotation `_Take(place)` | Safe C | moves an owned pointer out of a field or global, leaving null | `Option::take` | `struct node *_Owned _Nullable pop(struct node *n) { return _Take(n->next); }`
    @annotation `T *_Static` | Safe C | points only at string literals, globals or functions | `&'static T` | `struct op { const char *_Static name; int code; };`
-   @annotation `T *_Unchecked` | Safe C | may point anywhere; its value is used only inside `__unsafe` | `*const T` (a raw pointer) | `struct node2 { struct node2 *_Unchecked _Nullable prev; };`
-   @annotation `struct _View` | Safe C | a struct holding borrows; lives only in locals, parameters, and heap arrays held by a local `_Owned` pointer (which may not outlive what the views borrow) | a struct with a lifetime, `struct S<'a>` | `struct _View span { const int *__counted_by(n) p; int n; };`
-   @annotation `_Returns_owned` | Safe C (Clang's `ownership_returns`) | the result is new memory the caller must free | returning `Box<T>` | `_Returns_owned struct json *json_parse(const char *text);`
-   @annotation `_Lifetimebound` | Safe C (Clang's `lifetimebound`) | on a parameter: the result points into it and dies with it; not needed when it is the only pointer parameter (inferred, as Rust elides it) | `fn f<'a>(x: &'a T, y: &U) -> &'a U` | `const char *pick(const struct json *j _Lifetimebound, const char *fallback);`
    @annotation `_Noescape` | Safe C (Clang's `noescape`) | on a parameter: the function does not keep the pointer | a plain `&T` parameter, which cannot outlive the call | `size_t count_spaces(const char *s _Noescape);`
    @annotation `_Tagged_by(f)`, `_When(V)` | Safe C | a union whose live member is named by the sibling field `f`: a member is read or written only where `f` is known to be one of its `_When` values; a `switch` on `f` must handle every value | an `enum` with data, and `match` | `struct shape { int kind; union _Tagged_by(kind) { double radius _When(0); double side _When(1); }; };`
-   @annotation `_Drop(fn)` | Safe C (the `cleanup` attribute) | calls `fn(&x)` when `x` goes out of scope, on every path; `x` is never given away by name, only through `_Take` | `Drop` | `struct guard { int held; }; void release(struct guard *g); void use_guard(void) { struct guard g _Drop(release) = {1}; }`
    @annotation `_Guarded_by(m)` | Safe C (Clang's `guarded_by`) | data read or written only while holding lock `m`; Clang's thread-safety analysis checks it | `Mutex<T>` | `struct _Capability("mutex") mtx { int state; }; struct mtx stats_lock; int hits _Guarded_by(stats_lock);`
-   @annotation `_Unsynchronized` | Safe C | on a global written only before any thread starts (settings, hooks): it needs no lock, but every write must be inside `__unsafe` | `static mut` | `static int log_level _Unsynchronized;`
    @annotation `_Requires(m)`, `_Acquires(m)`, `_Releases(m)` | Safe C (Clang's thread-safety attributes) | a function's callers must hold `m`; or it takes or releases `m` | a `MutexGuard` held across a call | `void bump(void) _Requires(&stats_lock);`
    @annotation `_Taken_if_true`, `_Taken_if_zero` | Safe C | on a parameter: the function takes ownership only when it returns true (or zero) | returning the `Box` back in `Err` | `_Bool append(struct node *list, struct node *_Taken_if_true n);`
    @annotation `_Trusted` | Safe C | a function whose ownership is not checked inside; its callers are held to its signature | a safe function around an `unsafe` body | `_Trusted void swap(struct node *a, struct node *b);`
@@ -178,28 +169,19 @@ char *getenv(const char *__null_terminated);
 #endif
 
 /* Nullability qualifiers are Clang keywords; other compilers do not have them. */
-/* Ownership at interfaces, read by Clang's lifetime analysis. _Takes(N):
-   the function frees (or keeps) its Nth parameter, so the caller must not use
-   it afterwards. _Returns_owned: the result is new memory the caller
-   must free. _Lifetimebound on a parameter: the result points into it.
-   _Noescape on a parameter: the function does not keep the pointer
-   (lets a buffer be passed where a terminated string is expected).
-   Safe C checks each against the function body. */
+/* On a parameter: the function does not keep the pointer (lets a buffer be
+   passed where a terminated string is expected). */
 #if defined(__clang__)
-#define _Takes(N) __attribute__((ownership_takes(malloc, N)))
-#define _Returns_owned __attribute__((ownership_returns(malloc)))
-#define _Lifetimebound __attribute__((lifetimebound))
 #define _Noescape __attribute__((noescape))
 /* Pointer kinds go right after the '*' they describe, so a pointer to
    owned pointers is 'char *_Owned *_Owned items'.
-   On a parameter, owned means the function takes ownership: Sema turns it
-   into ownership_takes at the parameter's index, so no index can drift. */
+   On a parameter, owned means the function takes ownership. */
 #if defined(__SAFE_C__)
 #define _Owned [[clang::annotate_type("safec_owned")]]
 #else /* plain clang: [[]] after _Nullable would not parse */
 #define _Owned
 #endif
-/* On a field or global: points only at static data (string literals,
+/* On a field or result: points only at static data (string literals,
    globals, functions), like Rust's &'static. */
 #if defined(__SAFE_C__)
 #define _Static [[clang::annotate_type("safec_static")]]
@@ -218,25 +200,6 @@ char *getenv(const char *__null_terminated);
 /* On a function: its ownership is not checked inside; its callers are held to
    its signature all the same. */
 #define _Trusted __attribute__((annotate("safec_trusted")))
-/* On a field or global: may point anywhere; dereferencing needs __unsafe. */
-#if defined(__SAFE_C__)
-#define _Unchecked [[clang::annotate_type("safec_unchecked")]]
-#else /* plain clang: [[]] after _Nullable would not parse */
-#define _Unchecked
-#endif
-/* On a parameter: an exclusive borrow, through which the function may take,
-   free or replace owned fields (Rust's &mut). The caller's borrows of the
-   argument end at the call. */
-#if defined(__SAFE_C__)
-#define _Exclusive [[clang::annotate_type("safec_excl")]]
-#else
-#define _Exclusive
-#endif
-/* On a struct: holds borrows, so it lives only in locals and parameters. */
-#define _View __attribute__((annotate("safec_view")))
-/* On a global: shared without a lock because it is written only before any
-   thread starts; every write must be inside __unsafe. Rust's static mut. */
-#define _Unsynchronized __attribute__((annotate("safec_unsynchronized")))
 /* Move an owned pointer out of a field or global, leaving null (and a zero
    count): free(_Take(n->next)). Like Rust's Option::take. */
 #if defined(__SAFE_C__)
@@ -245,19 +208,12 @@ char *getenv(const char *__null_terminated);
 #define _Take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })
 #endif
 #else
-#define _Takes(N)
-#define _Returns_owned
-#define _Lifetimebound
 #define _Noescape
 #define _Owned
 #define _Static
 #define _Taken_if_true
 #define _Taken_if_zero
 #define _Trusted
-#define _Unchecked
-#define _View
-#define _Unsynchronized
-#define _Exclusive
 /* Evaluates lv twice; fine for the plain lvalues take is used on. */
 #define _Take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })
 #endif
@@ -309,28 +265,6 @@ char *getenv(const char *__null_terminated);
 #define _Requires(...)
 #define _Acquires(...)
 #define _Releases(...)
-#endif
-
-/* Automatic cleanup at the end of a scope, like Rust's Drop:
-     string s _Drop(string_free) = {0};   calls string_free(&s)
-     char *p _Drop_free = malloc(n);      calls free(p)
-   A _Drop variable is never given away by name (that would free it twice);
-   move it out with _Take(p), which leaves null for the cleanup. Clang and GCC
-   both have the cleanup attribute; other compilers get no cleanup. */
-#if defined(__GNUC__) || defined(__clang__)
-/* __builtin_free so that safec.h needs no libc header. The annotation tells
-   Safe C this void * parameter is a cleanup's variable, not a byte write. */
-__attribute__((annotate("safec_cleanup")))
-static inline void safec_drop_free_(void *pp) {
-  /* unsafe: pp is the address of a pointer variable (or of a wide pointer,
-     whose first field is the pointer); the cleanup only frees it. */
-  __unsafe { __builtin_free(*(void **)pp); }
-}
-#define _Drop(fn) __attribute__((cleanup(fn)))
-#define _Drop_free __attribute__((cleanup(safec_drop_free_)))
-#else
-#define _Drop(fn)
-#define _Drop_free
 #endif
 
 #endif /* __SAFEC_H */

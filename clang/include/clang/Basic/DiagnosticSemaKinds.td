@@ -13459,12 +13459,6 @@ def warn_safe_c_alloc_size_body : Warning<
   "memory, but this returns something else; return the result of malloc, "
   "calloc or another 'alloc_size' function (or a local holding it), or null">,
   InGroup<SafeCVoidCast>, DefaultError;
-def warn_safe_c_takes_lost : Warning<
-  "%0 frees its parameter %1, but %2 does not say so, so calls through %2 "
-  "would keep using freed memory; declare %2 with "
-  "'__attribute__((ownership_takes(malloc, %1)))' (safec.h: "
-  "'_Takes(%1)')">,
-  InGroup<SafeCOwnership>, DefaultError;
 def warn_safe_c_stack_escape : Warning<
   "storing the address of local %0 through a pointer or in a global lets it "
   "outlive %0; return the value instead, or allocate the object with malloc "

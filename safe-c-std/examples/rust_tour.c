@@ -36,7 +36,7 @@ struct list {
 };
 
 // fn push(&mut self, v: i32)
-static bool push(struct list *_Exclusive l, int v) {
+static bool push(struct list * l, int v) {
   struct node *_Nullable n = calloc(1, sizeof(struct node));
   if (!n)
     return false;
@@ -47,7 +47,7 @@ static bool push(struct list *_Exclusive l, int v) {
 }
 
 // impl Drop for List
-static void free_list(struct list *_Exclusive l) {
+static void free_list(struct list * l) {
   struct node *_Nullable n = _Take(l->head);
   while (n) {
     struct node *_Nullable next = _Take(n->next);
@@ -67,7 +67,7 @@ static i64_result sum_line(str line) {
 
 // Vec<i32>: a VEC type stamped out once, with its Drop.
 typedef VEC(int) int_vec;
-static void int_vec_free(int_vec *_Exclusive v) { vec_free(v); }
+static void int_vec_free(int_vec * v) { vec_free(v); }
 
 int main(void) {
   struct shape shapes[2] = {{.kind = CIRCLE, .radius = 1.0},
@@ -75,7 +75,7 @@ int main(void) {
   for (int i = 0; i < 2; i++)
     printf("area %d: %.2f\n", i, area(&shapes[i]));
 
-  struct list list _Drop(free_list) = {NULL};
+  struct list list __attribute__((cleanup(free_list))) = {NULL};
   for (int i = 1; i <= 3; i++)
     push(&list, i);
   for (const struct node *_Nullable n = list.head; n; n = n->next)
@@ -83,7 +83,7 @@ int main(void) {
 
   // Vec<i32>, freed at the end of the scope like a Rust Drop
   {
-    int_vec nums _Drop(int_vec_free) = {0, 0, 0};
+    int_vec nums __attribute__((cleanup(int_vec_free))) = {0, 0, 0};
     for (int i = 0; i < 5; i++)
       vec_push(&nums, i * i);
     vec_each(int x, nums) printf("square %d\n", x);

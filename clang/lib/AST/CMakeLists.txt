@@ -117,6 +117,7 @@ add_clang_library(clangAST
   Randstruct.cpp
   RawCommentList.cpp
   RecordLayout.cpp
+  SafeCTypes.cpp
   RecordLayoutBuilder.cpp
   ScanfFormatString.cpp
   SelectorLocationsKind.cpp

@@ -1,5 +1,8 @@
 # Results
 
+> Being rewritten. `_Exclusive`, `_View`, `_Unchecked`, `_Takes`, `_Returns_owned`, `_Lifetimebound`, `_Drop` and
+> `_Unsynchronized` no longer exist; [annotations](annotations.md) is current.
+
 [Back to the README](../README.md)
 
 ## How it is checked

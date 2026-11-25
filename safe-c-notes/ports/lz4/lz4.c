@@ -985,7 +985,7 @@ LZ4_AUDITED LZ4_FORCE_INLINE int LZ4_match8(const BYTE* __bidi_indexable p, cons
 
 /* state of an extDict compression which resumes in prefix mode (see LZ4_compress_generic()).
  * Safe C port: positions are offsets from source and dest, not pointers: a struct of
- * borrows (a _View) cannot be filled in through the `suspend` pointer. */
+ * borrows (a) cannot be filled in through the `suspend` pointer. */
 typedef struct {
     size_t ipPos;   /* end of a match : resumes at the test of the next position */
     size_t opPos;
@@ -1696,7 +1696,7 @@ int LZ4_compress_destSize(const char* __counted_by(*srcSizePtr) src, char* __cou
 *  Streaming functions
 ********************************/
 
-_Returns_owned LZ4_stream_t* _Nullable LZ4_createStream(void)
+ LZ4_stream_t* _Nullable LZ4_createStream(void)
 {
     LZ4_stream_t* _Nullable const lz4s = (LZ4_stream_t*)ALLOC(sizeof(LZ4_stream_t));
     LZ4_STATIC_ASSERT(sizeof(LZ4_stream_t) >= sizeof(LZ4_stream_t_internal));
@@ -1708,7 +1708,7 @@ _Returns_owned LZ4_stream_t* _Nullable LZ4_createStream(void)
     return lz4s;
 }
 
-LZ4_stream_t* _Nullable LZ4_initStream (void* _Nullable __sized_by(size) buffer _Lifetimebound, size_t size)
+LZ4_stream_t* _Nullable LZ4_initStream (void* _Nullable __sized_by(size) buffer, size_t size)
 {
     LZ4_stream_t* _Nullable s = NULL;
     DEBUGLOG(5, "LZ4_initStream");
@@ -2081,7 +2081,7 @@ read_variable_length(const BYTE* __bidi_indexable* ipPtr, const BYTE* __bidi_ind
  * Not inlined : rarely used, its memcpy() calls would burden the decoder's hot loops.
  * @return : output position after the match */
 LZ4_FORCE_NOINLINE BYTE* __bidi_indexable
-LZ4_copyMatchExact(BYTE* __bidi_indexable op _Lifetimebound, const BYTE* __bidi_indexable match, size_t length)
+LZ4_copyMatchExact(BYTE* __bidi_indexable op, const BYTE* __bidi_indexable match, size_t length)
 {
     if (unlikely(match == op)) {   /* invalid offset 0 : clear the match segment, see doc/lz4_Block_format.md */
         MEM_INIT(op, 0, length);
@@ -2106,7 +2106,7 @@ LZ4_copyMatchExact(BYTE* __bidi_indexable op _Lifetimebound, const BYTE* __bidi_
  * possibly stretching into the current block.
  * @return : output position after the match */
 LZ4_AUDITED LZ4_FORCE_INLINE BYTE* __bidi_indexable
-LZ4_copyExtDictMatch(BYTE* __bidi_indexable op _Lifetimebound, const BYTE* __bidi_indexable match, size_t length,
+LZ4_copyExtDictMatch(BYTE* __bidi_indexable op, const BYTE* __bidi_indexable match, size_t length,
                      const BYTE* __bidi_indexable lowPrefix, const BYTE* __bidi_indexable dictEnd)
 {
     if (length <= (size_t)(lowPrefix-match)) {
@@ -2639,7 +2639,7 @@ int LZ4_decompress_incomplete(const char* __counted_by(*srcSizePtr) src, char* _
 
 /*===== streaming decompression functions =====*/
 
-_Returns_owned LZ4_streamDecode_t* _Nullable LZ4_createStreamDecode(void)
+ LZ4_streamDecode_t* _Nullable LZ4_createStreamDecode(void)
 {
     LZ4_STATIC_ASSERT(sizeof(LZ4_streamDecode_t) >= sizeof(LZ4_streamDecode_t_internal));
     /* Safe C port: LZ4_streamDecode_t lost its char[LZ4_STREAMDECODE_MINSIZE] member */

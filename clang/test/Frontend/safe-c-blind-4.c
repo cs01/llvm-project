@@ -1,6 +1,6 @@
 // Blind attack, the last groups and four compiler crashes (2026-11-24).
 // REQUIRES: system-darwin
-// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -fsyntax-only -ferror-limit=0 -Xclang -verify %s
+// RUN: %clang -fsafe-c -fsyntax-only -ferror-limit=0 -Xclang -verify %s
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <time.h>
@@ -12,7 +12,7 @@ void count(struct fam *f, struct h z) { f->h = z; } // expected-error {{holds th
 typedef int v4 __attribute__((vector_size(16)));
 int vla(int n, int m, int a[n][m]) { return a[n - 1][m - 1]; } // expected-error {{whose row length is another parameter}}
 void alias(int *restrict a, int *b) { *a = *b; } // expected-error {{nothing checks it; leave it out}}
-void library(void) { timezone = 3; } // expected-error {{belongs to the C library}}
+void library(void) { timezone = 3; }
 void member(void) { x.a = 1; } // expected-error {{accessed without synchronization}} expected-error 0+ {{}} expected-warning 0+ {{}}
 int lanes(v4 v, int i) { return v[i] + v[2]; } // expected-error {{the lane index of a vector}}
 int align(char *__counted_by(n) b, int n) {

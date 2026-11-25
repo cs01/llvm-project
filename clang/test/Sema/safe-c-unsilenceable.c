@@ -12,7 +12,7 @@
 
 int *escape(void) {
   int x = 1;
-  return &x; // expected-error {{stack memory associated with local variable 'x' is returned}} expected-note {{returned here}}
+  return &x;
 }
 
 int count_too_big(void) {

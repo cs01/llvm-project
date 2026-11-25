@@ -12,25 +12,16 @@ struct conn;
 struct json;
 char *_Nullable getenv(const char *name);
 int sum(const int *__counted_by(n) v, size_t n);
-struct buf { char *_Owned _Nullable __counted_by_or_null(len) data; size_t len; };
 void fill(void *__sized_by(n) dst, size_t n);
 int scan(const char *__ended_by(end) p, const char *end);
 size_t my_strlen(const char *__null_terminated s);
-_Takes(1) void json_free(struct json *item);
 void json_delete(struct json *_Owned item);
 struct node { int v; struct node *_Owned _Nullable next; };
-struct node *_Nullable pop(struct node *_Exclusive n) { return _Take(n->next); }
-void clear(struct node *_Exclusive n);
+struct node *_Owned _Nullable pop(struct node *n) { return _Take(n->next); }
 struct op { const char *_Static name; int code; };
-struct node2 { struct node2 *_Unchecked _Nullable prev; };
-struct _View span { const int *__counted_by(n) p; int n; };
-_Returns_owned struct json *json_parse(const char *text);
-const char *pick(const struct json *j _Lifetimebound, const char *fallback);
 size_t count_spaces(const char *s _Noescape);
 struct shape { int kind; union _Tagged_by(kind) { double radius _When(0); double side _When(1); }; };
-struct guard { int held; }; void release(struct guard *g); void use_guard(void) { struct guard g _Drop(release) = {1}; }
 struct _Capability("mutex") mtx { int state; }; struct mtx stats_lock; int hits _Guarded_by(stats_lock);
-static int log_level _Unsynchronized;
 void bump(void) _Requires(&stats_lock);
 _Bool append(struct node *list, struct node *_Taken_if_true n);
 _Trusted void swap(struct node *a, struct node *b);

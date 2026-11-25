@@ -8364,27 +8364,18 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
     // them to isolate one rule); from the driver they would be a quiet way to
     // turn a rule set off, so only turning one on is allowed.
     auto WeakensSafeC = [](StringRef V) {
-      if (!V.consume_front("-safe-c-") || V == "ownership-ir=false")
+      if (!V.consume_front("-safe-c-") || V == "ownership=false")
         return false;
       return !V.ends_with("=true") && !V.ends_with("=1");
     };
     // Ownership is checked on ClangIR (SafeCOwnership.cpp). For a file that
-    // cannot follow those rules, '-mllvm -safe-c-ownership-ir=false' leaves the
-    // rest on. The rules it replaces are reachable only by their own tests.
-    auto Asked = [&](StringRef Name) {
-      return llvm::any_of(Args.filtered(options::OPT_mllvm), [&](const Arg *A) {
-        return StringRef(A->getValue()).starts_with(Name);
-      });
-    };
-    if (!Asked("-safe-c-ownership-ir") && !Asked("-safe-c-strict-ownership")) {
-      CmdArgs.push_back("-mllvm");
-      CmdArgs.push_back("-safe-c-ownership-ir=true");
-    }
+    // does not follow those rules yet, '-mllvm -safe-c-ownership=false' leaves
+    // every other check on.
     if (llvm::none_of(Args.filtered(options::OPT_mllvm), [](const Arg *A) {
-          return StringRef(A->getValue()).starts_with("-safe-c-strict-ownership");
+          return StringRef(A->getValue()).starts_with("-safe-c-ownership");
         })) {
       CmdArgs.push_back("-mllvm");
-      CmdArgs.push_back("-safe-c-strict-ownership=false");
+      CmdArgs.push_back("-safe-c-ownership=true");
     }
     for (const Arg *A : Args.filtered(options::OPT_mllvm))
       if (WeakensSafeC(A->getValue()))

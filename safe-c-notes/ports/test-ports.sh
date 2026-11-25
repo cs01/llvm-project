@@ -1,6 +1,5 @@
 #!/bin/bash
-# Builds and runs each port's tests under Safe C (default and with the M2
-# ownership rules), the system clang, and ASan+UBSan. Prints one line per
+# Builds and runs each port's tests under Safe C (ownership off: not ported to it yet), the system clang, and ASan+UBSan. Prints one line per
 # configuration; exits non-zero if any test fails or does not build.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
@@ -23,10 +22,7 @@ ulimit -s 65520
   "$here/cjson/tests/unity/src/unity.c" || exit 1
 
 configs=(
-  "safec|$safec -fsafe-c -mllvm -safe-c-ownership-ir=false -isysroot $sdk"
-  # Ownership annotations are opt-in; the driver rejects a bare
-  # -mllvm -safe-c-ownership (it allows only =true or =1 for -safe-c-* switches).
-  "safec-own|$safec -fsafe-c -mllvm -safe-c-strict-ownership=true -isysroot $sdk"
+  "safec|$safec -fsafe-c -mllvm -safe-c-ownership=false -isysroot $sdk"
   "system|/usr/bin/clang"
   "asan|/usr/bin/clang -fsanitize=address,undefined -fno-sanitize-recover=all"
 )

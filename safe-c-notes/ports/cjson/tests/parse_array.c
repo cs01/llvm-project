@@ -41,7 +41,7 @@ static void assert_is_array(cJSON *array_item)
     assert_has_no_string(array_item);
 }
 
-static void assert_not_array(cJSON *_Exclusive item, const char *json)
+static void assert_not_array(cJSON *item, const char *json)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -54,7 +54,7 @@ static void assert_not_array(cJSON *_Exclusive item, const char *json)
     assert_is_invalid(item);
 }
 
-static void assert_parse_array(cJSON *_Exclusive item, const char *json)
+static void assert_parse_array(cJSON *item, const char *json)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */

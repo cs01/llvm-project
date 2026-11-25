@@ -7,27 +7,20 @@
 //===----------------------------------------------------------------------===//
 
 #include <cassert>
-#include <functional>
 #include <string>
 
 #include "clang/AST/Decl.h"
-#include "clang/AST/ParentMap.h"
-#include "llvm/ADT/ScopeExit.h"
-#include "llvm/ADT/StringSwitch.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/OperationKinds.h"
-#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/Facts.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/FactsGenerator.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/Origins.h"
 #include "clang/Analysis/Analyses/PostOrderCFGView.h"
 #include "clang/Analysis/CFG.h"
-#include "clang/Basic/Builtins.h"
 #include "clang/Basic/OperatorKinds.h"
-#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
@@ -79,9 +72,7 @@ void FactsGenerator::flow(OriginList *Dst, OriginList *Src, bool Kill,
     return;
   assert(Src &&
          "Dst is non-null but Src is null. List must have the same length");
-  // (Safe C rejects the programs where they differ, but still analyzes them.)
-  assert((Dst->getLength() == Src->getLength() ||
-          AC.getASTContext().getLangOpts().SafeC) &&
+  assert(Dst->getLength() == Src->getLength() &&
          "Lists must have the same length");
 
   while (Dst && Src) {
@@ -133,225 +124,9 @@ static const Loan *createLoan(FactManager &FactMgr, const CXXNewExpr *NE) {
 /// \param CE The CallExpr that represents the allocation
 /// \return The new Loan on success, nullptr otherwise
 static const Loan *createNewAllocLoan(FactManager &FactMgr,
-                                      const CallExpr *CE,
-                                      bool PerIteration = false) {
+                                      const CallExpr *CE) {
   AccessPath Path(CE);
-  Loan *L = FactMgr.getLoanMgr().createLoan(Path, CE);
-  // Earlier iterations' blocks get the interior path: freeing one of them
-  // (which invalidates by path prefix) does not end this iteration's block,
-  // while freeing or expiring this one still covers them.
-  if (PerIteration)
-    L->setEarlierIterations(FactMgr.getLoanMgr().createLoan(
-        AccessPath(Path, PathElement::getInterior()), CE));
-  return L;
-}
-
-// Safe C (M2): a pointer read out of an owned field is a borrow rooted at the
-// variable the place is reached from (`l` in `l->head->next`). An ownership
-// operation through that variable (a take, an owned-field store, or lending it
-// to an exclusive parameter) ends every such borrow. The loan's path is the
-// root's interior, so the root itself stays usable.
-static const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
-                                       unsigned Depth);
-
-/// The root a value derives from: a variable reached by a place, or the root
-/// of a lifetimebound argument of a call. Null for null, allocations and
-/// unknown values.
-static const VarDecl *safeCRootOrGlobal(const Expr *E);
-
-static const VarDecl *safeCValueRoot(const Expr *E, const Stmt *Body,
-                                     unsigned Depth) {
-  E = safeCPeel(E);
-  if (const auto *Call = dyn_cast<CallExpr>(E)) {
-    const FunctionDecl *F = Call->getDirectCallee();
-    if (!F)
-      return nullptr;
-    for (unsigned I = 0, N = std::min(Call->getNumArgs(), F->getNumParams());
-         I != N; ++I)
-      if (F->getParamDecl(I)->hasAttr<LifetimeBoundAttr>())
-        return safeCValueRoot(Call->getArg(I), Body, Depth + 1);
-    return nullptr;
-  }
-  // Globals too: `struct S *_Exclusive x = &G` borrows G.
-  if (const VarDecl *VD = safeCRootOrGlobal(E))
-    return safeCResolveRoot(VD, Body, Depth + 1);
-  return nullptr;
-}
-
-/// A borrow held in a plain local pointer is rooted where its values come
-/// from (in `c = l; c = c->next;` that is `l`), so a borrow read through `c`
-/// ends when `l` is changed, and may be returned when `l` is lifetimebound.
-/// When the values come from different roots, or from nothing borrowed, the
-/// local is its own root.
-static const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
-                                       unsigned Depth) {
-  // Owners (and static or unchecked pointers) are their own roots; a plain
-  // or _Exclusive local borrows from where its values come from.
-  StringRef Kind = safeCPointerKind(VD->getType());
-  if (!Body || Depth > 6 || isa<ParmVarDecl>(VD) || VD->hasGlobalStorage() ||
-      !VD->getType()->isPointerType() || (!Kind.empty() && Kind != "excl"))
-    return VD;
-  struct Finder : RecursiveASTVisitor<Finder> {
-    const VarDecl *VD;
-    llvm::SmallVector<const Expr *, 4> Values;
-    bool AddressTaken = false;
-    bool names(const Expr *E) {
-      const auto *DRE = dyn_cast<DeclRefExpr>(safeCPeel(E));
-      return DRE && DRE->getDecl() == VD;
-    }
-    bool VisitBinaryOperator(BinaryOperator *BO) {
-      if (BO->getOpcode() == BO_Assign && names(BO->getLHS()))
-        Values.push_back(BO->getRHS());
-      return true;
-    }
-    bool VisitUnaryOperator(UnaryOperator *UO) {
-      if (UO->getOpcode() == UO_AddrOf && names(UO->getSubExpr()))
-        AddressTaken = true;
-      return true;
-    }
-  } F;
-  F.VD = VD;
-  if (const Expr *Init = VD->getInit())
-    F.Values.push_back(Init);
-  F.TraverseStmt(const_cast<Stmt *>(Body));
-  if (F.AddressTaken)
-    return VD;
-  const VarDecl *Root = nullptr;
-  for (const Expr *V : F.Values) {
-    if (V->isNullPointerConstant(VD->getASTContext(),
-                                 Expr::NPC_ValueDependentIsNotNull))
-      continue;
-    const VarDecl *R = safeCRootVar(V) == VD ? VD : safeCValueRoot(V, Body, Depth);
-    if (R == VD)
-      continue; // `c = c->next` stays within c's own root
-    if (!R || (Root && R != Root))
-      return VD;
-    Root = R;
-  }
-  return Root ? Root : VD;
-}
-
-/// The variable a place is reached from, globals included.
-static const VarDecl *safeCRootOrGlobal(const Expr *E) {
-  if (const VarDecl *VD = safeCRootVar(E))
-    return VD;
-  while (true) {
-    E = E->IgnoreParenImpCasts();
-    if (const auto *ME = dyn_cast<MemberExpr>(E))
-      E = ME->getBase();
-    else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
-      E = ASE->getBase();
-    else if (const auto *UO = dyn_cast<UnaryOperator>(E);
-             UO && (UO->getOpcode() == UO_Deref || UO->getOpcode() == UO_AddrOf))
-      E = UO->getSubExpr();
-    else
-      break;
-  }
-  const auto *DRE = dyn_cast<DeclRefExpr>(E);
-  const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
-  return VD && VD->hasGlobalStorage() ? VD : nullptr;
-}
-
-/// Safe C rule 14: all globals act as one struct G, lent to every call that
-/// may touch globals. The function's own declaration stands for G's root, so
-/// these loans never meet a scope end.
-static AccessPath safeCGlobalsInterior(const Decl *Fn) {
-  return AccessPath(AccessPath(cast<ValueDecl>(Fn)), PathElement::getInterior());
-}
-
-static bool safeCTouchesGlobals(const FunctionDecl *FD, unsigned Depth);
-
-/// Whether a call may touch this program's globals (rule 14). Library code
-/// (builtins, system and legacy headers) cannot name them; it is clean
-/// unless it calls back into user code. A function with a body here is
-/// clean when the body names no global and calls only clean functions.
-static bool safeCCallTouchesGlobals(const CallExpr *CE, const SourceManager &SM,
-                                    unsigned Depth) {
-  const FunctionDecl *Callee = CE->getDirectCallee();
-  if (!Callee)
-    return true; // through a pointer: unknown
-  if (Callee->hasAttr<PureAttr>() || Callee->hasAttr<ConstAttr>())
-    return false;
-  bool CallsBack = llvm::any_of(CE->arguments(), [](const Expr *A) {
-    return A->getType()->isFunctionPointerType();
-  });
-  if (CE->getBuiltinCallee() ||
-      SM.isInSystemHeader(Callee->getCanonicalDecl()->getLocation()))
-    return CallsBack;
-  return CallsBack || safeCTouchesGlobals(Callee, Depth + 1);
-}
-
-/// Safe C: some `return` in \p FD's body gives a value rooted at a global
-/// (`return g;`, or through a local: `int *r = g; return r;`).
-static bool safeCReturnsGlobalBorrow(const FunctionDecl &FD) {
-  const FunctionDecl *Def = nullptr;
-  if (!FD.hasBody(Def) || !Def)
-    return false;
-  const Stmt *Body = Def->getBody();
-  struct Finder : RecursiveASTVisitor<Finder> {
-    const Stmt *Body;
-    bool Found = false;
-    bool VisitReturnStmt(ReturnStmt *RS) {
-      // Follow plain locals back through their initializers (a few steps).
-      const Expr *E = RS->getRetValue();
-      for (unsigned Step = 0; E && Step != 4; ++Step) {
-        const VarDecl *Root = safeCRootOrGlobal(E);
-        if (!Root)
-          break;
-        if (safeCResolveRoot(Root, Body, 0)->hasGlobalStorage()) {
-          Found = true;
-          break;
-        }
-        E = Root->hasLocalStorage() && !isa<ParmVarDecl>(Root) ? Root->getInit()
-                                                               : nullptr;
-      }
-      return !Found;
-    }
-  } F;
-  F.Body = Body;
-  F.TraverseStmt(const_cast<Stmt *>(Body));
-  return F.Found;
-}
-
-static bool safeCTouchesGlobals(const FunctionDecl *FD, unsigned Depth) {
-  const FunctionDecl *Def = nullptr;
-  // Unknown bodies, deep chains and recursion count as touching.
-  if (Depth > 6 || !FD->hasBody(Def) || !Def)
-    return true;
-  const SourceManager &SM = Def->getASTContext().getSourceManager();
-  struct Finder : RecursiveASTVisitor<Finder> {
-    const SourceManager &SM;
-    const FunctionDecl *Self;
-    unsigned Depth;
-    bool Touches = false;
-    bool VisitDeclRefExpr(DeclRefExpr *DRE) {
-      if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
-          VD && VD->hasGlobalStorage() && !VD->getType().isConstQualified())
-        Touches = true;
-      return !Touches;
-    }
-    bool VisitCallExpr(CallExpr *CE) {
-      if (CE->getDirectCallee() &&
-          CE->getDirectCallee()->getCanonicalDecl() == Self->getCanonicalDecl())
-        Touches = true;
-      else if (safeCCallTouchesGlobals(CE, SM, Depth))
-        Touches = true;
-      return !Touches;
-    }
-  } F{{}, SM, Def, Depth};
-  F.TraverseStmt(Def->getBody());
-  return F.Touches;
-}
-
-static AccessPath safeCRootInterior(LoanManager &LM, const VarDecl &VD) {
-  if (const auto *PVD = dyn_cast<ParmVarDecl>(&VD))
-    return AccessPath(AccessPath(LM.getOrCreatePlaceholderBase(PVD)),
-                      PathElement::getInterior());
-  return AccessPath(AccessPath(&VD), PathElement::getInterior());
-}
-
-static bool safeCOwnershipOn(const ASTContext &Ctx) {
-  return Ctx.getLangOpts().SafeC && safeCOwnershipFlag();
+  return FactMgr.getLoanMgr().createLoan(Path, CE);
 }
 
 void FactsGenerator::run() {
@@ -406,33 +181,6 @@ void FactsGenerator::VisitDeclStmt(const DeclStmt *DS) {
   for (const Decl *D : DS->decls())
     if (const auto *VD = dyn_cast<VarDecl>(D))
       if (const Expr *InitExpr = VD->getInit()) {
-        // Safe C: `struct S s = {p, ...}` puts p's loans in s's field, so
-        // freeing the block through two owners is seen as a double free.
-        if (const auto *ILE =
-                dyn_cast<InitListExpr>(InitExpr->IgnoreParenImpCasts());
-            ILE && AC.getASTContext().getLangOpts().SafeC)
-          if (const RecordDecl *RD = VD->getType()->getAsRecordDecl();
-              RD && !RD->isUnion() && !isSafeCViewType(VD->getType())) {
-            const InitListExpr *Sem =
-                ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
-            if (!Sem)
-              Sem = ILE;
-            unsigned I = 0;
-            for (const FieldDecl *FD : RD->fields()) {
-              if (FD->isUnnamedBitField())
-                continue;
-              if (I >= Sem->getNumInits())
-                break;
-              const Expr *Init = Sem->getInit(I++);
-              if (!Init)
-                continue;
-              if (OriginList *FL =
-                      FactMgr.getOriginMgr().getOrCreateLocalFieldList(VD, FD))
-                if (OriginList *IL = getOriginsList(*Init))
-                  flow(FL, Init->isGLValue() ? IL->peelOuterOrigin() : IL,
-                       /*Kill=*/true);
-            }
-          }
         OriginList *VDList = getOriginsList(*VD);
         if (!VDList)
           continue;
@@ -441,9 +189,6 @@ void FactsGenerator::VisitDeclStmt(const DeclStmt *DS) {
         flow(VDList, InitList, /*Kill=*/true);
       }
 }
-
-static void safeCLiteralsIn(const Expr *E,
-                            llvm::SmallVectorImpl<const CompoundLiteralExpr *> &Out);
 
 void FactsGenerator::VisitDeclRefExpr(const DeclRefExpr *DRE) {
   // Skip function references as their lifetimes are not interesting. Skip non
@@ -562,477 +307,11 @@ void FactsGenerator::VisitMemberExpr(const MemberExpr *ME) {
     CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
         Dst->getOuterOriginID(), Src->getOuterOriginID(),
         /*Kill=*/true));
-    // Safe C: a field of a view (a pointer, or a nested view or array)
-    // holds what the view borrows.
-    if (!ME->isArrow() && isSafeCViewType(ME->getBase()->getType()))
-      if (OriginList *Field = Dst->peelOuterOrigin())
-        if (OriginList *Agg = Src->peelOuterOrigin())
-          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-              Field->getOuterOriginID(), Agg->getOuterOriginID(),
-              /*Kill=*/true));
-  }
-}
-
-// Whether E's value is stored straight into Var (`Var = E`, through casts
-// and bounds-safety wrappers).
-bool FactsGenerator::safeCAssignedBackTo(const Expr *E, const VarDecl *Var) {
-  ParentMap &PM = AC.getParentMap();
-  const Stmt *Cur = E;
-  while (const Stmt *P = PM.getParent(Cur)) {
-    if (isa<ParenExpr, ImplicitCastExpr, CStyleCastExpr, OpaqueValueExpr,
-            MaterializeSequenceExpr, BoundsSafetyPointerPromotionExpr,
-            BoundsCheckExpr>(P)) {
-      Cur = P;
-      continue;
-    }
-    const auto *BO = dyn_cast<BinaryOperator>(P);
-    if (!BO || BO->getOpcode() != BO_Assign)
-      return false;
-    const auto *DRE = dyn_cast<DeclRefExpr>(safeCPeel(BO->getLHS()));
-    return DRE && DRE->getDecl() == Var;
-  }
-  return false;
-}
-
-static bool safeCIsAlloca(const CallExpr *CE) {
-  unsigned ID = CE->getBuiltinCallee();
-  return ID == Builtin::BIalloca || ID == Builtin::BI__builtin_alloca;
-}
-
-// Safe C: a callee may store any borrow it is given where another argument
-// points (`*out = in`); no annotation says it does not. So after the call,
-// what each such argument reaches may borrow what the other arguments do.
-void FactsGenerator::safeCFlowThroughOutArgs(const CallExpr *CE) {
-  QualType Callee = CE->getCallee()->getType();
-  if (const auto *PT = Callee->getAs<PointerType>())
-    Callee = PT->getPointeeType();
-  const auto *Proto = Callee->getAs<FunctionProtoType>();
-  if (!Proto)
-    return;
-  const FunctionDecl *FD = CE->getDirectCallee();
-  // Its argument is moved into the thread; the id written is no borrow.
-  if (FD && FD->isExternC() && FD->getIdentifier() &&
-      FD->getName() == "pthread_create")
-    return;
-  unsigned N = std::min(CE->getNumArgs(), Proto->getNumParams());
-  auto HoldsBorrow = [](QualType T) {
-    while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
-      T = AT->getElementType();
-    return isSafeCViewType(T) ||
-           (T->isPointerType() && !T->isFunctionPointerType() &&
-            safeCPointerKind(T).empty());
-  };
-  auto IsNoEscape = [&](unsigned I) {
-    return Proto->getParamType(I)->isPointerType() &&
-           (Proto->getExtParameterInfo(I).isNoEscape() ||
-            (FD && I < FD->getNumParams() &&
-             FD->getParamDecl(I)->hasAttr<NoEscapeAttr>()));
-  };
-  auto IsSource = [&](unsigned I) {
-    QualType T = Proto->getParamType(I);
-    if (isSafeCViewType(T))
-      return true;
-    StringRef Kind = safeCPointerKind(T);
-    return T->isPointerType() && !T->isFunctionPointerType() &&
-           Kind != "static";
-  };
-  // Given away: the block itself is the callee's to free, but views in it
-  // still carry borrows.
-  auto IsOwned = [&](unsigned I) {
-    return (FD && I < FD->getNumParams()
-                ? safeCParamDeclKind(FD->getParamDecl(I))
-                : safeCParamKind(Proto->getParamType(I))) == "owned";
-  };
-  // Every level of every variable an out argument may reach.
-  auto Outs = [&](unsigned Except) {
-    llvm::SmallVector<OriginID> Result;
-    for (unsigned J = 0; J != N; ++J) {
-      QualType T = Proto->getParamType(J);
-      if (J == Except || !T->isPointerType())
-        continue;
-      QualType Slot = T->getPointeeType();
-      if (Slot.isConstQualified() || !HoldsBorrow(Slot))
-        continue;
-      const VarDecl *Root = safeCRootVar(CE->getArg(J));
-      if (!Root)
-        continue;
-      const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
-      for (const VarDecl *VD : {Root, Resolved})
-        for (OriginList *Dst = VD ? getOriginsList(*VD) : nullptr; Dst;
-             Dst = Dst->peelOuterOrigin())
-          Result.push_back(Dst->getOuterOriginID());
-    }
-    return Result;
-  };
-  auto Flow = [&](OriginID From, llvm::ArrayRef<OriginID> To) {
-    for (OriginID ID : To)
-      CurrentBlockFacts.push_back(
-          FactMgr.createFact<OriginFlowFact>(ID, From, /*Kill=*/false));
-  };
-  for (unsigned I = 0; I != N; ++I) {
-    if (!IsSource(I))
-      continue;
-    llvm::SmallVector<OriginID> To = Outs(I);
-    OriginList *Src = getOriginsList(*CE->getArg(I));
-    if (To.empty() || !Src)
-      continue;
-    OriginList *First = Src;
-    // The pointer itself is not kept; what it points to may be copied out.
-    if (IsNoEscape(I) || IsOwned(I))
-      Src = Src->peelOuterOrigin();
-    for (; Src; Src = Src->peelOuterOrigin())
-      Flow(Src->getOuterOriginID(), To);
-    // `*out = s->owned` is a borrow rooted at what s names, ended by the next
-    // take or exclusive lend of it. (The argument's own origin is used up by
-    // the call, so it can carry the loan.)
-    if (IsNoEscape(I) || IsOwned(I) || !safeCOwnershipOn(AC.getASTContext()))
-      continue;
-    if (const VarDecl *Root = safeCRootOrGlobal(CE->getArg(I))) {
-      Root = safeCResolveRoot(Root, AC.getBody(), 0);
-      bool Global = Root->hasGlobalStorage();
-      if (Global && !isa<FunctionDecl>(AC.getDecl()))
-        continue;
-      const Loan *L = FactMgr.getLoanMgr().createLoan(
-          Global ? safeCGlobalsInterior(AC.getDecl())
-                 : safeCRootInterior(FactMgr.getLoanMgr(), *Root),
-          CE->getArg(I));
-      CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
-          L->getID(), First->getOuterOriginID()));
-      Flow(First->getOuterOriginID(), To);
-    }
   }
 }
 
 void FactsGenerator::VisitCallExpr(const CallExpr *CE) {
-  // Safe C: alloca's block lives in this frame; it dies at every return
-  // (the expiry is issued in VisitReturnStmt).
-  if (AC.getASTContext().getLangOpts().SafeC && safeCIsAlloca(CE))
-    if (OriginList *R = getOriginsList(*CE)) {
-      const Loan *L = FactMgr.getLoanMgr().createLoan(AccessPath(CE), CE);
-      CurrentBlockFacts.push_back(
-          FactMgr.createFact<IssueFact>(L->getID(), R->getOuterOriginID()));
-    }
-  // Safe C: `memcpy(d, s, n)` copies the borrows *s holds into *d, as
-  // `*d = *s` would. (The void* conversions hide the pointee level, so look
-  // through them to the typed pointers.)
-  if (AC.getASTContext().getLangOpts().SafeC && CE->getNumArgs() >= 2)
-    if (const FunctionDecl *FD = CE->getDirectCallee()) {
-      unsigned ID = FD->getBuiltinID();
-      // A redeclaration whose types differ from the builtin's (Safe C's
-      // pointer defaults can do that) is still the C library function.
-      if (!ID && FD->isExternC() && FD->getIdentifier())
-        ID = llvm::StringSwitch<unsigned>(FD->getName())
-                 .Case("memcpy", Builtin::BImemcpy)
-                 .Case("memmove", Builtin::BImemmove)
-                 .Default(0);
-      switch (ID) {
-      case Builtin::BImemcpy:
-      case Builtin::BImemmove:
-      case Builtin::BI__builtin_memcpy:
-      case Builtin::BI__builtin_memmove:
-      case Builtin::BI__builtin___memcpy_chk:
-      case Builtin::BI__builtin___memmove_chk: {
-        // Strips conversions to void* but not loads: the result is still
-        // the pointer argument (an rvalue), one level above the bytes.
-        auto Typed = [](const Expr *E) {
-          while (true) {
-            E = E->IgnoreParens();
-            if (const auto *Cast = dyn_cast<CastExpr>(E);
-                Cast && Cast->getCastKind() != CK_LValueToRValue)
-              E = Cast->getSubExpr();
-            else if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E);
-                OVE && OVE->getSourceExpr())
-              E = OVE->getSourceExpr();
-            else if (const auto *PPE =
-                         dyn_cast<BoundsSafetyPointerPromotionExpr>(E))
-              E = PPE->getPointer();
-            else
-              return E;
-          }
-        };
-        // `&x` as the destination writes x itself: use its own origins
-        // (the address expression's are a copy).
-        const Expr *Dst = Typed(CE->getArg(0));
-        OriginList *DP = nullptr;
-        if (const auto *UO = dyn_cast<UnaryOperator>(Dst);
-            UO && UO->getOpcode() == UO_AddrOf) {
-          if (OriginList *X = getOriginsList(*UO->getSubExpr()->IgnoreParens()))
-            DP = X->peelOuterOrigin();
-        } else if (OriginList *D = getOriginsList(*Dst)) {
-          DP = D->peelOuterOrigin();
-        }
-        OriginList *S = getOriginsList(*Typed(CE->getArg(1)));
-        if (DP && S)
-            if (OriginList *SP = S->peelOuterOrigin())
-              CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-                  DP->getOuterOriginID(), SP->getOuterOriginID(),
-                  /*Kill=*/false));
-        break;
-      }
-      default:
-        break;
-      }
-    }
-  if (safeCOwnershipOn(AC.getASTContext())) {
-    // Rule 14: a call that may touch globals ends every borrow rooted at them,
-    // including ones passed to it, which it could free (so its arguments are
-    // used again after the expiry).
-    const FunctionDecl *Callee = CE->getDirectCallee();
-    (void)Callee;
-    bool Pure = !safeCCallTouchesGlobals(
-        CE, AC.getASTContext().getSourceManager(), /*Depth=*/0);
-    if (!Pure && isa<FunctionDecl>(AC.getDecl())) {
-      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
-          safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));
-      // A borrowed pointer returned by a function that reads globals may
-      // borrow one of them (a getter `int *get(void) { return g; }`), so
-      // it ends when they change, like a direct read of g. New memory
-      // (allocators, _Returns_owned) is not a borrow.
-      // Through a pointer it may be such a getter.
-      const Decl *Ptr = CE->getCalleeDecl();
-      if ((Callee ? safeCReturnsGlobalBorrow(*Callee) &&
-                        !Callee->hasAttr<OwnershipAttr>() &&
-                        !isAllocatingFunction(*Callee)
-                  : !CE->getType()->isVoidPointerType() &&
-                        (!Ptr || !Ptr->hasAttr<OwnershipAttr>())) &&
-          (CE->getType()->isPointerType() || isSafeCViewType(CE->getType())) &&
-          safeCPointerKind(CE->getType()).empty())
-        if (OriginList *R = getOriginsList(*CE)) {
-          const Loan *L = FactMgr.getLoanMgr().createLoan(
-              safeCGlobalsInterior(AC.getDecl()), CE);
-          CurrentBlockFacts.push_back(
-              FactMgr.createFact<IssueFact>(L->getID(), R->getOuterOriginID()));
-        }
-      for (const Expr *Arg : CE->arguments())
-        if (Arg->getType()->isPointerType())
-          if (OriginList *L = getOriginsList(*Arg))
-            CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(*Arg, L));
-    }
-  }
   handleFunctionCall(CE);
-  // Last: the borrows stored are taken after the call has ended the old ones.
-  llvm::scope_exit OutArgs([&] {
-    if (AC.getASTContext().getLangOpts().SafeC)
-      safeCFlowThroughOutArgs(CE);
-  });
-  if (!safeCOwnershipOn(AC.getASTContext()))
-    return;
-  // M5: pthread_create moves its argument into the new thread; the spawning
-  // code may not use what it handed over (that would race with the thread).
-  if (const FunctionDecl *FD = CE->getDirectCallee();
-      FD && FD->isExternC() && FD->getIdentifier() &&
-      FD->getName() == "pthread_create" && CE->getNumArgs() == 4)
-    if (OriginList *L = getOriginsList(*CE->getArg(3)))
-      CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
-          L->getOuterOriginID(), CE));
-  auto EndBorrowsThrough = [&](const Expr *Place) {
-    const VarDecl *Root = safeCRootOrGlobal(Place);
-    if (!Root)
-      return;
-    const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
-    // Borrows of globals are all loans of one place (see rule 14): lending
-    // `&g` ends them, as `_Take(g)` does.
-    if (Resolved->hasGlobalStorage()) {
-      if (!isa<FunctionDecl>(AC.getDecl()))
-        return;
-      AccessPath G = safeCGlobalsInterior(AC.getDecl());
-      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
-          safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));
-      // A local borrowing a global, lent on, is reborrowed as for any root.
-      if (Root != Resolved)
-        if (OriginList *L = getOriginsList(*Root)) {
-          const Loan *Fresh = FactMgr.getLoanMgr().createLoan(G, Place);
-          CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
-              Fresh->getID(), L->getOuterOriginID()));
-        }
-      return;
-    }
-    AccessPath Path = safeCRootInterior(FactMgr.getLoanMgr(), *Resolved);
-    CurrentBlockFacts.push_back(
-        FactMgr.createFact<ExpireFact>(Path, CE->getBeginLoc()));
-    // Lending a borrow local (`r` rooted at `x`), or a part of what it
-    // reaches (`r->table`), reborrows it: r stays usable afterwards, every
-    // other borrow of x ends (Rust's `&mut *r`, `&mut r.table`).
-    if (Resolved != Root)
-      if (OriginList *L = getOriginsList(*Root)) {
-        const Loan *Fresh = FactMgr.getLoanMgr().createLoan(Path, Place);
-        CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
-            Fresh->getID(), L->getOuterOriginID()));
-      }
-  };
-  if (CE->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
-      CE->getNumArgs() == 1) {
-    // The result is what the place held: keep its loans, so freeing it twice
-    // (through two owners of one block) is still seen.
-    if (OriginList *Dst = getOriginsList(*CE))
-      if (OriginList *Src = getOriginsList(*CE->getArg(0)))
-        if (OriginList *Val = Src->peelOuterOrigin()) {
-          // An owned field or a global holds no loan of its block (only
-          // locals and allocation results do), so the taken value could
-          // carry none and a second free of it went unseen. Give it a fresh
-          // owner loan, as an allocation result has, next to the place's.
-          // (Issuing replaces an origin's loans, so it comes first.)
-          const Loan *L = createNewAllocLoan(FactMgr, CE, /*PerIteration=*/true);
-          CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
-              L->getID(), Dst->getOuterOriginID()));
-          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-              Dst->getOuterOriginID(), Val->getOuterOriginID(), /*Kill=*/false));
-          // Views in the block keep what they borrow.
-          for (OriginList *DI = Dst->peelOuterOrigin(),
-                          *VI = Val->peelOuterOrigin();
-               DI && VI;
-               DI = DI->peelOuterOrigin(), VI = VI->peelOuterOrigin())
-            CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-                DI->getOuterOriginID(), VI->getOuterOriginID(),
-                /*Kill=*/false));
-          // The place is null afterwards: it holds nothing.
-          CurrentBlockFacts.push_back(
-              FactMgr.createFact<KillOriginFact>(Val->getOuterOriginID()));
-        }
-    EndBorrowsThrough(CE->getArg(0));
-    if (const VarDecl *Root = safeCRootOrGlobal(CE->getArg(0));
-        Root && Root->hasGlobalStorage() && isa<FunctionDecl>(AC.getDecl()))
-      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
-          safeCGlobalsInterior(AC.getDecl()), CE->getBeginLoc()));
-    return;
-  }
-
-  llvm::SmallPtrSet<const Expr *, 4> Lent;
-  // An argument lent to an exclusive parameter may have its owned fields
-  // taken or replaced by the callee; one given away to an owned parameter
-  // is gone. Either way, borrows rooted at it end. Through a function
-  // pointer the kinds come from its type, as a direct call's from the decl.
-  if (!CE->getDirectCallee())
-    if (const auto *FPT = CE->getCallee()
-                              ->getType()
-                              ->getPointeeType()
-                              ->getAs<FunctionProtoType>())
-      for (unsigned I = 0, N = std::min(CE->getNumArgs(), FPT->getNumParams());
-           I != N; ++I) {
-        StringRef K = safeCParamKind(FPT->getParamType(I));
-        if (K == "excl" || K == "owned") {
-          EndBorrowsThrough(CE->getArg(I));
-          Lent.insert(CE->getArg(I));
-        }
-      }
-  // The callee may use its other arguments after it has changed or freed
-  // what it was lent or given, so none may hold a borrow that just ended
-  // (`f(q, &s)` where q borrows s.p).
-  auto UseOthers = [&] {
-    if (Lent.empty())
-      return;
-    const FunctionDecl *FD = CE->getDirectCallee();
-    const auto *FPT =
-        CE->getCallee()->getType()->getPointeeType()->getAs<FunctionProtoType>();
-    for (unsigned I = 0, N = CE->getNumArgs(); I != N; ++I) {
-      const Expr *Arg = CE->getArg(I);
-      // An `_Unchecked` parameter is used only inside `__unsafe`.
-      if (FD && I < FD->getNumParams()
-              ? safeCParamDeclKind(FD->getParamDecl(I)) == "unchecked"
-              : FPT && I < FPT->getNumParams() &&
-                    safeCParamKind(FPT->getParamType(I)) == "unchecked")
-        continue;
-      // Rooted at a lent variable: rule 8 reports it, by name.
-      auto Resolve = [&](const Expr *E) {
-        const VarDecl *VD = safeCRootVar(E);
-        return VD ? safeCResolveRoot(VD, AC.getBody(), 0) : nullptr;
-      };
-      const VarDecl *Root = Resolve(Arg);
-      if (FD && Root && Arg->getType()->isPointerType() &&
-          llvm::any_of(Lent, [&](const Expr *L) { return Resolve(L) == Root; }))
-        continue;
-      if (!Lent.contains(Arg) &&
-          (Arg->getType()->isPointerType() || isSafeCViewType(Arg->getType())))
-        if (OriginList *L = getOriginsList(*Arg))
-          CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(*Arg, L));
-    }
-  };
-  if (!CE->getDirectCallee()) {
-    UseOthers();
-    // The result may borrow any argument (a direct call's signature says
-    // which; a pointer's type does not).
-    if (OriginList *Result = getOriginsList(*CE);
-        Result && (isSafeCViewType(CE->getType()) ||
-                   (CE->getType()->isPointerType() &&
-                    !CE->getType()->isVoidPointerType() &&
-                    safeCPointerKind(CE->getType()).empty())))
-      for (const Expr *Arg : CE->arguments()) {
-        if (!Arg->getType()->isPointerType() && !isSafeCViewType(Arg->getType()))
-          continue;
-        OriginList *ArgL = getOriginsList(*Arg);
-        if (!ArgL)
-          continue;
-        for (OriginList *L = ArgL; L; L = L->peelOuterOrigin())
-          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-              Result->getOuterOriginID(), L->getOuterOriginID(),
-              /*Kill=*/false));
-        const VarDecl *Root = safeCRootOrGlobal(Arg);
-        if (!Root || (Root = safeCResolveRoot(Root, AC.getBody(), 0),
-                      Root->hasGlobalStorage()))
-          continue;
-        const Loan *L = FactMgr.getLoanMgr().createLoan(
-            safeCRootInterior(FactMgr.getLoanMgr(), *Root), CE);
-        CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
-            L->getID(), ArgL->getOuterOriginID()));
-        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-            Result->getOuterOriginID(), ArgL->getOuterOriginID(),
-            /*Kill=*/false));
-      }
-  }
-  if (const FunctionDecl *FD = CE->getDirectCallee()) {
-    unsigned N = std::min(CE->getNumArgs(), FD->getNumParams());
-    for (unsigned I = 0; I != N; ++I) {
-      StringRef K = safeCParamDeclKind(FD->getParamDecl(I));
-      if (K == "excl" || K == "owned") {
-        EndBorrowsThrough(CE->getArg(I));
-        Lent.insert(CE->getArg(I));
-      }
-    }
-    UseOthers();
-    // A `_Lifetimebound` parameter makes the result a borrow of its
-    // argument's root, so it ends when that root's owned fields change
-    // (a getter `get(&s)` of `s.p`, then `_Take(s.p)`) or the root is lent
-    // exclusively again (an `_Exclusive` reborrow). The result keeps what it
-    // already borrows: the new loan goes through the argument's own origin
-    // (consumed by now) and is added, not substituted.
-    if (OriginList *Result = getOriginsList(*CE))
-      for (unsigned I = 0; I != N; ++I) {
-        const ParmVarDecl *P = FD->getParamDecl(I);
-        if (!P->hasAttr<LifetimeBoundAttr>())
-          continue;
-        const VarDecl *Root = safeCRootOrGlobal(CE->getArg(I));
-        OriginList *ArgL = getOriginsList(*CE->getArg(I));
-        if (!Root || !ArgL)
-          continue;
-        const VarDecl *Resolved = safeCResolveRoot(Root, AC.getBody(), 0);
-        // A getter of a global (`get(&G)`) borrows the globals: those loans
-        // end when any of them is taken, lent or changed by a call.
-        if (Resolved->hasGlobalStorage() && !isa<FunctionDecl>(AC.getDecl()))
-          continue;
-        AccessPath Fresh = Resolved->hasGlobalStorage()
-                               ? safeCGlobalsInterior(AC.getDecl())
-                               : safeCRootInterior(FactMgr.getLoanMgr(), *Resolved);
-        // `p = f(p)`: the result replaces the variable it borrows from (Rust
-        // moves the reborrow in and out). It holds what p holds after this
-        // call lent it (an exclusive lend gives p a fresh borrow), not the
-        // argument's earlier loans, which that lend just ended.
-        if (safeCAssignedBackTo(CE, Root)) {
-          if (OriginList *RootL = getOriginsList(*Root)) {
-            CurrentBlockFacts.push_back(
-                FactMgr.createFact<KillOriginFact>(Result->getOuterOriginID()));
-            CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-                Result->getOuterOriginID(), RootL->getOuterOriginID(),
-                /*Kill=*/false));
-          }
-          continue;
-        }
-        const Loan *L = FactMgr.getLoanMgr().createLoan(Fresh, CE);
-        CurrentBlockFacts.push_back(
-            FactMgr.createFact<IssueFact>(L->getID(), ArgL->getOuterOriginID()));
-        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-            Result->getOuterOriginID(), ArgL->getOuterOriginID(), /*Kill=*/false));
-      }
-  }
 }
 
 void FactsGenerator::VisitCXXNullPtrLiteralExpr(
@@ -1054,30 +333,6 @@ void FactsGenerator::VisitCastExpr(const CastExpr *CE) {
     // `int *p, *q; p = q;`) should propagate the inner origin (what the pointer
     // points to), not the outer origin (the pointer's storage location).
     flow(Dest, readValue(SubExpr), /*Kill=*/true);
-    // Safe C: a pointer read out of a view (`s.p`) borrows what the view does.
-    if (const auto *ME = dyn_cast<MemberExpr>(SubExpr->IgnoreParens());
-        Dest && ME && !ME->isArrow() && isSafeCViewType(ME->getBase()->getType()))
-      if (OriginList *Base = getOriginsList(*ME->getBase()))
-        if (OriginList *Agg = Base->peelOuterOrigin())
-          CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-              Dest->getOuterOriginID(), Agg->getOuterOriginID(), /*Kill=*/true));
-    if (Dest && safeCOwnershipOn(AC.getASTContext()) &&
-        safeCPointerKind(SubExpr->getType()) == "owned")
-      if (const VarDecl *Root = safeCRootOrGlobal(SubExpr)) {
-        Root = safeCResolveRoot(Root, AC.getBody(), 0);
-        bool Global = Root->hasGlobalStorage();
-        // Reading an owned local by name moves or copies it; only places
-        // reached through something, and owned globals, are borrows.
-        if (Global ? isa<FunctionDecl>(AC.getDecl())
-                   : !isa<DeclRefExpr>(SubExpr->IgnoreParens())) {
-          const Loan *L = FactMgr.getLoanMgr().createLoan(
-              Global ? safeCGlobalsInterior(AC.getDecl())
-                     : safeCRootInterior(FactMgr.getLoanMgr(), *Root),
-              SubExpr);
-          CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
-              L->getID(), Dest->getOuterOriginID()));
-        }
-      }
     return;
   case CK_NullToPointer:
     // TODO: Flow into them a null origin.
@@ -1109,13 +364,6 @@ void FactsGenerator::VisitCastExpr(const CastExpr *CE) {
     assert(Src && "Array expression should have origins as it is GL value");
     CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
         Dest->getOuterOriginID(), Src->getOuterOriginID(), /*Kill=*/true));
-    // Safe C: the array's aggregate origin (what its elements borrow) is
-    // what the decayed pointer's pointees borrow.
-    if (OriginList *Elems = Src->peelOuterOrigin())
-      if (OriginList *Pointees = Dest->peelOuterOrigin())
-        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-            Pointees->getOuterOriginID(), Elems->getOuterOriginID(),
-            /*Kill=*/true));
     return;
   case CK_FunctionToPointerDecay:
   case CK_BuiltinFnToFnPtr:
@@ -1205,11 +453,6 @@ void FactsGenerator::VisitUnaryOperator(const UnaryOperator *UO) {
 }
 
 void FactsGenerator::VisitReturnStmt(const ReturnStmt *RS) {
-  // Safe C: compound literals not tied to a local die with the frame. (Those
-  // initializing a local expire with it, at its lifetime end.)
-  if (AC.getASTContext().getLangOpts().SafeC) {
-    safeCExpireFrame(RS->getEndLoc());
-  }
   if (const Expr *RetExpr = RS->getRetValue()) {
     if (OriginList *List = getOriginsList(*RetExpr))
       for (OriginList *L = List; L != nullptr; L = L->peelOuterOrigin())
@@ -1222,121 +465,6 @@ void FactsGenerator::handleAssignment(const Expr *TargetExpr,
                                       const Expr *LHSExpr,
                                       const Expr *RHSExpr) {
   LHSExpr = ignoreParensAndImpCasts(LHSExpr);
-  // Safe C: giving a pointer to an owner uses it: it must still be valid
-  // (`free(d); s.p = d;` would hand out freed memory).
-  if (safeCOwnershipOn(AC.getASTContext()) &&
-      LHSExpr->getType()->isPointerType() &&
-      safeCPointerKind(LHSExpr->getType()) == "owned" &&
-      !isa<MemberExpr>(safeCPeel(RHSExpr)->IgnoreParenCasts()))
-    if (OriginList *L = getOriginsList(*RHSExpr))
-      CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(*RHSExpr, L));
-  // `*&q = v` assigns q.
-  while (const auto *Deref = dyn_cast<UnaryOperator>(LHSExpr)) {
-    const auto *Addr =
-        Deref->getOpcode() == UO_Deref
-            ? dyn_cast<UnaryOperator>(ignoreParensAndImpCasts(Deref->getSubExpr()))
-            : nullptr;
-    if (!Addr || Addr->getOpcode() != UO_AddrOf)
-      break;
-    LHSExpr = ignoreParensAndImpCasts(Addr->getSubExpr());
-  }
-  // Safe C: a store through a pointer parameter (`*out = v`, `out[i] = v`,
-  // `out->f = v` on a view) adds v's loans to what the caller lent, which
-  // escapes the call (so a borrow of a local stored there is reported).
-  if (AC.getASTContext().getLangOpts().SafeC) {
-    const Expr *Through = nullptr;
-    if (const auto *UO = dyn_cast<UnaryOperator>(LHSExpr);
-        UO && UO->getOpcode() == UO_Deref)
-      Through = UO->getSubExpr();
-    else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(LHSExpr))
-      Through = ASE->getBase();
-    else if (const auto *ME = dyn_cast<MemberExpr>(LHSExpr); ME && ME->isArrow())
-      Through = ME->getBase();
-    // `*out = &local` (or a local array) is already an error in Sema.
-    const Expr *R = RHSExpr->IgnoreParenCasts();
-    const Expr *Place = nullptr;
-    if (const auto *UO = dyn_cast<UnaryOperator>(R);
-        UO && UO->getOpcode() == UO_AddrOf)
-      Place = UO->getSubExpr()->IgnoreParens();
-    else if (R->getType()->isArrayType())
-      Place = R;
-    // (But `&p->f` is whatever p borrows, so it flows.)
-    while (Place) {
-      if (const auto *ME = dyn_cast<MemberExpr>(Place); ME && !ME->isArrow())
-        Place = ME->getBase()->IgnoreParens();
-      else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(Place);
-               ASE && ASE->getBase()
-                          ->IgnoreParenImpCasts()
-                          ->getType()
-                          ->isArrayType())
-        Place = ASE->getBase()->IgnoreParenImpCasts();
-      else
-        break;
-    }
-    if (Place && isa<DeclRefExpr>(Place))
-      Through = nullptr;
-    if (Through)
-      if (const auto *DRE = dyn_cast<DeclRefExpr>(safeCPeel(Through)))
-        if (const auto *PVD = dyn_cast<ParmVarDecl>(DRE->getDecl());
-            PVD && PVD->getType()->isPointerType())
-          if (OriginList *PL = getOriginsList(*PVD))
-            if (OriginList *Pointee = PL->peelOuterOrigin())
-              if (OriginList *RHS = readValue(RHSExpr))
-                CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-                    Pointee->getOuterOriginID(), RHS->getOuterOriginID(),
-                    /*Kill=*/false));
-  }
-  // Safe C: `s.p = x` on a view, or `a[i] = x` on a local array, adds x's
-  // loans to the aggregate (which keeps the borrows of every field or
-  // element), and to each one enclosing it (`w.s.p`, `arr[1].p`).
-  if (AC.getASTContext().getLangOpts().SafeC)
-    if (OriginList *RHS = readValue(RHSExpr))
-      for (const Expr *Part = LHSExpr;;) {
-        const Expr *Base = nullptr;
-        if (const auto *ME = dyn_cast<MemberExpr>(Part);
-            ME && !ME->isArrow() && isSafeCViewType(ME->getBase()->getType()))
-          Base = ME->getBase()->IgnoreParens();
-        else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(Part)) {
-          const Expr *B = ASE->getBase()->IgnoreParenImpCasts();
-          if (B->getType()->isArrayType())
-            Base = B;
-        }
-        // Views reached through a local pointer (`toks[i].p = x`,
-        // `v->p = x`, a heap array of views): x's loans go to the pointer's
-        // pointee level, what every view it points to borrows, so the
-        // pointer may not be used once x's target is gone.
-        if (!Base) {
-          const Expr *Ptr = nullptr;
-          if (const auto *ME = dyn_cast<MemberExpr>(Part);
-              ME && ME->isArrow() &&
-              isSafeCViewType(ME->getBase()->getType()->getPointeeType()))
-            Ptr = ME->getBase();
-          else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(Part);
-                   ASE && isSafeCViewType(ASE->getType()))
-            Ptr = ASE->getBase();
-          else if (const auto *UO = dyn_cast<UnaryOperator>(Part);
-                   UO && UO->getOpcode() == UO_Deref &&
-                   isSafeCViewType(UO->getType()))
-            Ptr = UO->getSubExpr();
-          if (Ptr)
-            if (const auto *DRE =
-                    dyn_cast<DeclRefExpr>(Ptr->IgnoreParenImpCasts()))
-              if (OriginList *L = getOriginsList(*DRE))
-                if (OriginList *Val = L->peelOuterOrigin())
-                  if (OriginList *Pointee = Val->peelOuterOrigin())
-                    CurrentBlockFacts.push_back(
-                        FactMgr.createFact<OriginFlowFact>(
-                            Pointee->getOuterOriginID(),
-                            RHS->getOuterOriginID(), /*Kill=*/false));
-          break;
-        }
-        if (OriginList *BL = getOriginsList(*Base))
-          if (OriginList *Agg = BL->peelOuterOrigin())
-            CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-                Agg->getOuterOriginID(), RHS->getOuterOriginID(),
-                /*Kill=*/false));
-        Part = Base;
-      }
   handleAccess(LHSExpr);
   OriginList *RHSList = readValue(RHSExpr);
   OriginList *LHSList = nullptr;
@@ -1387,15 +515,6 @@ void FactsGenerator::handlePointerArithmetic(const BinaryOperator *BO) {
 }
 
 void FactsGenerator::VisitBinaryOperator(const BinaryOperator *BO) {
-  // Safe C (M2): replacing an owned field ends the borrows read out of it.
-  if (BO->getOpcode() == BO_Assign && safeCOwnershipOn(AC.getASTContext()) &&
-      !isa<DeclRefExpr>(BO->getLHS()->IgnoreParens()) &&
-      safeCPointerKind(BO->getLHS()->getType()) == "owned")
-    if (const VarDecl *Root = safeCRootVar(BO->getLHS()))
-      CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
-          safeCRootInterior(FactMgr.getLoanMgr(),
-                            *safeCResolveRoot(Root, AC.getBody(), 0)),
-          BO->getOperatorLoc()));
   if (BO->getOpcode() == BO_PtrMemD || BO->getOpcode() == BO_PtrMemI) {
     // `obj.*pm` / `objptr->*pm` names a member of the object, so a borrow of it
     // borrows the object; flow the object's origin into the result. For `.*`
@@ -1522,95 +641,9 @@ void FactsGenerator::VisitCXXFunctionalCastExpr(
   VisitCastExpr(FCE);
 }
 
-// A C compound literal `(T){...}` is an object built from its initializer:
-// what it points to (its inner origins) is what the initializer points to.
-/// Safe C: the block-scope compound literals an initializer stores into its
-/// variable (directly, by address, or inside an initializer list). Their
-/// storage lives exactly as long as the variable: same block.
-static void safeCLiteralsIn(const Expr *E,
-                            llvm::SmallVectorImpl<const CompoundLiteralExpr *> &Out) {
-  if (!E)
-    return;
-  E = E->IgnoreParenCasts();
-  if (const auto *OVE = dyn_cast<OpaqueValueExpr>(E))
-    return safeCLiteralsIn(OVE->getSourceExpr(), Out);
-  if (const auto *MSE = dyn_cast<MaterializeSequenceExpr>(E))
-    return safeCLiteralsIn(MSE->getWrappedExpr(), Out);
-  if (const auto *PPE = dyn_cast<BoundsSafetyPointerPromotionExpr>(E))
-    return safeCLiteralsIn(PPE->getPointer(), Out);
-  if (const auto *UO = dyn_cast<UnaryOperator>(E);
-      UO && UO->getOpcode() == UO_AddrOf)
-    return safeCLiteralsIn(UO->getSubExpr(), Out);
-  if (const auto *ILE = dyn_cast<InitListExpr>(E)) {
-    const InitListExpr *Sem = ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
-    for (const Expr *I : (Sem ? Sem : ILE)->inits())
-      safeCLiteralsIn(I, Out);
-    return;
-  }
-  if (const auto *CLE = dyn_cast<CompoundLiteralExpr>(E))
-    if (!CLE->isFileScope())
-      Out.push_back(CLE);
-}
-
-void FactsGenerator::VisitCompoundLiteralExpr(const CompoundLiteralExpr *CLE) {
-  // Safe C: a block-scope compound literal is unnamed local storage; its
-  // address is a borrow that ends with the block (C11 6.5.2.5p5).
-  if (AC.getASTContext().getLangOpts().SafeC && !CLE->isFileScope() &&
-      CLE->isGLValue())
-    if (OriginList *L = getOriginsList(*CLE)) {
-      const Loan *Loan = FactMgr.getLoanMgr().createLoan(AccessPath(CLE), CLE);
-      CurrentBlockFacts.push_back(
-          FactMgr.createFact<IssueFact>(Loan->getID(), L->getOuterOriginID()));
-    }
-  OriginList *Dst = getOriginsList(*CLE);
-  const Expr *Init = CLE->getInitializer();
-  OriginList *Src = Init ? getOriginsList(*Init) : nullptr;
-  if (!Dst || !Src)
-    return;
-  if (CLE->isGLValue())
-    Dst = Dst->peelOuterOrigin();
-  if (Init->isGLValue())
-    Src = Src->peelOuterOrigin();
-  if (Dst && Src)
-    flow(Dst, Src, /*Kill=*/true);
-}
-
 void FactsGenerator::VisitInitListExpr(const InitListExpr *ILE) {
-  // Safe C: giving a pointer to an owned field uses it, as an assignment does.
-  if (safeCOwnershipOn(AC.getASTContext())) {
-    const InitListExpr *Sem =
-        ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
-    for (const Expr *Init : (Sem ? Sem : ILE)->inits())
-      if (Init && Init->getType()->isPointerType() &&
-          safeCPointerKind(Init->getType()) == "owned")
-        if (OriginList *L = getOriginsList(*Init))
-          CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(*Init, L));
-  }
   if (!hasOrigins(ILE))
     return;
-  // Safe C: a view's origin holds the loans of every pointer it is built from.
-  if (isSafeCViewType(ILE->getType()) ||
-      (AC.getASTContext().getLangOpts().SafeC && ILE->getType()->isArrayType())) {
-    const InitListExpr *Sem =
-        ILE->isSemanticForm() ? ILE : ILE->getSemanticForm();
-    if (!Sem)
-      Sem = ILE;
-    OriginList *ViewList = getOriginsList(*ILE);
-    bool Kill = true;
-    for (const Expr *Init : Sem->inits()) {
-      if (!Init)
-        continue;
-      if (OriginList *IL = getOriginsList(*Init)) {
-        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-            ViewList->getOuterOriginID(), IL->getOuterOriginID(), Kill));
-        Kill = false;
-      }
-    }
-    if (Kill)
-      CurrentBlockFacts.push_back(
-          FactMgr.createFact<KillOriginFact>(ViewList->getOuterOriginID()));
-    return;
-  }
   // For list initialization with a single element, like `View{...}`, the
   // origin of the list itself is the origin of its single element.
   if (ILE->getNumInits() == 1) {
@@ -1706,14 +739,6 @@ void FactsGenerator::VisitArraySubscriptExpr(const ArraySubscriptExpr *ASE) {
   assert(Src && "Base of array subscript should have origins");
   CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
       Dst->getOuterOriginID(), Src->getOuterOriginID(), /*Kill=*/true));
-  // Safe C: `p[i]` is `*(p + i)`: the element holds what p's pointees
-  // borrow (for a local array, its aggregate origin, through the decay).
-  if (AC.getASTContext().getLangOpts().SafeC)
-    if (OriginList *Elem = Dst->peelOuterOrigin())
-      if (OriginList *Pointee = Src->peelOuterOrigin())
-        CurrentBlockFacts.push_back(FactMgr.createFact<OriginFlowFact>(
-            Elem->getOuterOriginID(), Pointee->getOuterOriginID(),
-            /*Kill=*/true));
 }
 
 bool FactsGenerator::handlePlacementNew(const CXXNewExpr *NE,
@@ -1878,13 +903,6 @@ void FactsGenerator::handleLifetimeEnds(const CFGLifetimeEnds &LifetimeEnds) {
       LSOpts.CheckDestructorUses &&
       Ty.isDestructedType() == QualType::DK_cxx_destructor &&
       !isGslOwnerType(AC.getASTContext().getBaseElementType(Ty));
-  if (AC.getASTContext().getLangOpts().SafeC) {
-    llvm::SmallVector<const CompoundLiteralExpr *, 2> Literals;
-    safeCLiteralsIn(LifetimeEndsVD->getInit(), Literals);
-    for (const CompoundLiteralExpr *CLE : Literals)
-      CurrentBlockFacts.push_back(
-          FactMgr.createFact<ExpireFact>(AccessPath(CLE), EndLoc));
-  }
   if (HasCleanup || IsDestructorUse)
     if (OriginList *List = getOriginsList(*LifetimeEndsVD))
       CurrentBlockFacts.push_back(FactMgr.createFact<UseFact>(
@@ -1892,28 +910,6 @@ void FactsGenerator::handleLifetimeEnds(const CFGLifetimeEnds &LifetimeEnds) {
                              HasCleanup ? UseKind::Cleanup
                                         : UseKind::Destructor),
           List));
-  // A cleanup function is a call made here: it may change globals.
-  if (const auto *A = LifetimeEndsVD->getAttr<CleanupAttr>();
-      A && A->getFunctionDecl() && safeCOwnershipOn(AC.getASTContext()) &&
-      isa<FunctionDecl>(AC.getDecl()) &&
-      safeCFunctionTouchesGlobals(A->getFunctionDecl(),
-                                  AC.getASTContext().getSourceManager()))
-    CurrentBlockFacts.push_back(FactMgr.createFact<ExpireFact>(
-        safeCGlobalsInterior(AC.getDecl()), EndLoc));
-  // Safe C: _Drop_free's cleanup frees what the pointer holds, so copies of
-  // it made in the scope die here too. (The invalidation is reported at the
-  // variable's initializer, which names what was freed.)
-  if (HasCleanup && AC.getASTContext().getLangOpts().SafeC &&
-      LifetimeEndsVD->getType()->isPointerType() && LifetimeEndsVD->getInit())
-    if (const FunctionDecl *CF =
-            LifetimeEndsVD->getAttr<CleanupAttr>()->getFunctionDecl();
-        CF && llvm::any_of(CF->specific_attrs<AnnotateAttr>(),
-                           [](const AnnotateAttr *A) {
-                             return A->getAnnotation() == "safec_cleanup";
-                           }))
-      if (OriginList *List = getOriginsList(*LifetimeEndsVD))
-        CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
-            List->getOuterOriginID(), LifetimeEndsVD->getInit()));
   // Expire the origin when its variable's lifetime ends to ensure liveness
   // doesn't persist through loop back-edges.
   std::optional<OriginID> ExpiredOID;
@@ -1940,53 +936,7 @@ void FactsGenerator::handleFullExprCleanup(
         AccessPath(MTE), FullExprCleanup.getCleanupLoc()));
 }
 
-// The frame's unnamed storage (alloca blocks, compound literals with no named
-// anchor) ends when the function does: at each return, and where control runs
-// off the end.
-void FactsGenerator::safeCExpireFrame(SourceLocation Loc) {
-  if (!SafeCUnanchoredLiterals) {
-    SafeCUnanchoredLiterals.emplace();
-    llvm::SmallPtrSet<const CompoundLiteralExpr *, 8> Anchored;
-    llvm::SmallVector<const CompoundLiteralExpr *, 8> All;
-    std::function<void(const Stmt *)> Walk = [&](const Stmt *S) {
-      if (!S)
-        return;
-      if (const auto *DS = dyn_cast<DeclStmt>(S))
-        for (const Decl *D : DS->decls())
-          if (const auto *VD = dyn_cast<VarDecl>(D);
-              VD && VD->hasLocalStorage()) {
-            llvm::SmallVector<const CompoundLiteralExpr *, 2> In;
-            safeCLiteralsIn(VD->getInit(), In);
-            Anchored.insert(In.begin(), In.end());
-          }
-      if (const auto *CLE = dyn_cast<CompoundLiteralExpr>(S);
-          CLE && !CLE->isFileScope())
-        All.push_back(CLE);
-      if (const auto *Call = dyn_cast<CallExpr>(S); Call && safeCIsAlloca(Call))
-        SafeCAllocas.push_back(Call);
-      // Bounds-safety wraps calls in opaque values, whose source is not a
-      // child.
-      if (const auto *OVE = dyn_cast<OpaqueValueExpr>(S))
-        Walk(OVE->getSourceExpr());
-      for (const Stmt *C : S->children())
-        Walk(C);
-    };
-    Walk(AC.getBody());
-    for (const CompoundLiteralExpr *CLE : All)
-      if (!Anchored.contains(CLE))
-        SafeCUnanchoredLiterals->push_back(CLE);
-  }
-  for (const CompoundLiteralExpr *CLE : *SafeCUnanchoredLiterals)
-    CurrentBlockFacts.push_back(
-        FactMgr.createFact<ExpireFact>(AccessPath(CLE), Loc));
-  for (const CallExpr *Call : SafeCAllocas)
-    CurrentBlockFacts.push_back(
-        FactMgr.createFact<ExpireFact>(AccessPath(Call), Loc));
-}
-
 void FactsGenerator::handleExitBlock() {
-  if (AC.getASTContext().getLangOpts().SafeC && AC.getBody())
-    safeCExpireFrame(AC.getBody()->getEndLoc());
   bool IsDestructor = isa_and_nonnull<CXXDestructorDecl>(AC.getDecl());
   for (const Origin &O : FactMgr.getOriginMgr().getOrigins())
     // Create FieldEscapeFacts for all field origins that remain live at exit.
@@ -2022,12 +972,7 @@ void FactsGenerator::handleExitBlock() {
   if (const auto *Fn = dyn_cast_if_present<FunctionDecl>(AC.getDecl()))
     for (const ParmVarDecl *PVD : Fn->parameters()) {
       OriginList *List = getOriginsList(*PVD);
-      // Safe C: a pointer parameter points at the caller's storage, which
-      // outlives this call, as a reference's does. (Re-pointing it at a
-      // local first is still reported: it is rare and easy to rename.)
-      if (!List || !(PVD->getType()->isReferenceType() ||
-                     (AC.getASTContext().getLangOpts().SafeC &&
-                      PVD->getType()->isPointerType())))
+      if (!List || !PVD->getType()->isReferenceType())
         continue;
       for (OriginList *Inner = List->peelOuterOrigin(); Inner;
            Inner = Inner->peelOuterOrigin())
@@ -2269,29 +1214,6 @@ void FactsGenerator::handleFreeingCall(const Expr *Call, const FunctionDecl *FD,
   }
 }
 
-void FactsGenerator::handleIndirectOwnershipCall(const CallExpr *CE,
-                                                 const Decl &D,
-                                                 ArrayRef<const Expr *> Args) {
-  for (const OwnershipAttr *Attr : D.specific_attrs<OwnershipAttr>()) {
-    if (Attr->getOwnKind() == OwnershipAttr::Takes) {
-      for (const ParamIdx &Idx : Attr->args()) {
-        unsigned I = Idx.getASTIndex();
-        if (I >= Args.size())
-          continue;
-        if (OriginList *ArgList = getOriginsList(*Args[I]))
-          CurrentBlockFacts.push_back(FactMgr.createFact<InvalidateOriginFact>(
-              ArgList->getOuterOriginID(), CE));
-      }
-    } else if (Attr->getOwnKind() == OwnershipAttr::Returns) {
-      if (OriginList *CallList = getOriginsList(*CE)) {
-        const Loan *L = createNewAllocLoan(FactMgr, CE);
-        CurrentBlockFacts.push_back(FactMgr.createFact<IssueFact>(
-            L->getID(), CallList->getOuterOriginID()));
-      }
-    }
-  }
-}
-
 void FactsGenerator::handleAllocatingCall(const Expr *Call,
                                           const FunctionDecl *FD) {
   if (!isAllocatingFunction(*FD))
@@ -2302,8 +1224,7 @@ void FactsGenerator::handleAllocatingCall(const Expr *Call,
   OriginList *CallList = getOriginsList(*Call);
   if (!CallList)
     return;
-  const Loan *L = createNewAllocLoan(
-      FactMgr, CE, /*PerIteration=*/AC.getASTContext().getLangOpts().SafeC);
+  const Loan *L = createNewAllocLoan(FactMgr, CE);
   CurrentBlockFacts.push_back(
       FactMgr.createFact<IssueFact>(L->getID(), CallList->getOuterOriginID()));
 }
@@ -2315,17 +1236,8 @@ void FactsGenerator::handleFunctionCall(const Expr *Call,
   // The callee may dereference any argument to any depth.
   for (const Expr *Arg : Args)
     handleUse(Arg);
-  if (!CallInfo.FD) {
-    // A call through a function pointer (a variable or field) whose
-    // declaration carries ownership_takes/ownership_returns frees or allocates
-    // like a direct call, e.g. `hooks->deallocate(p)`.
-    // AnyCall does not model such calls, so take the arguments from the call.
-    if (const auto *CE = dyn_cast<CallExpr>(Call->IgnoreParenImpCasts()))
-      if (const Decl *D = CE->getCalleeDecl(); D && !isa<FunctionDecl>(D))
-        handleIndirectOwnershipCall(
-            CE, *D, llvm::ArrayRef(CE->getArgs(), CE->getNumArgs()));
+  if (!CallInfo.FD)
     return;
-  }
   OriginList *CallList = getOriginsList(*Call);
   // Ignore functions returning values with no origin.
   const FunctionDecl *FD = getDeclWithMergedLifetimeBoundAttrs(CallInfo.FD);
@@ -2528,20 +1440,3 @@ llvm::SmallVector<Fact *> FactsGenerator::issuePlaceholderLoans() {
 }
 
 } // namespace clang::lifetimes::internal
-
-const clang::VarDecl *
-clang::lifetimes::safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
-                                   unsigned Depth) {
-  return internal::safeCResolveRoot(VD, Body, Depth);
-}
-
-bool clang::lifetimes::safeCMayTouchGlobals(const CallExpr *CE,
-                                            const SourceManager &SM) {
-  return internal::safeCCallTouchesGlobals(CE, SM, 0);
-}
-
-bool clang::lifetimes::safeCFunctionTouchesGlobals(const FunctionDecl *FD,
-                                                   const SourceManager &SM) {
-  return !SM.isInSystemHeader(FD->getCanonicalDecl()->getLocation()) &&
-         internal::safeCTouchesGlobals(FD, 0);
-}

@@ -26,10 +26,10 @@ https://github.com/benhoyt/inih
 #include <stddef.h>
 /* The same contracts as malloc, free and realloc. alloc_size lets the result
    be cast to char* (Safe C checks the definition returns fresh memory). */
-_Returns_owned __attribute__((alloc_size(1)))
+ __attribute__((alloc_size(1)))
 void* _Nullable __sized_by_or_null(size) ini_malloc(size_t size);
 void ini_free(void* _Nullable _Owned ptr);
-_Returns_owned __attribute__((alloc_size(2)))
+ __attribute__((alloc_size(2)))
 void* _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
                                                      size_t size);
 #else
@@ -46,7 +46,7 @@ void* _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
    so the built-in sources are told apart by kind instead, and only a user's
    reader sees a void*. */
 enum { INI_SOURCE_READER, INI_SOURCE_FILE, INI_SOURCE_STRING };
-typedef struct _View {
+typedef struct {
     int kind;
     ini_reader _Nullable reader;          /* INI_SOURCE_READER */
     void* _Nullable stream;
@@ -58,7 +58,7 @@ typedef struct _View {
 
 /* Strip whitespace chars off end of given string, in place. end must be a
    pointer to the NUL terminator at the end of the string. Return s. */
-static char* __bidi_indexable ini_rstrip(char* __bidi_indexable s _Lifetimebound,
+static char* __bidi_indexable ini_rstrip(char* __bidi_indexable s,
                                          char* __bidi_indexable end)
 {
     while (end > s && isspace((unsigned char)(*--end)))
@@ -77,7 +77,7 @@ static char* __bidi_indexable ini_lskip(char* __bidi_indexable s)
 /* Return pointer to first char (of chars) or inline comment in given string,
    or pointer to NUL at end of string if neither found. Inline comment must
    be prefixed by a whitespace character to register as a comment. */
-static char* __bidi_indexable ini_find_chars_or_comment(char* __bidi_indexable s _Lifetimebound,
+static char* __bidi_indexable ini_find_chars_or_comment(char* __bidi_indexable s,
                                                         const char* _Nullable chars)
 {
 #if INI_ALLOW_INLINE_COMMENTS
@@ -97,7 +97,7 @@ static char* __bidi_indexable ini_find_chars_or_comment(char* __bidi_indexable s
 
 /* Similar to strncpy, but ensures dest (size bytes) is
    NUL-terminated, and doesn't pad with NULs. */
-static char* __bidi_indexable ini_strncpy0(char* __counted_by(size) dest _Lifetimebound,
+static char* __bidi_indexable ini_strncpy0(char* __counted_by(size) dest,
                                            const char* __bidi_indexable src,
                                            size_t size)
 {

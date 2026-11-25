@@ -40,7 +40,7 @@ static void assert_is_value(cJSON *value_item, int type)
     assert_has_no_string(value_item);
 }
 
-static void assert_parse_value(cJSON *_Exclusive item, const char *string, int type)
+static void assert_parse_value(cJSON *item, const char *string, int type)
 {
     parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */

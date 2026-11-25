@@ -11928,21 +11928,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
   // Safe C: `int main(int argc, char *argv[])` (or `char **argv`) means argv
   // has argc elements; say so in the type, so the most common main signature
   // compiles and argv[i] is bounds-checked against argc.
-  // Safe C: _Owned on a parameter means the function takes ownership of
-  // it. Express that as ownership_takes at the parameter's own index, which
-  // the lifetime analysis and the body checks already understand, so the
-  // annotation never names a parameter by a number that can drift.
-  if (getLangOpts().SafeC) {
-    SmallVector<ParamIdx, 2> Owned;
-    for (unsigned I = 0, N = NewFD->getNumParams(); I != N; ++I)
-      if (safeCPointerKind(NewFD->getParamDecl(I)->getType()) == "owned")
-        Owned.push_back(ParamIdx(I + 1, NewFD));
-    if (!Owned.empty())
-      NewFD->addAttr(OwnershipAttr::CreateImplicit(
-          Context, &Context.Idents.get("malloc"), Owned.data(), Owned.size(),
-          NewFD->getLocation(), OwnershipAttr::GNU_ownership_takes));
-  }
-
   if (getLangOpts().SafeC && getLangOpts().BoundsSafety && NewFD->isMain() &&
       Params.size() >= 2 && Params[0]->getType()->isIntegerType() &&
       Params[1]->getType()->isPointerType() &&
@@ -16818,25 +16803,14 @@ void Sema::CheckThreadLocalForLargeAlignment(VarDecl *VD) {
   }
 }
 
-static void checkSafeCTakesInit(Sema &S, const Expr *Init, const Decl *Dst,
-                                QualType T);
-
 void Sema::FinalizeDeclaration(Decl *ThisDecl) {
   if (getLangOpts().SafeC && ThisDecl && isa<VarDecl>(ThisDecl)) {
-    checkSafeCPointerStorage(*this, ThisDecl);
     // Locals are checked with their function body.
     auto *VD = cast<VarDecl>(ThisDecl);
     if (VD->hasGlobalStorage() && !VD->isLocalVarDecl() && VD->getInit() &&
         !SourceMgr.isInSystemHeader(VD->getLocation()))
       checkSafeCPointerKindsIn(*this, VD);
   }
-  // Safe C: file-scope initializers (struct hooks h = { my_free, ... }) are
-  // not in any function body; locals are checked with their function.
-  if (getLangOpts().SafeC)
-    if (auto *VD = dyn_cast_or_null<VarDecl>(ThisDecl);
-        VD && VD->hasGlobalStorage() && !VD->isLocalVarDecl() &&
-        VD->getInit() && !SourceMgr.isInSystemHeader(VD->getLocation()))
-      checkSafeCTakesInit(*this, VD->getInit(), VD, VD->getType());
 
   // Note that we are no longer parsing the initializer for this declaration.
   ParsingInitForAutoVars.erase(ThisDecl);
@@ -17961,43 +17935,6 @@ static bool isSafeCFreshAllocation(
   return false;
 }
 
-/// Safe C: a function that hands out memory it allocated must say so
-/// (ownership_returns); otherwise callers' frees and later uses of the result
-/// go untracked by the lifetime analysis.
-static void checkSafeCReturnsOwned(Sema &S, const FunctionDecl *FD,
-                                   const Stmt *Body) {
-  if (!FD->getReturnType()->isPointerType() || FD->hasAttr<AllocSizeAttr>() ||
-      llvm::any_of(FD->specific_attrs<OwnershipAttr>(),
-                   [](const OwnershipAttr *A) { return A->isReturns(); }))
-    return;
-  llvm::SmallPtrSet<const VarDecl *, 4> FreshLocals, Assigned;
-  const ReturnStmt *Found = nullptr;
-  std::function<void(const Stmt *)> Walk = [&](const Stmt *St) {
-    if (!St || Found)
-      return;
-    if (const auto *DS = dyn_cast<DeclStmt>(St))
-      for (const Decl *D : DS->decls())
-        if (const auto *VD = dyn_cast<VarDecl>(D))
-          if (VD->hasLocalStorage() && VD->getInit() &&
-              isSafeCFreshAllocation(S.Context, VD->getInit(), FreshLocals) &&
-              !VD->getInit()->IgnoreParenCasts()->isNullPointerConstant(
-                  S.Context, Expr::NPC_ValueDependentIsNotNull))
-            FreshLocals.insert(VD);
-    if (const auto *RS = dyn_cast<ReturnStmt>(St))
-      if (const Expr *V = RS->getRetValue();
-          V && !V->IgnoreParenCasts()->isNullPointerConstant(
-                   S.Context, Expr::NPC_ValueDependentIsNotNull) &&
-          isSafeCFreshAllocation(S.Context, V, FreshLocals))
-        Found = RS;
-    for (const Stmt *Child : St->children())
-      Walk(Child);
-  };
-  Walk(Body);
-  if (Found)
-    S.SafeCDiag(Found->getRetValue()->getExprLoc(), "returns-fresh")
-        << FD << Found->getRetValue()->getSourceRange();
-}
-
 /// Safe C: an alloc_size function counts as a fresh allocation at its call
 /// sites, so its body must return only fresh memory.
 static void checkSafeCAllocatorBody(Sema &S, const FunctionDecl *FD,
@@ -18084,105 +18021,6 @@ static void checkSafeCAllocatorBody(Sema &S, const FunctionDecl *FD,
       if (!isSafeCFreshAllocation(S.Context, V, FreshLocals) || Smaller(V))
         S.Diag(V->getExprLoc(), diag::warn_safe_c_alloc_size_body)
             << FD << V->getSourceRange();
-}
-
-/// Safe C: a function that frees a parameter may be stored only into a
-/// function pointer whose declaration says so; calls through any other pointer
-/// would keep using the freed memory unseen. (The other way round is safe: a
-/// pointer declared to free makes its callers stop using the argument.)
-static void checkSafeCTakesStore(Sema &S, const Expr *Src, const Decl *Dst) {
-  if (!Src || !Dst)
-    return;
-  const auto *DRE = dyn_cast<DeclRefExpr>(Src->IgnoreParenImpCasts());
-  const auto *F = DRE ? dyn_cast<FunctionDecl>(DRE->getDecl()) : nullptr;
-  if (!F || isa<FunctionDecl>(Dst))
-    return;
-  for (unsigned I = 0, N = F->getNumParams(); I != N; ++I)
-    if (safeCTakesParam(F, I) && !safeCTakesParam(Dst, I)) {
-      S.Diag(DRE->getLocation(), diag::warn_safe_c_takes_lost)
-          << F << (I + 1) << cast<NamedDecl>(Dst);
-      return;
-    }
-}
-
-/// Initializers, including struct initializer lists, store into their fields.
-static void checkSafeCTakesInit(Sema &S, const Expr *Init, const Decl *Dst,
-                                QualType T) {
-  if (!Init)
-    return;
-  const auto *ILE = dyn_cast<InitListExpr>(Init->IgnoreParenImpCasts());
-  const RecordDecl *RD = T->getAsRecordDecl();
-  if (!ILE || !RD) {
-    checkSafeCTakesStore(S, Init, Dst);
-    return;
-  }
-  unsigned I = 0;
-  for (const FieldDecl *FD : RD->fields()) {
-    if (I >= ILE->getNumInits())
-      break;
-    checkSafeCTakesInit(S, ILE->getInit(I++), FD, FD->getType());
-  }
-}
-
-/// Safe C: the lifetime analysis trusts ownership_takes at call sites, so a
-/// body that frees a parameter, directly or through another function that
-/// takes it, must say so; otherwise every caller would keep using freed
-/// memory unseen.
-static void checkSafeCFreedParams(Sema &S, const FunctionDecl *FD,
-                                  const Stmt *Body) {
-  llvm::SmallPtrSet<const ParmVarDecl *, 4> Reported;
-  std::function<void(const Stmt *)> Walk = [&](const Stmt *St) {
-    if (!St)
-      return;
-    if (const auto *CE = dyn_cast<CallExpr>(St))
-      // A pointer callee (hooks->deallocate) counts through its declaration.
-      if (const Decl *Callee = CE->getCalleeDecl())
-        for (unsigned I = 0, N = CE->getNumArgs(); I != N; ++I) {
-          if (!safeCTakesParam(Callee, I))
-            continue;
-          const Expr *A = CE->getArg(I)->IgnoreParenCasts();
-          while (const auto *OVE = dyn_cast<OpaqueValueExpr>(A)) {
-            if (!OVE->getSourceExpr())
-              break;
-            A = OVE->getSourceExpr()->IgnoreParenCasts();
-          }
-          const auto *DRE = dyn_cast<DeclRefExpr>(A);
-          const auto *PVD =
-              DRE ? dyn_cast<ParmVarDecl>(DRE->getDecl()) : nullptr;
-          if (!PVD || PVD->getDeclContext() != FD ||
-              safeCTakesParam(FD, PVD->getFunctionScopeIndex()) ||
-              // An exclusive borrow is never freed; that has its own error.
-              lifetimes::safeCParamDeclKind(PVD) == "excl" ||
-              !Reported.insert(PVD).second)
-            continue;
-          S.SafeCDiag(DRE->getLocation(), "frees-param") << FD << PVD;
-        }
-    // Storing a freeing function into a function pointer.
-    if (const auto *BO = dyn_cast<BinaryOperator>(St);
-        BO && BO->getOpcode() == BO_Assign) {
-      const Expr *L = BO->getLHS()->IgnoreParenImpCasts();
-      if (const auto *ME = dyn_cast<MemberExpr>(L))
-        checkSafeCTakesStore(S, BO->getRHS(), ME->getMemberDecl());
-      else if (const auto *LD = dyn_cast<DeclRefExpr>(L))
-        checkSafeCTakesStore(S, BO->getRHS(), LD->getDecl());
-    }
-    if (const auto *CE = dyn_cast<CallExpr>(St))
-      if (const FunctionDecl *Callee = CE->getDirectCallee())
-        for (unsigned I = 0,
-                      N = std::min(CE->getNumArgs(), Callee->getNumParams());
-             I != N; ++I)
-          checkSafeCTakesStore(S, CE->getArg(I), Callee->getParamDecl(I));
-    if (const auto *DS = dyn_cast<DeclStmt>(St))
-      for (const Decl *D : DS->decls())
-        if (const auto *VD = dyn_cast<VarDecl>(D))
-          checkSafeCTakesInit(S, VD->getInit(), VD, VD->getType());
-    // Bounds safety hides calls inside opaque values, which have no children.
-    if (const auto *OVE = dyn_cast<OpaqueValueExpr>(St))
-      Walk(OVE->getSourceExpr());
-    for (const Stmt *Child : St->children())
-      Walk(Child);
-  };
-  Walk(Body);
 }
 
 namespace {
@@ -18785,12 +18623,6 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
   if (getLangOpts().SafeC && FD && Body && FD->hasAttr<AllocSizeAttr>() &&
       !SourceMgr.isInSystemHeader(FD->getLocation()))
     checkSafeCAllocatorBody(*this, FD, Body);
-  if (getLangOpts().SafeC && FD && Body &&
-      !SourceMgr.isInSystemHeader(FD->getLocation()))
-    checkSafeCFreedParams(*this, FD, Body);
-  if (getLangOpts().SafeC && FD && Body &&
-      !SourceMgr.isInSystemHeader(FD->getLocation()))
-    checkSafeCReturnsOwned(*this, FD, Body);
   // _No_bounds_checks lifts run-time checks, so it is an unsafe promise:
   // only on a function that is itself `__unsafe` (and listed as such).
   if (getLangOpts().SafeC && FD &&

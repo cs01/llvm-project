@@ -5322,11 +5322,6 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
       if (!Src.isNull() &&
           S.Context.hasSameUnqualifiedType(S.Context.getCanonicalType(Src),
                                            S.Context.getCanonicalType(Dest))) {
-        // Same type, but an owned field would end up in both copies.
-        if (const FieldDecl *Owned = safeCOwnedFieldOf(Dest);
-            Owned && safeCOwnershipEnabled(S))
-          S.SafeCDiag(TheCall->getArg(I)->getExprLoc(), "owning-struct-byte-copy")
-              << Dest << Owned;
         continue;
       }
       S.Diag(TheCall->getArg(SrcArg)->getExprLoc(),

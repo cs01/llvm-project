@@ -31,7 +31,7 @@
 /* ---- str: borrowed text ------------------------------------------------ */
 
 /* Never null, like Rust's &str: the empty text is S(""). */
-typedef struct _View str_ {
+typedef struct str_ {
   const char *__counted_by(len) p;
   size_t len;
 } str;
@@ -39,7 +39,7 @@ typedef struct _View str_ {
 /* A string literal as a str: S("hello"). */
 #define S(lit) ((str){(lit), sizeof(lit) - 1})
 
-static inline str str_from(const char *s _Lifetimebound) {
+static inline str str_from(const char *s) {
   size_t n = strlen(s);
   return (str){__null_terminated_to_indexable(s), n};
 }
@@ -54,7 +54,7 @@ static inline bool str_eq(str a, str b) {
 }
 
 /* The part of s from start, at most n bytes. */
-static inline str str_slice(str s _Lifetimebound, size_t start, size_t n) {
+static inline str str_slice(str s, size_t start, size_t n) {
   if (start > s.len)
     start = s.len;
   if (n > s.len - start)
@@ -66,7 +66,7 @@ static inline bool str_is_space_(char c) {
   return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
-static inline str str_trim(str s _Lifetimebound) {
+static inline str str_trim(str s) {
   size_t b = 0, e = s.len;
   while (b < e && str_is_space_(s.p[b]))
     b++;
@@ -93,7 +93,7 @@ static inline bool str_split(str *rest, char sep, str *out) {
 /* typedef SLICE(int) int_slice; then int_slice s = {arr, n}. Never null;
    every index is checked against len. */
 #define SLICE(T)                                                               \
-  struct _View {                                                               \
+  struct {                                                               \
     T *__counted_by(len) p;                                                    \
     size_t len;                                                                \
   }
@@ -105,14 +105,14 @@ typedef struct string_ {
   size_t len, cap;
 } string;
 
-static inline str string_view(const string *s _Lifetimebound) {
+static inline str string_view(const string *s) {
   if (!s->p)
     return S("");
   return str_slice((str){s->p, s->cap}, 0, s->len);
 }
 
 /* Makes room for n more bytes; returns false if out of memory. */
-static inline bool string_reserve(string *_Exclusive s, size_t n) {
+static inline bool string_reserve(string * s, size_t n) {
   if (s->cap - s->len >= n)
     return true;
   size_t cap = s->cap ? s->cap : 16;
@@ -128,7 +128,7 @@ static inline bool string_reserve(string *_Exclusive s, size_t n) {
   return true;
 }
 
-static inline bool string_push(string *_Exclusive s, str more) {
+static inline bool string_push(string * s, str more) {
   if (!string_reserve(s, more.len))
     return false;
   if (!s->p)
@@ -139,7 +139,7 @@ static inline bool string_push(string *_Exclusive s, str more) {
   return true;
 }
 
-static inline void string_free(string *_Exclusive s) {
+static inline void string_free(string * s) {
   free(_Take(s->p));
   s->len = 0;
 }
@@ -225,7 +225,7 @@ static inline i64_result str_to_i64(str s) {
 /* ---- io ------------------------------------------------------------------ */
 
 /* A path as a terminated string, for the C library. */
-static inline bool string_terminate_(string *_Exclusive s) {
+static inline bool string_terminate_(string * s) {
   if (!string_push(s, S("\0")))
     return false;
   s->len--; /* the terminator is not part of the text */
@@ -233,8 +233,8 @@ static inline bool string_terminate_(string *_Exclusive s) {
 }
 
 /* Reads the whole file into *out (appending). Returns false on error. */
-static inline bool read_file(str path, string *_Exclusive out) {
-  string name _Drop(string_free) = {0, 0, 0};
+static inline bool read_file(str path, string * out) {
+  string name __attribute__((cleanup(string_free))) = {0, 0, 0};
   if (!string_push(&name, path) || !string_terminate_(&name) || !name.p)
     return false;
   FILE *_Nullable f = fopen(name.p, "rb");
@@ -275,8 +275,8 @@ typedef struct lines_ {
   string line;
 } lines;
 
-static inline bool lines_open(str path, lines *_Exclusive it) {
-  string name _Drop(string_free) = {0, 0, 0};
+static inline bool lines_open(str path, lines * it) {
+  string name __attribute__((cleanup(string_free))) = {0, 0, 0};
   if (!string_push(&name, path) || !string_terminate_(&name) || !name.p)
     return false;
   it->f = fopen(name.p, "rb");
@@ -285,7 +285,7 @@ static inline bool lines_open(str path, lines *_Exclusive it) {
 }
 
 /* Reads the next line; false at the end of the file. */
-static inline bool lines_next(lines *_Exclusive it) {
+static inline bool lines_next(lines * it) {
   if (!it->f)
     return false;
   it->line.len = 0;
@@ -304,11 +304,11 @@ static inline bool lines_next(lines *_Exclusive it) {
 
 /* The line lines_next read, without its newline. It borrows the iterator's
    buffer, so it is valid until the next lines_next. */
-static inline str lines_line(const lines *it _Lifetimebound) {
+static inline str lines_line(const lines *it) {
   return string_view(&it->line);
 }
 
-static inline void lines_close(lines *_Exclusive it) {
+static inline void lines_close(lines * it) {
   FILE *_Nullable f = _Take(it->f);
   if (f)
     fclose(f);

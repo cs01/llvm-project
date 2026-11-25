@@ -6,13 +6,13 @@
 // RUN: %clang_cc1 -fsyntax-only -fbounds-safety -include safec.h -verify=plain %s
 // plain-no-diagnostics
 
-char *__null_terminated a(char *__counted_by(n) p _Lifetimebound, int n) {
+char *__null_terminated a(char *__counted_by(n) p, int n) {
   return __unsafe_null_terminated_from_indexable(p); // expected-error {{'__unsafe_terminated_by_from_indexable' can switch off Safe C's checks}}
 }
-char *__bidi_indexable b(char *__null_terminated s _Lifetimebound) {
+char *__bidi_indexable b(char *__null_terminated s) {
   return __unsafe_null_terminated_to_indexable(s); // expected-error {{'__unsafe_terminated_by_to_indexable' can switch off}}
 }
-const char *__bidi_indexable c(const char *__null_terminated s _Lifetimebound) {
+const char *__bidi_indexable c(const char *__null_terminated s) {
   return __unsafe_null_terminated_to_indexable(s);
 }
 int *d(long x) {

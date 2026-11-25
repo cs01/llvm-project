@@ -1,6 +1,6 @@
 // Pointers in globals: only where nothing can change them.
 // RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety -fnullability-default=nonnull -triple arm64-apple-macosx13 \
-// RUN:   -mllvm -safe-c-ownership=false -mllvm -safe-c-ownership-ir=true -mllvm -safe-c-redeclared=false -verify %s
+// RUN: -mllvm -safe-c-ownership=true -mllvm -safe-c-redeclared=false -verify %s
 #define _Owned [[clang::annotate_type("safec_owned")]]
 struct node { int v; struct node *_Owned _Nullable next; };
 static const char *const fine[] = {"a"};

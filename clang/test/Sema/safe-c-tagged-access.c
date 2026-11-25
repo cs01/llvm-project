@@ -1,12 +1,9 @@
-// M4 step 2: a member of a tagged union is read or written only where the
+// A member of a tagged union is read or written only where the
 // tag is known to name it: on the right edge of `if (x.tag == V)` (or its
 // `!=` early return), in `case V:`, or after `x.tag = V`. A call that may
-// modify the struct forgets what was known. The control run pins the M2/M4
-// rules off.
-// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
+// modify the struct forgets what was known.
+// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
-// RUN: %clang_cc1 -mllvm -safe-c-ownership=false -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety \
-// RUN:   -fnullability-safety -fnullability-default=nonnull -include safec.h -verify=off %s
 
 enum kind { CIRCLE, RECT };
 struct shape {
@@ -160,6 +157,6 @@ struct ptrs {
 int punned(struct ptrs *a, struct ptrs *b) {
   b->u = a->u;
   if (b->k == 1)
-    return *b->u.p; // off-error 1+ {{can read memory as a pointer}} expected-error 1+ {{can read memory as a pointer it does not hold}}
+    return *b->u.p; // expected-error 1+ {{can read memory as a pointer it does not hold}}
   return 0;
 }

@@ -34,9 +34,6 @@
 #if !defined(__clang__)
 #define _Nullable
 #endif
-#ifndef _Lifetimebound
-#define _Lifetimebound
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -119,7 +116,7 @@ JSMN_API int jsmn_parse(jsmn_parser *parser,
  * Allocates a fresh unused token from the token pool.
  */
 static jsmntok_t *_Nullable jsmn_alloc_token(
-    jsmn_parser *parser, jsmntok_t *__counted_by(num_tokens) tokens _Lifetimebound,
+    jsmn_parser *parser, jsmntok_t *__counted_by(num_tokens) tokens,
     const size_t num_tokens) {
   jsmntok_t *tok;
   if (parser->toknext >= num_tokens) {

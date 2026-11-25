@@ -146,15 +146,6 @@ bool OriginManager::hasOrigins(QualType QT, bool IntrinsicOnly) const {
   // holds the same value); see through it.
   if (const auto *AT = QT->getAs<AtomicType>())
     return hasOrigins(AT->getValueType(), IntrinsicOnly);
-  // Safe C: a view struct gets one origin for everything its fields borrow,
-  // as a lambda does for its captures.
-  if (isSafeCViewType(QT))
-    return true;
-  // Safe C: an array of borrows (pointers or views) gets one origin for what
-  // all its elements borrow, as a view does for its fields.
-  if (AST.getLangOpts().SafeC)
-    if (const ArrayType *AT = AST.getAsArrayType(QT))
-      return hasOrigins(AT->getElementType(), IntrinsicOnly);
   const auto *RD = QT->getAsCXXRecordDecl();
   if (!RD)
     return false;
@@ -294,18 +285,6 @@ static bool isSubobjectOfThis(const MemberExpr *ME) {
   return false;
 }
 
-OriginList *OriginManager::getOrCreateLocalFieldList(const VarDecl *VD,
-                                                     const FieldDecl *FD) {
-  if (!hasOrigins(FD->getType()))
-    return nullptr;
-  OriginList *&L = LocalFieldToList[{VD, FD}];
-  // Built under the variable: built under the field, these origins would be
-  // taken for members of `this` (whose stores escape the function).
-  if (!L)
-    L = buildListForType(FD->getType(), VD);
-  return L;
-}
-
 OriginList *OriginManager::getOrCreateList(const Expr *E) {
   if (auto *ParenIgnored = E->IgnoreParens(); ParenIgnored != E)
     return getOrCreateList(ParenIgnored);
@@ -353,23 +332,6 @@ OriginList *OriginManager::getOrCreateList(const Expr *E) {
     else if (auto *VD = dyn_cast<VarDecl>(ME->getMemberDecl()))
       ReferencedDecl = VD;
   }
-  // Safe C: `local.f` (and `local.a.f`) shares origins across expressions,
-  // keyed by the variable and the field, as `this->f` is by the field.
-  if (const auto *ME = dyn_cast<MemberExpr>(E);
-      !ReferencedDecl && ME && !ME->isArrow() && AST.getLangOpts().SafeC)
-    if (const auto *Field = dyn_cast<FieldDecl>(ME->getMemberDecl()))
-      if (const auto *DRE =
-              dyn_cast<DeclRefExpr>(ME->getBase()->IgnoreParenImpCasts()))
-        if (const auto *VD = dyn_cast<VarDecl>(DRE->getDecl());
-            VD && !VD->getType()->isReferenceType() &&
-            !isSafeCViewType(VD->getType()) && // views: one aggregate origin
-            hasOrigins(Field->getType())) {
-          OriginList *Inner = getOrCreateLocalFieldList(VD, Field);
-          OriginList *Head =
-              createNode(E, QualType{}, /*NamesDeclStorage=*/false);
-          Head->setInnerOriginList(Inner);
-          return ExprToList[E] = Head;
-        }
   if (ReferencedDecl) {
     OriginList *Head = nullptr;
     // For non-reference declarations (e.g., `int* p`), the expression is an

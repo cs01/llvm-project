@@ -55,9 +55,6 @@ public:
   void VisitCXXOperatorCallExpr(const CXXOperatorCallExpr *OCE);
   void VisitCXXFunctionalCastExpr(const CXXFunctionalCastExpr *FCE);
   void VisitInitListExpr(const InitListExpr *ILE);
-  void VisitCompoundLiteralExpr(const CompoundLiteralExpr *CLE);
-  /// Safe C: E is stored straight into Var (`Var = E`).
-  bool safeCAssignedBackTo(const Expr *E, const VarDecl *Var);
   void VisitCXXBindTemporaryExpr(const CXXBindTemporaryExpr *BTE);
   void VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *MTE);
   void VisitLambdaExpr(const LambdaExpr *LE);
@@ -122,8 +119,6 @@ private:
 
   // Handles [[clang::lifetime_capture_by(X)]] annotations on a function call to
   // create flow facts from captured arguments to the capturer
-  void safeCExpireFrame(SourceLocation Loc);
-  void safeCFlowThroughOutArgs(const CallExpr *CE);
   void handleLifetimeCaptureBy(const FunctionDecl *FD,
                                ArrayRef<const Expr *> Args);
 
@@ -136,8 +131,6 @@ private:
   // Handles calls that allocate memory (e.g. functions annotated with
   // `ownership_returns`): the call result is a fresh allocation, so a new
   // loan is issued for it.
-  void handleIndirectOwnershipCall(const CallExpr *CE, const Decl &D,
-                                   ArrayRef<const Expr *> Args);
   void handleAllocatingCall(const Expr *Call, const FunctionDecl *FD);
 
   // Handles calls that free memory (e.g. functions annotated with
@@ -200,12 +193,6 @@ private:
   // appended at the end of CurrentBlockFacts to ensure they appear after
   // ExpireFact entries.
   llvm::SmallVector<Fact *> EscapesInCurrentBlock;
-  /// Safe C: block-scope compound literals not initializing a local, whose
-  /// storage is expired at every return (computed on first use).
-  std::optional<llvm::SmallVector<const CompoundLiteralExpr *, 4>>
-      SafeCUnanchoredLiterals;
-  /// Safe C: alloca calls in the body, whose blocks die at every return.
-  llvm::SmallVector<const CallExpr *, 2> SafeCAllocas;
   // Lifetime-extended temporaries, keyed by the variable they expire with.
   llvm::DenseMap<const ValueDecl *,
                  llvm::SmallVector<const MaterializeTemporaryExpr *, 1>>

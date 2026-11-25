@@ -11,21 +11,23 @@ for x in a b c; do
   awk -v pre="$H/pre.h" '/^\/\/\/\//{f=$2".c"; while((getline l < pre)>0) print l > f; close(pre); next}{print > f}' "$H/$x.txt"
 done
 cp "$H/dfree.c" "$H"/void/*.c "$H"/frees/*.c "$H"/juliet/*.c "$H"/tags/*.c .
+# Marks some of these programs use that Safe C no longer has.
+OLD=(-D_Exclusive= -D_View= -D_Unchecked= -D_Returns_owned= -D_Lifetimebound= -D_Unsynchronized= '-D_Takes(N)=' '-D_Drop(f)=__attribute__((cleanup(f)))')
 total=0; holes=0
 for f in *.c; do
   total=$((total + 1))
-  $SC -fsafe-c ${OWN--mllvm -safe-c-strict-ownership=true} ${SDK:+-isysroot $SDK} -fsyntax-only $f 2>$f.err || {
+  $SC -fsafe-c "${OLD[@]}" ${SDK:+-isysroot $SDK} -fsyntax-only $f 2>$f.err || {
     grep -qE "Assertion|PLEASE submit" $f.err && { echo "CRASH $f"; holes=$((holes + 1)); }
     continue
   }
-  /usr/bin/clang -w -fsanitize=address -I "$R/safe-c-std" -include "$R/safe-c-std/safec.h" $f -o $f.x 2>/dev/null || { echo "ASANBUILD $f"; holes=$((holes + 1)); continue; }
+  /usr/bin/clang -w -fsanitize=address -I "$R/safe-c-std" -include "$R/safe-c-std/safec.h" "${OLD[@]}" $f -o $f.x 2>/dev/null || { echo "ASANBUILD $f"; holes=$((holes + 1)); continue; }
   printf 'AAAAAAAAAAAAAAAA' | perl -e 'alarm 10; exec @ARGV' ./$f.x >$f.out 2>&1
   # A forged pointer is a plain crash to ASan (DEADLYSIGNAL), also an error.
   grep -q "AddressSanitizer" $f.out || continue
   # v08 (bounds) and v12 (null) are stopped by Safe C at run time: they must
   # trap. Nothing else may, or a trap in malloc would hide a double free.
   case $f in v08.c|v12.c)
-    $SC -fsafe-c ${OWN--mllvm -safe-c-strict-ownership=true} ${SDK:+-isysroot $SDK} $f -o $f.sc 2>/dev/null
+    $SC -fsafe-c "${OLD[@]}" ${SDK:+-isysroot $SDK} $f -o $f.sc 2>/dev/null
     ./$f.sc >/dev/null 2>&1; [ $? -eq 133 ] && continue ;;
   esac
   echo "HOLE $f"; holes=$((holes + 1))

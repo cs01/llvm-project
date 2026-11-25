@@ -35,7 +35,7 @@ static void *_Nullable __sized_by_or_null(size) CJSON_CDECL failing_malloc(size_
 }
 
 /* work around MSVC error C2322: '...' address of dllimport '...' is not static */
-static _Takes(1) void CJSON_CDECL normal_free(void *_Nullable __unsafe_indexable pointer)
+static void CJSON_CDECL normal_free(void *_Nullable _Owned __unsafe_indexable pointer)
 {
     free(pointer);
 }

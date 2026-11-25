@@ -28,50 +28,32 @@ class CallExpr;
 class QualType;
 
 /// The Safe C kind of a pointer type (from its [[clang::annotate_type]]
-/// sugar): "owned", "static", "unchecked", or "" for a plain borrow. Arrays
+/// sugar): "owned", "static", "taken_if_true"..., or "" for a plain borrow. Arrays
 /// give their elements' kind.
 llvm::StringRef safeCPointerKind(QualType T);
 class Decl;
 class Sema;
 class Stmt;
 
-class FieldDecl;
-/// The first _Owned field of \p T (looking into nested structs and arrays),
-/// or null: a struct holding one may not be copied.
-const FieldDecl *safeCOwnedFieldOf(QualType T);
-
-/// Whether \p D takes ownership of (frees) parameter \p Idx (0-based), as
-/// free and realloc do, or as ownership_takes says.
-bool safeCTakesParam(const Decl *D, unsigned Idx);
-
 /// Sema for __builtin_safec_take(lvalue): moves an owned pointer out of a
 /// field or global, leaving null (and a zero count). Returns true on error.
 bool checkSafeCTakeBuiltin(Sema &S, CallExpr *TheCall);
 
-/// M2 ownership checks: on by default under -fsafe-c; turned off only with
-/// -mllvm -safe-c-ownership=false (for comparisons and older control runs).
-bool safeCOwnershipEnabled(const Sema &S);
-
-/// Rule 10: a struct field or global holds no borrow. Its pointers are
-/// _Owned, _Static or _Unchecked, unless the struct is a
-/// _View (which lives only in locals and parameters).
+/// What a function pointer promises must be what the function promises.
 void checkSafeCFunctionConversion(Sema &S, QualType Dst, const Expr *Src);
+/// The fields of a struct or union.
 void checkSafeCPointerStorage(Sema &S, Decl *D);
 
-/// Rules 11 and 12 and the static kind, per expression: a _Static
-/// holds only static addresses, an _Unchecked is read only in
-/// __unsafe (or copied to another unchecked), a view is written only by name.
-/// Run on a function body or a global's initializer.
+/// Every expression of a function body or a global's initializer.
 void checkSafeCPointerKindsIn(Sema &S, Stmt *Body);
 void checkSafeCPointerKindsIn(Sema &S, Decl *GlobalVar);
 
-/// M4 step 2: a member of a tagged union is read or written only where the
+/// A member of a tagged union is read or written only where the
 /// tag is known to name it (after `if (s->kind == V)`, in `case V:`, or after
 /// `s->kind = V`).
 void checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body);
-/// M5 rule 2: every mutable global is thread-local, atomic, guarded by a
-/// lock, or never written (run once, at the end of the translation unit).
-void checkSafeCSharedGlobals(Sema &S);
+/// Kinds of declarations and types without rules (end of translation unit).
+void checkSafeCDeclarations(Sema &S);
 
 class SafeCState {
 public:

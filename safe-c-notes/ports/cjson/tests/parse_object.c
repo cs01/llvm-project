@@ -49,7 +49,7 @@ static void assert_is_child(cJSON *child_item, const char *name, int type)
     TEST_ASSERT_BITS(0xFF, type, child_item->type);
 }
 
-static void assert_not_object(cJSON *_Exclusive item, const char *json)
+static void assert_not_object(cJSON *item, const char *json)
 {
     parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */
@@ -63,7 +63,7 @@ static void assert_not_object(cJSON *_Exclusive item, const char *json)
     reset(item);
 }
 
-static void assert_parse_object(cJSON *_Exclusive item, const char *json)
+static void assert_parse_object(cJSON *item, const char *json)
 {
     parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
     /* strlen runs first: a call between the two dependent assignments is rejected */

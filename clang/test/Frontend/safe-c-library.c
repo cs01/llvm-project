@@ -1,9 +1,9 @@
 // Library functions whose header does not say what they access are not called
 // unchecked (blind attack causes 6, 22, 24, 25, 2026-11-24).
 // REQUIRES: system-darwin
-// RUN: %clang -fsafe-c -mllvm -safe-c-ownership-ir=false -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-ownership=false -fsyntax-only -Xclang -verify %s
 // Ordinary use stays accepted.
-// RUN: %clang -fsafe-c -mllvm -safe-c-ownership-ir=false -fsyntax-only %S/Inputs/safe-c-library-use.c
+// RUN: %clang -fsafe-c -mllvm -safe-c-ownership=false -fsyntax-only %S/Inputs/safe-c-library-use.c
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>

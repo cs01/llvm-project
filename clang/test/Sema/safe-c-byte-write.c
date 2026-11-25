@@ -12,7 +12,7 @@ void *memset(void *, int, size_t);
 typedef struct FILE FILE;
 size_t fread(void *, size_t, size_t, FILE *);
 
-struct S { int *p; }; // expected-error {{holds a pointer nothing tracks}}
+struct S { int *p; };
 struct Bytes { long a[2]; };
 
 void f(struct S *s, struct S *t, struct Bytes *b, long *l, FILE *fp) {

@@ -527,7 +527,7 @@ static void cjson_set_valuestring_should_return_null_if_strings_overlap(void)
     cJSON_Delete(obj);
 }
 
-static void *_Nullable __sized_by_or_null(size) CJSON_CDECL failing_realloc(void *_Nullable __unsafe_indexable pointer, size_t size)
+static void *_Nullable __sized_by_or_null(size) CJSON_CDECL failing_realloc(void *_Nullable _Owned __unsafe_indexable pointer, size_t size)
 {
     (void)size;
     (void)pointer;

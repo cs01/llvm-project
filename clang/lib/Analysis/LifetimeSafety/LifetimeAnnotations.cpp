@@ -6,23 +6,19 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
-#include "clang/AST/RecordLayout.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
-#include "clang/Basic/SourceManager.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/IgnoreExpr.h"
 #include "clang/AST/Type.h"
-#include "llvm/Support/CommandLine.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Analysis/AnyCall.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "llvm/ADT/StringSet.h"
-#include <functional>
 
 namespace clang::lifetimes {
 
@@ -581,11 +577,8 @@ static bool isCLibraryFunction(const FunctionDecl &FD,
 }
 
 bool isAllocatingFunction(const FunctionDecl &FD) {
-  // The C library's handles (FILE, DIR) are allocated and freed like memory.
   if (isCLibraryFunction(FD, {"malloc", "calloc", "realloc", "reallocf",
-                              "aligned_alloc", "strdup", "strndup", "wcsdup",
-                              "fopen", "fdopen", "popen",
-                              "tmpfile", "opendir", "fdopendir"}))
+                              "aligned_alloc"}))
     return true;
   switch (FD.getBuiltinID()) {
   case Builtin::BImalloc:
@@ -605,8 +598,7 @@ bool isAllocatingFunction(const FunctionDecl &FD) {
 }
 
 bool isFreeingFunction(const FunctionDecl &FD) {
-  if (isCLibraryFunction(FD, {"free", "realloc", "reallocf", "fclose",
-                              "pclose", "closedir"}))
+  if (isCLibraryFunction(FD, {"free", "realloc", "reallocf"}))
     return true;
   switch (FD.getBuiltinID()) {
   case Builtin::BIfree:
@@ -648,339 +640,6 @@ bool isStdReferenceCast(const FunctionDecl *FD) {
 const Expr *ignoreParensAndImpCasts(const Expr *E) {
   return IgnoreExprNodes(E, IgnoreParensSingleStep,
                          IgnoreImplicitCastsSingleStep);
-}
-
-
-static llvm::cl::opt<bool>
-    SafeCOwnership("safe-c-ownership",
-                   llvm::cl::desc("Safe C: enforce the M2 ownership rules (on by "
-                                  "default; =false for comparisons)"),
-                   llvm::cl::init(true));
-
-bool safeCOwnershipFlag() { return SafeCOwnership; }
-
-// The rules that ask for ownership annotations (who frees what, exclusive and
-// shared borrows, thread sharing). The driver turns them off unless asked for;
-// the analyses still run, and report what needs no annotation.
-static llvm::cl::opt<bool> SafeCStrictOwnership(
-    "safe-c-strict-ownership",
-    llvm::cl::desc("Safe C: require ownership annotations and report what "
-                   "they show"),
-    llvm::cl::init(true));
-bool safeCStrictOwnership() { return SafeCStrictOwnership; }
-
-static llvm::cl::opt<bool> SafeCExclDefault(
-    "safe-c-excl-default",
-    llvm::cl::desc("Safe C: an unannotated pointer-to-non-const parameter is "
-                   "_Exclusive (Rust's &mut), as `const T *` is a shared borrow"),
-    llvm::cl::init(false));
-
-llvm::StringRef safeCParamKind(QualType T) {
-  llvm::StringRef K = safeCPointerKind(T);
-  if (!K.empty() || !SafeCExclDefault || !T->isPointerType())
-    return K;
-  QualType Pointee = T->getPointeeType();
-  if (Pointee.isConstQualified() || Pointee->isFunctionType() ||
-      Pointee->isVoidType())
-    return K;
-  return "excl";
-}
-
-llvm::StringRef safeCParamDeclKind(const ParmVarDecl *P) {
-  // System headers keep their declared meaning: libc's `FILE *` is not
-  // an exclusive borrow.
-  const SourceManager &SM = P->getASTContext().getSourceManager();
-  if (P->getLocation().isValid() && SM.isInSystemHeader(P->getLocation()))
-    return safeCPointerKind(P->getType());
-  return safeCParamKind(P->getType());
-}
-
-llvm::StringRef safeCDeclKind(const ValueDecl *D) {
-  if (const auto *P = dyn_cast<ParmVarDecl>(D))
-    return safeCParamDeclKind(P);
-  return safeCPointerKind(D->getType());
-}
-
-const Expr *safeCPeel(const Expr *E) {
-  while (true) {
-    E = E->IgnoreParenImpCasts();
-    const auto *OVE = dyn_cast<OpaqueValueExpr>(E);
-    if (!OVE || !OVE->getSourceExpr())
-      return E;
-    E = OVE->getSourceExpr();
-  }
-}
-
-bool isSafeCViewType(QualType T) {
-  const RecordDecl *RD = T->getAsRecordDecl();
-  if (!RD)
-    return false;
-  for (const auto *A : RD->specific_attrs<AnnotateAttr>())
-    if (A->getAnnotation() == "safec_view")
-      return true;
-  return false;
-}
-
-/// What a pointer type promises a caller, beyond its C type: the ownership
-/// kind, and its bounds (with the parameters a count names, by position).
-std::string safeCPromise(QualType T) {
-  std::string Out = safeCPointerKind(T).str();
-  // Giving ownership away may be written on the pointer's declaration
-  // (_Takes) instead: checkSafeCTakesStore compares that.
-  if (Out == "owned")
-    Out.clear();
-  if (const auto *CAT = T->getAs<CountAttributedType>()) {
-    Out += "|count" + std::to_string(int(CAT->getKind())) + ":";
-    struct Printer : RecursiveASTVisitor<Printer> {
-      std::string Out;
-      bool VisitDeclRefExpr(DeclRefExpr *E) {
-        if (const auto *P = dyn_cast<ParmVarDecl>(E->getDecl()))
-          Out += "#" + std::to_string(P->getFunctionScopeIndex());
-        else
-          Out += E->getDecl()->getNameAsString();
-        Out += ",";
-        return true;
-      }
-      bool VisitIntegerLiteral(IntegerLiteral *E) {
-        Out += llvm::toString(E->getValue(), 10, false) + ",";
-        return true;
-      }
-      bool VisitBinaryOperator(BinaryOperator *E) {
-        Out += E->getOpcodeStr().str();
-        return true;
-      }
-    } P;
-    P.TraverseStmt(CAT->getCountExpr());
-    Out += P.Out;
-  } else if (T->isBoundsAttributedType()) {
-    Out += "|bounds";
-  } else if (const auto *VT = T->getAs<ValueTerminatedType>()) {
-    // '__null_terminated' and '__terminated_by(0)' are one promise.
-    const Expr *E = VT->getTerminatorExpr()->IgnoreParenImpCasts();
-    Out += "|terminated";
-    if (const auto *I = dyn_cast<IntegerLiteral>(E))
-      Out += llvm::toString(I->getValue(), 10, false);
-    else if (const auto *C = dyn_cast<CharacterLiteral>(E))
-      Out += std::to_string(C->getValue());
-    else
-      Out += "?";
-  }
-  if (T->isPointerType() && T->getPointeeType()->isPointerType())
-    Out += "*" + safeCPromise(T->getPointeeType());
-  return Out;
-}
-
-static void addRecord(std::string &Out, QualType T, unsigned Depth);
-static void addType(std::string &Out, QualType T, unsigned Depth) {
-  Out += T.getCanonicalType().getAsString() + safeCPromise(T);
-  if (auto N = T->getNullability())
-    Out += "|null" + std::to_string(int(*N));
-  addRecord(Out, T, Depth);
-  // What a function pointer's own parameters promise.
-  QualType P = T;
-  while (P->isPointerType())
-    P = P->getPointeeType();
-  if (const auto *FT = P->getAs<FunctionProtoType>(); FT && Depth <= 6) {
-    Out += "(*";
-    addType(Out, FT->getReturnType(), Depth + 1);
-    for (QualType A : FT->param_types()) {
-      Out += ",";
-      addType(Out, A, Depth + 1);
-    }
-    Out += ")";
-  }
-}
-static void addRecord(std::string &Out, QualType T, unsigned Depth) {
-  while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
-    T = AT->getElementType();
-  if (const auto *ED = T->getAsEnumDecl())
-    if (const EnumDecl *Def = ED->getDefinition()) {
-      Out += "=" + Def->getIntegerType().getCanonicalType().getAsString();
-      for (const EnumConstantDecl *C : Def->enumerators())
-        Out += "," + C->getNameAsString() + "=" +
-               llvm::toString(C->getInitVal(), 10);
-    }
-  const RecordDecl *RD = T->getAsRecordDecl();
-  RD = RD ? RD->getDefinition() : nullptr;
-  if (!RD || Depth > 6)
-    return;
-  Out += "{";
-  // Packing and alignment, however they were asked for.
-  const ASTRecordLayout *L = nullptr;
-  if (!RD->isInvalidDecl()) {
-    L = &RD->getASTContext().getASTRecordLayout(RD);
-    Out += std::to_string(L->getSize().getQuantity()) + "a" +
-           std::to_string(L->getAlignment().getQuantity());
-  }
-  for (const auto *A : RD->specific_attrs<AnnotateAttr>())
-    Out += A->getAnnotation().str();
-  for (const FieldDecl *F : RD->fields()) {
-    Out += F->getNameAsString() + ":";
-    if (L)
-      Out += std::to_string(L->getFieldOffset(F->getFieldIndex())) + ":";
-    if (F->isBitField())
-      Out += "b" + std::to_string(F->getBitWidthValue()) + ":";
-    addType(Out, F->getType(), Depth + 1);
-    for (const auto *A : F->specific_attrs<AnnotateAttr>()) {
-      Out += A->getAnnotation().str();
-      for (const Expr *Arg : A->args()) {
-        Expr::EvalResult R;
-        if (Arg->EvaluateAsInt(R, F->getASTContext()))
-          Out += llvm::toString(R.Val.getInt(), 10) + ",";
-      }
-    }
-    Out += ";";
-  }
-  Out += "}";
-}
-
-std::vector<std::pair<std::string, std::string>>
-safeCPointedStructs(const ValueDecl *VD) {
-  std::vector<std::pair<std::string, std::string>> Out;
-  llvm::SmallPtrSet<const TagDecl *, 8> Seen;
-  // Every struct that can be reached from the symbol's type.
-  std::function<void(QualType, bool)> Add = [&](QualType T, bool ByValue) {
-    while (T->isPointerType() || T->isArrayType()) {
-      ByValue &= !T->isPointerType();
-      T = T->isPointerType() ? T->getPointeeType()
-                             : QualType(T->getPointeeOrArrayElementType(), 0);
-    }
-    if (const auto *FT = T->getAs<FunctionProtoType>()) {
-      Add(FT->getReturnType(), false);
-      for (QualType A : FT->param_types())
-        Add(A, false);
-      return;
-    }
-    const TagDecl *TD = T->getAsTagDecl();
-    TD = TD ? TD->getDefinition() : nullptr;
-    if (!TD || !Seen.insert(TD).second ||
-        VD->getASTContext().getSourceManager().isInSystemHeader(
-            TD->getLocation()))
-      return;
-    if (const auto *RD = dyn_cast<RecordDecl>(TD))
-      for (const FieldDecl *F : RD->fields())
-        Add(F->getType(), true);
-    // The type's own description already has what it holds by value.
-    if (ByValue)
-      return;
-    std::string Name = TD->getNameAsString(), Contents;
-    if (Name.empty() && TD->getTypedefNameForAnonDecl())
-      Name = TD->getTypedefNameForAnonDecl()->getNameAsString();
-    addRecord(Contents, T, 0);
-    if (!Name.empty())
-      Out.push_back({Name, Contents});
-  };
-  if (const auto *FD = dyn_cast<FunctionDecl>(VD)) {
-    Add(FD->getReturnType(), true);
-    for (const ParmVarDecl *P : FD->parameters())
-      Add(P->getType(), true);
-  } else {
-    Add(VD->getType(), true);
-  }
-  return Out;
-}
-
-std::string safeCSignature(const ValueDecl *VD) {
-  std::string Out;
-  const auto *FD = dyn_cast<FunctionDecl>(VD);
-  if (!FD) {
-    addType(Out, VD->getType(), 0);
-  } else {
-    addType(Out, FD->getReturnType(), 0);
-    for (const ParmVarDecl *P : FD->parameters()) {
-      Out += "(";
-      addType(Out, P->getType(), 0);
-      if (P->hasAttr<LifetimeBoundAttr>())
-        Out += "|lifetimebound";
-      if (P->hasAttr<NoEscapeAttr>())
-        Out += "|noescape";
-      Out += ")";
-    }
-    for (const auto *A : FD->specific_attrs<OwnershipAttr>()) {
-      Out += A->isReturns() ? "|returns" : "|takes";
-      if (!A->isReturns())
-        for (const ParamIdx &I : A->args())
-          Out += std::to_string(I.getASTIndex());
-    }
-  }
-  // Locks: printed, so the capability expressions count.
-  for (const Attr *A : VD->attrs())
-    switch (A->getKind()) {
-    case attr::GuardedBy:
-    case attr::PtGuardedBy:
-    case attr::RequiresCapability:
-    case attr::AcquireCapability:
-    case attr::ReleaseCapability:
-    case attr::TryAcquireCapability:
-    case attr::AssertCapability:
-    case attr::LocksExcluded:
-    case attr::ReturnsNonNull:
-    case attr::AllocSize: {
-      llvm::raw_string_ostream OS(Out);
-      A->printPretty(OS, VD->getASTContext().getPrintingPolicy());
-      break;
-    }
-    default:
-      break;
-    }
-  return Out;
-}
-
-bool safeCReachesOwner(QualType T, unsigned Depth) {
-  if (Depth > 8)
-    return true;
-  // Pointer kinds are type attributes: read them before any desugaring.
-  if (T->isPointerType())
-    return safeCPointerKind(T) == "owned";
-  if (const ArrayType *AT = T->getAsArrayTypeUnsafe())
-    return safeCReachesOwner(AT->getElementType(), Depth + 1);
-  if (const RecordDecl *RD = T->getAsRecordDecl()) {
-    const RecordDecl *Def = RD->getDefinition();
-    if (!Def)
-      return true; // opaque: assume it can
-    for (const FieldDecl *FD : Def->fields())
-      if (safeCReachesOwner(FD->getType(), Depth + 1))
-        return true;
-  }
-  return false;
-}
-
-const VarDecl *safeCRootVar(const Expr *E) {
-  while (true) {
-    E = safeCPeel(E);
-    if (const auto *ME = dyn_cast<MemberExpr>(E))
-      E = ME->getBase();
-    else if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E))
-      E = ASE->getBase();
-    else if (const auto *UO = dyn_cast<UnaryOperator>(E);
-             UO && (UO->getOpcode() == UO_Deref || UO->getOpcode() == UO_AddrOf))
-      E = UO->getSubExpr();
-    else
-      break;
-  }
-  const auto *DRE = dyn_cast<DeclRefExpr>(E);
-  const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
-  return VD && !VD->hasGlobalStorage() ? VD : nullptr;
-}
-
-llvm::StringRef safeCPointerKind(QualType T) {
-  while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
-    T = AT->getElementType();
-  // Walk this pointer's own sugar (typedefs, bounds and nullability
-  // attributes), never into its pointee.
-  for (const Type *Cur = T.getTypePtr();;) {
-    if (const auto *AT = dyn_cast<AttributedType>(Cur)) {
-      if (const auto *A = dyn_cast_or_null<AnnotateTypeAttr>(AT->getAttr()))
-        if (A->getAnnotation().starts_with("safec_"))
-          return A->getAnnotation().drop_front(6);
-      Cur = AT->getModifiedType().getTypePtr();
-      continue;
-    }
-    QualType Next = Cur->getLocallyUnqualifiedSingleStepDesugaredType();
-    if (Next.getTypePtr() == Cur)
-      return "";
-    Cur = Next.getTypePtr();
-  }
 }
 
 } // namespace clang::lifetimes

@@ -28,7 +28,7 @@
 #include "CoverageMappingGen.h"
 #include "QualTypeMapper.h"
 #include "TargetInfo.h"
-#include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
+#include "clang/AST/SafeCTypes.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/CharUnits.h"
@@ -1259,7 +1259,7 @@ void CodeGenModule::emitSafeCTypeSignatures() {
     // An array's own size is left to the types above.
     std::string Promise = isa<FunctionDecl>(Canon) ||
                                   !Canon->getType()->isArrayType()
-                              ? lifetimes::safeCSignature(Canon)
+                              ? safec::signature(Canon)
                               : std::string();
     if (const auto *Var = dyn_cast<VarDecl>(Canon); Var && Var->getTLSKind())
       Promise += "|tls";
@@ -1277,7 +1277,7 @@ void CodeGenModule::emitSafeCTypeSignatures() {
                                               ArraySizeModifier::Normal, 0)
                       .getAsString() + Promise));
       for (const auto &[Struct, Contents] :
-           lifetimes::safeCPointedStructs(VD))
+           safec::pointedStructs(VD))
         Sigs.push_back(SigName((Name + ".struct." + Struct).str(), Contents));
       for (const std::string &S : Sigs)
         if (!getModule().getNamedGlobal(S))
@@ -1288,7 +1288,7 @@ void CodeGenModule::emitSafeCTypeSignatures() {
     }
     llvm::SmallVector<std::string, 2> Uses = {
         SigName(Name, T.getAsString() + Promise)};
-    for (const auto &[Struct, Contents] : lifetimes::safeCPointedStructs(VD))
+    for (const auto &[Struct, Contents] : safec::pointedStructs(VD))
       Uses.push_back(SigName((Name + ".struct." + Struct).str(), Contents));
     for (const std::string &S : Uses) {
       llvm::GlobalVariable *Ref = getModule().getNamedGlobal(S);

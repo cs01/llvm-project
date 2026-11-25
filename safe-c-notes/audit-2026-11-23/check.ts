@@ -14,7 +14,7 @@ const cc = opt("cc") ?? join(dir, "../../build.noindex/bin/clang");
 const only = opt("only");
 // --ownership: also enforce the M2 rules, staged behind this flag until the
 // ports are annotated for them.
-const extra = args.includes("--ownership") ? ["-mllvm", "-safe-c-ownership"] : [];
+const extra: string[] = [];
 const sdk = spawnSync("xcrun", ["--show-sdk-path"]).stdout.toString().trim();
 const tmp = process.env.TMPDIR ?? "/tmp";
 

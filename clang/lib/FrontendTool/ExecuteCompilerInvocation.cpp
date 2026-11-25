@@ -202,10 +202,9 @@ CreateFrontendBaseAction(CompilerInstance &CI) {
 #endif
 }
 
-// Being compared with the script it replaces (clang/utils/safe-c/core) before it
-// is always on.
-static llvm::cl::opt<bool> SafeCOwnershipIR(
-    "safe-c-ownership-ir",
+// The driver turns it on; tests of one other check leave it off.
+static llvm::cl::opt<bool> SafeCOwnership(
+    "safe-c-ownership",
     llvm::cl::desc("Safe C: check ownership on ClangIR"), llvm::cl::init(false));
 
 std::unique_ptr<FrontendAction>
@@ -218,7 +217,7 @@ CreateFrontendAction(CompilerInstance &CI) {
   const FrontendOptions &FEOpts = CI.getFrontendOpts();
 
 #if CLANG_ENABLE_CIR
-  if (CI.getLangOpts().SafeC && SafeCOwnershipIR &&
+  if (CI.getLangOpts().SafeC && SafeCOwnership &&
       (FEOpts.ProgramAction == frontend::ParseSyntaxOnly ||
        FEOpts.ProgramAction == frontend::EmitObj ||
        FEOpts.ProgramAction == frontend::EmitAssembly ||

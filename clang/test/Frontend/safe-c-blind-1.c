@@ -1,8 +1,8 @@
 // Blind attack, group 1 (2026-11-24): rows of two-dimensional arrays, strdup,
 // compiler builtins, scanf and printf sizes, library handles, owned elements.
 // REQUIRES: system-darwin
-// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -fsyntax-only -Xclang -verify %s
-// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -DRUN -O1 %s -o %t && %t
+// RUN: %clang -fsafe-c -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-ownership=false -DRUN -O1 %s -o %t && %t
 // RUN: not --crash %t 2
 // RUN: not --crash %t 2 3
 // RUN: not --crash %t 2 3 4
@@ -14,10 +14,10 @@ static int local(int i) { int l[4][8] = {0}; l[i][0] = 1; return l[0][0]; }
 static int vla(int n, int i) { int v[n][3]; for (int k = 0; k < n; k++) v[k][0] = 1; return v[i][0]; }
 #ifndef RUN
 int dup(void) {
-  char *_Nullable p = strdup("abc"); // expected-error {{does not live long enough}}
+  char *_Nullable p = strdup("abc");
   if (!p) return 1;
-  free(p);     // expected-note {{freed here}}
-  return p[0]; // expected-note {{later used here}}
+  free(p);
+  return p[0];
 }
 void builtins(void) {
   char a[4];

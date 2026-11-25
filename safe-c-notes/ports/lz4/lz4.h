@@ -380,7 +380,7 @@ typedef union LZ4_stream_u LZ4_stream_t;  /* incomplete type (defined later) */
    "skip this block when rc.exe is trying to read it".
 */
 #if !defined(RC_INVOKED) /* https://docs.microsoft.com/en-us/windows/win32/menurc/predefined-macros */
-LZ4_NOALLOC_WARNING LZ4LIB_API _Returns_owned LZ4_stream_t* _Nullable LZ4_createStream(void);
+LZ4_NOALLOC_WARNING LZ4LIB_API LZ4_stream_t* _Nullable LZ4_createStream(void);
 LZ4LIB_API int           LZ4_freeStream (LZ4_stream_t* _Owned _Nullable streamPtr);
 #endif
 
@@ -512,7 +512,7 @@ typedef union LZ4_streamDecode_u LZ4_streamDecode_t;   /* tracking context */
  *  A tracking context can be re-used multiple times.
  */
 #if !defined(RC_INVOKED) /* https://docs.microsoft.com/en-us/windows/win32/menurc/predefined-macros */
-LZ4_NOALLOC_WARNING LZ4LIB_API _Returns_owned LZ4_streamDecode_t* _Nullable LZ4_createStreamDecode(void);
+LZ4_NOALLOC_WARNING LZ4LIB_API LZ4_streamDecode_t* _Nullable LZ4_createStreamDecode(void);
 LZ4LIB_API int                 LZ4_freeStreamDecode (LZ4_streamDecode_t* _Owned _Nullable LZ4_stream);
 #endif
 
@@ -793,8 +793,8 @@ LZ4LIB_STATIC_API int LZ4_decompress_incomplete(const char* __counted_by(*srcSiz
 typedef struct LZ4_stream_t_internal LZ4_stream_t_internal;
 struct LZ4_stream_t_internal {
     LZ4_u32 hashTable[LZ4_HASH_SIZE_U32];
-    const LZ4_byte* _Unchecked _Nullable __unsafe_indexable dictionary;   /* Safe C: a borrow of the caller's previous block or dictionary, kept across calls */
-    const LZ4_stream_t_internal* _Unchecked _Nullable __unsafe_indexable dictCtx;   /* Safe C: a borrow of another stream, kept across calls */
+    const LZ4_byte* _Nullable __unsafe_indexable dictionary;   /* Safe C: a borrow of the caller's previous block or dictionary, kept across calls */
+    const LZ4_stream_t_internal* _Nullable __unsafe_indexable dictCtx;   /* Safe C: a borrow of another stream, kept across calls */
     LZ4_u32 currentOffset;
     LZ4_u32 tableType;
     LZ4_u32 dictSize;
@@ -824,7 +824,7 @@ union LZ4_stream_u {
  *  Note2: An LZ4_stream_t structure guarantees correct alignment and size.
  *  Note3: Before v1.9.0, use LZ4_resetStream() instead
 **/
-LZ4LIB_API LZ4_stream_t* _Nullable LZ4_initStream (void* _Nullable __sized_by(size) stateBuffer _Lifetimebound, size_t size);
+LZ4LIB_API LZ4_stream_t* _Nullable LZ4_initStream (void* _Nullable __sized_by(size) stateBuffer, size_t size);
 
 
 /*! LZ4_streamDecode_t :
@@ -833,8 +833,8 @@ LZ4LIB_API LZ4_stream_t* _Nullable LZ4_initStream (void* _Nullable __sized_by(si
  *  If you need static allocation, declare or allocate an LZ4_streamDecode_t object.
 **/
 typedef struct {
-    const LZ4_byte* _Unchecked _Nullable __unsafe_indexable externalDict;   /* Safe C: borrows of earlier output, kept across calls */
-    const LZ4_byte* _Unchecked _Nullable __unsafe_indexable prefixEnd;
+    const LZ4_byte* _Nullable __unsafe_indexable externalDict;   /* Safe C: borrows of earlier output, kept across calls */
+    const LZ4_byte* _Nullable __unsafe_indexable prefixEnd;
     size_t extDictSize;
     size_t prefixSize;
 } LZ4_streamDecode_t_internal;

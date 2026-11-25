@@ -16,7 +16,7 @@ void wide(const wchar_t *__null_terminated f) {
   wprintf(f); // expected-error {{'wprintf' is not checked}}
 }
 void *_Nullable aligned_alloc(size_t a, size_t n);
-_Returns_owned __attribute__((alloc_size(2))) void *_Nullable wrap(void *_Nullable _Owned p, size_t n) {
+ __attribute__((alloc_size(2))) void *_Nullable wrap(void *_Nullable _Owned p, size_t n) {
   return realloc(p, n); // expected-error {{'wrap' is marked 'alloc_size'}}
 }
 void other(void) {

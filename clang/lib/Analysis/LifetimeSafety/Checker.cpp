@@ -147,42 +147,14 @@ public:
     OriginID EscapedOID = OEF->getEscapedOriginID();
     LoanSet EscapedLoans = LoanPropagation.getLoans(EscapedOID, OEF);
     auto CheckParam = [&](const ParmVarDecl *PVD, bool IsMoved) {
-      // Safe C: an owned parameter is freed or given on by this function, so
-      // a borrow of it may not be left where another parameter points.
-      if (auto *ParamEsc = dyn_cast<ParamEscapeFact>(OEF);
-          ParamEsc && ParamEsc->getParam() != PVD && SemaHelper &&
-          safeCParamDeclKind(PVD) == "owned")
-        SemaHelper->reportOwnedParamStored(PVD, ParamEsc->getParam());
-      // An owned parameter returned as owned is moved, not borrowed.
-      if (const auto *Fn = dyn_cast<FunctionDecl>(PVD->getDeclContext());
-          Fn && isa<ReturnEscapeFact>(OEF) &&
-          safeCParamDeclKind(PVD) == "owned" &&
-          llvm::any_of(Fn->specific_attrs<OwnershipAttr>(),
-                       [](const OwnershipAttr *A) { return A->isReturns(); }))
-        return;
-      // NoEscape param should not escape. (A promise on any declaration
-      // binds: callers may have seen only that one.)
-      auto Promised = [&] {
-        for (const FunctionDecl *R : cast<FunctionDecl>(PVD->getDeclContext())->redecls())
-          if (PVD->getFunctionScopeIndex() < R->getNumParams() &&
-              R->getParamDecl(PVD->getFunctionScopeIndex())
-                  ->hasAttr<NoEscapeAttr>())
-            return true;
-        return false;
-      };
-      if (PVD->hasAttr<NoEscapeAttr>() ||
-          (isa<FunctionDecl>(PVD->getDeclContext()) && Promised())) {
+      // NoEscape param should not escape.
+      if (PVD->hasAttr<NoEscapeAttr>()) {
         if (auto *ReturnEsc = dyn_cast<ReturnEscapeFact>(OEF))
           NoescapeWarningsMap.try_emplace(PVD, ReturnEsc->getReturnExpr());
         if (auto *FieldEsc = dyn_cast<FieldEscapeFact>(OEF))
           NoescapeWarningsMap.try_emplace(PVD, FieldEsc->getFieldDecl());
         if (auto *GlobalEsc = dyn_cast<GlobalEscapeFact>(OEF))
           NoescapeWarningsMap.try_emplace(PVD, GlobalEsc->getGlobal());
-        // `*out = in`: callers rely on noescape to keep in's borrows out of
-        // what out points to.
-        if (auto *ParamEsc = dyn_cast<ParamEscapeFact>(OEF);
-            ParamEsc && ParamEsc->getParam() != PVD)
-          NoescapeWarningsMap.try_emplace(PVD, ParamEsc->getParam());
         return;
       }
       // Skip annotation suggestion for moved loans, as ownership transfer
@@ -242,20 +214,6 @@ public:
     auto MovedAtEscape = MovedLoans.getMovedLoans(OEF);
     for (LoanID LID : EscapedLoans) {
       const Loan *L = FactMgr.getLoanMgr().getLoan(LID);
-      // Safe C: the function's own declaration stands for its globals. A
-      // caller cannot see that `*out = g.p` borrows one.
-      if (const auto *ParamEsc = dyn_cast<ParamEscapeFact>(OEF);
-          ParamEsc && L->getAccessPath().getAsValueDecl() == FD &&
-          L->getIssueExpr() && SemaHelper)
-        SemaHelper->reportGlobalBorrowStored(L->getIssueExpr(),
-                                             ParamEsc->getParam());
-      // Returned: callers that see the body treat the result as such a borrow
-      // (safeCReturnsGlobalBorrow); callers in other files cannot.
-      if (const auto *Fn = dyn_cast<FunctionDecl>(FD);
-          Fn && isa<ReturnEscapeFact>(OEF) && Fn->isExternallyVisible() &&
-          L->getAccessPath().getAsValueDecl() == FD && L->getIssueExpr() &&
-          SemaHelper)
-        SemaHelper->reportGlobalBorrowStored(L->getIssueExpr(), nullptr);
       const PlaceholderBase *PB = L->getAccessPath().getAsPlaceholderBase();
       if (!PB)
         continue;
@@ -342,11 +300,6 @@ public:
   /// hold that are prefixed by the expired path.
   void checkExpiry(const ExpireFact *EF) {
     const AccessPath &ExpiredPath = EF->getAccessPath();
-    // Safe C without required annotations: the end of a borrow of an owned
-    // field (an interior path) is reported only where they are.
-    if (FD->getASTContext().getLangOpts().SafeC && !safeCStrictOwnership() &&
-        ExpiredPath.isInterior())
-      return;
     LiveOriginSet Origins = LiveOrigins.getLiveOriginsAt(EF);
     for (const LivenessMap &Live : {Origins.Persistent, Origins.BlockLocal})
       for (auto &[OID, LiveInfo] : Live) {
@@ -454,10 +407,7 @@ public:
                      dyn_cast<const OriginEscapesFact *>(CausingFact)) {
         llvm::SmallVector<const Expr *> ExprChain =
             getExprChain(LoanPropagation.buildOriginFlowChain(OEF, LID, Cfg));
-        if (const auto *ParamEscape = dyn_cast<ParamEscapeFact>(OEF)) {
-          SemaHelper->reportDanglingParam(IssueExpr, ParamEscape->getParam(),
-                                          Warning.InvalidatedByExpr, ExpiryLoc);
-        } else if (Warning.InvalidatedByExpr) {
+        if (Warning.InvalidatedByExpr) {
           if (const auto *FieldEscape = dyn_cast<FieldEscapeFact>(OEF)) {
             // Invalidated object escapes to a field.
             if (IssueExpr)
@@ -670,10 +620,7 @@ public:
         continue;
       bool isImplicit = PVD->getAttr<LifetimeBoundAttr>()->isImplicit();
       bool Escapes = VerifiedLiftimeboundEscapes.contains(PVD);
-      // Safe C's lifetime elision infers the attribute from the signature
-      // alone, so it need not escape (the result may be a global).
-      assert((!isImplicit || Escapes || isInStlNamespace(FD) ||
-              FD->getASTContext().getLangOpts().SafeC) &&
+      assert((!isImplicit || Escapes || isInStlNamespace(FD)) &&
              "Implicit lifetimebound parameters "
              "should escape through return");
       if (!isImplicit && !Escapes)

@@ -2,7 +2,7 @@
 // parameters under the ownership rules (SafeCOwnership.cpp).
 // RUN: rm -rf %t && split-file %s %t
 // RUN: %clang_cc1 -isystem %t/sys -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety -fnullability-default=nonnull -triple arm64-apple-macosx13 \
-// RUN:   -mllvm -safe-c-ownership=false -mllvm -safe-c-strict-ownership=false -mllvm -safe-c-ownership-ir=true -mllvm -safe-c-redeclared=false -verify %t/a.c
+// RUN: -mllvm -safe-c-ownership=true -mllvm -safe-c-redeclared=false -verify %t/a.c
 
 //--- sys/sig.h
 void (*_Nullable signal(int, void (*_Nullable)(int)))(int);
@@ -52,11 +52,6 @@ int call_changes(void (*f)(struct list *), struct list *l) {
   struct node *_Nullable n = l->head;
   f(l);
   return n ? n->v : 0; // expected-error {{after the call to 'the function pointer' on line}}
-}
-char *_Owned _Nullable make(void) { return calloc(1, 1); }
-int leak_through(char *_Nullable (*f)(void)) { return 0; }
-int marked_differently(void) {
-  return leak_through(make); // expected-error {{marked differently}}
 }
 void reassigned(void (*f)(int)) {
   f = on_signal; // expected-error {{a function pointer parameter may not be assigned}}

@@ -15,7 +15,7 @@
 #include "clang/CIR/FrontendAction/SafeCOwnership.h"
 #include "mlir/Pass/PassManager.h"
 #include "clang/AST/RecursiveASTVisitor.h"
-#include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
+#include "clang/AST/SafeCTypes.h"
 #include "clang/CIR/CIRGenerator.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/Passes.h"
@@ -31,7 +31,7 @@ using namespace clang;
 
 namespace {
 
-StringRef pointerKind(QualType T) { return lifetimes::safeCPointerKind(T); }
+StringRef pointerKind(QualType T) { return safec::pointerKind(T); }
 bool isOwned(QualType T) { return pointerKind(T) == "owned"; }
 bool isTaken(QualType T) { return pointerKind(T).starts_with("taken_if_"); }
 
@@ -168,6 +168,7 @@ struct Val {
 struct Rejected {
   mlir::Location Loc;
   std::string Message;
+  SmallVector<mlir::Location, 2> Around = {};
 };
 
 //===----------------------------------------------------------------------===//
@@ -451,8 +452,18 @@ private:
   std::optional<Rejected> Failure;
   bool Failed() const { return Failure.has_value(); }
   void fail(const Twine &M) {
-    if (!Failure)
-      Failure = Rejected{Cur ? Cur->getLoc() : Fn.getLoc(), M.str()};
+    if (Failure)
+      return;
+    Failure = Rejected{Cur ? Cur->getLoc() : Fn.getLoc(), M.str()};
+    if (!Cur)
+      return;
+    // A member access is where its field is declared: look around it.
+    for (Value V : Cur->getResults())
+      for (mlir::Operation *U : V.getUsers())
+        Failure->Around.push_back(U->getLoc());
+    for (Value V : Cur->getOperands())
+      if (mlir::Operation *D = V.getDefiningOp())
+        Failure->Around.push_back(D->getLoc());
   }
 
   static mlir::Type pointee(mlir::Type T) {
@@ -609,8 +620,18 @@ private:
     reparent(V);
     S->N[V] = std::move(N);
   }
+  /// Nothing made from a dead pointer is live.
   Node borrow(Value Parent, bool Capable) {
     Node N;
+    if (Parent) {
+      const Node *P = node(Parent);
+      if (!P || P->K == Node::Dead || P->K == Node::Maybe) {
+        N.Why = P ? P->Why : "its source ended";
+        if (P && P->K == Node::Maybe)
+          N.Why = "a call that may have taken it; test that call's result first";
+        return N;
+      }
+    }
     N.K = Node::Borrow;
     N.Parent = Parent;
     N.Capable = Capable;
@@ -2099,17 +2120,27 @@ public:
   void HandleTranslationUnit(ASTContext &Ctx) override;
 };
 
-SourceLocation sourceOf(ASTContext &Ctx, mlir::Location L) {
+/// A member access carries where its field is declared, which is outside the
+/// function.
+SourceLocation sourceOf(ASTContext &Ctx, mlir::Location L, const FunctionDecl *In) {
   SourceManager &SM = Ctx.getSourceManager();
   SourceLocation Out;
   L->walk([&](mlir::Location X) {
     auto F = mlir::dyn_cast<mlir::FileLineColLoc>(X);
     if (!F)
       return mlir::WalkResult::advance();
+    SourceLocation Here;
     if (auto File = SM.getFileManager().getOptionalFileRef(F.getFilename().getValue()))
-      Out = SM.translateFileLineCol(&File->getFileEntry(), F.getLine(),
-                                    F.getColumn());
-    return mlir::WalkResult::interrupt();
+      Here = SM.translateFileLineCol(&File->getFileEntry(), F.getLine(),
+                                   F.getColumn());
+    if (Here.isInvalid())
+      return mlir::WalkResult::advance();
+    SourceRange R = In->getSourceRange();
+    bool Inside = SM.isPointWithin(Here, SM.getExpansionLoc(R.getBegin()),
+                                   SM.getExpansionLoc(R.getEnd()));
+    if (Inside)
+      Out = Here;
+    return Inside ? mlir::WalkResult::interrupt() : mlir::WalkResult::advance();
   });
   return Out;
 }
@@ -2194,7 +2225,10 @@ void Consumer::HandleTranslationUnit(ASTContext &Ctx) {
     Seen.insert(Def);
     FunctionCheck Check(R, Gen, F, Def, Records);
     if (std::optional<Rejected> Bad = Check.run()) {
-      SourceLocation L = sourceOf(Ctx, Bad->Loc);
+      SourceLocation L = sourceOf(Ctx, Bad->Loc, Def);
+      for (mlir::Location A : Bad->Around)
+        if (L.isInvalid())
+          L = sourceOf(Ctx, A, Def);
       R.error(L.isValid() ? L : Def->getLocation(), Bad->Message);
     }
   }

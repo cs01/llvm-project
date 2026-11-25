@@ -30,56 +30,6 @@ bool isInStlNamespace(const Decl *D);
 
 bool isPointerLikeType(QualType QT);
 
-/// Safe C: the kind of a pointer type, from its [[clang::annotate_type]]
-/// sugar ("owned", "excl", "static", "unchecked"), or "" for a plain borrow.
-/// Arrays give their elements' kind.
-llvm::StringRef safeCPointerKind(QualType T);
-/// What a pointer type promises beyond its C type (ownership kind, bounds).
-std::string safeCPromise(QualType T);
-/// Everything other files are told about a function or global beyond its C
-/// type: the promises of its types, its attributes, and the contents of
-/// structs it holds or passes by value.
-std::string safeCSignature(const ValueDecl *VD);
-/// The structs an interface points to whose contents this file sees, as
-/// name and contents. (A file that sees only `struct s;` has none to compare.)
-std::vector<std::pair<std::string, std::string>>
-safeCPointedStructs(const ValueDecl *VD);
-/// Whether a call may read or change this program's globals (rule 14).
-bool safeCMayTouchGlobals(const CallExpr *CE, const SourceManager &SM);
-bool safeCFunctionTouchesGlobals(const FunctionDecl *FD,
-                                 const SourceManager &SM);
-/// Whether a value of type T holds an owned pointer (opaque structs: assumed).
-bool safeCReachesOwner(QualType T, unsigned Depth = 0);
-/// The variable a borrow local is rooted at (`q` from `q = x->p` is x),
-/// following its values in Body; VD itself when it has no single root.
-const VarDecl *safeCResolveRoot(const VarDecl *VD, const Stmt *Body,
-                                unsigned Depth);
-/// The kind of a parameter of type \p T: its written kind, or (with
-/// -mllvm -safe-c-excl-default) "excl" for a plain pointer to non-const data.
-llvm::StringRef safeCParamKind(QualType T);
-/// safeCParamKind for a parameter declared outside system headers.
-llvm::StringRef safeCParamDeclKind(const ParmVarDecl *P);
-/// safeCParamDeclKind for parameters, safeCPointerKind for other declarations.
-llvm::StringRef safeCDeclKind(const ValueDecl *D);
-
-/// Safe C: whether the M2 ownership rules are on (default; turned off by
-/// -mllvm -safe-c-ownership=false).
-bool safeCOwnershipFlag();
-/// Whether ownership annotations are required (off by default in the driver).
-bool safeCStrictOwnership();
-
-/// Safe C: the local variable or parameter a place is reached from (`l` in
-/// `l->head->next`, `v` in `v.items[i]`), or null for globals and others.
-const VarDecl *safeCRootVar(const Expr *E);
-
-/// Safe C: E without parentheses, implicit casts, or the opaque values bounds
-/// safety wraps call arguments in.
-const Expr *safeCPeel(const Expr *E);
-
-/// Safe C: a struct marked _View (it holds borrows, and lives only in locals
-/// and parameters).
-bool isSafeCViewType(QualType T);
-
 /// Returns the most recent declaration of the method to ensure all
 /// lifetime-bound attributes from redeclarations are considered.
 const FunctionDecl *getDeclWithMergedLifetimeBoundAttrs(const FunctionDecl *FD);

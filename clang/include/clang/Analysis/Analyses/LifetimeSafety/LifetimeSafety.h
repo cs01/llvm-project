@@ -101,23 +101,6 @@ public:
                                    SourceLocation ExpiryLoc,
                                    llvm::ArrayRef<const Expr *> ExprChain) {}
 
-  /// Safe C: a borrow stored through a pointer parameter (`*out = v`) ends
-  /// (\p InvalidationExpr frees it, or its storage's scope ends at
-  /// \p ExpiryLoc) while the caller can still read it.
-  virtual void reportDanglingParam(const Expr *IssueExpr,
-                                   const ParmVarDecl *Param,
-                                   const Expr *InvalidationExpr,
-                                   SourceLocation ExpiryLoc) {}
-
-  /// Safe C: a borrow of owned parameter \p Owned is left where \p Out points.
-  virtual void reportOwnedParamStored(const ParmVarDecl *Owned,
-                                      const ParmVarDecl *Out) {}
-
-  /// Safe C: a borrow of a global's owned target is stored where \p Param
-  /// points, where callers cannot see it end.
-  virtual void reportGlobalBorrowStored(const Expr *IssueExpr,
-                                        const ParmVarDecl *Param) {}
-
   virtual void reportDanglingGlobal(const Expr *IssueExpr,
                                     const VarDecl *DanglingGlobal,
                                     const Expr *MovedExpr,

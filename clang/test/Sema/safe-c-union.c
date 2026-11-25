@@ -5,8 +5,8 @@
 // RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=plain %s
 // plain-no-diagnostics
 
-union U { long i; int *p; }; // expected-error {{holds a pointer nothing tracks}}
-union Same { int *a; int *b; }; // expected-error {{holds a pointer nothing tracks}} expected-error {{holds a pointer nothing tracks}}
+union U { long i; int *p; };
+union Same { int *a; int *b; };
 union Bytes { int i; char c[4]; };
 
 int pun(union U *u) {

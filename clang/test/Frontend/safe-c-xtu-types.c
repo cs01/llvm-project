@@ -2,9 +2,9 @@
 // link: through a field, a pointer to array, a function pointer, packing, a
 // terminator, thread-local storage (third blind attack, two-file holes).
 // RUN: split-file %s %t
-// RUN: %clang_cc1 -fsafe-c -fbounds-safety -mllvm -safe-c-ownership=false -mllvm -safe-c-shared-globals=false -triple arm64-apple-macosx13 -emit-llvm %t/a.c -o - | grep -o 'type_differs[^"]*' | sort -u > %t/a
-// RUN: %clang_cc1 -fsafe-c -fbounds-safety -mllvm -safe-c-ownership=false -mllvm -safe-c-shared-globals=false -triple arm64-apple-macosx13 -emit-llvm %t/same.c -o - | grep -o 'type_differs[^"]*' | sort -u > %t/same
-// RUN: %clang_cc1 -fsafe-c -fbounds-safety -mllvm -safe-c-ownership=false -mllvm -safe-c-shared-globals=false -triple arm64-apple-macosx13 -emit-llvm %t/b.c -o - | grep -o 'type_differs[^"]*' | sort -u > %t/b
+// RUN: %clang_cc1 -fsafe-c -fbounds-safety -triple arm64-apple-macosx13 -emit-llvm %t/a.c -o - | grep -o 'type_differs[^"]*' | sort -u > %t/a
+// RUN: %clang_cc1 -fsafe-c -fbounds-safety -triple arm64-apple-macosx13 -emit-llvm %t/same.c -o - | grep -o 'type_differs[^"]*' | sort -u > %t/same
+// RUN: %clang_cc1 -fsafe-c -fbounds-safety -triple arm64-apple-macosx13 -emit-llvm %t/b.c -o - | grep -o 'type_differs[^"]*' | sort -u > %t/b
 // RUN: diff %t/a %t/same
 // RUN: not diff %t/a %t/b > %t/d
 // RUN: FileCheck %s < %t/d

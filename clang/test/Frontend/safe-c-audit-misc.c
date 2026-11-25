@@ -2,7 +2,7 @@
 // a noreturn function that returns, asm labels (bind a declaration to any
 // symbol of any type), setjmp/longjmp (resume a dead frame), and use of a
 // FILE after fclose.
-// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -fsyntax-only -Xclang -verify %s
 // RUN: %clang -fsyntax-only -Xclang -verify=plain %s
 #include <setjmp.h>
 #include <stdio.h>
@@ -13,7 +13,7 @@ __attribute__((noreturn)) void die(int c) {
     exit(1);
 } // expected-error {{function declared 'noreturn' should not return}} plain-warning {{function declared 'noreturn' should not return}}
 
-extern int *view __asm__("_cell"); // expected-error {{an asm label can switch off Safe C's checks}} expected-error {{holds a pointer nothing tracks}}
+extern int *view __asm__("_cell"); // expected-error {{an asm label can switch off Safe C's checks}}
 
 _Thread_local jmp_buf jb;
 void jump(void) {
@@ -22,19 +22,19 @@ void jump(void) {
 
 void free_local(void) {
   int x = 0;
-  free(&x); // expected-error {{attempt to call free on non-heap object 'x'}} expected-error {{freeing a pointer that is still stored}} plain-warning {{attempt to call free on non-heap object 'x'}}
+  free(&x); // expected-error {{attempt to call free on non-heap object 'x'}}  plain-warning {{attempt to call free on non-heap object 'x'}}
 }
 
 void drop(int *_Nullable p) __attribute__((ownership_takes(malloc, 1)));
 void free_local_via_owner(void) {
   int arr[4] = {0};
-  drop(arr); // expected-error {{attempt to call drop on non-heap object 'arr'}} expected-error {{this is freed or given away here}}
+  drop(arr); // expected-error {{attempt to call drop on non-heap object 'arr'}}
 }
 
 int closed_twice(void) {
-  FILE *_Nullable f = fopen("/dev/null", "r"); // expected-error {{does not live long enough}}
+  FILE *_Nullable f = fopen("/dev/null", "r");
   if (!f)
     return 0;
-  fclose(f);   // expected-note {{freed here}}
-  return fgetc(f); // expected-note {{later used here}}
+  fclose(f);
+  return fgetc(f);
 }

@@ -1,7 +1,7 @@
 // Ownership on ClangIR is the driver's default; one switch leaves it out for a file.
 // REQUIRES: system-darwin
 // RUN: not %clang -fsafe-c -fsyntax-only %s 2>&1 | FileCheck %s
-// RUN: %clang -fsafe-c -mllvm -safe-c-ownership-ir=false -fsyntax-only %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-ownership=false -fsyntax-only %s
 // CHECK: :[[@LINE+6]]:{{[0-9]+}}: error: freed after stored on line
 // CHECK-NOT: error:
 #include <stdio.h>

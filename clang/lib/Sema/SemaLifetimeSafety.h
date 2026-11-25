@@ -15,7 +15,6 @@
 #ifndef LLVM_CLANG_LIB_SEMA_SEMALIFETIMESAFETY_H
 #define LLVM_CLANG_LIB_SEMA_SEMALIFETIMESAFETY_H
 
-#include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeSafety.h"
 #include "clang/Basic/DiagnosticSema.h"
@@ -54,36 +53,7 @@ inline bool IsDiagEnabledExcludingWeverything(const DiagnosticsEngine &Diags,
          IsDiagExplicitlyEnabled(Diags, DiagID, Loc);
 }
 
-/// Safe C: lifetime errors are part of the memory-safety guarantee, so the
-/// checks run whatever -W flags or pragmas say (SemaBase then issues each
-/// finding as an error that cannot be lowered).
-inline bool IsSafeCLifetimeDiag(unsigned DiagID) {
-  switch (DiagID) {
-  case diag::warn_lifetime_safety_use_after_scope:
-  case diag::warn_lifetime_safety_use_after_scope_moved:
-  case diag::warn_lifetime_safety_use_after_free:
-  case diag::warn_lifetime_safety_return_stack_addr:
-  case diag::warn_lifetime_safety_return_stack_addr_moved:
-  case diag::warn_lifetime_safety_dangling_field:
-  case diag::warn_lifetime_safety_dangling_field_moved:
-  case diag::warn_lifetime_safety_dangling_global:
-  case diag::warn_lifetime_safety_dangling_global_moved:
-  case diag::warn_lifetime_safety_lifetimebound_violation:
-  case diag::warn_lifetime_safety_noescape_escapes:
-  case diag::warn_lifetime_safety_capture_by_violation:
-  // A returned pointer into a parameter without lifetimebound: callers would
-  // not know the result dies with that argument.
-  case diag::warn_lifetime_safety_intra_tu_param_suggestion:
-  case diag::warn_lifetime_safety_cross_tu_param_suggestion:
-    return true;
-  default:
-    return false;
-  }
-}
-
 inline bool ShouldCheckSafety(Sema &S, const Decl *D) {
-  if (S.getLangOpts().SafeC)
-    return true;
   DiagnosticsEngine &Diags = S.getDiagnostics();
   constexpr unsigned DiagIDs[] = {
       diag::warn_lifetime_safety_use_after_scope,
@@ -108,8 +78,6 @@ inline bool ShouldCheckSafety(Sema &S, const Decl *D) {
 }
 
 inline bool ShouldCheckNoescapeViolations(Sema &S, const Decl *D) {
-  if (S.getLangOpts().SafeC)
-    return true;
   // Don't enable this via -Weverything - see rdar://190623069.
   return IsDiagEnabledExcludingWeverything(
       S.getDiagnostics(), diag::warn_lifetime_safety_noescape_escapes,
@@ -117,8 +85,6 @@ inline bool ShouldCheckNoescapeViolations(Sema &S, const Decl *D) {
 }
 
 inline bool ShouldCheckLifetimeboundViolations(Sema &S, const Decl *D) {
-  if (S.getLangOpts().SafeC)
-    return true;
   // Don't enable this via -Weverything - see rdar://190623069.
   return IsDiagEnabledExcludingWeverything(
       S.getDiagnostics(), diag::warn_lifetime_safety_lifetimebound_violation,
@@ -126,8 +92,6 @@ inline bool ShouldCheckLifetimeboundViolations(Sema &S, const Decl *D) {
 }
 
 inline bool ShouldCheckCaptureByViolations(Sema &S, const Decl *D) {
-  if (S.getLangOpts().SafeC)
-    return true;
   return !S.getDiagnostics().isIgnored(
       diag::warn_lifetime_safety_capture_by_violation, D->getBeginLoc());
 }
@@ -170,8 +134,6 @@ inline bool ShouldCheckDestructorUses(Sema &S, const Decl *D) {
 }
 
 inline bool ShouldSuggestLifetimeAnnotations(Sema &S, const Decl *D) {
-  if (S.getLangOpts().SafeC)
-    return true;
   DiagnosticsEngine &Diags = S.getDiagnostics();
   constexpr unsigned DiagIDs[] = {
       diag::warn_lifetime_safety_intra_tu_param_suggestion,
@@ -193,9 +155,12 @@ inline bool IsLifetimeSafetyEnabled(Sema &S, const Decl *D) {
   if (S.getLangOpts().ObjC)
     return false;
 
+  // Safe C has its own ownership checker, which needs no hints from this one.
+  if (S.getLangOpts().SafeC)
+    return false;
+
   // TODO: Default this flag to on in the future.
-  if (!S.getLangOpts().CPlusPlus && !S.getLangOpts().EnableLifetimeSafetyInC &&
-      !S.getLangOpts().SafeC)
+  if (!S.getLangOpts().CPlusPlus && !S.getLangOpts().EnableLifetimeSafetyInC)
     return false;
 
   // Translation-unit mode: whole-program analysis runs once on TU.
@@ -224,9 +189,7 @@ inline bool IsLifetimeSafetyEnabled(Sema &S, const Decl *D) {
 
 inline LifetimeSafetyOpts GetLifetimeSafetyOpts(Sema &S, const Decl *D) {
   LifetimeSafetyOpts LSOpts;
-  // Safe C: a skipped function would be a silent hole, so no size limit.
-  LSOpts.MaxCFGBlocks =
-      S.getLangOpts().SafeC ? 0 : S.getLangOpts().LifetimeSafetyMaxCFGBlocks;
+  LSOpts.MaxCFGBlocks = S.getLangOpts().LifetimeSafetyMaxCFGBlocks;
   LSOpts.SuggestAnnotations = ShouldSuggestLifetimeAnnotations(S, D);
   LSOpts.CheckNoescapeViolations = ShouldCheckNoescapeViolations(S, D);
   LSOpts.CheckLifetimeboundViolations =
@@ -245,76 +208,9 @@ class LifetimeSafetySemaHelperImpl final : public LifetimeSafetySemaHelper {
 public:
   LifetimeSafetySemaHelperImpl(Sema &S) : S(S) {}
 
-  /// Safe C: a lifetime error is reported at the allocation or the borrowed
-  /// variable, but the unsafe part is the free or the later use; __unsafe
-  /// around either lifts the error, as it does for errors reported there.
-  bool inSafeCUnsafe(SourceLocation A, SourceLocation B = SourceLocation()) {
-    if (!S.getLangOpts().SafeC)
-      return false;
-    for (SourceLocation L : {A, B})
-      if (L.isValid() && (S.isInSafeCUnsafeRegion(L))) {
-        S.noteSafeCUnsafeRegionUsed(L);
-        return true;
-      }
-    return false;
-  }
-
   void reportUseAfterScope(const Expr *IssueExpr, const UseSite &Use,
                            const Expr *MovedExpr, SourceLocation FreeLoc,
                            llvm::ArrayRef<const Expr *> ExprChain) override {
-    if (inSafeCUnsafe(Use.getLoc(), FreeLoc))
-      return;
-    // Safe C (M2): a borrow read out of an owned field, ended by taking,
-    // replacing or lending the place it came from.
-    // Safe C (M2): an exclusive reborrow (a call with an `_Exclusive
-    // _Lifetimebound` argument), ended by lending that argument again.
-    if (S.getLangOpts().SafeC)
-      if (const auto *Call = dyn_cast<CallExpr>(IssueExpr->IgnoreParens()))
-        if (const FunctionDecl *F = Call->getDirectCallee())
-          for (unsigned I = 0, N = std::min(Call->getNumArgs(),
-                                            F->getNumParams());
-               I != N; ++I) {
-            const ParmVarDecl *P = F->getParamDecl(I);
-            if (!P->hasAttr<LifetimeBoundAttr>())
-              continue;
-            std::string Root =
-                Lexer::getSourceText(S.getSourceManager().getExpansionRange(
-                                         Call->getArg(I)->getSourceRange()),
-                                     S.getSourceManager(), S.getLangOpts())
-                    .str();
-            S.SafeCDiag(IssueExpr->getExprLoc(), "reborrow-ended")
-                << F << Root << IssueExpr->getSourceRange();
-            S.SafeCDiag(FreeLoc, "field-borrow-ended-here");
-            reportUseNote(Use);
-            return;
-          }
-    const auto *IssueDRE = dyn_cast<DeclRefExpr>(IssueExpr->IgnoreParens());
-    const auto *IssueVar =
-        IssueDRE ? dyn_cast<VarDecl>(IssueDRE->getDecl()) : nullptr;
-    if (S.getLangOpts().SafeC &&
-        (!IssueDRE || (IssueVar && IssueVar->hasGlobalStorage())) &&
-        lifetimes::safeCPointerKind(IssueExpr->getType()) == "owned") {
-      // Inside a macro the spelled text may be unavailable; name the field.
-      std::string Place =
-          Lexer::getSourceText(S.getSourceManager().getExpansionRange(
-                                   IssueExpr->getSourceRange()),
-                               S.getSourceManager(), S.getLangOpts())
-              .str();
-      if (Place.empty() || Place.size() > 40) {
-        const Expr *E = IssueExpr->IgnoreParenImpCasts();
-        if (const auto *ME = dyn_cast<MemberExpr>(E))
-          Place = "the field '" + ME->getMemberDecl()->getNameAsString() + "'";
-        else if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
-          Place = DRE->getDecl()->getNameAsString();
-        else
-          Place = "this place";
-      }
-      S.SafeCDiag(IssueExpr->getExprLoc(), "field-borrow-ended")
-          << Place << IssueExpr->getSourceRange();
-      S.SafeCDiag(FreeLoc, "field-borrow-ended-here");
-      reportUseNote(Use);
-      return;
-    }
     unsigned DiagID;
     if (Use.getKind() == UseKind::Destructor)
       DiagID = diag::warn_lifetime_safety_destructor_use_after_scope;
@@ -339,16 +235,9 @@ public:
     reportUseNote(Use);
   }
 
-  /// One stack-escape error per return: several loans of the same object
-  /// (its storage, and its interior through a lifetimebound call) escaping
-  /// at once are one problem.
-  llvm::SmallPtrSet<const Expr *, 4> ReportedReturns;
-
   void reportUseAfterReturn(const Expr *IssueExpr, const Expr *ReturnExpr,
                             const Expr *MovedExpr,
                             llvm::ArrayRef<const Expr *> ExprChain) override {
-    if (S.getLangOpts().SafeC && !ReportedReturns.insert(ReturnExpr).second)
-      return;
     unsigned DiagID = MovedExpr
                           ? diag::warn_lifetime_safety_return_stack_addr_moved
                           : diag::warn_lifetime_safety_return_stack_addr;
@@ -392,21 +281,6 @@ public:
     S.Diag(DanglingField->getLocation(),
            diag::note_lifetime_safety_dangling_field_here)
         << DanglingField->getEndLoc();
-  }
-
-  void reportDanglingParam(const Expr *IssueExpr, const ParmVarDecl *Param,
-                           const Expr *InvalidationExpr,
-                           SourceLocation ExpiryLoc) override {
-    if (!S.getLangOpts().SafeC || !IssueExpr)
-      return;
-    S.SafeCDiag(IssueExpr->getExprLoc(), "param-escape")
-        << getDiagSubjectDescription(IssueExpr) << Param
-        << IssueExpr->getSourceRange();
-    if (InvalidationExpr)
-      S.Diag(InvalidationExpr->getExprLoc(), diag::note_lifetime_safety_freed_here)
-          << getDiagSubjectDescription(IssueExpr);
-    else if (ExpiryLoc.isValid())
-      S.SafeCDiag(ExpiryLoc, "param-escape-ends");
   }
 
   void reportDanglingGlobal(const Expr *IssueExpr,
@@ -573,21 +447,9 @@ public:
     if (!IsDiagEnabledExcludingWeverything(DiagID, InsertionPoint))
       return;
 
-    // Safe C: __unsafe around the return lifts it, as for other errors.
-    if (const auto *EscapeExpr = dyn_cast<const Expr *>(Target);
-        EscapeExpr && inSafeCUnsafe(EscapeExpr->getBeginLoc()))
-      return;
-    // Safe C: say why, and spell the fix with safec.h's name.
-    const auto *Fn = dyn_cast<FunctionDecl>(ParmToAnnotate->getDeclContext());
-    if (S.getLangOpts().SafeC && Fn && isa<const Expr *>(Target))
-      S.SafeCDiag(InsertionPoint, "return-needs-lifetimebound")
-          << Fn << ParmToAnnotate << ParmToAnnotate->getSourceRange()
-          << FixItHint::CreateInsertion(InsertionPoint,
-                                        " _Lifetimebound");
-    else
-      S.Diag(InsertionPoint, DiagID)
-          << ParmToAnnotate->getSourceRange()
-          << FixItHint::CreateInsertion(InsertionPoint, FixItText);
+    S.Diag(InsertionPoint, DiagID)
+        << ParmToAnnotate->getSourceRange()
+        << FixItHint::CreateInsertion(InsertionPoint, FixItText);
 
     if (const auto *EscapeExpr = dyn_cast<const Expr *>(Target))
       S.Diag(EscapeExpr->getBeginLoc(),
@@ -599,43 +461,8 @@ public:
           << EscapeField->getSourceRange();
   }
 
-  /// Safe C: the violation is reported at the parameter, not at a return, so
-  /// __unsafe lifts it only when every pointer return of the function is
-  /// inside __unsafe (an unverified return outside still errors).
-  bool allPointerReturnsInSafeCUnsafe(const FunctionDecl *FD) {
-    if (!S.getLangOpts().SafeC || !FD || !FD->getBody())
-      return false;
-    struct Finder : RecursiveASTVisitor<Finder> {
-      Sema &S;
-      llvm::SmallVector<SourceLocation, 4> Returns;
-      bool AllUnsafe = true;
-      bool VisitReturnStmt(ReturnStmt *RS) {
-        if (const Expr *V = RS->getRetValue();
-            V && V->getType()->isPointerType()) {
-          Returns.push_back(RS->getBeginLoc());
-          AllUnsafe &= S.isInSafeCUnsafeRegion(RS->getBeginLoc());
-        }
-        return true;
-      }
-    } F{{}, S};
-    F.TraverseStmt(FD->getBody());
-    if (F.Returns.empty() || !F.AllUnsafe)
-      return false;
-    for (SourceLocation L : F.Returns)
-      S.noteSafeCUnsafeRegionUsed(L);
-    return true;
-  }
-
   void reportLifetimeboundViolation(
       const ParmVarDecl *ParmWithLifetimebound) override {
-    if (allPointerReturnsInSafeCUnsafe(dyn_cast<FunctionDecl>(
-            ParmWithLifetimebound->getDeclContext())))
-      return;
-    // Safe C with the M2 rules turned off (-mllvm -safe-c-ownership=false): a
-    // pointer read from a field carries no borrow, so a lifetimebound getter
-    // can never be verified.
-    if (S.getLangOpts().SafeC && !lifetimes::safeCOwnershipFlag())
-      return;
     const auto *Attr = ParmWithLifetimebound->getAttr<LifetimeBoundAttr>();
     StringRef ParamName = ParmWithLifetimebound->getName();
     bool HasName = ParamName.size() > 0;
@@ -838,19 +665,6 @@ public:
           << FieldDesc << FD->getSourceRange();
   }
 
-  llvm::SmallPtrSet<const Expr *, 4> GlobalReturns;
-  void reportOwnedParamStored(const ParmVarDecl *Owned,
-                              const ParmVarDecl *Out) override {
-    S.SafeCDiag(Owned->getLocation(), "owned-param-stored") << Owned << Out;
-  }
-  void reportGlobalBorrowStored(const Expr *IssueExpr,
-                                const ParmVarDecl *Param) override {
-    if (Param)
-      S.SafeCDiag(IssueExpr->getExprLoc(), "global-borrow-stored") << Param;
-    else if (GlobalReturns.insert(IssueExpr).second)
-      S.SafeCDiag(IssueExpr->getExprLoc(), "global-borrow-returned");
-  }
-
   void reportNoescapeViolation(const ParmVarDecl *ParmWithNoescape,
                                const Expr *EscapeExpr) override {
     // Don't enable this via -Weverything - see rdar://190623069.
@@ -885,12 +699,6 @@ public:
 
   void reportNoescapeViolation(const ParmVarDecl *ParmWithNoescape,
                                const VarDecl *EscapeGlobal) override {
-    if (isa<ParmVarDecl>(EscapeGlobal)) {
-      if (S.getLangOpts().SafeC)
-        S.SafeCDiag(ParmWithNoescape->getBeginLoc(), "noescape-stored")
-            << ParmWithNoescape << EscapeGlobal;
-      return;
-    }
     // Don't enable this via -Weverything - see rdar://190623069.
     if (!IsDiagEnabledExcludingWeverything(
             diag::warn_lifetime_safety_noescape_escapes,
@@ -920,15 +728,7 @@ private:
     if (isa<CXXDeleteExpr>(InvalidationExpr))
       return true;
     const FunctionDecl *FD = FunctionCallInfo(InvalidationExpr).FD;
-    if (FD)
-      return isFreeingFunction(*FD);
-    // A call through a function pointer declared ownership_takes.
-    if (const auto *CE =
-            dyn_cast<CallExpr>(InvalidationExpr->IgnoreParenImpCasts()))
-      if (const Decl *D = CE->getCalleeDecl())
-        return llvm::any_of(D->specific_attrs<OwnershipAttr>(),
-                            [](const OwnershipAttr *A) { return A->isTakes(); });
-    return false;
+    return FD && isFreeingFunction(*FD);
   }
 
   struct LifetimeBoundMacroCache {
@@ -1016,28 +816,6 @@ private:
                                       const Expr *InvalidationExpr,
                                       llvm::ArrayRef<const Expr *> ExprChain,
                                       const UseSite &Use) {
-    if (inSafeCUnsafe(Use.getLoc(), InvalidationExpr
-                                        ? InvalidationExpr->getExprLoc()
-                                        : SourceLocation()))
-      return;
-    // Safe C (M5): handed to a new thread, then used here: a race.
-    if (S.getLangOpts().SafeC && InvalidationExpr)
-      if (const auto *CE =
-              dyn_cast<CallExpr>(InvalidationExpr->IgnoreParenImpCasts()))
-        if (const FunctionDecl *FD = CE->getDirectCallee();
-            FD && FD->getIdentifier() && FD->getName() == "pthread_create") {
-          S.SafeCDiag(Use.getLoc(), "used-after-spawn");
-          S.SafeCDiag(CE->getExprLoc(), "spawned-here");
-          return;
-        }
-    // Safe C: the only other invalidation in C is a _Drop_free cleanup,
-    // reported at the variable's initializer.
-    if (S.getLangOpts().SafeC && InvalidationExpr &&
-        !isFreeingExpr(InvalidationExpr)) {
-      S.SafeCDiag(Use.getLoc(), "used-after-drop");
-      S.SafeCDiag(InvalidationExpr->getExprLoc(), "dropped-here");
-      return;
-    }
     auto WarnDiag =
         getInvalidationWarnDiag(isFreeingExpr(InvalidationExpr), Use.getKind());
     // Don't enable this via -Weverything - see rdar://190623069.
@@ -1159,8 +937,6 @@ private:
   /// them leaks out because of -Weverything alone - see rdar://190623069.
   bool IsDiagEnabledExcludingWeverything(unsigned DiagID,
                                          SourceLocation Loc) const {
-    if (S.getLangOpts().SafeC && IsSafeCLifetimeDiag(DiagID))
-      return true;
     const DiagnosticsEngine &Diags = S.getDiagnostics();
     return lifetimes::IsDiagEnabledExcludingWeverything(Diags, DiagID, Loc);
   }
@@ -1194,8 +970,6 @@ private:
       return getDiagSubjectDescription(DAE->getExpr()->IgnoreParenBaseCasts());
     if (isa<MaterializeTemporaryExpr>(E))
       return "temporary object";
-    if (isa<CompoundLiteralExpr>(E))
-      return "compound literal";
     if (isa<CXXNewExpr>(E))
       return "allocated object";
     if (const auto *DRE = dyn_cast<DeclRefExpr>(E))
@@ -1205,14 +979,6 @@ private:
         return getDiagSubjectDescription(VD);
 
     if (const auto *CE = dyn_cast<CallExpr>(E)) {
-      if (CE->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
-          CE->getNumArgs() == 1) {
-        std::string Src;
-        llvm::raw_string_ostream OS(Src);
-        CE->getArg(0)->IgnoreParenImpCasts()->printPretty(
-            OS, nullptr, S.getPrintingPolicy());
-        return "object taken from '" + Src + "'";
-      }
       const auto *FD = CE->getDirectCallee();
       if (!FD)
         return "result of call";

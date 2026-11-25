@@ -8,8 +8,8 @@ A fork of Clang with one flag, `-fsafe-c`:
   checked: an error, or a trap at run time. This is what it aims to get right.
 - **Ownership** (use after free, double free) is checked on ClangIR, new and on by default: an
   `_Owned` pointer is moved by use, every other pointer is a borrow that dies when its owner
-  changes, and a borrow is never stored. Code it has no rule for is an error: callbacks, `void *`,
-  shared structures, pointers to pointers. `-mllvm -safe-c-ownership-ir=false` leaves it out for a file.
+  changes, and a borrow is never stored. Code it has no rule for is an error: back pointers,
+  structs that borrow, pointers to pointers. `-mllvm -safe-c-ownership=false` leaves it out for a file.
 - **Explicit boundaries:** `__unsafe`, legacy headers, `-isystem` directories. Anything
   Clang accepts that this has no rules for is an error.
 
@@ -21,8 +21,8 @@ It does not make C memory safe. See [Status](#status).
 int sum(const int *__counted_by(n) v,
         size_t n);
 
-_Returns_owned
-struct json *parse(const char *text);
+struct json *_Owned parse(
+    const char *text);
 
 void json_delete(
     struct json *_Owned j);
@@ -32,11 +32,11 @@ int x[3];
 // 3 elements) ... with count value of 4
 sum(x, 4);
 
-// error: object allocated by 'parse'
-// does not live long enough
-struct json *t = parse(text);
-json_delete(t);  // note: freed here
-t->kind;         // note: later used here
+struct json *_Owned t = parse(text);
+json_delete(t);
+// error: use after passed to
+// 'json_delete' on line 10
+t->kind;
 ```
 
 The same code compiles as plain C on any compiler: the annotations come from one header,
@@ -48,15 +48,15 @@ The same code compiles as plain C on any compiler: the annotations come from one
    `clang -fsafe-c parser.c`. Start with the file that reads untrusted input.
 2. **Fix what it reports.** Most errors say what is wrong and what to write.
 3. **The annotations you will meet first** (the cJSON port has about 630 annotations in
-   3,300 lines, one every five lines; half are `_Nullable`, then
-   `_Exclusive`, `_Owned` and `_Returns_owned`):
+   3,300 lines, one every five lines; half are `_Nullable`):
 
    | Write | When |
    |---|---|
    | `_Nullable` | the pointer may be null |
    | `__counted_by(n)` | the pointer has a length, `n` |
    | `_Owned` | whoever holds it must free it |
-   | `_Exclusive` | the function changes what it points to |
+   | `_Take(place)` | move an owner out of a field, leaving null |
+   | `_Trusted` | a function whose ownership is not checked inside; callers still are |
 
 4. **Not ready to fix a spot yet?** Put `#pragma clang safe_c legacy` at the top of a
    header to trust it as is, or wrap the code in `__unsafe { }`. Both are easy to find
@@ -75,7 +75,7 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 | Integer UB | division by zero and oversized shifts trap; signed overflow wraps (as in Rust release builds) |
 | Type confusion | a union's pointer members are used only in `__unsafe`; unions of plain data can be tagged and checked. Files that disagree about a shared type do not link. A pointer to memory holding pointers may be a writable `void *` only in the call that needs one |
 | Use after free, double free | on by default; the rules are proved in Lean for a model, not for the compiler; attacked only as a prototype |
-| Data races | a few rules for locked data; the rest are off |
+| Data races | only data marked `_Guarded_by` a lock |
 
 **Maturity.** Early. Tested on macOS (arm64) against Apple's SDK. Linux builds but is not usable yet
 (glibc's headers have no annotations). Ported so far: jsmn, cJSON, lz4, inih, parson. Some rule sets have small Lean models with
@@ -101,6 +101,8 @@ test suite for C security tools: thousands of small programs, each with a known 
 fixed version. Juliet is written for plain C, so it was ported first (the changes are
 listed in [results](safe-c-docs/results.md)); 41% of its cases still do not build and are
 not counted.
+
+Measured before the ownership checker was replaced (2026-11-25); not rerun since.
 
 <!-- generated:summary -->
 On a ported copy of NIST's Juliet suite, 6,773 of 11,522 cases in 10 bug classes (those whose fixed version builds after porting):

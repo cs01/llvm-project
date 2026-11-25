@@ -55,7 +55,7 @@ static void test_vec(void) {
 
 static void test_drop(void) {
   for (int i = 0; i < 100; i++) {
-    string s _Drop(string_free) = {0, 0, 0}; /* freed at the end of each pass */
+    string s __attribute__((cleanup(string_free))) = {0, 0, 0}; /* freed at the end of each pass */
     CHECK(string_push(&s, S("hello")));
     if (i % 2)
       continue; /* early exits free it too */
@@ -66,9 +66,9 @@ static void test_drop(void) {
 static void test_io(void) {
   const char *_Nullable __null_terminated tmp = getenv("TMPDIR");
   str dir = tmp ? str_from(tmp) : S("/tmp/");
-  string path _Drop(string_free) = {0, 0, 0};
+  string path __attribute__((cleanup(string_free))) = {0, 0, 0};
   CHECK(string_push(&path, dir) && string_push(&path, S("/safec_std_io.txt")));
-  string name _Drop(string_free) = {0, 0, 0};
+  string name __attribute__((cleanup(string_free))) = {0, 0, 0};
   CHECK(string_push(&name, string_view(&path)) && string_push(&name, S("\0")));
   FILE *_Nullable f = name.p ? fopen(name.p, "w") : NULL;
   CHECK(f != NULL);
@@ -77,11 +77,11 @@ static void test_io(void) {
   fputs("alpha\n  beta  \ngamma", f);
   fclose(f);
 
-  string all _Drop(string_free) = {0, 0, 0};
+  string all __attribute__((cleanup(string_free))) = {0, 0, 0};
   CHECK(read_file(string_view(&path), &all));
   CHECK(all.len == 20); /* "alpha\n" + "  beta  \n" + "gamma" */
 
-  lines it _Drop(lines_close) = {0, {0, 0, 0}};
+  lines it __attribute__((cleanup(lines_close))) = {0, {0, 0, 0}};
   CHECK(lines_open(string_view(&path), &it));
   int n = 0;
   bool second_ok = false;

@@ -2,12 +2,12 @@
 // checked for its terminator for the duration of the call; a callee that
 // could keep the pointer would see the terminator erased later (audit
 // finding 4 / the string hole), so the parameter must be noescape.
-// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
 // RUN: %clang_cc1 -fsyntax-only -include safec.h -verify=plain %s
 // plain-no-diagnostics
 
-static char *_Nullable __null_terminated keep; // expected-error {{holds a pointer nothing tracks}}
+static char *_Nullable __null_terminated keep;
 void retain(char *__null_terminated s) { keep = s; }
 int length(const char *__null_terminated s __attribute__((noescape)));
 

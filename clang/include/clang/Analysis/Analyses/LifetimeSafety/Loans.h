@@ -144,8 +144,6 @@ public:
   AccessPath(const PlaceholderBase *PB) : Base(PB) {}
   AccessPath(const clang::CXXNewExpr *New) : Base(New) {}
   AccessPath(const clang::CallExpr *CE) : Base(CE) {}
-  /// Safe C: a block-scope compound literal's storage.
-  AccessPath(const clang::CompoundLiteralExpr *CLE) : Base(CLE) {}
 
   /// Creates an extended access path by appending a path element.
   /// Example: AccessPath(x_path, field) creates path to `x.field`.
@@ -154,10 +152,6 @@ public:
     Elements.push_back(E);
   }
 
-  /// Whether the path ends in what the base owns or contains.
-  bool isInterior() const {
-    return !Elements.empty() && Elements.back().isInterior();
-  }
   const clang::ValueDecl *getAsValueDecl() const {
     return dyn_cast<const clang::ValueDecl *>(Base);
   }
@@ -223,18 +217,6 @@ class Loan {
   /// The expression that creates the loan, e.g., &x. Optional for placeholder
   /// loans.
   const Expr *IssueExpr;
-  /// Safe C: one loan stands for every block an allocation site returns, so
-  /// in a loop this iteration's block and the last one's would be one object
-  /// (freeing the old one would end the new one). When set, issuing this
-  /// loan first renames it to EarlierIterations in every origin that still
-  /// holds it: all blocks from earlier iterations share that loan, which
-  /// stays conservative for them, and the new block is tracked on its own.
-  /// Its path is the site's interior, so a free of an earlier block (matched
-  /// by path prefix) does not reach the new one.
-  const Loan *EarlierIterations = nullptr;
-  /// This loan is another's EarlierIterations: origins get it by renaming,
-  /// never from an IssueFact.
-  bool IsEarlierIterations = false;
 
 public:
   Loan(LoanID ID, AccessPath Path, const Expr *IssueExpr = nullptr)
@@ -243,12 +225,6 @@ public:
   LoanID getID() const { return ID; }
   const AccessPath &getAccessPath() const { return Path; }
   const Expr *getIssueExpr() const { return IssueExpr; }
-  const Loan *getEarlierIterations() const { return EarlierIterations; }
-  void setEarlierIterations(Loan *L) {
-    L->IsEarlierIterations = true;
-    EarlierIterations = L;
-  }
-  bool isEarlierIterations() const { return IsEarlierIterations; }
 
   void dump(llvm::raw_ostream &OS) const;
 };
@@ -283,14 +259,14 @@ public:
 
   llvm::ArrayRef<const Loan *> getLoans() const { return AllLoans; }
 
+private:
+  LoanID getNextLoanID() { return NextLoanID++; }
+
   /// Gets or creates a placeholder base for a given parameter, method, or
   /// field.
   const PlaceholderBase *getOrCreatePlaceholderBase(const ParmVarDecl *PVD);
   const PlaceholderBase *getOrCreatePlaceholderBase(const CXXMethodDecl *MD);
   const PlaceholderBase *getOrCreatePlaceholderBase(const FieldDecl *FD);
-
-private:
-  LoanID getNextLoanID() { return NextLoanID++; }
 
   LoanID NextLoanID{0};
 

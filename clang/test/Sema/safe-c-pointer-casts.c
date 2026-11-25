@@ -12,8 +12,8 @@ typedef __SIZE_TYPE__ size_t;
 void *_Nullable malloc(size_t);
 void *_Nullable realloc(void *_Nullable, size_t);
 
-struct A { int x; int *p; }; // expected-error {{holds a pointer nothing tracks}}
-struct B { long y; int *q; }; // expected-error {{holds a pointer nothing tracks}}
+struct A { int x; int *p; };
+struct B { long y; int *q; };
 struct P1 { int a; short b; };
 struct P2 { short c; int d; };
 
@@ -30,7 +30,7 @@ void structs(struct A *a, struct P1 *p1) {
 }
 
 void nullability(int *_Nonnull *pp) {
-  int *_Nullable *q = (int *_Nullable *)pp; // expected-error {{can treat memory as the wrong type}} expected-error {{points to a place that holds a borrow}}
+  int *_Nullable *q = (int *_Nullable *)pp; // expected-error {{can treat memory as the wrong type}}
   (void)q;
 }
 
@@ -42,11 +42,11 @@ void fnptr(void) {
 
 // Separate functions: realloc frees its argument, so a second realloc of the
 // same pointer would be a use after free.
-_Takes(1) void grow_other(long *_Nullable l) {
-  int *_Nullable *_Nullable pp = realloc(l, 2 * sizeof(int *)); // expected-error {{can treat memory as the wrong type}} expected-error {{this heap memory holds pointers}} expected-error {{points to a place that holds a borrow}}
+void grow_other(long *_Nullable l) {
+  int *_Nullable *_Nullable pp = realloc(l, 2 * sizeof(int *)); // expected-error {{can treat memory as the wrong type}}
   (void)pp;
 }
-_Takes(1) void grow_same(long *_Nullable l) {
+void grow_same(long *_Nullable l) {
   long *_Nullable l2 = realloc(l, 2 * sizeof(long)); // ok: same type
   (void)l2;
 }

@@ -10,7 +10,7 @@
 // off-no-diagnostics
 #include <ptrcheck.h>
 typedef __SIZE_TYPE__ size_t;
-struct S { const char *__null_terminated name; }; // expected-error {{holds a pointer nothing tracks}}
+struct S { const char *__null_terminated name; };
 // A stored terminated pointer still needs the explicit conversion (only call
 // arguments get the implicit checked one).
 void store(struct S *s, const char *__counted_by(n) buf, size_t n) {

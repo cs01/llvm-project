@@ -1587,7 +1587,7 @@ void Sema::ActOnEndOfTranslationUnit() {
     return;
 
   if (getLangOpts().SafeC && TUKind != TU_Prefix)
-    checkSafeCSharedGlobals(*this);
+    checkSafeCDeclarations(*this);
 
   // Complete translation units and modules define vtables and perform implicit
   // instantiations. PCH files do not.

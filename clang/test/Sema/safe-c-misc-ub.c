@@ -1,6 +1,6 @@
 // Under -fsafe-c: falling off the end of a non-void function is an error, and
 // string literals are const, so dropping const to write one is an error.
-// RUN: %clang_cc1 -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety -fnullability-safety \
+// RUN: %clang_cc1 -fsyntax-only -fsafe-c -fbounds-safety -fnullability-safety \
 // RUN:   -fnullability-default=nonnull -fconst-strings -verify -verify-ignore-unexpected=note %s
 // RUN: %clang_cc1 -fsyntax-only -verify=plain -Wno-return-type %s
 // plain-no-diagnostics
