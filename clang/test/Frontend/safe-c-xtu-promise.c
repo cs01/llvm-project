@@ -1,9 +1,9 @@
 // Two files that disagree on annotations, or on a struct they share, do not
 // link (blind attack cause 32, 2026-11-24).
 // RUN: rm -rf %t && mkdir %t
-// RUN: %clang -fsafe-c -c %S/Inputs/safe-c-xtu-promise-def.c -o %t/def.o
-// RUN: %clang -fsafe-c -c %s -DGOOD -o %t/good.o && %clang %t/good.o %t/def.o -o %t/good
-// RUN: %clang -fsafe-c -c %s -o %t/bad.o
+// RUN: %clang -fsafe-c -mllvm -safe-c-ownership-ir=false -c %S/Inputs/safe-c-xtu-promise-def.c -o %t/def.o
+// RUN: %clang -fsafe-c -mllvm -safe-c-ownership-ir=false -c %s -DGOOD -o %t/good.o && %clang %t/good.o %t/def.o -o %t/good
+// RUN: %clang -fsafe-c -mllvm -safe-c-ownership-ir=false -c %s -o %t/bad.o
 // RUN: not %clang %t/bad.o %t/def.o -o %t/bad 2>&1 | FileCheck %s
 // CHECK-DAG: type_differs_or_defined_without_safe_c.{{_?}}frees.
 // CHECK-DAG: type_differs_or_defined_without_safe_c.{{_?}}counts.

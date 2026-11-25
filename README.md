@@ -6,9 +6,10 @@ A fork of Clang with one flag, `-fsafe-c`:
 
 - **Bounds, null, uninitialized memory, casts, format strings and library calls** are
   checked: an error, or a trap at run time. This is what it aims to get right.
-- **Use after free** is caught in common cases (a local freed and used again, an address that
-  outlives its scope). A new ownership checker that aims to catch the rest is a prototype, not
-  in the compiler yet ([notes](safe-c-notes/core-subset.md)).
+- **Ownership** (use after free, double free) is checked on ClangIR, new and on by default: an
+  `_Owned` pointer is moved by use, every other pointer is a borrow that dies when its owner
+  changes, and a borrow is never stored. Code it has no rule for is an error: callbacks, `void *`,
+  shared structures, pointers to pointers. `-mllvm -safe-c-ownership-ir=false` leaves it out for a file.
 - **Explicit boundaries:** `__unsafe`, legacy headers, `-isystem` directories. Anything
   Clang accepts that this has no rules for is an error.
 
@@ -73,8 +74,8 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 | Uninitialized reads | locals must be set before use; heap memory is zero-filled, except what `realloc`, `reallocf` and `aligned_alloc` add (which may not hold pointers) |
 | Integer UB | division by zero and oversized shifts trap; signed overflow wraps (as in Rust release builds) |
 | Type confusion | a union's pointer members are used only in `__unsafe`; unions of plain data can be tagged and checked. Files that disagree about a shared type do not link. A pointer to memory holding pointers may be a writable `void *` only in the call that needs one |
-| Use after free, double free | simple cases only; the old ownership rules are off by default and were broken |
-| Data races | a few rules for locked data; the rest are off with the old ownership rules |
+| Use after free, double free | on by default; the rules are proved in Lean for a model, not for the compiler; attacked only as a prototype |
+| Data races | a few rules for locked data; the rest are off |
 
 **Maturity.** Early. Tested on macOS (arm64) against Apple's SDK. Linux builds but is not usable yet
 (glibc's headers have no annotations). Ported so far: jsmn, cJSON, lz4, inih, parson. Some rule sets have small Lean models with

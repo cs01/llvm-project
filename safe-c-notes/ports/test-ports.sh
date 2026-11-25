@@ -23,7 +23,7 @@ ulimit -s 65520
   "$here/cjson/tests/unity/src/unity.c" || exit 1
 
 configs=(
-  "safec|$safec -fsafe-c -isysroot $sdk"
+  "safec|$safec -fsafe-c -mllvm -safe-c-ownership-ir=false -isysroot $sdk"
   # Ownership annotations are opt-in; the driver rejects a bare
   # -mllvm -safe-c-ownership (it allows only =true or =1 for -safe-c-* switches).
   "safec-own|$safec -fsafe-c -mllvm -safe-c-strict-ownership=true -isysroot $sdk"

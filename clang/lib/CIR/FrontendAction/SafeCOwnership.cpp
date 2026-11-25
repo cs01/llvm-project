@@ -167,7 +167,9 @@ class FileRules {
 public:
   ASTContext &Ctx;
   Sema &S;
-  FileRules(Sema &S) : Ctx(S.Context), S(S) {}
+  std::string ResourceDir; // safec.h and the compiler's other headers
+  FileRules(Sema &S, StringRef ResourceDir)
+      : Ctx(S.Context), S(S), ResourceDir(ResourceDir) {}
 
   bool trusted(const FunctionDecl *FD) const {
     for (const FunctionDecl *R : FD->redecls())
@@ -177,8 +179,12 @@ public:
     return false;
   }
   bool mine(const Decl *D) const {
-    return D->getLocation().isValid() &&
-           !Ctx.getSourceManager().isInSystemHeader(D->getLocation());
+    SourceManager &SM = Ctx.getSourceManager();
+    if (D->getLocation().isInvalid() || SM.isInSystemHeader(D->getLocation()))
+      return false;
+    return ResourceDir.empty() ||
+           !SM.getFilename(SM.getExpansionLoc(D->getLocation()))
+                .starts_with(ResourceDir);
   }
   bool hasOwners(QualType T) const {
     T = Ctx.getBaseElementType(T).getCanonicalType();
@@ -1793,7 +1799,7 @@ void Consumer::HandleTranslationUnit(ASTContext &Ctx) {
   DiagnosticsEngine &Diags = CI.getDiagnostics();
   if (Diags.hasErrorOccurred())
     return;
-  FileRules R(CI.getSema());
+  FileRules R(CI.getSema(), CI.getHeaderSearchOpts().ResourceDir);
   llvm::StringMap<const RecordDecl *> Records;
   SmallVector<const FunctionDecl *, 32> Functions;
   struct Collect : RecursiveASTVisitor<Collect> {
