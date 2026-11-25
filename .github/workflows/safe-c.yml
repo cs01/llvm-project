@@ -54,6 +54,7 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DLLVM_ENABLE_PROJECTS=clang \
+            -DCLANG_ENABLE_CIR=ON \
             -DLLVM_TARGETS_TO_BUILD="X86;AArch64" \
             -DLLVM_ENABLE_ASSERTIONS=ON \
             -DLLVM_OPTIMIZED_TABLEGEN=ON \
@@ -62,15 +63,20 @@ jobs:
       - name: Build
         run: ninja -C build clang FileCheck count not split-file llvm-config
 
+      # Linux has no annotated libc yet (README, Limits): it is built and packaged, not tested.
       - name: Safe C tests (lit)
+        if: runner.os == 'macOS'
         run: |
           shopt -s nullglob
           build/bin/llvm-lit -sv clang/test/*/safe-c-* clang/test/Sema/LifetimeSafety
 
       - name: Standard library tests
+        if: runner.os == 'macOS'
         run: |
           SYSROOT=""
           if [ "$RUNNER_OS" = "macOS" ]; then SYSROOT="-isysroot $(xcrun --show-sdk-path)"; fi
+          build/bin/clang -fsafe-c -fsyntax-only -mllvm -safe-c-ownership=true clang/test/Frontend/safe-c-ownership-disjoint.c 2>&1 | grep -q "is tested after" ||
+            { echo 'the ownership checker is not in this build'; exit 1; }
           for t in safe-c-std/tests/*.c; do
             build/bin/clang -fsafe-c $SYSROOT -O1 $t -o wrapper
             ./wrapper
@@ -79,6 +85,13 @@ jobs:
             SAFEC=$PWD/build/bin/clang bash clang/utils/safe-c/libc/check.sh
             SAFEC=$PWD/build/bin/clang bash safe-c-std/misuse/check.sh
           fi
+
+      - name: Ownership checker is built in
+        run: |
+          printf 'void f(int *_Owned p);\n' > owned.c
+          build/bin/clang -fsafe-c -fsyntax-only -include clang/lib/Headers/safec.h owned.c
+          build/bin/clang --version | head -1
+          grep -q '^CLANG_ENABLE_CIR:BOOL=ON' build/CMakeCache.txt
 
       - name: Package
         run: |
