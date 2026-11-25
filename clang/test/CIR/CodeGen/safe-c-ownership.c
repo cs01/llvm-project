@@ -51,7 +51,7 @@ _Trusted void swap(struct node *a, struct node *b) {
 // Rejected.
 static void twice(struct list *l, struct node *_Owned n) { // unused, still checked
   l->head = n;
-  free(n); // expected-error {{freed after stored on line}}
+  free(n); // expected-error {{freed after it was stored on line}}
 }
 int stale(struct list *l) {
   struct node *_Nullable n = l->head;
@@ -82,12 +82,12 @@ int aliased(struct list *l) {
 void touch(char *p);
 char peek(char *_Owned p, const char *_Owned q) {
   free(p);
-  touch(p); // expected-error {{after freed on line}}
+  touch(p); // expected-error {{after it was freed on line}}
   return q[0];
 }
 void copies(char *_Owned p) {
   free(p);
-  __builtin_memset(p, 0, 1); // expected-error {{after freed on line}}
+  __builtin_memset(p, 0, 1); // expected-error {{after it was freed on line}}
 }
 void believed(int c) {
   if (c)

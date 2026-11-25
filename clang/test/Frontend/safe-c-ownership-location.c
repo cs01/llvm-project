@@ -6,5 +6,5 @@ struct json { int kind; };
 void json_delete(struct json *_Owned j);
 int f(struct json *_Owned t) {
   json_delete(t);
-  return t->kind; // expected-error {{use after passed to 'json_delete' on line 8}}
+  return t->kind; // expected-error {{is used after it was passed to 'json_delete' on line 8}}
 }

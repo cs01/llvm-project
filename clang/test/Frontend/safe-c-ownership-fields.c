@@ -61,7 +61,7 @@ void owned(struct tree *t) {
 }
 void stale(struct tree *t, struct tree *_Owned p) {
   free(p);
-  t->up = p; // expected-error {{copied after freed on line}}
+  t->up = p; // expected-error {{copied after it was freed on line}}
 }
 int param(int *_Unchecked p) {
   return *p; // expected-error {{an '_Unchecked' pointer is followed only}}

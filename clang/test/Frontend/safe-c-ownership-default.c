@@ -2,7 +2,7 @@
 // REQUIRES: system-darwin
 // RUN: not %clang -fsafe-c -fsyntax-only %s 2>&1 | FileCheck %s
 // RUN: %clang -fsafe-c -mllvm -safe-c-ownership=false -fsyntax-only %s
-// CHECK: :[[@LINE+6]]:{{[0-9]+}}: error: freed after stored on line
+// CHECK: :[[@LINE+6]]:{{[0-9]+}}: error: 'n' is freed after it was stored on line
 // CHECK-NOT: error:
 #include <stdio.h>
 #include <stdlib.h>

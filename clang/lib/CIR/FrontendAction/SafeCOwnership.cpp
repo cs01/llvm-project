@@ -708,12 +708,49 @@ private:
     return A.empty() ? V : A.back();
   }
 
+  /// What the program calls the pointer V.
+  std::string written(Value V, unsigned Depth = 0) {
+    auto It = Vars.find(V);
+    if (It != Vars.end() && !It->second.Name.empty())
+      return It->second.Name;
+    mlir::Operation *Op = V.getDefiningOp();
+    if (!Op || Depth > 8)
+      return "";
+    if (auto L = mlir::dyn_cast<cir::LoadOp>(Op)) {
+      if (auto M = L.getAddr().getDefiningOp<cir::GetMemberOp>();
+          M && !Vars.count(L.getAddr())) {
+        std::string B = written(M.getAddr(), Depth + 1);
+        bool Dot = M.getAddr().getDefiningOp<cir::AllocaOp>();
+        return B.empty() ? "" : B + (Dot ? "." : "->") + M.getName().str();
+      }
+      return written(L.getAddr(), Depth + 1);
+    }
+    if (mlir::isa<cir::CastOp, cir::PtrStrideOp>(Op))
+      return written(Op->getOperand(0), Depth + 1);
+    return "";
+  }
+  std::string ended(Value V, StringRef What, StringRef Why) {
+    std::string Name = written(V);
+    StringRef Is = llvm::StringSwitch<StringRef>(What)
+                       .Case("use", "used")
+                       .Case("write", "written through")
+                       .Case("test", "tested")
+                       .Case("copy", "copied")
+                       .Case("change", "changed")
+                       .Case("the result", "used")
+                       .Default(What);
+    bool Verb = false;
+    for (StringRef W : {"freed", "closed", "moved", "stored", "passed", "returned", "copied"})
+      Verb |= Why.starts_with(W);
+    return (Name.empty() ? "this pointer" : "'" + Name + "'") + " is " + Is.str() +
+           " after " + (Verb ? "it was " : "") + Why.str();
+  }
   Node *live(Value V, const Twine &What) {
     Node *N = node(V);
     if (!N)
       fail(nameOf(V) + " may be unset here");
     else if (N->K == Node::Dead)
-      fail(What + " after " + (N->Why.empty() ? std::string("it ended") : N->Why));
+      fail(ended(V, What.str(), N->Why.empty() ? StringRef("it ended") : StringRef(N->Why)));
     else if (N->K == Node::Maybe)
       fail(What + " before testing whether the call took it; test its result "
                   "first");
@@ -2067,8 +2104,22 @@ void FunctionCheck::call(cir::CallOp Op) {
       return;
     }
   }
-  if (Args.size() > NumParams())
-    return fail("a variadic function has no ownership rule");
+  // '...' is read by a '_Trusted' body, which frees and keeps none of it.
+  for (unsigned I = NumParams(); I < Args.size(); ++I) {
+    if (Through || !R.trusted(Callee))
+      return fail("a function with '...' has no ownership rule unless it is "
+                  "'_Trusted'");
+    Value A = Args[I];
+    if (!isPtr(A.getType())) {
+      if (ownersIn(A.getType()))
+        return fail("a struct that holds pointers is not passed to '...'");
+      continue;
+    }
+    if (!base(A, "passed to '" + Name + "'"))
+      return;
+    if (ownersIn(pointee(A.getType())) || val(A)->K == Val::Owner)
+      return fail("what owns memory is not passed to '...'");
+  }
   struct Use {
     Value Base;
     bool Changes;
@@ -2076,7 +2127,7 @@ void FunctionCheck::call(cir::CallOp Op) {
   };
   SmallVector<Use, 4> Uses;
   SmallVector<Value, 2> Changed;
-  for (unsigned I = 0; I < Args.size(); ++I) {
+  for (unsigned I = 0; I < Args.size() && I < NumParams(); ++I) {
     QualType PT = ParamType(I);
     const RecordDecl *ByValue = R.view(PT);
     if (ByValue || R.constViewPointer(PT) || R.changesView(PT)) {
@@ -2147,7 +2198,7 @@ void FunctionCheck::call(cir::CallOp Op) {
       From = &U;
   bool FromCap = From && capable(node(From->Base));
   SmallVector<std::pair<Value, bool>, 2> Pending;
-  for (unsigned I = 0; I < Args.size(); ++I) {
+  for (unsigned I = 0; I < Args.size() && I < NumParams(); ++I) {
     QualType PT = ParamType(I);
     if (!PT->isPointerType() || !(isOwned(PT) || isTaken(PT)))
       continue;

@@ -116,8 +116,8 @@ JSMN_API int jsmn_parse(jsmn_parser *parser,
  * Allocates a fresh unused token from the token pool.
  */
 static jsmntok_t *_Nullable jsmn_alloc_token(
-    jsmn_parser *parser, jsmntok_t *__counted_by(num_tokens) tokens,
-    const size_t num_tokens) {
+    jsmntok_t *__counted_by(num_tokens) tokens, const size_t num_tokens,
+    jsmn_parser *parser) {
   jsmntok_t *tok;
   if (parser->toknext >= num_tokens) {
     return NULL;
@@ -188,7 +188,7 @@ found:
     parser->pos--;
     return 0;
   }
-  token = jsmn_alloc_token(parser, tokens, num_tokens);
+  token = jsmn_alloc_token(tokens, num_tokens, parser);
   if (token == NULL) {
     parser->pos = start;
     return JSMN_ERROR_NOMEM;
@@ -223,7 +223,7 @@ static int jsmn_parse_string(
       if (tokens == NULL) {
         return 0;
       }
-      token = jsmn_alloc_token(parser, tokens, num_tokens);
+      token = jsmn_alloc_token(tokens, num_tokens, parser);
       if (token == NULL) {
         parser->pos = start;
         return JSMN_ERROR_NOMEM;
@@ -302,7 +302,7 @@ JSMN_API int jsmn_parse(jsmn_parser *parser,
       if (tokens == NULL) {
         break;
       }
-      token = jsmn_alloc_token(parser, tokens, num_tokens);
+      token = jsmn_alloc_token(tokens, num_tokens, parser);
       if (token == NULL) {
         return JSMN_ERROR_NOMEM;
       }

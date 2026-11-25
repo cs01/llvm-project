@@ -91,7 +91,7 @@ for spec in "${configs[@]}"; do
   lib=$out/unity.o; [ "$name" = asan ] && lib=$out/unity-asan.o
   run "$name" "$cc" $(ls "$port"/tests/*.c | grep -vE 'utils_tests|json_patch|unity_setup')
   port=$here/jsmn; label=jsmn; lib=
-  run "$name" "$cc" "$port"/test/tests.c
+  run "$name" "${cc/-mllvm -safe-c-ownership=false /}" "$port"/test/tests.c # ownership on
   # test.c reads lz4.c and lz4.h from its own directory
   port=$here/lz4; label=lz4; lib=$port/lz4.c
   run "$name" "$cc" "$port"/test.c

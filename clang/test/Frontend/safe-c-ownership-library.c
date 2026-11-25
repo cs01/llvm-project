@@ -59,7 +59,7 @@ int wrapped(char *_Owned _Nullable p, int c) {
 int wrapped_stale(char *_Owned _Nullable p, int c) {
   char *_Nullable q = c ? p : 0;
   my_free(p);
-  return q != 0; // expected-error {{after passed to 'my_free'}}
+  return q != 0; // expected-error {{after it was passed to 'my_free'}}
 }
 int call_changes(void (*f)(struct list *), struct list *l) {
   struct node *_Nullable n = l->head;

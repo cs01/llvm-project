@@ -34,7 +34,7 @@ sum(x, 4);
 
 struct json *_Owned t = parse(text);
 json_delete(t);
-// error: use after passed to
+// error: 't' is used after it was passed to
 // 'json_delete' on line 10
 t->kind;
 ```

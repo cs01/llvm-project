@@ -4,7 +4,7 @@
 #include "../safec.h" /* vendored; -fsafe-c also force-includes it */
 #include "../jsmn.h"
 
-static int vtokeq(const char *_Nullable s _Noescape, jsmntok_t *__counted_by(numtok) t,
+_Trusted static int vtokeq(const char *_Nullable s _Noescape, jsmntok_t *__counted_by(numtok) t,
                   unsigned long numtok,
                   va_list ap) {
   if (numtok > 0) {
@@ -69,7 +69,7 @@ static int vtokeq(const char *_Nullable s _Noescape, jsmntok_t *__counted_by(num
   return 1;
 }
 
-static int tokeq(const char *_Nullable s _Noescape, jsmntok_t *__counted_by(numtok) tokens,
+_Trusted static int tokeq(const char *_Nullable s _Noescape, jsmntok_t *__counted_by(numtok) tokens,
                  unsigned long numtok, ...) {
   int ok;
   va_list args;
@@ -79,7 +79,7 @@ static int tokeq(const char *_Nullable s _Noescape, jsmntok_t *__counted_by(numt
   return ok;
 }
 
-static int parse(const char *s _Noescape, int status, unsigned long numtok, ...) {
+_Trusted static int parse(const char *s _Noescape, int status, unsigned long numtok, ...) {
   int r;
   int ok = 1;
   va_list args;
