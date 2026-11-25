@@ -12,7 +12,7 @@ for x in a b c; do
 done
 cp "$H/dfree.c" "$H"/void/*.c "$H"/frees/*.c "$H"/juliet/*.c "$H"/tags/*.c .
 # Marks some of these programs use that Safe C no longer has.
-OLD=(-D_Exclusive= -D_View= -D_Unchecked= -D_Returns_owned= -D_Lifetimebound= -D_Unsynchronized= '-D_Takes(N)=' '-D_Drop(f)=__attribute__((cleanup(f)))')
+OLD=(-D_Taken_if_true= -D_Taken_if_zero= -D_Exclusive= -D_View= -D_Unchecked= -D_Returns_owned= -D_Lifetimebound= -D_Unsynchronized= '-D_Takes(N)=' '-D_Drop(f)=__attribute__((cleanup(f)))')
 total=0; holes=0
 for f in *.c; do
   total=$((total + 1))

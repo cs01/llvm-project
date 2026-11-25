@@ -34,7 +34,6 @@ namespace {
 
 StringRef pointerKind(QualType T) { return safec::pointerKind(T); }
 bool isOwned(QualType T) { return pointerKind(T) == "owned"; }
-bool isTaken(QualType T) { return pointerKind(T).starts_with("taken_if_"); }
 
 /// Every level of a pointer to pointers is an owner.
 bool ownedAtEveryLevel(QualType T) {
@@ -129,33 +128,17 @@ StringRef cName(StringRef N) {
 using Value = mlir::Value;
 
 struct Node {
-  enum Kind { Own, Dead, Static, Maybe, Borrow } K = Dead;
+  enum Kind { Own, Dead, Static, Borrow } K = Dead;
   Value Parent;          // Borrow
   bool Capable = false;  // Borrow: may change what the object owns
-  Value Token;           // Maybe: the result that says whether it was taken...
-  bool TakenIfNonzero = false; // ...and how
   std::string Why;       // Dead: what ended it
   bool sameAs(const Node &O) const {
-    return K == O.K && Parent == O.Parent && Token == O.Token &&
-           TakenIfNonzero == O.TakenIfNonzero;
-  }
-};
-
-/// What is known of a scalar: the truth of a call's result, or a constant.
-struct Fact {
-  Value Token;
-  bool Sense = true;
-  std::optional<llvm::APSInt> Constant;
-  bool operator==(const Fact &O) const {
-    return Token == O.Token && Sense == O.Sense &&
-           Constant.has_value() == O.Constant.has_value() &&
-           (!Constant || llvm::APSInt::isSameValue(*Constant, *O.Constant));
+    return K == O.K && Parent == O.Parent;
   }
 };
 
 struct State {
   llvm::MapVector<Value, Node> N;
-  llvm::DenseMap<Value, Fact> F;
 };
 
 /// What an SSA value is, the same on every path.
@@ -415,7 +398,7 @@ public:
       Bad(FD->getLocation(), "a '_Static' result points to nothing that owns memory");
     auto IsBorrow = [&](QualType T) {
       return view(T) || (T->isPointerType() && !T->isFunctionPointerType() &&
-                         !isOwned(T) && !isTaken(T) && pointerKind(T) != "unchecked");
+                         !isOwned(T) && pointerKind(T) != "unchecked");
     };
     auto First = llvm::find_if(FD->parameters(), [&](const ParmVarDecl *P) {
       return IsBorrow(P->getType());
@@ -453,14 +436,10 @@ public:
         unsigned Changed = llvm::count_if(FD->parameters(), [&](const ParmVarDecl *Q) {
           return changesView(Q->getType());
         });
-        bool Takes = llvm::any_of(FD->parameters(), [&](const ParmVarDecl *Q) {
-          return isTaken(Q->getType());
-        });
         // (With several pointers, only its numbers change.)
-        if (pointersIn(view(T->getPointeeType())) == 1 && (Changed > 1 || Takes || R->isPointerType() || hasOwners(R)))
-          Bad(P->getLocation(), "a function that changes a '_View' changes one, "
-                                "returns a number or nothing, and takes no owner on "
-                                "success");
+        if (pointersIn(view(T->getPointeeType())) == 1 && (Changed > 1 || R->isPointerType() || hasOwners(R)))
+          Bad(P->getLocation(), "a function that changes a '_View' changes one, and "
+                                "returns a number or nothing");
         else if (T->getNullability() == NullabilityKind::Nullable)
           Bad(P->getLocation(), "a '_View' that is changed is always there; remove "
                                 "'_Nullable'");
@@ -600,7 +579,7 @@ class FunctionCheck {
   };
   llvm::DenseMap<Value, Var> Vars;
   llvm::DenseMap<Value, std::string> Globals;
-  llvm::DenseSet<Value> Escapes, Temporaries;
+  llvm::DenseSet<Value> Temporaries;
   llvm::DenseMap<mlir::Block *, State> In;
   SmallVector<mlir::Block *, 16> Work;
   int FirstBorrow = -1;
@@ -757,9 +736,6 @@ private:
       fail(nameOf(V) + " may be unset here");
     else if (N->K == Node::Dead)
       fail(ended(V, What.str(), N->Why.empty() ? StringRef("it ended") : StringRef(N->Why)));
-    else if (N->K == Node::Maybe)
-      fail(What + " before testing whether the call took it; test its result "
-                  "first");
     else
       return N;
     return nullptr;
@@ -834,10 +810,8 @@ private:
     Node N;
     if (Parent) {
       const Node *P = node(Parent);
-      if (!P || P->K == Node::Dead || P->K == Node::Maybe) {
+      if (!P || P->K == Node::Dead) {
         N.Why = P ? P->Why : "its source ended";
-        if (P && P->K == Node::Maybe)
-          N.Why = "a call that may have taken it; test that call's result first";
         return N;
       }
     }
@@ -1196,20 +1170,12 @@ private:
   void alloca_(cir::AllocaOp Op);
   void flow(mlir::Block *To, mlir::ValueRange Args, State St);
   void block(mlir::Block *B);
-  void takenParameters(mlir::Operation *Op, Value Result);
 };
 
 void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
   if (Failed())
     return;
   for (auto [Arg, V] : llvm::zip(To->getArguments(), Args)) {
-    auto FIt = O.F.find(V);
-    if (FIt != O.F.end()) {
-      Fact F = FIt->second;
-      O.F[Arg] = F;
-    } else {
-      O.F.erase(Arg);
-    }
     Val *X = val(V);
     if (!X)
       continue;
@@ -1334,15 +1300,7 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
       Changed = true;
     }
   }
-  SmallVector<Value, 8> Drop;
-  for (auto &KV : Old.F) {
-    auto OIt = O.F.find(KV.first);
-    if (OIt == O.F.end() || !(OIt->second == KV.second))
-      Drop.push_back(KV.first);
-  }
-  for (Value V : Drop)
-    Old.F.erase(V);
-  if (Changed || !Drop.empty())
+  if (Changed)
     Work.push_back(To);
 }
 
@@ -1403,7 +1361,7 @@ void FunctionCheck::alloca_(cir::AllocaOp Op) {
       X.Owned = isOwned(FD->getReturnType());
       X.Name.clear();
     } else if (X.VD) {
-      X.Owned = isOwned(X.VD->getType()) || (Parm && !L && isTaken(X.VD->getType()));
+      X.Owned = isOwned(X.VD->getType());
       if (!Parm || L)
         X.Capable = !X.VD->getType()->getPointeeType().isConstQualified();
     } else {
@@ -1439,7 +1397,6 @@ void FunctionCheck::alloca_(cir::AllocaOp Op) {
           }
   Vars[V] = X;
   Vals[V] = mk(Val::Local, V);
-  S->F.erase(V);
 }
 
 void FunctionCheck::cast(cir::CastOp Op) {
@@ -1448,30 +1405,11 @@ void FunctionCheck::cast(cir::CastOp Op) {
   using CK = cir::CastKind;
   CK K = Op.getKind();
   if (!isPtr(From) && !isPtr(To)) {
-    auto Bits = [](mlir::Type T) -> unsigned {
-      if (mlir::isa<cir::BoolType>(T))
-        return 1;
-      auto I = mlir::dyn_cast<cir::IntType>(T);
-      return I ? I.getWidth() : 0;
-    };
-    auto It = S->F.find(Src);
-    // Only what keeps "zero or not": a narrowing may lose it.
-    bool Keeps = K == CK::int_to_bool || K == CK::bool_to_int ||
-                 (K == CK::integral && Bits(From) && Bits(To) >= Bits(From));
-    if (It == S->F.end() || !Keeps) {
-      S->F.erase(Res);
-      return;
-    }
-    Fact F = It->second;
-    if (F.Constant && K == CK::int_to_bool)
-      F.Constant = llvm::APSInt::get(F.Constant->isZero() ? 0 : 1);
-    S->F[Res] = F;
     return;
   }
   if (K == CK::ptr_to_bool) {
     if (!val(Src) || val(Src)->K != Val::Raw)
       base(Src, "test");
-    S->F.erase(Res);
     return;
   }
   if (K == CK::array_to_ptrdecay) {
@@ -1609,13 +1547,6 @@ void FunctionCheck::load(cir::LoadOp Op) {
     if (!X.Pointer) {
       if (ownersIn(T))
         return fail("this copies a struct that owns memory; pass a pointer to it");
-      auto It = S->F.find(A);
-      if (It != S->F.end()) {
-        Fact F = It->second;
-        S->F[Res] = F;
-      } else {
-        S->F.erase(Res);
-      }
       return;
     }
     if (const auto *P = dyn_cast_or_null<ParmVarDecl>(X.VD);
@@ -1639,8 +1570,6 @@ void FunctionCheck::load(cir::LoadOp Op) {
     Node New;
     if (N->K == Node::Dead)
       New = *N;
-    else if (N->K == Node::Maybe)
-      New.Why = "a call that may have taken it; test that call's result first";
     else
       New = borrow(A, X.Owned ? true : N->Capable);
     S->N[Res] = New;
@@ -1653,7 +1582,6 @@ void FunctionCheck::load(cir::LoadOp Op) {
   if (!isPtr(T)) {
     if (ownersIn(T))
       return fail("this copies a struct that owns memory; pass a pointer to it");
-    S->F.erase(Res);
     return;
   }
   if (holdsFunction(T) ? calledThrough(Res) != nullptr : markedUnchecked(Addr)) {
@@ -1767,13 +1695,6 @@ void FunctionCheck::store(cir::StoreOp Op) {
           return fail("this copies a struct that owns memory; fill it field by "
                       "field");
         killDescendants(A, "it was overwritten" + here());
-      }
-      auto It = S->F.find(V);
-      if (It != S->F.end() && !Escapes.contains(A)) {
-        Fact F = It->second;
-        S->F[A] = F;
-      } else {
-        S->F.erase(A);
       }
       return;
     }
@@ -1930,19 +1851,6 @@ void FunctionCheck::call(cir::CallOp Op) {
   }
   StringRef Sym = Through ? StringRef() : *Op.getCallee();
   StringRef Name = Through ? StringRef(PointerName) : cName(Sym);
-  if (Res) {
-    for (auto &KV : S->N)
-      if (KV.second.K == Node::Maybe && KV.second.Token == Res) {
-        KV.second = Node();
-        KV.second.Why = "its call's result was tested too late";
-      }
-    SmallVector<Value, 4> Drop;
-    for (auto &KV : S->F)
-      if (KV.second.Token == Res)
-        Drop.push_back(KV.first);
-    for (Value V : Drop)
-      S->F.erase(V);
-  }
   const auto *Callee =
       Through ? nullptr
               : dyn_cast_or_null<FunctionDecl>(Gen.getDeclForMangledName(Sym));
@@ -2019,8 +1927,6 @@ void FunctionCheck::call(cir::CallOp Op) {
     }
     if (K == Lib::Frees) {
       takeOwner(Args[0], Name == "free" ? "freed" : "closed");
-      if (Res)
-        S->F.erase(Res);
       return;
     }
     if (K == Lib::Reallocs) {
@@ -2052,8 +1958,6 @@ void FunctionCheck::call(cir::CallOp Op) {
     case Lib::OwnerOut: {
       if (ResPtr)
         return fail("the result of '" + Name + "' has no rule");
-      if (Res)
-        S->F.erase(Res);
       if (val(Args[OutArg])->K == Val::Null)
         return;
       Value A = val(Args[OutArg])->Of;
@@ -2105,8 +2009,6 @@ void FunctionCheck::call(cir::CallOp Op) {
         return;
       if (ResPtr)
         return fail("the result of '" + Name + "' has no rule");
-      if (Res)
-        S->F.erase(Res);
       return;
     }
   }
@@ -2169,8 +2071,7 @@ void FunctionCheck::call(cir::CallOp Op) {
       }
       // A 'const' pointer parameter handed on: an ordinary borrow.
     }
-    if (!PT->isPointerType() || PT->isFunctionPointerType() || isOwned(PT) ||
-        isTaken(PT) || pointerKind(PT) == "unchecked")
+    if (!PT->isPointerType() || PT->isFunctionPointerType() || isOwned(PT) || pointerKind(PT) == "unchecked")
       continue;
     std::optional<Value> B = base(Args[I], "passed to '" + Name + "'");
     if (!B)
@@ -2194,8 +2095,7 @@ void FunctionCheck::call(cir::CallOp Op) {
   for (unsigned I = 0; I < NumParams() && First < 0; ++I) {
     QualType PT = ParamType(I);
     if (R.view(PT) ||
-        (PT->isPointerType() && !PT->isFunctionPointerType() && !isOwned(PT) &&
-         !isTaken(PT) && pointerKind(PT) != "unchecked"))
+        (PT->isPointerType() && !PT->isFunctionPointerType() && !isOwned(PT) && pointerKind(PT) != "unchecked"))
       First = I;
   }
   const Use *From = nullptr;
@@ -2203,32 +2103,13 @@ void FunctionCheck::call(cir::CallOp Op) {
     if (int(U.Index) == First)
       From = &U;
   bool FromCap = From && capable(node(From->Base));
-  SmallVector<std::pair<Value, bool>, 2> Pending;
   for (unsigned I = 0; I < Args.size() && I < NumParams(); ++I) {
     QualType PT = ParamType(I);
-    if (!PT->isPointerType() || !(isOwned(PT) || isTaken(PT)))
+    if (!PT->isPointerType() || !isOwned(PT))
       continue;
-    if (!isTaken(PT)) {
-      takeOwner(Args[I], "passed to '" + Name + "'");
-      if (Failed())
-        return;
-      continue;
-    }
-    Val *V = val(Args[I]);
-    if (V->K == Val::Null)
-      continue;
-    if (V->K != Val::OwnerOf)
-      return fail("an owner that may be given back must be a variable");
-    if (!live(Args[I], "passed"))
+    takeOwner(Args[I], "passed to '" + Name + "'");
+    if (Failed())
       return;
-    Value A = V->Of;
-    Node *N = node(A);
-    if (!N || N->K != Node::Own)
-      return fail("this is not an owner");
-    killDescendants(A, "it was passed to '" + Name + "'");
-    Pending.push_back({A, pointerKind(PT) == "taken_if_true"});
-    S->N[A] = Node();
-    S->N[A].Why = "it was passed twice";
   }
   for (const Use &U : Uses)
     if (!live(U.Base, "passed to '" + Name + "'"))
@@ -2246,22 +2127,10 @@ void FunctionCheck::call(cir::CallOp Op) {
     Node N = *node(K);
     setNode(K, N);
   }
-  for (auto &[A, IfTrue] : Pending) {
-    if (!Res || ResPtr)
-      return fail("'" + Name + "' takes an owner on success but its result does "
-                               "not say whether it did");
-    Node N = plain(Node::Maybe);
-    N.Token = Res;
-    N.TakenIfNonzero = IfTrue;
-    S->N[A] = N;
-  }
   if (!Res)
     return;
   const bool ResView = viewOf(Res.getType());
   if (!ResPtr && !ResView) {
-    Fact F;
-    F.Token = Res;
-    S->F[Res] = F;
     if (ownersIn(Res.getType()))
       fail("a struct that owns memory is returned by value");
     return;
@@ -2292,32 +2161,6 @@ void FunctionCheck::call(cir::CallOp Op) {
     return;
   setNode(Res, borrow(From->Base, FromCap));
   Vals[Res] = mk(ResView ? Val::View : Val::Pointer, Res);
-}
-
-void FunctionCheck::takenParameters(mlir::Operation *Op, Value Result) {
-  for (const ParmVarDecl *P : FD->parameters()) {
-    if (!isTaken(P->getType()))
-      continue;
-    Value A;
-    for (auto &KV : Vars)
-      if (KV.second.VD == P)
-        A = KV.first;
-    const Node *N = A ? node(A) : nullptr;
-    auto It = Result ? S->F.find(Result) : S->F.end();
-    if (!Result || It == S->F.end() || !It->second.Constant)
-      return fail("this returns a value that does not say whether '" +
-                  P->getNameAsString() + "' was taken; return a constant on each "
-                  "path");
-    bool Success = pointerKind(P->getType()) == "taken_if_true"
-                       ? !It->second.Constant->isZero()
-                       : It->second.Constant->isZero();
-    bool Held = N && N->K == Node::Own;
-    if (Success == Held)
-      return fail(Success ? "this reports success without taking '" +
-                                P->getNameAsString() + "'"
-                          : "this reports failure after taking '" +
-                                P->getNameAsString() + "'");
-  }
 }
 
 void FunctionCheck::ret(cir::ReturnOp Op) {
@@ -2381,7 +2224,6 @@ void FunctionCheck::ret(cir::ReturnOp Op) {
     if (Failed())
       return;
   }
-  takenParameters(Op, V);
 }
 
 void FunctionCheck::operation(mlir::Operation *Op) {
@@ -2410,13 +2252,6 @@ void FunctionCheck::operation(mlir::Operation *Op) {
       return fail("this initializer puts a pointer in a field that is not "
                   "'_Static', '_Unchecked' or a function pointer; set the field "
                   "afterwards");
-    Fact F;
-    if (auto I = mlir::dyn_cast<cir::IntAttr>(C.getValue()))
-      F.Constant = llvm::APSInt(I.getValue(), /*isUnsigned=*/true);
-    else if (auto B = mlir::dyn_cast<cir::BoolAttr>(C.getValue()))
-      F.Constant = llvm::APSInt::get(B.getValue() ? 1 : 0);
-    if (F.Constant)
-      S->F[Res] = F;
     return;
   }
   if (auto G = mlir::dyn_cast<cir::GetGlobalOp>(Op)) {
@@ -2508,27 +2343,8 @@ void FunctionCheck::operation(mlir::Operation *Op) {
   if (auto B = mlir::dyn_cast<cir::BrOp>(Op))
     return flow(B.getDest(), B.getDestOperands(), *S);
   if (auto B = mlir::dyn_cast<cir::BrCondOp>(Op)) {
-    auto It = S->F.find(B.getCond());
-    std::optional<Fact> F;
-    if (It != S->F.end())
-      F = It->second;
-    for (bool Taken : {true, false}) {
-      State St = *S;
-      if (F && F->Token)
-        for (auto &KV : St.N)
-          if (KV.second.K == Node::Maybe && KV.second.Token == F->Token) {
-            bool Nonzero = Taken == F->Sense;
-            bool Took = Nonzero == KV.second.TakenIfNonzero;
-            KV.second = Node();
-            if (Took)
-              KV.second.Why = "the call took it";
-            else
-              KV.second.K = Node::Own;
-          }
-      flow(Taken ? B.getDestTrue() : B.getDestFalse(),
-           Taken ? B.getDestOperandsTrue() : B.getDestOperandsFalse(),
-           std::move(St));
-    }
+    flow(B.getDestTrue(), B.getDestOperandsTrue(), *S);
+    flow(B.getDestFalse(), B.getDestOperandsFalse(), *S);
     return;
   }
   if (auto Sw = mlir::dyn_cast<cir::SwitchFlatOp>(Op)) {
@@ -2539,36 +2355,11 @@ void FunctionCheck::operation(mlir::Operation *Op) {
     return;
   }
   if (auto C = mlir::dyn_cast<cir::CmpOp>(Op)) {
-    Value L = C.getLhs(), Rh = C.getRhs(), Res = C.getResult();
+    Value L = C.getLhs(), Rh = C.getRhs();
     if (isPtr(L.getType())) {
       for (Value X : {L, Rh})
         if (!Failed() && !(val(X) && val(X)->K == Val::Raw))
           base(X, "compared");
-      S->F.erase(Res);
-      return;
-    }
-    auto X = S->F.find(L), Y = S->F.find(Rh);
-    bool Eq = C.getKind() == cir::CmpOpKind::eq, Ne = C.getKind() == cir::CmpOpKind::ne;
-    if ((Eq || Ne) && X != S->F.end() && X->second.Token && Y != S->F.end() &&
-        Y->second.Constant && Y->second.Constant->isZero()) {
-      Fact F = X->second;
-      if (Eq)
-        F.Sense = !F.Sense;
-      S->F[Res] = F;
-    } else {
-      S->F.erase(Res);
-    }
-    return;
-  }
-  if (mlir::isa<cir::NotOp>(Op)) {
-    Value Res = Op->getResult(0);
-    auto X = S->F.find(Op->getOperand(0));
-    if (X != S->F.end() && X->second.Token && mlir::isa<cir::BoolType>(Res.getType())) {
-      Fact F = X->second;
-      F.Sense = !F.Sense;
-      S->F[Res] = F;
-    } else {
-      S->F.erase(Res);
     }
     return;
   }
@@ -2657,8 +2448,6 @@ void FunctionCheck::operation(mlir::Operation *Op) {
       llvm::any_of(Op->getResultTypes(), Holds) || N.contains("asm") ||
       N.contains("call") || N.contains("throw"))
     return fail("the operation '" + N + "' has no ownership rule");
-  for (Value Res : Op->getResults())
-    S->F.erase(Res);
 }
 
 void FunctionCheck::block(mlir::Block *B) {
@@ -2785,7 +2574,7 @@ std::optional<Rejected> FunctionCheck::run() {
       Vals[A] = mk(Val::Pointer, A);
       continue;
     }
-    if (isOwned(T) || isTaken(T)) {
+    if (isOwned(T)) {
       St.N[A] = plain(Node::Own);
     } else {
       if (FirstBorrow < 0)
@@ -2796,28 +2585,6 @@ std::optional<Rejected> FunctionCheck::run() {
     }
     Vals[A] = mk(Val::Pointer, A);
   }
-  // A scalar is followed only if nothing but its own loads and stores has its
-  // address; a parameter that may be given back is never assigned.
-  llvm::DenseMap<StringRef, unsigned> Stores;
-  Fn.walk([&](mlir::Operation *Op) {
-    for (mlir::OpOperand &O : Op->getOpOperands()) {
-      auto A = O.get().getDefiningOp<cir::AllocaOp>();
-      if (!A)
-        continue;
-      if (auto Sto = mlir::dyn_cast<cir::StoreOp>(Op); Sto && Sto.getAddr() == O.get()) {
-        ++Stores[A.getName()];
-        continue;
-      }
-      if (!mlir::isa<cir::LoadOp>(Op))
-        Escapes.insert(O.get());
-    }
-  });
-  for (const ParmVarDecl *P : FD->parameters())
-    if (isTaken(P->getType()) && Stores.lookup(P->getName()) > 1) {
-      fail("'" + P->getNameAsString() + "' may have to be given back, so it cannot "
-                                        "be assigned; use another variable");
-      return Failure;
-    }
   In.try_emplace(&Entry, std::move(St));
   Work.push_back(&Entry);
   for (unsigned Steps = 0; !Work.empty(); ++Steps) {

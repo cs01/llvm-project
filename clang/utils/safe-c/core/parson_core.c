@@ -90,13 +90,13 @@ _Bool object_grow(Object *o) {
   o->items = items; o->cap = cap; o->cells = cells; o->ncells = nc;
   return 1;
 }
-_Bool object_set(Object *o, const char *__counted_by(n) key, size_t n, Value *_Taken_if_true v) {
+_Bool object_set(Object *o, const char *__counted_by(n) key, size_t n, Value *_Owned v) {
   unsigned long h = hash_of(key, n); _Bool found; size_t c = cell_ix(o, key, n, h, &found);
   if (found && o->cells && o->items) { Item *it = &o->items[o->cells[c]]; value_free(_Take(it->v)); it->v = v; return 1; }
-  if (o->count >= o->cap) { if (!object_grow(o)) return 0; c = cell_ix(o, key, n, h, &found); }
-  if (!o->cells || !o->items || c == NONE) return 0;
+  if (o->count >= o->cap) { if (!object_grow(o)) { value_free(v); return 0; } c = cell_ix(o, key, n, h, &found); }
+  if (!o->cells || !o->items || c == NONE) { value_free(v); return 0; }
   Str *_Owned _Nullable k = str_make(key, n);
-  if (!k) return 0;
+  if (!k) { value_free(v); return 0; }
   Item *it = &o->items[o->count];
   it->name = k; it->v = v; it->hash = h; it->cell = c;
   o->cells[c] = o->count++;
@@ -140,30 +140,31 @@ Value *_Owned _Nullable object_dotremove(Object *_Nullable o, const char *__coun
   if (d == n) return object_remove(o, p, n);
   return object_dotremove(value_get_object(object_get(o, p, d)), p + d + 1, n - d - 1);
 }
-_Bool object_dotset(Object *o, const char *__counted_by(n) p, size_t n, Value *_Taken_if_true v) {
+_Bool object_dotset(Object *o, const char *__counted_by(n) p, size_t n, Value *_Owned v) {
   size_t d = dot(p, n);
-  if (d == n) { if (object_set(o, p, n, v)) return 1; return 0; }
+  if (d == n) return object_set(o, p, n, v);
   Value *_Nullable t = object_get(o, p, d);
-  if (t) { Object *_Nullable in = value_get_object(t); if (!in) return 0; if (object_dotset(in, p + d + 1, n - d - 1, v)) return 1; return 0; }
+  if (t) { Object *_Nullable in = value_get_object(t); if (!in) { value_free(v); return 0; } return object_dotset(in, p + d + 1, n - d - 1, v); }
   // the new object goes in first, so failure needs no undo of the caller's value
   Value *_Owned _Nullable nv = value_object();
-  if (!nv) return 0;
-  if (!object_set(o, p, d, nv)) { value_free(nv); return 0; }
+  if (!nv) { value_free(v); return 0; }
+  if (!object_set(o, p, d, nv)) { value_free(v); return 0; }
   Object *_Nullable in = value_get_object(object_get(o, p, d));
-  if (in) { if (object_dotset(in, p + d + 1, n - d - 1, v)) return 1; }
+  if (!in) value_free(v);
+  else if (object_dotset(in, p + d + 1, n - d - 1, v)) return 1;
   value_free(object_remove(o, p, d));
   return 0;
 }
-_Bool array_add(Array *a, Value *_Taken_if_true v) {
+_Bool array_add(Array *a, Value *_Owned v) {
   if (a->count >= a->cap) {
     size_t cap = a->cap ? a->cap * 2 : 16;
     Value *_Owned _Nullable *_Owned _Nullable n = calloc(cap, sizeof *n);
-    if (!n) return 0;
+    if (!n) { value_free(v); return 0; }
     if (a->items) for (size_t i = 0; i < a->count; i++) n[i] = _Take(a->items[i]);
     free(_Take(a->items));
     a->items = n; a->cap = cap;
   }
-  if (!a->items) return 0;
+  if (!a->items) { value_free(v); return 0; }
   a->items[a->count] = v; a->count++;
   return 1;
 }
@@ -177,7 +178,7 @@ _Bool array_remove(Array *a, size_t ix) {
   return 1;
 }
 Str *_Owned _Nullable str_copy(const Str *s) { if (!s->s) return NULL; return str_make(s->s, s->n); }
-_Bool object_set_str(Object *o, const Str *k, Value *_Taken_if_true v) { if (!k->s) return 0; if (object_set(o, k->s, k->n, v)) return 1; return 0; }
+_Bool object_set_str(Object *o, const Str *k, Value *_Owned v) { if (!k->s) { value_free(v); return 0; } return object_set(o, k->s, k->n, v); }
 Value *_Owned _Nullable deep_copy(const Value *_Nullable v) {
   if (!v) return NULL;
   if (v->type == T_NUM) return value_num(v->num);
@@ -193,7 +194,7 @@ Value *_Owned _Nullable deep_copy(const Value *_Nullable v) {
     if (a && to) for (size_t i = 0; i < a->count; i++) {
       Value *_Owned _Nullable c = deep_copy(array_get(a, i));
       if (!c) { value_free(r); return NULL; }
-      if (!array_add(to, c)) { value_free(c); value_free(r); return NULL; }
+      if (!array_add(to, c)) { value_free(r); return NULL; }
     }
     return r;
   }
@@ -206,7 +207,7 @@ Value *_Owned _Nullable deep_copy(const Value *_Nullable v) {
       Value *_Owned _Nullable c = deep_copy(it->v);
       if (!c) { value_free(r); return NULL; }
       if (!k) { value_free(c); value_free(r); return NULL; }
-      if (!object_set_str(to, k, c)) { value_free(c); value_free(r); return NULL; }
+      if (!object_set_str(to, k, c)) { value_free(r); return NULL; }
     }
     return r;
   }
@@ -232,7 +233,7 @@ Value *_Owned _Nullable parse(const char *__counted_by(n) s, size_t n, size_t *p
       Value *_Owned _Nullable v = parse(s, n, p, depth + 1);
       if (!v) { value_free(r); return NULL; }
       if (!o) { value_free(v); value_free(r); return NULL; }
-      if (!object_set(o, s + a, b - a, v)) { value_free(v); value_free(r); return NULL; }
+      if (!object_set(o, s + a, b - a, v)) { value_free(r); return NULL; }
       *p = ws(s, n, *p);
       if (at(s, n, *p) != ',') break;
       *p = ws(s, n, *p + 1);
@@ -249,7 +250,7 @@ Value *_Owned _Nullable parse(const char *__counted_by(n) s, size_t n, size_t *p
       Value *_Owned _Nullable v = parse(s, n, p, depth + 1);
       if (!v) { value_free(r); return NULL; }
       if (!a) { value_free(v); value_free(r); return NULL; }
-      if (!array_add(a, v)) { value_free(v); value_free(r); return NULL; }
+      if (!array_add(a, v)) { value_free(r); return NULL; }
       *p = ws(s, n, *p);
       if (at(s, n, *p) != ',') break;
       (*p)++;
@@ -280,15 +281,14 @@ int main(void) {
   Object *_Nullable o = value_get_object(v);
   if (!copy || !o) return 2;
   char b[8] = {0};
-  for (int i = 0; i < 200; i++) { int n = key(b, i); Value *_Owned _Nullable x = value_num(i); if (!x) return 3; if (!object_set(o, b, (size_t)n, x)) { value_free(x); return 3; } }
+  for (int i = 0; i < 200; i++) { int n = key(b, i); Value *_Owned _Nullable x = value_num(i); if (!x) return 3; if (!object_set(o, b, (size_t)n, x)) return 3; }
   for (int i = 0; i < 200; i += 2) { int n = key(b, i); Value *_Owned _Nullable x = object_remove(o, b, (size_t)n); if (!x) return 4; value_free(x); }
   for (int i = 0; i < 200; i++) { int n = key(b, i); const Value *_Nullable got = object_get(o, b, (size_t)n); if ((i % 2 == 1) != (got != NULL)) return 5; if (got && value_get_number(got) != i) return 6; }
   Value *_Owned _Nullable seven = value_num(7); if (!seven) return 7;
-  if (!object_dotset(o, "x.y.z", 5, seven)) { value_free(seven); return 7; }
+  if (!object_dotset(o, "x.y.z", 5, seven)) return 7;
   if (value_get_number(object_dotget(o, "x.y.z", 5)) != 7) return 8;
   Value *_Owned _Nullable one = value_num(1); if (!one) return 9;
   if (object_dotset(o, "s.q", 3, one)) return 9;
-  value_free(one); // the failed call left it with us
   Value *_Owned _Nullable gone = object_dotremove(o, "x.y.z", 5); if (!gone) return 10; value_free(gone);
   Array *_Nullable a = value_get_array(object_dotget(o, "a.b", 3));
   if (!a || !array_remove(a, 0) || a->count != 2) return 11;

@@ -180,3 +180,9 @@ by neither at compile time (bounds: the agents ran 28 and saw a trap, 4 not run)
 
 Blockers, in order: stored borrows and shared structures; missing library rules (stdio, ctype, errno, assert); variadics; argv and T **;
 function pointers; void * and struct casts.
+
+## Ownership on success removed (2026-11-25)
+
+`_Taken_if_true` and `_Taken_if_zero` (rule 10) are gone from the compiler (user: too indirect). A function that can fail takes the owner and frees it,
+or hands it back as its `_Owned` result. The Lean model still has rule 10; the compiler checks a subset. The script `check.ts` and its
+cases are deleted: the checker in the compiler replaced it. parson_core.c was converted; its callers got shorter.

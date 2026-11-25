@@ -35,7 +35,6 @@
    @annotation `_Tagged_by(f)`, `_When(V)` | Safe C | a union whose live member is named by the sibling field `f`: a member is read or written only where `f` is known to be one of its `_When` values; a `switch` on `f` must handle every value | an `enum` with data, and `match` | `struct shape { int kind; union _Tagged_by(kind) { double radius _When(0); double side _When(1); }; };`
    @annotation `_Guarded_by(m)` | Safe C (Clang's `guarded_by`) | data read or written only while holding lock `m`; Clang's thread-safety analysis checks it | `Mutex<T>` | `struct _Capability("mutex") mtx { int state; }; struct mtx stats_lock; int hits _Guarded_by(stats_lock);`
    @annotation `_Requires(m)`, `_Acquires(m)`, `_Releases(m)` | Safe C (Clang's thread-safety attributes) | a function's callers must hold `m`; or it takes or releases `m` | a `MutexGuard` held across a call | `void bump(void) _Requires(&stats_lock);`
-   @annotation `_Taken_if_true`, `_Taken_if_zero` | Safe C | on a parameter: the function takes ownership only when it returns true (or zero) | returning the `Box` back in `Err` | `_Bool append(struct node *list, struct node *_Taken_if_true n);`
    @annotation `_Trusted` | Safe C | a function whose ownership is not checked inside; its callers are held to its signature | a safe function around an `unsafe` body | `_Trusted void swap(struct node *a, struct node *b);`
    @annotation `__unsafe` | Safe C | a block or function where Safe C's rules are lifted, for code that cannot be checked | `unsafe { }` | `int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }`
    @annotation `#pragma clang safe_c legacy` | Safe C | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C | first line of a header not yet ported
@@ -190,15 +189,6 @@ char *getenv(const char *__null_terminated);
 #else /* plain clang: [[]] after _Nullable would not parse */
 #define _Static
 #endif
-/* On a parameter: the function takes the owner only when it returns true (zero);
-   until the caller tests the result, the owner may not be used. */
-#if defined(__SAFE_C__)
-#define _Taken_if_true [[clang::annotate_type("safec_taken_if_true")]]
-#define _Taken_if_zero [[clang::annotate_type("safec_taken_if_zero")]]
-#else
-#define _Taken_if_true
-#define _Taken_if_zero
-#endif
 /* On a function: its ownership is not checked inside; its callers are held to
    its signature all the same. */
 #define _Trusted __attribute__((annotate("safec_trusted")))
@@ -229,8 +219,6 @@ char *getenv(const char *__null_terminated);
 #define _Owned
 #define _Static
 #define _Unchecked
-#define _Taken_if_true
-#define _Taken_if_zero
 #define _Trusted
 /* Evaluates lv twice; fine for the plain lvalues take is used on. */
 #define _Take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })

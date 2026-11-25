@@ -5,7 +5,6 @@
 // RUN: %clang_cc1 -emit-llvm -O2 -o /dev/null -fsafe-c -fbounds-safety -fnullability-safety -fnullability-default=nonnull -triple arm64-apple-macosx13 \
 // RUN: -mllvm -safe-c-ownership=true -mllvm -safe-c-redeclared=false -verify %s
 #define _Owned [[clang::annotate_type("safec_owned")]]
-#define _Taken_if_true [[clang::annotate_type("safec_taken_if_true")]]
 #define _Trusted __attribute__((annotate("safec_trusted")))
 #define _Take(p) __builtin_safec_take(p)
 void *_Nullable calloc(unsigned long, unsigned long) __attribute__((alloc_size(1, 2)));
@@ -32,15 +31,15 @@ void set(struct list *l) {
   if (n)
     n->v = 3;
 }
-_Bool add(struct node *p, struct node *_Taken_if_true n) {
+struct node *_Owned _Nullable add(struct node *p, struct node *_Owned n) {
   if (p->next)
-    return 0;
+    return n;
   p->next = n;
-  return 1;
+  return 0;
 }
 void use(struct node *p, struct node *_Owned n) {
-  if (!add(p, n))
-    free(n);
+  struct node *_Owned _Nullable back = add(p, n);
+  free(back);
 }
 _Trusted void swap(struct node *a, struct node *b) {
   struct node *_Nullable t = a->next;
@@ -57,14 +56,6 @@ int stale(struct list *l) {
   struct node *_Nullable n = l->head;
   free(_Take(l->head));
   return n ? n->v : 0; // expected-error {{after '_Take' on line}}
-}
-void ignored(struct node *p, struct node *_Owned n) {
-  add(p, n);
-  free(n); // expected-error {{test that call's result first}}
-}
-_Bool lies(struct node *p, struct node *_Taken_if_true n) {
-  p->next = n;
-  return 0; // expected-error {{this reports failure after taking 'n'}}
 }
 void through_const(const struct list *l) {
   struct node *_Nullable n = first(l);

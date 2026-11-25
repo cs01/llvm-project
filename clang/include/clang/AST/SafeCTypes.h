@@ -20,7 +20,7 @@ class VarDecl;
 namespace safec {
 
 /// The mark written on a pointer, without its "safec_": "owned", "static",
-/// "taken_if_true"... Empty if there is none.
+/// "unchecked"... Empty if there is none.
 llvm::StringRef pointerKind(QualType T);
 
 /// What a pointer type promises beyond its C type: its mark and its bounds.
