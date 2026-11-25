@@ -8,7 +8,7 @@ A fork of Clang with one flag, `-fsafe-c`:
   checked: an error, or a trap at run time. This is what it aims to get right.
 - **Ownership** (use after free, double free) is checked on ClangIR, new and on by default: an
   `_Owned` pointer is moved by use, every other pointer is a borrow that dies when its owner
-  changes, and a borrow is never stored. Code it has no rule for is an error: back pointers,
+  changes, and a borrow is never stored. Code it has no rule for is an error:
   structs that borrow, pointers to pointers. `-mllvm -safe-c-ownership=false` leaves it out for a file.
 - **Explicit boundaries:** `__unsafe`, legacy headers, `-isystem` directories. Anything
   Clang accepts that this has no rules for is an error.

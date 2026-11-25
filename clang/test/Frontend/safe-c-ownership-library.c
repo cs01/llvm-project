@@ -54,7 +54,7 @@ int call_changes(void (*f)(struct list *), struct list *l) {
   return n ? n->v : 0; // expected-error {{after the call to 'the function pointer' on line}}
 }
 void reassigned(void (*f)(int)) {
-  f = on_signal; // expected-error {{a function pointer parameter may not be assigned}}
+  f = on_signal; // a function of the same type and marks
 }
 void handler_calls(int s) { free(malloc(4)); }
 void installs(void) {

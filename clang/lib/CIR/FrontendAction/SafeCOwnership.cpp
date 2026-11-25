@@ -159,7 +159,8 @@ struct State {
 
 /// What an SSA value is, the same on every path.
 struct Val {
-  enum Kind { Pointer, Address, Local, Null, Owner, OwnerOf, Static, Function } K;
+  // Raw: an '_Unchecked' pointer, which is compared and copied but not followed.
+  enum Kind { Pointer, Address, Local, Null, Owner, OwnerOf, Static, Function, Raw } K;
   Value Of; // Pointer, Address: the node; Local, OwnerOf: the variable
   bool Zeroed = false, Typed = false; // Owner
   bool Table = false; // Static: inside a constant table of static pointers
@@ -261,6 +262,47 @@ public:
                : nullptr;
   }
 
+  /// A struct whose pointers are all functions or '_Static' can be shared: a
+  /// store to one is checked wherever it is.
+  bool isShareable(QualType T) const {
+    T = Ctx.getBaseElementType(T);
+    if (T->isPointerType())
+      return false;
+    const RecordDecl *RD = T->getAsRecordDecl();
+    RD = RD ? RD->getDefinition() : nullptr;
+    return RD && mine(RD) && !RD->isUnion() &&
+           llvm::all_of(RD->fields(), [&](const FieldDecl *F) {
+             QualType FT = F->getType(), E = Ctx.getBaseElementType(FT);
+             return !hasOwners(FT) || isShareable(FT) ||
+                    (E->isFunctionPointerType() && marks(pointedProto(E))) ||
+                    (pointerKind(FT) == "static" && E->isPointerType() &&
+                     !hasOwners(E->getPointeeType()));
+           });
+  }
+  /// An initializer runs in no function body: the functions it names.
+  void initializer(const Expr *Init) {
+    struct Names : RecursiveASTVisitor<Names> {
+      FileRules &R;
+      llvm::SmallPtrSet<const Expr *, 4> Called;
+      explicit Names(FileRules &R) : R(R) {}
+      bool VisitCallExpr(CallExpr *C) {
+        Called.insert(C->getCallee()->IgnoreParenImpCasts());
+        return true;
+      }
+      bool VisitDeclRefExpr(DeclRefExpr *E) {
+        if (Called.contains(E))
+          return true;
+        const auto *F = dyn_cast<FunctionDecl>(E->getDecl());
+        if (F && (!R.mine(F) || F->getBuiltinID()))
+          R.error(E->getExprLoc(), "a library's prototype says nothing of what it "
+                                   "frees; write a small function that calls it");
+        return true;
+      }
+    } W(*this);
+    if (Init)
+      W.TraverseStmt(const_cast<Expr *>(Init));
+  }
+
   void field(const FieldDecl *F) {
     QualType T = F->getType(), E = Ctx.getBaseElementType(T);
     if (!E->isPointerType()) {
@@ -269,24 +311,32 @@ public:
                                 "use one field per member");
       return;
     }
-    if (E->isFunctionPointerType())
-      error(F->getLocation(), "a stored function pointer has no ownership rule; "
-                              "call the function by name, or mark the function "
-                              "that uses this one '_Trusted'");
-    else if (F->getParent()->isUnion())
+    if (E->isFunctionPointerType() && !F->getParent()->isUnion()) {
+      if (!marks(pointedProto(E)))
+        error(F->getLocation(), "this function pointer's type has no rule: its "
+                                "parameters may not be pointers to pointers, "
+                                "function pointers, '...' or structs that own "
+                                "memory");
+    } else if (F->getParent()->isUnion())
       error(F->getLocation(), "a union holding pointers has no checked access; "
                               "use one field per member");
     else if (pointerKind(T) == "static" && !hasOwners(E->getPointeeType()))
+      return;
+    else if (pointerKind(T) == "unchecked" && !E->getPointeeType()->isPointerType())
       return;
     else if (!ownedAtEveryLevel(T))
       error(F->getLocation(),
             "'" + F->getNameAsString() +
                 "' stores a borrow, which nothing can end when its owner does; "
-                "if it frees what it points to declare it '_Owned', otherwise "
-                "pass the pointer as a parameter or keep an index");
+                "if it frees what it points to declare it '_Owned', if it is a "
+            "literal or a global '_Static', otherwise "
+                "pass the pointer as a parameter or keep an index; a back "
+            "pointer may be '_Unchecked'");
   }
   void global(const VarDecl *V) {
-    if (!hasOwners(V->getType()) || isTable(V->getType()))
+    if (V->hasInit())
+      initializer(V->getInit());
+    if (!hasOwners(V->getType()) || isTable(V->getType()) || isShareable(V->getType()))
       return;
     bool Pointers = Ctx.getBaseElementType(V->getType())->isPointerType();
     error(V->getLocation(), "'" + V->getNameAsString() +
@@ -364,14 +414,18 @@ public:
           return true;
         Locals[V->getName()].push_back({V, Scope});
         QualType T = V->getType(), E = R.Ctx.getBaseElementType(T);
-        if (V->hasGlobalStorage() && R.isTable(T))
+        if (V->hasInit() && (V->hasGlobalStorage() || T->isRecordType() ||
+                             T->isArrayType()))
+          R.initializer(V->getInit());
+        if (V->hasGlobalStorage() && (R.isTable(T) || R.isShareable(T)))
           return true;
         if (V->isStaticLocal() && R.hasOwners(T))
           R.error(V->getLocation(), "a static local holding a pointer has no rule; "
                                     "pass it as a parameter");
-        if (E->isFunctionPointerType())
-          R.error(V->getLocation(), "a function pointer variable has no ownership "
-                                    "rule; call the function by name");
+        if (E->isFunctionPointerType() &&
+            (T->isArrayType() || !R.marks(pointedProto(E))))
+          R.error(V->getLocation(), "this function pointer's type has no rule; "
+                                    "call the function by name");
         if (V->hasAttr<CleanupAttr>())
           R.error(V->getLocation(), "'cleanup' has no ownership rule; free it "
                                     "by name");
@@ -380,6 +434,10 @@ public:
         if (Nested && !ownedAtEveryLevel(T))
           R.error(V->getLocation(), "this holds pointers that are not owners, "
                                     "which nothing can end when their owner does");
+        return true;
+      }
+      bool VisitCompoundLiteralExpr(CompoundLiteralExpr *E) {
+        R.initializer(E->getInitializer());
         return true;
       }
       bool VisitCallExpr(CallExpr *C) {
@@ -674,6 +732,9 @@ private:
     }
     case Val::Local:
       return X->Of;
+    case Val::Raw:
+      fail("an '_Unchecked' pointer is followed only inside a '_Trusted' function");
+      return std::nullopt;
     case Val::Static:
     case Val::Function:
     case Val::Null:
@@ -777,13 +838,43 @@ private:
     const Node *N = X->K == Val::Pointer ? node(X->Of) : nullptr;
     return N && N->K == Node::Static;
   }
-  /// A function pointer parameter read from its variable.
+  /// The type of the function pointer in a variable or a field.
+  const FunctionProtoType *protoAt(Value Addr) const {
+    auto It = Vars.find(Addr);
+    if (It != Vars.end())
+      return It->second.VD ? FileRules::pointedProto(It->second.VD->getType())
+                           : nullptr;
+    const FieldDecl *F = fieldOf(Addr);
+    return F && R.mine(F) ? FileRules::pointedProto(
+                                R.Ctx.getBaseElementType(F->getType()))
+                          : nullptr;
+  }
   const FunctionProtoType *calledThrough(Value V) const {
     auto L = V.getDefiningOp<cir::LoadOp>();
-    auto It = L ? Vars.find(L.getAddr()) : Vars.end();
-    if (It == Vars.end() || !isa_and_nonnull<ParmVarDecl>(It->second.VD))
-      return nullptr;
-    return FileRules::pointedProto(It->second.VD->getType());
+    return L ? protoAt(L.getAddr()) : nullptr;
+  }
+  static bool holdsFunction(mlir::Type T) {
+    return isPtr(T) && mlir::isa<cir::FuncType>(pointee(T));
+  }
+  bool markedUnchecked(Value Addr) const {
+    auto It = Vars.find(Addr);
+    if (It != Vars.end())
+      return It->second.VD && pointerKind(It->second.VD->getType()) == "unchecked";
+    const FieldDecl *F = fieldOf(Addr);
+    return F && pointerKind(F->getType()) == "unchecked";
+  }
+  /// Any pointer may become '_Unchecked' but an owner, which would be lost.
+  void toUnchecked(Value V) {
+    Val *X = val(V);
+    if (!X)
+      return fail("a pointer value with no ownership rule");
+    if (X->K == Val::Raw)
+      return;
+    if (X->K == Val::Owner)
+      return fail("this owner would be lost; keep it in an '_Owned' variable");
+    if (X->K == Val::Function || (X->K == Val::Local && Vars.lookup(X->Of).Pointer))
+      return fail("this has no rule as an '_Unchecked' pointer");
+    base(V, "copied");
   }
   bool ours(const FunctionDecl *F) const {
     return F && R.mine(F) && !F->getBuiltinID();
@@ -817,6 +908,26 @@ private:
     if (!Has || *Has != *Want)
       fail("this function's parameters or result are marked differently from the "
            "function pointer's; write the same marks in both");
+  }
+  /// A constant's pointers are null, or the addresses of functions, globals and
+  /// literals, where any of those may be.
+  bool constantOk(mlir::Attribute A, mlir::Type T) const {
+    bool Null = true, Known = true;
+    A.walk([&](mlir::Attribute X) {
+      if (auto P = mlir::dyn_cast<cir::ConstPtrAttr>(X))
+        Known &= P.isNullValue();
+      else if (mlir::isa<cir::GlobalViewAttr>(X))
+        Null = false;
+    });
+    if (!Known || Null)
+      return Known;
+    while (auto AT = mlir::dyn_cast<cir::ArrayType>(T))
+      T = AT.getElementType();
+    auto RT = mlir::dyn_cast<cir::RecordType>(T);
+    auto It = RT && RT.getName() ? Records.find(RT.getName().getValue())
+                                 : Records.end();
+    return It != Records.end() &&
+           R.isShareable(R.Ctx.getCanonicalTagType(It->second));
   }
   void assignBorrow(Value A, Value P, bool Cap);
 
@@ -869,6 +980,7 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
                   "an 'if' and an 'else'");
     case Val::Local:
     case Val::Function:
+    case Val::Raw:
       return fail("this value flows through '?:', which has no rule");
     }
     if (From && From->K == Node::Static)
@@ -1075,7 +1187,8 @@ void FunctionCheck::cast(cir::CastOp Op) {
     return;
   }
   if (K == CK::ptr_to_bool) {
-    base(Src, "test");
+    if (!val(Src) || val(Src)->K != Val::Raw)
+      base(Src, "test");
     S->F.erase(Res);
     return;
   }
@@ -1104,7 +1217,8 @@ void FunctionCheck::cast(cir::CastOp Op) {
     return fail("this value has no ownership rule");
   Val V = *P;
   mlir::Type F = pointee(From), T = pointee(To);
-  if (V.K == Val::Null || V.K == Val::Function) {
+  if (V.K == Val::Null || V.K == Val::Function ||
+      (V.K == Val::Raw && F == T)) {
     Vals[Res] = V;
     return;
   }
@@ -1209,6 +1323,10 @@ void FunctionCheck::load(cir::LoadOp Op) {
     Node *N = node(A);
     if (!N)
       return fail(nameOf(A) + " may be unset here");
+    if (markedUnchecked(A)) {
+      Vals[Res] = mk(Val::Raw);
+      return;
+    }
     if (N->K == Node::Static) {
       S->N[Res] = plain(Node::Static);
       Vals[Res] = mk(Val::Pointer, Res);
@@ -1232,6 +1350,15 @@ void FunctionCheck::load(cir::LoadOp Op) {
     if (ownersIn(T))
       return fail("this copies a struct that owns memory; pass a pointer to it");
     S->F.erase(Res);
+    return;
+  }
+  if (holdsFunction(T) ? calledThrough(Res) != nullptr : markedUnchecked(Addr)) {
+    if (!holdsFunction(T)) {
+      Vals[Res] = mk(Val::Raw);
+      return;
+    }
+    setNode(Res, plain(Node::Static));
+    Vals[Res] = mk(Val::Pointer, Res);
     return;
   }
   if (inStaticField(Addr) || (V->K == Val::Static && V->Table)) {
@@ -1324,7 +1451,7 @@ void FunctionCheck::store(cir::StoreOp Op) {
     if (!X.Pointer) {
       if (ownersIn(T)) {
         auto C = V.getDefiningOp<cir::ConstantOp>();
-        if (!C || !mlir::isa<cir::ZeroAttr>(C.getValue()))
+        if (!C || !constantOk(C.getValue(), T))
           return fail("this copies a struct that owns memory; fill it field by "
                       "field");
         killDescendants(A, "it was overwritten" + here());
@@ -1346,6 +1473,8 @@ void FunctionCheck::store(cir::StoreOp Op) {
       if (X.Owned) {
         S->N.erase(V);
         S->N[A] = plain(Node::Own);
+      } else if (markedUnchecked(A)) {
+        S->N[A] = plain(Node::Static);
       } else if (N->K == Node::Static) {
         S->N[A] = plain(Node::Static);
       } else {
@@ -1354,8 +1483,19 @@ void FunctionCheck::store(cir::StoreOp Op) {
       }
       return;
     }
-    if (X.VD && X.VD->getType()->isFunctionPointerType())
-      return fail("a function pointer parameter may not be assigned");
+    if (X.VD && X.VD->getType()->isFunctionPointerType()) {
+      if (!val(V) || val(V)->K != Val::Null)
+        functionArgument(V, FileRules::pointedProto(X.VD->getType()));
+      reparent(A);
+      S->N[A] = plain(Node::Static);
+      return;
+    }
+    if (markedUnchecked(A)) {
+      toUnchecked(V);
+      reparent(A);
+      S->N[A] = plain(Node::Static);
+      return;
+    }
     Val *XV = val(V);
     if (!XV)
       return fail("a pointer value with no ownership rule");
@@ -1395,6 +1535,18 @@ void FunctionCheck::store(cir::StoreOp Op) {
     if (ownersIn(T))
       return fail("this copies a struct that owns memory; move its fields one by "
                   "one");
+    return;
+  }
+  if (holdsFunction(T) || markedUnchecked(D)) {
+    if (!base(D, "write"))
+      return;
+    if (!holdsFunction(T))
+      return toUnchecked(V);
+    const FunctionProtoType *Formal = protoAt(D);
+    if (!Formal)
+      return fail("a function pointer is stored where its type is not known");
+    if (!val(V) || val(V)->K != Val::Null)
+      functionArgument(V, Formal);
     return;
   }
   if (inStaticField(D)) {
@@ -1453,7 +1605,7 @@ void FunctionCheck::call(cir::CallOp Op) {
     Through = calledThrough(Op.getIndirectCall());
     if (!Through || !R.marks(Through))
       return fail("a call through a function pointer has no ownership rule unless the "
-                  "pointer is a parameter; call the function by name");
+                  "pointer is a variable or a field; call the function by name");
     PointerName = "the function pointer";
   }
   StringRef Sym = Through ? StringRef() : *Op.getCallee();
@@ -1493,6 +1645,12 @@ void FunctionCheck::call(cir::CallOp Op) {
       return fail("this argument has no ownership rule");
     if (int(I) == OutArg && (V->K == Val::Local || V->K == Val::Null))
       continue;
+    if (Ours && I < NumParams() && pointerKind(ParamType(I)) == "unchecked") {
+      toUnchecked(A);
+      if (Failed())
+        return;
+      continue;
+    }
     if (V->K == Val::Local && Vars.lookup(V->Of).Pointer)
       return fail("the address of a pointer variable is passed, which has no rule; "
                   "pass the struct that holds the pointer, or return the pointer");
@@ -1639,7 +1797,7 @@ void FunctionCheck::call(cir::CallOp Op) {
   for (unsigned I = 0; I < Args.size(); ++I) {
     QualType PT = ParamType(I);
     if (!PT->isPointerType() || PT->isFunctionPointerType() || isOwned(PT) ||
-        isTaken(PT))
+        isTaken(PT) || pointerKind(PT) == "unchecked")
       continue;
     std::optional<Value> B = base(Args[I], "passed to '" + Name + "'");
     if (!B)
@@ -1663,7 +1821,7 @@ void FunctionCheck::call(cir::CallOp Op) {
   for (unsigned I = 0; I < NumParams() && First < 0; ++I) {
     QualType PT = ParamType(I);
     if (PT->isPointerType() && !PT->isFunctionPointerType() && !isOwned(PT) &&
-        !isTaken(PT))
+        !isTaken(PT) && pointerKind(PT) != "unchecked")
       First = I;
   }
   const Use *From = nullptr;
@@ -1729,6 +1887,10 @@ void FunctionCheck::call(cir::CallOp Op) {
   QualType RT = Through ? Through->getReturnType() : Callee->getReturnType();
   if (isOwned(RT))
     return NewOwner(true, true);
+  if (pointerKind(RT) == "unchecked") {
+    Vals[Res] = mk(Val::Raw);
+    return;
+  }
   if (pointerKind(RT) == "static") {
     setNode(Res, plain(Node::Static));
     Vals[Res] = mk(Val::Pointer, Res);
@@ -1783,6 +1945,8 @@ void FunctionCheck::ret(cir::ReturnOp Op) {
       return fail("the returned value has no ownership rule");
     if (isOwned(FD->getReturnType())) {
       takeOwner(V, "returned");
+    } else if (pointerKind(FD->getReturnType()) == "unchecked") {
+      toUnchecked(V);
     } else if (pointerKind(FD->getReturnType()) == "static") {
       if (!isStatic(V))
         return fail("a '_Static' result is a literal or the address of a global");
@@ -1827,8 +1991,10 @@ void FunctionCheck::operation(mlir::Operation *Op) {
       return;
     }
     if (mlir::isa<cir::RecordType, cir::ArrayType>(Res.getType()) &&
-        ownersIn(Res.getType()) && !mlir::isa<cir::ZeroAttr>(C.getValue()))
-      return fail("a constant holding pointers has no ownership rule");
+        ownersIn(Res.getType()) && !constantOk(C.getValue(), Res.getType()))
+      return fail("this initializer puts a pointer in a field that is not "
+                  "'_Static', '_Unchecked' or a function pointer; set the field "
+                  "afterwards");
     Fact F;
     if (auto I = mlir::dyn_cast<cir::IntAttr>(C.getValue()))
       F.Constant = llvm::APSInt(I.getValue(), /*isUnsigned=*/true);
@@ -1854,7 +2020,7 @@ void FunctionCheck::operation(mlir::Operation *Op) {
             G.getName() == (Fn.getSymName() + "." + KV.first()).str())
           D = KV.second.front().VD;
     Vals[Res].Table = D && R.mine(D) && R.isTable(D->getType());
-    if (D && !Vals[Res].Table && R.mine(D) && ownersIn(pointee(Res.getType())))
+    if (D && !Vals[Res].Table && !R.isShareable(D->getType()) && R.mine(D) && ownersIn(pointee(Res.getType())))
       fail("this global holds pointers");
     return;
   }
@@ -1925,8 +2091,9 @@ void FunctionCheck::operation(mlir::Operation *Op) {
   if (auto C = mlir::dyn_cast<cir::CmpOp>(Op)) {
     Value L = C.getLhs(), Rh = C.getRhs(), Res = C.getResult();
     if (isPtr(L.getType())) {
-      if (base(L, "compared"))
-        base(Rh, "compared");
+      for (Value X : {L, Rh})
+        if (!Failed() && !(val(X) && val(X)->K == Val::Raw))
+          base(X, "compared");
       S->F.erase(Res);
       return;
     }
@@ -2049,7 +2216,7 @@ std::optional<Rejected> FunctionCheck::run() {
       return Failure;
     }
     Value A = Entry.getArgument(I);
-    if (T->isFunctionPointerType()) {
+    if (T->isFunctionPointerType() || pointerKind(T) == "unchecked") {
       St.N[A] = plain(Node::Static);
       Vals[A] = mk(Val::Pointer, A);
       continue;
