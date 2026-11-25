@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/CIR/FrontendAction/SafeCOwnership.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/Pass/PassManager.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/SafeCTypes.h"
@@ -293,6 +294,14 @@ public:
            !T->getPointeeType()->getPointeeType()->isPointerType() &&
            pointerKind(T->getPointeeType()) == "unchecked";
   }
+  /// `char *_Static const *`: pointers that live as long as the program, which
+  /// nothing changes through this. Main's arguments can be passed as one.
+  static bool pointsToStatic(QualType T) {
+    return T->isPointerType() && T->getPointeeType()->isPointerType() &&
+           T->getPointeeType().isConstQualified() &&
+           T->getPointeeType()->getPointeeType()->isAnyCharacterType() &&
+           pointerKind(T->getPointeeType()) == "static";
+  }
   static const FunctionProtoType *pointedProto(QualType T) {
     return T->isFunctionPointerType()
                ? T->getPointeeType()->getAs<FunctionProtoType>()
@@ -447,7 +456,7 @@ public:
                                 "function pointers, '...' or structs that own "
                                 "memory");
       } else if (T->isPointerType() && T->getPointeeType()->isPointerType() &&
-               !pointsToUnchecked(T) && !FD->isMain())
+               !pointsToUnchecked(T) && !pointsToStatic(T) && !FD->isMain())
         Bad(P->getLocation(), "a pointer to a pointer parameter has no rule; "
                               "pass the struct that holds the pointer");
       else if (T->isPointerType() && pointerKind(T) == "static" &&
@@ -1019,6 +1028,17 @@ private:
   }
   static bool holdsFunction(mlir::Type T) {
     return isPtr(T) && mlir::isa<cir::FuncType>(pointee(T));
+  }
+  /// The parameter `char *_Static const *argv` that Addr is in: 'argv[i]'.
+  const ParmVarDecl *staticTable(Value Addr) const {
+    while (auto P = Addr.getDefiningOp<cir::PtrStrideOp>())
+      Addr = P.getBase();
+    auto L = Addr.getDefiningOp<cir::LoadOp>();
+    auto P = L ? Vars.find(L.getAddr()) : Vars.end();
+    const auto *D = P == Vars.end() ? nullptr
+                                    : dyn_cast_or_null<ParmVarDecl>(P->second.VD);
+    return D && (FileRules::pointsToStatic(D->getType()) || FD->isMain()) ? D
+                                                                         : nullptr;
   }
   bool markedUnchecked(Value Addr) const {
     auto It = Vars.find(Addr);
@@ -1653,7 +1673,9 @@ void FunctionCheck::load(cir::LoadOp Op) {
     Vals[Res] = mk(Val::Pointer, Res);
     return;
   }
-  if (inStaticField(Addr) || (V->K == Val::Static && V->Table)) {
+  const ParmVarDecl *Args = staticTable(Addr);
+  if (inStaticField(Addr) || (V->K == Val::Static && V->Table) ||
+      (Args && FileRules::pointsToStatic(Args->getType()))) {
     setNode(Res, plain(Node::Static));
     Vals[Res] = mk(Val::Pointer, Res);
     return;
@@ -1743,6 +1765,10 @@ void FunctionCheck::store(cir::StoreOp Op) {
   if (DV->K == Val::Local) {
     Value A = DV->Of;
     Var X = Vars[A];
+    if (isa_and_nonnull<ParmVarDecl>(X.VD) && !FD->isMain() &&
+        FileRules::pointsToStatic(X.VD->getType()) &&
+        !mlir::isa<mlir::BlockArgument>(V))
+      return fail(nameOf(A) + " keeps the array it was given; use an index");
     if (X.View)
       return assignView(A, V);
     if (fixedPart(D) || fixedPart(A))
@@ -1948,6 +1974,12 @@ void FunctionCheck::call(cir::CallOp Op) {
       if (Failed())
         return;
       continue;
+    }
+    if (Ours && I < NumParams() && FileRules::pointsToStatic(ParamType(I))) {
+      auto L = A.getDefiningOp<cir::LoadOp>();
+      const ParmVarDecl *Args = staticTable(A);
+      if (!L || !Args || (FD->isMain() && !isStatic(A)))
+        return fail("this takes main's arguments, or a parameter of the same type");
     }
     // What the callee puts there is any pointer, so nothing else may be there.
     if (Ours && I < NumParams() && FileRules::pointsToUnchecked(ParamType(I))) {
@@ -2841,6 +2873,63 @@ void Consumer::HandleTranslationUnit(ASTContext &Ctx) {
       P.erase();
     } else if (mlir::isa<cir::VarAnnotationOp>(Op))
       Op->erase();
+  });
+  // A result kept past the end of the temporaries in its expression: stored
+  // once, by the compiler, and only read after that.
+  Gen.getModule().walk([](cir::FuncOp F) {
+    if (F.isDeclaration())
+      return;
+    mlir::DominanceInfo Dom(F);
+    SmallVector<cir::AllocaOp, 4> Slots;
+    F.walk([&](cir::AllocaOp A) {
+      if (A.getName() == "tmp.exprcleanup" &&
+          mlir::isa<cir::PointerType>(A.getAllocaType()))
+        Slots.push_back(A);
+    });
+    for (cir::AllocaOp A : Slots) {
+      cir::StoreOp Store;
+      SmallVector<cir::LoadOp, 2> Loads;
+      bool Ok = true;
+      for (mlir::Operation *U : A.getResult().getUsers()) {
+        auto St = mlir::dyn_cast<cir::StoreOp>(U);
+        if (auto L = mlir::dyn_cast<cir::LoadOp>(U))
+          Loads.push_back(L);
+        else if (St && !Store && St.getValue() != A.getResult())
+          Store = St;
+        else
+          Ok = false;
+      }
+      for (cir::LoadOp L : Loads)
+        Ok &= Store && Dom.properlyDominates(Store.getOperation(), L.getOperation());
+      if (!Ok || !Store)
+        continue;
+      for (cir::LoadOp L : Loads) {
+        L.getResult().replaceAllUsesWith(Store.getValue());
+        L.erase();
+      }
+      Store.erase();
+      A.erase();
+    }
+  });
+  // '= {0}' fills a struct inside another with zeros, as a 'u8 *'. (Zeros are
+  // null owners, so nothing can be freed twice or used after it.)
+  Gen.getModule().walk([](cir::MemSetOp Op) {
+    auto C = Op.getVal().getDefiningOp<cir::ConstantOp>();
+    auto Zero = C ? mlir::dyn_cast<cir::IntAttr>(C.getValue()) : cir::IntAttr();
+    auto ToVoid = Op.getDst().getDefiningOp<cir::CastOp>();
+    auto ToByte = ToVoid ? ToVoid.getSrc().getDefiningOp<cir::CastOp>() : cir::CastOp();
+    if (!Zero || !Zero.getValue().isZero() || !ToByte || !ToVoid->hasOneUse() ||
+        !ToByte->hasOneUse() || !ToByte.getSrc().getDefiningOp<cir::GetMemberOp>())
+      return;
+    auto From = mlir::dyn_cast<cir::PointerType>(ToByte.getSrc().getType());
+    auto To = mlir::dyn_cast<cir::PointerType>(ToByte.getType());
+    auto Byte = To ? mlir::dyn_cast<cir::IntType>(To.getPointee()) : cir::IntType();
+    if (!From || !mlir::isa<cir::RecordType>(From.getPointee()) || !Byte ||
+        Byte.getWidth() != 8)
+      return;
+    Op.erase();
+    ToVoid.erase();
+    ToByte.erase();
   });
   Gen.getModule().walk([&](cir::FuncOp F) { Fns.push_back(F); });
   for (cir::FuncOp F : Fns) {

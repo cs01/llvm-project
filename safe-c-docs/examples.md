@@ -189,3 +189,20 @@ for (struct str rest = csv; rest.len; rest = str_after(rest, ','))
   if (str_int(str_trim(str_before(rest, ',')), &n))
     total += n;
 ```
+
+## Containers, files and options
+
+[vec.h](../safe-c-std/vec.h), [map.h](../safe-c-std/map.h), [file.h](../safe-c-std/file.h) and [args.h](../safe-c-std/args.h), with no `__unsafe` in them:
+
+```c
+VEC(ints, int);
+MAP(counts, int);
+
+struct counts m = {0};
+if (!counts_put(&m, STR("apple"), 1)) return 1;
+int *_Nullable n = counts_get(&m, STR("apple"));
+if (n) (*n)++;
+counts_free(&m);
+```
+
+They hold plain data. What `_get` and `_at` return ends at the next call that changes the container.
