@@ -26,7 +26,7 @@
   object owns: freeing, taking, replacing, or a call that may. So data races are not prevented.
 - **A function that can fail** takes an owner and frees it, or hands it back as its `_Owned` result.
 - **Leaks are allowed**, and there is no `Drop`: free it by name.
-- **No generics, traits or shared ownership** (`Rc`). A graph uses indexes, or `_Unchecked` pointers and `_Trusted`
-  functions.
+- **No generics, traits or shared ownership** (`Rc`). A graph uses handles ([pool.h](../safe-c-std/pool.h)), which
+  know when they are stale, or `_Unchecked` pointers and `_Trusted` functions.
 - **Not proved.** Rust's checker has years of use. This one has a Lean model of its rules, and a compiler that is not proved to
   follow it.

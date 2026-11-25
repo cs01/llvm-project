@@ -19,6 +19,7 @@ ulimit -s 65520
 # cJSON.c under ownership (its tests include a test framework, so they run without).
 "$safec" -fsafe-c -w -isysroot "$sdk" -fsyntax-only "$here/cjson/cJSON.c" || { echo "cJSON.c: ownership errors"; fail=1; }
 "$safec" -fsafe-c -w -isysroot "$sdk" -fsyntax-only "$here/parson/parson.c" || { echo "parson.c: ownership errors"; fail=1; }
+"$safec" -fsafe-c -w -isysroot "$sdk" -fsyntax-only "$here/../../safe-c-std/tests/pool.c" || { echo "pool.c: ownership errors"; fail=1; }
 # Unity (the test framework) is not ported code: build it once, unchecked.
 /usr/bin/clang -c -o "$out/unity.o" "$here/cjson/tests/unity/src/unity.c" || exit 1
 /usr/bin/clang -fsanitize=address,undefined -c -o "$out/unity-asan.o" \
