@@ -356,6 +356,9 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"partial-pointer", false,
      "%0 holds pointers, so it is copied or cleared only whole: the size must "
      "be 'n * sizeof' of it"},
+    {"const-end", false,
+     "%0 would set a pointer that can write to text that must not change; pass "
+     "NULL for the end, and use 'str_int' (text.h) to know where a number ends"},
     {"const-search", false,
      "%0 drops the 'const' of what it searches, so this could write memory "
      "that must not change; keep the result in a 'const' pointer"},
@@ -1896,6 +1899,26 @@ public:
   }
   bool VisitCallExpr(CallExpr *Call) {
     checkFgets(Call);
+    if (const FunctionDecl *F = Call->getDirectCallee();
+        F && F->isExternC() && F->getIdentifier() && Call->getNumArgs() > 1 &&
+        (F->getName().starts_with("strto") || F->getName().starts_with("wcsto")) &&
+        S.getSourceManager().isInSystemHeader(F->getLocation()) &&
+        F->getParamDecl(1)->getType()->isPointerType() &&
+        F->getParamDecl(1)->getType()->getPointeeType()->isPointerType() &&
+        !plain(Call->getArg(1))
+             ->isNullPointerConstant(S.Context, Expr::NPC_ValueDependentIsNotNull)) {
+      // What the argument was before it became a 'const char *'.
+      const Expr *A = plain(Call->getArg(0));
+      QualType T = A->getType();
+      QualType E = T->isPointerType() ? T->getPointeeType()
+                   : T->isArrayType()
+                       ? QualType(T->getPointeeOrArrayElementType(), 0)
+                       : QualType();
+      const auto *AT = T->getAsArrayTypeUnsafe();
+      if (E.isNull() || E.isConstQualified() || T.isConstQualified() ||
+          (AT && AT->getElementType().isConstQualified()) || isa<StringLiteral>(A))
+        S.SafeCDiag(Call->getExprLoc(), "const-end") << F;
+    }
     checkStrings(Call);
     checkFormats(Call);
     for (unsigned I = 0; I < Call->getNumArgs(); ++I)

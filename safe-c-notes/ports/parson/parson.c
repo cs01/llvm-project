@@ -1172,18 +1172,65 @@ static JSON_Status parse_boolean_value(JSON_Reader *reader, JSON_Slot *out) {
     return JSONFailure;
 }
 
+static size_t digits_length(const char *__null_terminated p) {
+    size_t n = 0;
+    for (; *p >= '0' && *p <= '9'; p++) {
+        n++;
+    }
+    return n;
+}
+
+static size_t json_number_length(const char *__null_terminated p) {
+    size_t n = 0, d = 0;
+    if (*p == '-') {
+        p++, n++;
+    }
+    d = digits_length(p);
+    if (d == 0) {
+        return 0;
+    }
+    for (; d > 0; d--) {
+        p++, n++;
+    }
+    if (*p == '.') {
+        p++;
+        d = digits_length(p);
+        if (d == 0) {
+            return 0;
+        }
+        for (n++; d > 0; d--) {
+            p++, n++;
+        }
+    }
+    if (*p == 'e' || *p == 'E') {
+        p++;
+        size_t sign = *p == '+' || *p == '-';
+        if (sign) {
+            p++;
+        }
+        d = digits_length(p);
+        if (d == 0) {
+            return 0;
+        }
+        n += 1 + sign + d;
+    }
+    return n;
+}
+
 static JSON_Status parse_number_value(JSON_Reader *reader, JSON_Slot *out) {
-    char *__null_terminated end;
+    /* JSON's number grammar, measured here: strtod's end pointer could write
+       to the input. strtod reads at least as much of a JSON number. */
+    size_t length = json_number_length(reader->p);
     double number = 0;
     errno = 0;
-    number = strtod(reader->p, &end);
+    number = strtod(reader->p, NULL);
     if (errno == ERANGE && (number <= -HUGE_VAL || number >= HUGE_VAL)) {
         return JSONFailure;
     }
-    if ((errno && errno != ERANGE) || !is_decimal(reader->p, end - reader->p)) {
+    if ((errno && errno != ERANGE) || length == 0 || !is_decimal(reader->p, length)) {
         return JSONFailure;
     }
-    reader->p = end;
+    skip_chars(reader, length);
     return parsed(out, json_value_init_number(number));
 }
 

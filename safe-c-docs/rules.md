@@ -1,5 +1,8 @@
 # The rules
 
+**Frozen on 2026-11-25.** The language below changes only to close a hole. Everything else waits in
+[later.md](later.md) until a real program needs it.
+
 This is the one place that says what Safe C accepts. It has two kinds of content: the
 rules in words (edit them here, together with the compiler), and lists generated from the
 compiler's source, which cannot drift from it.
@@ -101,7 +104,7 @@ Not covered: every other data race.
 
 **Type attributes** (24): `PtrBidiIndexable`, `PtrIndexable`, `PtrSingle`, `PtrUnsafeIndexable`, `PtrTerminatedBy`, `PtrEndedBy`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `TypeNonNull`, `TypeNullable`, `TypeNullableResult`, `TypeNullUnspecified`, `AnnotateType`, `LifetimeBound`, `NoEscape`, `VectorSize`, `ExtVectorType`, `NoReturn`, `MayAlias`, `Mode`, `CDecl`, `NoThrow`
 
-**Errors** (78; the bounds, null and lifetime errors of Clang itself are not listed):
+**Errors** (79; the bounds, null and lifetime errors of Clang itself are not listed):
 
 | Rule | Message |
 |---|---|
@@ -117,6 +120,7 @@ Not covered: every other data race.
 | `cast-align` | %0 needs stricter alignment than %1 has, and the address may not have it; 'memcpy' the bytes into a variable of type %0 |
 | `cast-incomplete` | %0 is not complete here, so nothing says what the memory holds; move the cast after the struct's definition |
 | `compound-literal-store` | this compound literal's storage ends with the block it is written in, and the pointer assigned here may outlive it; declare it as a named variable in the block where the pointer is used (as in 'int vals[] = {1, 2};'), or initialize a new pointer with it |
+| `const-end` | %0 would set a pointer that can write to text that must not change; pass NULL for the end, and use 'str_int' (text.h) to know where a number ends |
 | `const-search` | %0 drops the 'const' of what it searches, so this could write memory that must not change; keep the result in a 'const' pointer |
 | `count-address` | %0 is the count of another field, and a write through its address would not be checked; use a local variable and assign '%0' from it |
 | `count-behind` | a count behind a pointer can be changed through another name; pass the count by value and return the new one |
