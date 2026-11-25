@@ -1261,6 +1261,8 @@ void CodeGenModule::emitSafeCTypeSignatures() {
                                   !Canon->getType()->isArrayType()
                               ? lifetimes::safeCSignature(Canon)
                               : std::string();
+    if (const auto *Var = dyn_cast<VarDecl>(Canon); Var && Var->getTLSKind())
+      Promise += "|tls";
     if (!GV->isDeclaration()) {
       if (!GV->hasExternalLinkage())
         continue;

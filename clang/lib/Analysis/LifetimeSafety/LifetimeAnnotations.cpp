@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
+#include "clang/AST/RecordLayout.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
@@ -21,6 +22,7 @@
 #include "clang/Analysis/AnyCall.h"
 #include "clang/Basic/OperatorKinds.h"
 #include "llvm/ADT/StringSet.h"
+#include <functional>
 
 namespace clang::lifetimes {
 
@@ -752,8 +754,16 @@ std::string safeCPromise(QualType T) {
     Out += P.Out;
   } else if (T->isBoundsAttributedType()) {
     Out += "|bounds";
-  } else if (T->isValueTerminatedType()) {
+  } else if (const auto *VT = T->getAs<ValueTerminatedType>()) {
+    // '__null_terminated' and '__terminated_by(0)' are one promise.
+    const Expr *E = VT->getTerminatorExpr()->IgnoreParenImpCasts();
     Out += "|terminated";
+    if (const auto *I = dyn_cast<IntegerLiteral>(E))
+      Out += llvm::toString(I->getValue(), 10, false);
+    else if (const auto *C = dyn_cast<CharacterLiteral>(E))
+      Out += std::to_string(C->getValue());
+    else
+      Out += "?";
   }
   if (T->isPointerType() && T->getPointeeType()->isPointerType())
     Out += "*" + safeCPromise(T->getPointeeType());
@@ -766,24 +776,50 @@ static void addType(std::string &Out, QualType T, unsigned Depth) {
   if (auto N = T->getNullability())
     Out += "|null" + std::to_string(int(*N));
   addRecord(Out, T, Depth);
+  // What a function pointer's own parameters promise.
+  QualType P = T;
+  while (P->isPointerType())
+    P = P->getPointeeType();
+  if (const auto *FT = P->getAs<FunctionProtoType>(); FT && Depth <= 6) {
+    Out += "(*";
+    addType(Out, FT->getReturnType(), Depth + 1);
+    for (QualType A : FT->param_types()) {
+      Out += ",";
+      addType(Out, A, Depth + 1);
+    }
+    Out += ")";
+  }
 }
 static void addRecord(std::string &Out, QualType T, unsigned Depth) {
   while (const ArrayType *AT = T->getAsArrayTypeUnsafe())
     T = AT->getElementType();
   if (const auto *ED = T->getAsEnumDecl())
-    if (const EnumDecl *Def = ED->getDefinition())
+    if (const EnumDecl *Def = ED->getDefinition()) {
+      Out += "=" + Def->getIntegerType().getCanonicalType().getAsString();
       for (const EnumConstantDecl *C : Def->enumerators())
         Out += "," + C->getNameAsString() + "=" +
                llvm::toString(C->getInitVal(), 10);
+    }
   const RecordDecl *RD = T->getAsRecordDecl();
   RD = RD ? RD->getDefinition() : nullptr;
   if (!RD || Depth > 6)
     return;
   Out += "{";
+  // Packing and alignment, however they were asked for.
+  const ASTRecordLayout *L = nullptr;
+  if (!RD->isInvalidDecl()) {
+    L = &RD->getASTContext().getASTRecordLayout(RD);
+    Out += std::to_string(L->getSize().getQuantity()) + "a" +
+           std::to_string(L->getAlignment().getQuantity());
+  }
   for (const auto *A : RD->specific_attrs<AnnotateAttr>())
     Out += A->getAnnotation().str();
   for (const FieldDecl *F : RD->fields()) {
     Out += F->getNameAsString() + ":";
+    if (L)
+      Out += std::to_string(L->getFieldOffset(F->getFieldIndex())) + ":";
+    if (F->isBitField())
+      Out += "b" + std::to_string(F->getBitWidthValue()) + ":";
     addType(Out, F->getType(), Depth + 1);
     for (const auto *A : F->specific_attrs<AnnotateAttr>()) {
       Out += A->getAnnotation().str();
@@ -801,28 +837,45 @@ static void addRecord(std::string &Out, QualType T, unsigned Depth) {
 std::vector<std::pair<std::string, std::string>>
 safeCPointedStructs(const ValueDecl *VD) {
   std::vector<std::pair<std::string, std::string>> Out;
-  auto Add = [&](QualType T) {
-    if (!T->isPointerType())
+  llvm::SmallPtrSet<const TagDecl *, 8> Seen;
+  // Every struct that can be reached from the symbol's type.
+  std::function<void(QualType, bool)> Add = [&](QualType T, bool ByValue) {
+    while (T->isPointerType() || T->isArrayType()) {
+      ByValue &= !T->isPointerType();
+      T = T->isPointerType() ? T->getPointeeType()
+                             : QualType(T->getPointeeOrArrayElementType(), 0);
+    }
+    if (const auto *FT = T->getAs<FunctionProtoType>()) {
+      Add(FT->getReturnType(), false);
+      for (QualType A : FT->param_types())
+        Add(A, false);
       return;
-    while (T->isPointerType())
-      T = T->getPointeeType();
+    }
     const TagDecl *TD = T->getAsTagDecl();
     TD = TD ? TD->getDefinition() : nullptr;
-    if (!TD || VD->getASTContext().getSourceManager().isInSystemHeader(
-                   TD->getLocation()))
+    if (!TD || !Seen.insert(TD).second ||
+        VD->getASTContext().getSourceManager().isInSystemHeader(
+            TD->getLocation()))
+      return;
+    if (const auto *RD = dyn_cast<RecordDecl>(TD))
+      for (const FieldDecl *F : RD->fields())
+        Add(F->getType(), true);
+    // The type's own description already has what it holds by value.
+    if (ByValue)
       return;
     std::string Name = TD->getNameAsString(), Contents;
     if (Name.empty() && TD->getTypedefNameForAnonDecl())
       Name = TD->getTypedefNameForAnonDecl()->getNameAsString();
     addRecord(Contents, T, 0);
-    Out.push_back({Name, Contents});
+    if (!Name.empty())
+      Out.push_back({Name, Contents});
   };
   if (const auto *FD = dyn_cast<FunctionDecl>(VD)) {
-    Add(FD->getReturnType());
+    Add(FD->getReturnType(), true);
     for (const ParmVarDecl *P : FD->parameters())
-      Add(P->getType());
+      Add(P->getType(), true);
   } else {
-    Add(VD->getType());
+    Add(VD->getType(), true);
   }
   return Out;
 }
