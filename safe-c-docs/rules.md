@@ -90,11 +90,15 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 
 **Casts** (33): `BitCast`, `LValueToRValue`, `NoOp`, `ArrayToPointerDecay`, `FunctionToPointerDecay`, `NullToPointer`, `IntegralToPointer`, `PointerToIntegral`, `PointerToBoolean`, `ToVoid`, `VectorSplat`, `IntegralCast`, `IntegralToBoolean`, `IntegralToFloating`, `FloatingToIntegral`, `FloatingToBoolean`, `BooleanToSignedIntegral`, `FloatingCast`, `FloatingRealToComplex`, `FloatingComplexToReal`, `FloatingComplexToBoolean`, `FloatingComplexCast`, `FloatingComplexToIntegralComplex`, `IntegralRealToComplex`, `IntegralComplexToReal`, `IntegralComplexToBoolean`, `IntegralComplexCast`, `IntegralComplexToFloatingComplex`, `AtomicToNonAtomic`, `NonAtomicToAtomic`, `BuiltinFnToFnPtr`, `BoundsSafetyPointerCast`, `Dependent`
 
+**Declarations** (18): `TranslationUnit`, `Function`, `Var`, `ParmVar`, `ImplicitParam`, `Field`, `IndirectField`, `Record`, `Enum`, `EnumConstant`, `Typedef`, `Label`, `Empty`, `StaticAssert`, `PragmaComment`, `PragmaDetectMismatch`, `FileScopeAsm`, `Block`
+
+**Types** (14): `Builtin`, `Record`, `Enum`, `BitInt`, `Vector`, `ExtVector`, `FunctionNoProto`, `Complex`, `Pointer`, `Atomic`, `ConstantArray`, `IncompleteArray`, `VariableArray`, `FunctionProto`
+
 **Declaration attributes** (63): `Annotate`, `AnnotateType`, `Unused`, `Used`, `Retain`, `Deprecated`, `Unavailable`, `Availability`, `Format`, `FormatArg`, `NonNull`, `NoReturn`, `AnalyzerNoReturn`, `Pure`, `Const`, `WarnUnusedResult`, `Restrict`, `AllocSize`, `Ownership`, `LifetimeBound`, `NoEscape`, `Capability`, `ScopedLockable`, `GuardedBy`, `PtGuardedBy`, `AcquireCapability`, `ReleaseCapability`, `TryAcquireCapability`, `RequiresCapability`, `LocksExcluded`, `AcquiredBefore`, `AcquiredAfter`, `Cleanup`, `Aligned`, `Packed`, `Visibility`, `AlwaysInline`, `NoInline`, `Cold`, `Hot`, `GNUInline`, `Flatten`, `MinSize`, `Leaf`, `NoThrow`, `NoDebug`, `Constructor`, `Destructor`, `EnumExtensibility`, `FlagEnum`, `Overloadable`, `Suppress`, `NoSanitize`, `Uninitialized`, `FallThrough`, `VectorSize`, `ExtVectorType`, `Mode`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `CDecl`
 
 **Type attributes** (24): `PtrBidiIndexable`, `PtrIndexable`, `PtrSingle`, `PtrUnsafeIndexable`, `PtrTerminatedBy`, `PtrEndedBy`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `TypeNonNull`, `TypeNullable`, `TypeNullableResult`, `TypeNullUnspecified`, `AnnotateType`, `LifetimeBound`, `NoEscape`, `VectorSize`, `ExtVectorType`, `NoReturn`, `MayAlias`, `Mode`, `CDecl`, `NoThrow`
 
-**Errors** (101; the bounds, null and lifetime errors of Clang itself are not listed):
+**Errors** (102; the bounds, null and lifetime errors of Clang itself are not listed):
 
 | Rule | Message |
 |---|---|
@@ -176,6 +180,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `tagged-member-address` | a pointer to %0 would outlive a change of the tag '%1', after which these bytes may be another member's (one that holds pointers); use the member by name, or copy its value out ('x = s.%2;') |
 | `take-nonnull` | '_Take' leaves null behind, so '%0' must be declared '_Nullable' |
 | `take-operand` | '_Take' moves a pointer out of a field or global and leaves null behind, so it needs a pointer that can be assigned, such as '_Take(n->next)' |
+| `type-not-in-safe-c` | Safe C has no rules for this kind of type ('%0') |
 | `unchecked-read` | %0 is '_Unchecked': nothing tracks whether its target is still alive, so its value can be used only inside '__unsafe' (or copied into another '_Unchecked'); if this struct owns the target, make %0 '_Owned' instead |
 | `union-init-mismatch` | this initializer sets the tag to %0 but fills %1, which is not live for that tag; initialize the member the tag names |
 | `union-member-unchecked` | %select{reading\|writing}0 %1 needs the tag '%2' known to be %3 here, or the union's bytes could be another member's; check it first (as in %select{'if (x.%2 == %3)' or 'case %3:'\|'if (x.%2)'\|'if (!x.%2)'}4)%select{\|, or set it ('x.%2 = %3;') before writing}0 |

@@ -419,6 +419,8 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"pragma-not-in-safe-c", false,
      "Safe C has no rules for '#pragma %0', which may change what names or "
      "memory mean; remove it"},
+    {"type-not-in-safe-c", false,
+     "Safe C has no rules for this kind of type ('%0')"},
     {"attr-not-in-safe-c", false,
      "Safe C has no rules for the attribute '%0', which may change what the "
      "compiler believes; remove it"},
@@ -3226,6 +3228,87 @@ static llvm::cl::opt<bool> SafeCSharedGlobals(
     llvm::cl::desc("Safe C: require mutable globals to be thread-local, "
                    "atomic, guarded or unsynchronized (M5 rule 2)"));
 
+/// The kind of type in \p T (at any depth) that Safe C has no rules for, or
+/// null.
+static const char *unknownType(QualType T, unsigned Depth = 0) {
+  if (T.isNull() || Depth > 16)
+    return nullptr;
+  const Type *C = T.getCanonicalType().getTypePtr();
+  switch (C->getTypeClass()) {
+  case Type::Builtin: {
+    const auto *B = cast<BuiltinType>(C);
+    // (Scalable vectors, OpenCL and other targets' types are sizeless or odd.)
+    return B->isInteger() || B->isFloatingPoint() || B->isVoidType() ||
+                   B->getKind() == BuiltinType::NullPtr || B->isPlaceholderType()
+               ? nullptr
+               : "Builtin";
+  }
+  case Type::Record:
+  case Type::Enum:
+  case Type::BitInt:
+  case Type::Vector:
+  case Type::ExtVector:
+  case Type::FunctionNoProto: // a call through one is an error
+    return nullptr;
+  case Type::Complex:
+    return nullptr;
+  case Type::Pointer:
+    return unknownType(cast<PointerType>(C)->getPointeeType(), Depth + 1);
+  case Type::Atomic:
+    return unknownType(cast<AtomicType>(C)->getValueType(), Depth + 1);
+  case Type::ConstantArray:
+  case Type::IncompleteArray:
+  case Type::VariableArray:
+    return unknownType(cast<ArrayType>(C)->getElementType(), Depth + 1);
+  case Type::FunctionProto: {
+    const auto *P = cast<FunctionProtoType>(C);
+    if (const char *K = unknownType(P->getReturnType(), Depth + 1))
+      return K;
+    for (QualType A : P->param_types())
+      if (const char *K = unknownType(A, Depth + 1))
+        return K;
+    return nullptr;
+  }
+  default:
+    return C->getTypeClassName();
+  }
+}
+
+/// Kinds of declarations and types that Safe C has rules for (see VisitStmt
+/// for statements); anything else is an error.
+static void checkDeclAllowed(Sema &S, const Decl *D) {
+  if (D->isImplicit() ||
+      S.getSourceManager().isInSystemHeader(D->getLocation()))
+    return;
+  switch (D->getKind()) {
+  case Decl::TranslationUnit:
+  case Decl::Function:
+  case Decl::Var:
+  case Decl::ParmVar:
+  case Decl::ImplicitParam:
+  case Decl::Field:
+  case Decl::IndirectField:
+  case Decl::Record:
+  case Decl::Enum:
+  case Decl::EnumConstant:
+  case Decl::Typedef:
+  case Decl::Label:
+  case Decl::Empty:
+  case Decl::StaticAssert:
+  case Decl::PragmaComment:
+  case Decl::PragmaDetectMismatch:
+  case Decl::FileScopeAsm: // rejected with its own message
+  case Decl::Block:
+    break;
+  default:
+    S.SafeCDiag(D->getLocation(), "not-in-safe-c") << D->getDeclKindName();
+    return;
+  }
+  if (const auto *V = dyn_cast<ValueDecl>(D); V && !isa<LabelDecl>(D))
+    if (const char *K = unknownType(V->getType()))
+      S.SafeCDiag(D->getLocation(), "type-not-in-safe-c") << K;
+}
+
 void clang::checkSafeCSharedGlobals(Sema &S) {
   SourceManager &SM = S.getSourceManager();
   auto Shareable = [](const VarDecl *VD) {
@@ -3333,6 +3416,15 @@ void clang::checkSafeCSharedGlobals(Sema &S) {
     }
   } F;
   F.TraverseDecl(S.Context.getTranslationUnitDecl());
+  struct Kinds : RecursiveASTVisitor<Kinds> {
+    Sema &S;
+    explicit Kinds(Sema &S) : S(S) {}
+    bool VisitDecl(Decl *D) {
+      checkDeclAllowed(S, D);
+      return true;
+    }
+  } K(S);
+  K.TraverseDecl(S.Context.getTranslationUnitDecl());
   if (!SafeCSharedGlobals)
     return;
   // A library's own variables (optind, timezone) are every thread's too.

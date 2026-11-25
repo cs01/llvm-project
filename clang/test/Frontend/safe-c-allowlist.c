@@ -23,6 +23,7 @@ __attribute__((target("crc"))) int tgt(void) { return 1; }     // expected-error
 #pragma clang diagnostic pop
 #pragma pack(push, 1)
 #pragma pack(pop)
+void (^block_var)(void); // expected-error {{no rules for this kind of type ('BlockPointer')}} expected-error 0+ {{}}
 // Ordinary code stays accepted.
 struct arr { int a[2]; };
 struct arr mk(void) { return (struct arr){{1, 2}}; }

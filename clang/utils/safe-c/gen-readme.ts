@@ -190,6 +190,8 @@ function rules(): string {
   const names = (text: string, re: RegExp) => [...new Set([...text.matchAll(re)].map((m) => m[1]))];
   const stmts = names(between(sema, "switch (St->getStmtClass())", "default:"), /Stmt::(\w+?)Class:/g);
   const casts = names(between(sema, "switch (C->getCastKind())", "default:"), /case CK_(\w+):/g);
+  const decls = names(between(sema, "switch (D->getKind())", "default:"), /case Decl::(\w+):/g);
+  const types = names(between(sema, "switch (C->getTypeClass())", "default:"), /case Type::(\w+):/g);
   const attr = readFileSync(join(root, "clang/lib/Sema/SemaDeclAttr.cpp"), "utf8");
   const attrs = names(between(attr, "// Known: checked by their own rules", "default:"), /AT_(\w+):/g);
   const type = readFileSync(join(root, "clang/lib/Sema/SemaType.cpp"), "utf8");
@@ -197,12 +199,14 @@ function rules(): string {
   const diags = [...sema.matchAll(/\{"([a-z0-9-]+)",\s*(true|false),\s*((?:"(?:[^"\\]|\\.)*"\s*)+)\}/g)]
     .filter((m) => m[2] === "false")
     .map((m) => [m[1], [...m[3].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]).join("")]);
-  if (stmts.length < 40 || casts.length < 20 || attrs.length < 30 || diags.length < 80)
+  if (stmts.length < 40 || casts.length < 20 || attrs.length < 30 || diags.length < 80 || decls.length < 12 || types.length < 10)
     throw new Error(`rules: parsed too little (${stmts.length} ${casts.length} ${attrs.length} ${diags.length})`);
   const code = (xs: string[]) => xs.map((x) => "`" + x + "`").join(", ");
   return [
     `**Statements and expressions** (${stmts.length}): ${code(stmts)}`, "",
     `**Casts** (${casts.length}): ${code(casts)}`, "",
+    `**Declarations** (${decls.length}): ${code(decls)}`, "",
+    `**Types** (${types.length}): ${code(types)}`, "",
     `**Declaration attributes** (${attrs.length}): ${code(attrs)}`, "",
     `**Type attributes** (${typeAttrs.length}): ${code(typeAttrs)}`, "",
     `**Errors** (${diags.length}; the bounds, null and lifetime errors of Clang itself are not listed):`, "",
