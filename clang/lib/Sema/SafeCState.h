@@ -25,6 +25,7 @@ void safeCMarkSafetyDiagsUnsilenceable(DiagnosticsEngine &Diags);
 
 class ASTContext;
 class CallExpr;
+class Expr;
 class QualType;
 
 /// The Safe C kind of a pointer type (from its [[clang::annotate_type]]
@@ -41,7 +42,8 @@ bool checkSafeCTakeBuiltin(Sema &S, CallExpr *TheCall);
 
 /// A library function with no safe use: an error that says what to use.
 class FunctionDecl;
-bool checkSafeCUnsafeFunction(Sema &S, const FunctionDecl *F, SourceLocation Loc);
+bool checkSafeCUnsafeFunction(Sema &S, const FunctionDecl *F, SourceLocation Loc,
+                              llvm::ArrayRef<Expr *> Args);
 
 /// What a function pointer promises must be what the function promises.
 void checkSafeCFunctionConversion(Sema &S, QualType Dst, const Expr *Src);

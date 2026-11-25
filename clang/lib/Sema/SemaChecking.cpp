@@ -5104,7 +5104,7 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
           "getc", "putc", "ungetc", "fread", "fwrite", "fflush", "feof",
           "ferror", "clearerr", "fseek", "ftell", "rewind", "fileno", "remove",
           "rename", "tmpfile", "system", "getenv", "strerror", "modf", "frexp",
-          "va_copy"};
+          "va_copy", "strftime", "localtime_r", "gmtime_r"};
       static const llvm::StringSet<> Never = {
           "setvbuf", "setbuf", "setbuffer", "setlinebuf", "setenv", "putenv",
           "unsetenv", "munmap", "mmap", "strtok", "strtok_r", "strsep",

@@ -427,8 +427,7 @@ static const UnsafeFunction UnsafeFunctions[] = {
     {"strsep", "writes into the string and moves your pointer to it",
      "'strcspn' for where each part ends"},
     {"realpath", "writes a path of any length into the buffer it is given",
-     "'realpath(path, NULL)' in a small '_Trusted' function that returns "
-     "'char *_Owned _Nullable'"},
+     "'realpath(path, NULL)', and free the result"},
     {"getwd", "writes a path of any length", "'getcwd(buffer, sizeof buffer)'"},
     {"tmpnam", "names a file that another program may create first", "'mkstemp'"},
     {"tempnam", "names a file that another program may create first", "'mkstemp'"},
@@ -436,24 +435,27 @@ static const UnsafeFunction UnsafeFunctions[] = {
     {"asctime", "writes into one buffer the whole program shares", "'strftime'"},
     {"asctime_r", "writes a string of any length", "'strftime'"},
     {"ctime_r", "writes a string of any length", "'localtime_r' and 'strftime'"},
-    {"putenv", "keeps the string it is given", "'setenv'"},
-    {"stpcpy", "does not know how big the buffer is", "'strlcpy'"},
-    {"stpncpy", "may leave the string with no terminator", "'strlcpy'"},
+    {"putenv", "keeps the string it is given",
+     "a small function marked '__unsafe' that calls 'setenv', before any "
+     "'getenv'"},
+    {"setenv", "may free what 'getenv' returned",
+     "a small function marked '__unsafe' that calls it, before any 'getenv'"},
+    {"unsetenv", "may free what 'getenv' returned",
+     "a small function marked '__unsafe' that calls it, before any 'getenv'"},
     {"strxfrm", "returns a length that may be more than it wrote", "'strcoll'"},
     {"setbuf", "does not know how big the buffer is", "the buffer the stream has"},
     {"setvbuf", "keeps the buffer it is given", "the buffer the stream has"},
     {"setbuffer", "keeps the buffer it is given", "the buffer the stream has"},
-    {"gethostbyname", "returns memory the next call changes", "'getaddrinfo'"},
-    {"gethostbyaddr", "returns memory the next call changes", "'getnameinfo'"},
-    {"inet_ntoa", "returns memory the next call changes", "'inet_ntop'"},
+    {"gethostbyname", "returns memory the next call changes", "a small function marked '__unsafe' that calls 'getaddrinfo'"},
+    {"gethostbyaddr", "returns memory the next call changes", "a small function marked '__unsafe' that calls 'getnameinfo'"},
+    {"inet_ntoa", "returns memory the next call changes", "a small function marked '__unsafe' that calls 'inet_ntop'"},
     {"getlogin", "returns memory the next call changes", "'getlogin_r'"},
     {"ttyname", "returns memory the next call changes", "'ttyname_r'"},
     {"ptsname", "returns memory the next call changes", "'ptsname_r'"},
-    {"cuserid", "writes into a buffer of unknown size", "'getlogin_r'"},
     {"swab", "reads and writes a length it cannot check", "a loop"},
     {"valloc", "returns memory that is not zeroed", "'calloc'"},
-    {"memccpy", "returns a pointer past what it wrote", "'memchr' and 'memcpy'"},
-    {"vfork", "shares the parent's memory", "'posix_spawn'"},
+    {"memccpy", "returns a pointer past what it wrote", "a loop"},
+    {"vfork", "shares the parent's memory", "a small function marked '__unsafe' that calls 'posix_spawn'"},
     {"brk", "takes memory away from under 'malloc'", "'malloc'"},
     {"sbrk", "takes memory away from under 'malloc'", "'malloc'"},
     {"atoi", "is undefined for a number too big", "'strtol'"},
@@ -462,13 +464,17 @@ static const UnsafeFunction UnsafeFunctions[] = {
 };
 
 bool clang::checkSafeCUnsafeFunction(Sema &S, const FunctionDecl *F,
-                                     SourceLocation Loc) {
+                                     SourceLocation Loc, ArrayRef<Expr *> Args) {
   if (!S.getLangOpts().SafeC || !F || !F->getIdentifier() || !F->isExternC() ||
       S.getSourceManager().isInSystemHeader(Loc) ||
       !S.getSourceManager().isInSystemHeader(F->getLocation()))
     return false;
   for (const UnsafeFunction &U : UnsafeFunctions)
     if (F->getName() == U.Name) {
+      // With no buffer it allocates one.
+      if (U.Name == "realpath" && Args.size() == 2 &&
+          Args[1]->isNullPointerConstant(S.Context, Expr::NPC_ValueDependentIsNotNull))
+        return false;
       S.SafeCDiag(Loc, "unsafe-function") << U.Name << U.Why << U.Instead;
       S.safeC().UnsafeCalls.push_back(Loc);
       return true;

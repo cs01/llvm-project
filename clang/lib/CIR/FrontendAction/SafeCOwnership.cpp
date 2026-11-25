@@ -77,16 +77,17 @@ Lib libraryContract(StringRef N) {
       .Cases({"free", "fclose", "pclose", "closedir"}, Lib::Frees)
       .Case("realloc", Lib::Reallocs)
       .Cases({"qsort", "signal", "atexit"}, Lib::Callback)
-      .Case("bsearch", Lib::InsideSecond)
+      .Cases({"bsearch", "localtime_r", "gmtime_r"}, Lib::InsideSecond)
       .Cases({"strtol", "strtoul", "strtoll", "strtoull", "strtod", "strtof"},
              Lib::EndOut)
       .Case("asprintf", Lib::OwnerOut)
-      .Cases({"malloc", "strdup", "strndup", "fopen", "fdopen", "popen", "opendir"},
+      .Cases({"malloc", "strdup", "strndup", "fopen", "fdopen", "popen", "opendir",
+              "realpath"},
              Lib::Owner)
       .Case("calloc", Lib::ZeroedOwner)
       .Cases({"memset", "memcpy", "memmove", "memchr", "strchr", "strrchr",
               "strstr", "strpbrk", "strncpy", "strcpy", "strcat", "strncat",
-              "fgets"},
+              "fgets", "getcwd"},
              Lib::InsideFirst)
       .Cases({"abort", "exit", "_exit", "__assert_rtn", "__assert_fail"}, Lib::Stops)
       .Cases({"__error", "__errno_location"}, Lib::Static)
@@ -102,7 +103,7 @@ Lib libraryContract(StringRef N) {
               "remove", "rename", "mkdir", "rmdir", "access", "stat", "fstat",
               "lstat", "bind", "connect", "accept", "listen", "setsockopt",
               "getsockopt", "send", "recv", "sendto", "recvfrom", "select",
-              "poll", "pipe", "waitpid", "system"},
+              "poll", "pipe", "waitpid", "system", "strcoll", "mkstemp", "getlogin_r", "ttyname_r", "ptsname_r"},
              Lib::Reads)
       .Cases({"strlen", "strnlen", "strcmp", "strncmp", "strcasecmp",
               "strncasecmp", "memcmp", "strcspn", "strspn", "strlcpy", "strlcat",

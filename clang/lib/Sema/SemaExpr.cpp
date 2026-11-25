@@ -7010,7 +7010,7 @@ Sema::ConvertArgumentsForCall(CallExpr *Call, Expr *Fn,
                               SourceLocation RParenLoc,
                               bool IsExecConfig) {
   if (getLangOpts().SafeC && Call &&
-      checkSafeCUnsafeFunction(*this, FDecl, Call->getExprLoc()) &&
+      checkSafeCUnsafeFunction(*this, FDecl, Call->getExprLoc(), Args) &&
       !isInSafeCUnsafeRegion(Call->getExprLoc()) && !inSafeCUnsafeParse())
     return true;
   // Bail out early if calling a builtin with custom typechecking.
