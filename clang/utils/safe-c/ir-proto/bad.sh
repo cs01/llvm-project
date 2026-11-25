@@ -8,6 +8,6 @@ for f in $(find $H/void $H/frees $H/tags $H/juliet $H/blind2 -name '*.c') $H/dfr
 for f in $O/src/*.c; do b=$(basename $f .c)
  /usr/bin/clang -w -fsanitize=address -I $R/safe-c-std -include $R/safe-c-std/safec.h $f -o $O/x 2>/dev/null </dev/null || { echo "$b nocompile"; continue; }
  k=$(printf AAAAAAAAAAAAAAAA | perl -e 'alarm 10; exec @ARGV' $O/x 2>&1 | grep -m1 -oE "heap-use-after-free|double-free|attempting free on address|stack-use-after[a-z-]*|[a-z]+-buffer-overflow|SEGV"); echo "$b ${k:-none}"
- case "$k" in heap-use-after-free*|double*|attempting*) bash $P/lower.sh $f $O/$b.flat -isystem $R/safe-c-std -include $R/safe-c-std/safec.h || bash $P/lower.sh $f $O/$b.flat -fsafe-c -mllvm -safe-c-strict-ownership=false || echo "$b notlowered";; esac
+ case "$k" in heap-use-after-free*|double*|attempting*) bash $P/lower.sh $f $O/$b.flat -isystem $R/safe-c-std -include $R/safe-c-std/safec.h || bash $P/lower.sh $f $O/$b.flat -fsafe-c || echo "$b notlowered";; esac
 done > $O/kinds 2>/dev/null
 awk '{$1="";print}' $O/kinds | sort | uniq -c

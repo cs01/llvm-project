@@ -69,17 +69,19 @@ loop of moves, and an undo path re-derives a borrow. 7 kinds in all, marked CHAN
 Heap: objects with owner fields (null or one object); a forest, each object owned by at most one owner local
 or field. A local is an owner, or a borrow with a parent local and a mode.
 
-- Borrow `x = &*v` or a field step through owners: x's parent is v. Shared borrow from v kills v's exclusive
-  descendants. Exclusive borrow from v needs v an owner or exclusive, and kills all v's descendants.
-- Mutate through v (store or take an owner field, free, move, exclusive argument): v must be an owner or
-  exclusive; kills all v's descendants. A dead local cannot be used.
+- Borrow `x = v`, `x = v->f` through owner fields: x's parent is v. Creating it kills nothing. x is capable of
+  changing structure if v is (owners are; parameters unless `const`) and x is not declared `const`.
+- Mutate through v (store or take an owner field, free, move, argument declared without `const`): v must be live and
+  capable; every live borrow with the same root except v and its ancestors dies. A dead local cannot be used.
+- Reads and scalar writes only need a live pointer: they free nothing.
+- `c = c->f`: the new c has the old c's parent, and so do borrows of the old c.
 - Moving an owner (into a field, argument, return, local) also makes it dead. Overwriting a non-null
   owner leaks, which is allowed. free(o) frees one object; objects it owned leak.
-- Call: arguments are owned (moved), taken on success, exclusive, shared. Two arguments where one is
-  exclusive or owned may not share a root. The callee may only touch what it reaches from its parameters;
+- Call: arguments are owned (moved), taken on success, exclusive, shared. Arguments share a root only if
+  all of those are `const` or point to types with no owners. The callee may only touch what it reaches from its parameters;
   an exclusive parameter's own object is not freed.
-- Result: a fresh owner, or a borrow inside one named shared or exclusive parameter (rule 9): in the
-  caller a child of that argument, exclusive only if the caller made an exclusive borrow of it.
+- Result: a fresh owner, or a borrow inside one named borrowed parameter (rule 9): in the
+  caller a child of that argument, as capable as that argument.
 - Taken on success (rule 10): the body must have moved the parameter on every path returning true and
   must still hold it live on every path returning false; in the caller it is maybe-moved, tied to the
   result, until a branch on that result. Its borrows die at the call.
