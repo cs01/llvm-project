@@ -239,3 +239,11 @@ safec-own now test the same thing.
    - Under Apple clang, adding `_Nullable` to some pointers in ini.h turns on
      `-Wnullability-completeness` for the rest of the header (warnings only; lz4.h
      has the same).
+
+## Ownership on (2026-11-25)
+
+The first port whose tests build with ownership on. Against the port without it, ini.c changed 12 lines added, 19 removed: the
+reader struct is a `_View`, `line`, `new_line` and `file` are `_Owned`, and `realloc` is no longer in `__unsafe`
+(it takes `line` even when it fails, so out of memory leaks the line buffer; upstream frees it). One function in each of two tests is
+`_Trusted` (`void *` back to `int *`). Five planted bugs (double close, use after close, use after free, a pointer kept
+across realloc, a changed view pointer) are rejected.

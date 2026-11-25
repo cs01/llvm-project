@@ -47,7 +47,23 @@ int last(const struct list *l) {
   return value(&i);
 }
 
+// With several pointers, a function may change the numbers.
+struct _View source {
+  int (*get)(void *);
+  void *_Nullable ctx;
+  const char *_Nullable text;
+  int at;
+};
+int read(struct source *s) {
+  if (s->ctx)
+    return s->get(s->ctx);
+  return s->text ? s->at++ : -1;
+}
+
 // Rejected.
+void repoint(struct source *s, const char *t) {
+  s->text = t; // expected-error {{a '_View' with several pointers keeps them while it is behind a pointer}}
+}
 void points_elsewhere(struct it *i, const struct node *n) {
   i->cur = n;
 } // expected-error {{'i' is left with a pointer that is not inside the one it came with}}
@@ -106,7 +122,6 @@ struct list;
 struct _View owner { int *_Owned _Nullable p; }; // expected-error {{a '_View' holds borrows and numbers}}
 struct holds { struct two t; }; // expected-error {{lives only in locals and parameters}}
 static struct two global; // expected-error {{shared by the whole program}}
-void set(struct two *t); // expected-error {{only if it has one pointer}}
 struct _View one { const int *_Nullable a; };
 void both(struct one *x, struct one *y); // expected-error 2 {{a function that changes a '_View' changes one}}
 struct one *_Nullable inside(struct list *l); // expected-error {{is not returned}}

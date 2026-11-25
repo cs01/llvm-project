@@ -11,7 +11,7 @@
 
 /* The annotations repeat ini.c's declarations of these three. */
  __attribute__((alloc_size(1)))
-void* _Nullable __sized_by_or_null(size) ini_malloc(size_t size) {
+void* _Owned _Nullable __sized_by_or_null(size) ini_malloc(size_t size) {
     printf("ini_malloc(%d)\n", (int)size);
     return malloc(size);
 }
@@ -22,7 +22,7 @@ void ini_free(void* _Nullable _Owned ptr) {
 }
 
  __attribute__((alloc_size(2)))
-void* _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
+void* _Owned _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
                                                      size_t size) {
     printf("ini_realloc(%d)\n", (int)size);
     /* unsafe: alloc_size promises zeroed memory, which realloc's growth is

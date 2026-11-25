@@ -234,7 +234,7 @@ public:
   }
   static unsigned pointersIn(const RecordDecl *RD) {
     return llvm::count_if(RD->fields(), [](const FieldDecl *F) {
-      return F->getType()->isPointerType();
+      return F->getType()->isPointerType() && !F->getType()->isFunctionPointerType();
     });
   }
   /// A view reached through a pointer, or in an array.
@@ -353,8 +353,10 @@ public:
       return error(F->getLocation(), "a '_View' lives only in locals and parameters; "
                                      "keep its fields here as owners or indexes");
     if (view(Ctx.getCanonicalTagType(F->getParent()))) {
-      bool Plain = T->isPointerType() && pointerKind(T).empty() &&
-                   !T->isFunctionPointerType() && !T->getPointeeType()->isPointerType();
+      bool Plain = T->isFunctionPointerType()
+                       ? marks(pointedProto(T)).has_value()
+                       : T->isPointerType() && pointerKind(T).empty() &&
+                             !T->getPointeeType()->isPointerType();
       if (hasOwners(T) && !Plain)
         error(F->getLocation(), "a '_View' holds borrows and numbers; a pointer here "
                                 "has no mark and does not point to a pointer");
@@ -454,10 +456,8 @@ public:
         bool Takes = llvm::any_of(FD->parameters(), [&](const ParmVarDecl *Q) {
           return isTaken(Q->getType());
         });
-        if (pointersIn(view(T->getPointeeType())) != 1)
-          Bad(P->getLocation(), "a '_View' is changed through a pointer only if it "
-                                "has one pointer; return the changed pointer");
-        else if (Changed > 1 || Takes || R->isPointerType() || hasOwners(R))
+        // (With several pointers, only its numbers change.)
+        if (pointersIn(view(T->getPointeeType())) == 1 && (Changed > 1 || Takes || R->isPointerType() || hasOwners(R)))
           Bad(P->getLocation(), "a function that changes a '_View' changes one, "
                                 "returns a number or nothing, and takes no owner on "
                                 "success");
@@ -552,6 +552,10 @@ public:
         SourceLocation L = R.Ctx.getSourceManager().getSpellingLoc(C->getBeginLoc());
         bool Invalid = false;
         const char *P = R.Ctx.getSourceManager().getCharacterData(L, &Invalid);
+        // '(char *)malloc(n)' says nothing new.
+        const Expr *From = C->getSubExpr()->IgnoreParenImpCasts();
+        if (From->getType()->isVoidPointerType() && isa<CallExpr>(From))
+          return true;
         if (C->getType()->isPointerType() && !Invalid && *P == '(' &&
             !C->getSubExpr()->isNullPointerConstant(
                 R.Ctx, Expr::NPC_ValueDependentIsNotNull))
@@ -911,6 +915,14 @@ private:
            "calls nothing but 'write' and '_exit'; set a 'volatile sig_atomic_t' and "
            "act on it later");
   }
+  /// Is A a pointer of a view parameter that may not change it?
+  bool fixedPart(Value A) {
+    auto M = A.getDefiningOp<cir::GetMemberOp>();
+    Val *X = M ? val(M.getAddr()) : nullptr;
+    return M && ((X && X->K == Val::ViewAt && viewPointers(viewIn(X->Of)).size() != 1) ||
+                 (Fn.getNumArguments() && llvm::is_contained(Fn.getArguments(), M.getAddr()) &&
+                  viewPointers(viewIn(M.getAddr())).size() != 1));
+  }
   /// The field an address is in, or is an element of.
   const FieldDecl *fieldOf(Value Addr) const {
     while (mlir::Operation *Op = Addr.getDefiningOp()) {
@@ -1027,7 +1039,7 @@ private:
       else if (mlir::isa<cir::GlobalViewAttr>(X))
         Null = false;
     });
-    if (!Known || Null)
+    if (!Known || Null || viewOf(T))
       return Known;
     while (auto AT = mlir::dyn_cast<cir::ArrayType>(T))
       T = AT.getElementType();
@@ -1056,7 +1068,7 @@ private:
   static SmallVector<const FieldDecl *, 2> viewPointers(const RecordDecl *RD) {
     SmallVector<const FieldDecl *, 2> Out;
     for (const FieldDecl *F : RD->fields())
-      if (F->getType()->isPointerType())
+      if (F->getType()->isPointerType() && !F->getType()->isFunctionPointerType())
         Out.push_back(F);
     return Out;
   }
@@ -1475,6 +1487,19 @@ void FunctionCheck::cast(cir::CastOp Op) {
       if (!C || !C.getCallee())
         return false;
       StringRef N = cName(*C.getCallee());
+      // A function of this program that takes the bytes.
+      const auto *Fn = dyn_cast_or_null<FunctionDecl>(
+          Gen.getDeclForMangledName(*C.getCallee()));
+      if (ours(Fn) && !ownersIn(F)) {
+        unsigned I = 0;
+        for (Value A : C.getArgOperands()) {
+          if (A == Res && (I >= Fn->getNumParams() ||
+                           !isOwned(Fn->getParamDecl(I)->getType())))
+            return false;
+          ++I;
+        }
+        return true;
+      }
       // What realloc adds is not null.
       return N == "free" || (N == "realloc" && !ownersIn(F));
     });
@@ -1689,6 +1714,9 @@ void FunctionCheck::store(cir::StoreOp Op) {
     Var X = Vars[A];
     if (X.View)
       return assignView(A, V);
+    if (fixedPart(D) || fixedPart(A))
+      return fail("a '_View' with several pointers keeps them while it is behind a "
+                  "pointer; only its numbers change, or pass the pointer to change");
     if (!X.Pointer) {
       if (ownersIn(T)) {
         auto C = V.getDefiningOp<cir::ConstantOp>();
@@ -2070,7 +2098,7 @@ void FunctionCheck::call(cir::CallOp Op) {
         SmallVector<Value, 2> Parts;
         if (!viewParts(Slot, "passed to '" + Name + "'", Parts))
           return;
-        if (Changes)
+        if (Changes && Parts.size() == 1)
           Changed.append(Parts.begin(), Parts.end());
         auto Fields = viewPointers(viewIn(Slot));
         for (auto [F, K] : llvm::zip(Fields, Parts)) {
@@ -2182,8 +2210,9 @@ void FunctionCheck::call(cir::CallOp Op) {
     return;
   }
   QualType RT = Through ? Through->getReturnType() : Callee->getReturnType();
+  // Bytes have whatever type they are first given, and are not known to be null.
   if (isOwned(RT))
-    return NewOwner(true, true);
+    return NewOwner(!RT->isVoidPointerType(), !RT->isVoidPointerType());
   if (pointerKind(RT) == "unchecked") {
     Vals[Res] = mk(Val::Raw);
     return;
@@ -2487,6 +2516,31 @@ void FunctionCheck::operation(mlir::Operation *Op) {
     return;
   }
   StringRef N = Op->getName().stripDialect();
+  if (N == "select" && Op->getNumOperands() == 3 && isPtr(Op->getResult(0).getType())) {
+    // 'c ? p : q' where at most one can end.
+    Value Res = Op->getResult(0), From;
+    for (Value X : {Op->getOperand(1), Op->getOperand(2)}) {
+      if (isStatic(X))
+        continue;
+      if (From || holdsFunction(X.getType()))
+        return fail("this value flows through '?:', which has no rule");
+      From = X;
+    }
+    if (!From) {
+      setNode(Res, plain(Node::Static));
+      Vals[Res] = mk(Val::Pointer, Res);
+      return;
+    }
+    Val *X = val(From);
+    if (!X || X->K == Val::Owner || X->K == Val::Raw || X->K == Val::Local)
+      return fail("this value flows through '?:', which has no rule");
+    std::optional<Value> B = base(From, "used");
+    if (!B || !*B)
+      return;
+    setNode(Res, borrow(*B, capable(node(*B))));
+    Vals[Res] = mk(Val::Pointer, Res);
+    return;
+  }
   if (N == "trap" || N == "unreachable")
     return;
   if (N == "copy") {
@@ -2647,9 +2701,10 @@ std::optional<Rejected> FunctionCheck::run() {
         fail("this function's parameters have no ownership rule");
         return Failure;
       }
-      St.N[A] = borrow(Value(), !viewPointers(R.view(T->getPointeeType()))
-                                     .front()->getType()->getPointeeType()
-                                     .isConstQualified());
+      St.N[A] = borrow(Value(), llvm::any_of(viewPointers(R.view(T->getPointeeType())),
+                                             [](const FieldDecl *F) {
+        return !F->getType()->getPointeeType().isConstQualified();
+      }));
       Vals[A] = mk(Val::ViewAt, A);
       continue;
     }

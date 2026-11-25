@@ -95,7 +95,7 @@ for spec in "${configs[@]}"; do
   # test.c reads lz4.c and lz4.h from its own directory
   port=$here/lz4; label=lz4; lib=$port/lz4.c
   run "$name" "$cc" "$port"/test.c
-  run_inih "$name" "$cc"
+  run_inih "$name" "${cc/-mllvm -safe-c-ownership=false /}" # ownership on
   # tests.c runs every suite in one program and exits 1 if any check failed. The
   # second build puts every key in one hash chain, as upstream's Makefile does.
   # It reads tests/ and leaves two files there (it removes them by the wrong name).

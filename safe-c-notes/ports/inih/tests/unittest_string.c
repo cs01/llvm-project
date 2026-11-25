@@ -16,7 +16,7 @@ _Thread_local char Prev_section[50];
 /* Safe C: the handler is handed the int that parse() passed as void*, but
    the compiler cannot see that, so it rejects the cast back to int*. Safe
    because every ini_parse_string() call in this file passes &u, an int. */
-static int user_value(void* _Nullable user)
+_Trusted static int user_value(void* _Nullable user)
 {
     int v = 0;
     __unsafe {

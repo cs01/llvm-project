@@ -27,11 +27,11 @@ https://github.com/benhoyt/inih
 /* The same contracts as malloc, free and realloc. alloc_size lets the result
    be cast to char* (Safe C checks the definition returns fresh memory). */
  __attribute__((alloc_size(1)))
-void* _Nullable __sized_by_or_null(size) ini_malloc(size_t size);
+void* _Owned _Nullable __sized_by_or_null(size) ini_malloc(size_t size);
 void ini_free(void* _Nullable _Owned ptr);
  __attribute__((alloc_size(2)))
-void* _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
-                                                     size_t size);
+void* _Owned _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
+                                                            size_t size);
 #else
 #include <stdlib.h>
 #define ini_malloc malloc
@@ -46,7 +46,7 @@ void* _Nullable __sized_by_or_null(size) ini_realloc(void* _Nullable _Owned ptr,
    so the built-in sources are told apart by kind instead, and only a user's
    reader sees a void*. */
 enum { INI_SOURCE_READER, INI_SOURCE_FILE, INI_SOURCE_STRING };
-typedef struct {
+typedef struct _View {
     int kind;
     ini_reader _Nullable reader;          /* INI_SOURCE_READER */
     void* _Nullable stream;
@@ -148,11 +148,11 @@ static int ini_parse_source(ini_source* src, ini_handler handler,
     char line[INI_MAX_LINE];
     size_t max_line = INI_MAX_LINE;
 #else
-    char* line;
+    char* _Owned _Nullable line;
     size_t max_line = INI_INITIAL_ALLOC;
 #endif
 #if INI_ALLOW_REALLOC && !INI_USE_STACK
-    char* new_line;
+    char* _Owned _Nullable new_line;
 #endif
     char section[INI_MAX_SECTION] = "";
 #if INI_ALLOW_MULTILINE
@@ -192,18 +192,11 @@ static int ini_parse_source(ini_source* src, ini_handler handler,
             max_line *= 2;
             if (max_line > INI_MAX_LINE)
                 max_line = INI_MAX_LINE;
-            /* unsafe: realloc keeps the old block when it fails, so freeing
-               line then is correct, but Safe C treats the call as freeing it
-               on every path; it also takes the block this loop reallocated
-               last time round for the one realloc frees now (see PORT.md).
-               new_line still gets its bounds from ini_realloc's size. */
-            __unsafe {
-                new_line = (char*)ini_realloc(line, max_line);
-                if (!new_line) {
-                    ini_free(line);
-                    return -2;
-                }
-            }
+            /* Safe C: realloc takes line even when it fails, so out of memory
+               leaks it (upstream frees it). */
+            new_line = (char*)ini_realloc(line, max_line);
+            if (!new_line)
+                return -2;
             line = new_line;
             if (!ini_read_line(src, line + offset, (int)(max_line - offset)))
                 break;
@@ -341,7 +334,7 @@ int ini_parse_file(FILE* file, ini_handler handler, void* _Nullable user)
 /* See documentation in header file. */
 int ini_parse(const char* filename, ini_handler handler, void* _Nullable user)
 {
-    FILE* file;
+    FILE* _Owned _Nullable file;
     int error;
 
     file = fopen(filename, "r");

@@ -20,7 +20,7 @@ int handler(void* _Nullable user, const char* section _Noescape,
 int main(void)
 {
     const char* filename = "unittest_file_error.tmp";
-    FILE* file;
+    FILE* _Owned _Nullable file;
     int e;
 
 #ifdef _WIN32

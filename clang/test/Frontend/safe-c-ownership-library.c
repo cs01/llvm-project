@@ -47,7 +47,20 @@ typedef int sig_atomic_t;
 static volatile sig_atomic_t hits;
 void on_signal(int s) { hits = s; }
 
+void my_free(void *_Owned _Nullable p) { free(p); }
+int wrapped(char *_Owned _Nullable p, int c) {
+  char *_Nullable q = c ? p : 0;
+  int r = q != 0;
+  my_free(p);
+  return r;
+}
+
 // Rejected.
+int wrapped_stale(char *_Owned _Nullable p, int c) {
+  char *_Nullable q = c ? p : 0;
+  my_free(p);
+  return q != 0; // expected-error {{after passed to 'my_free'}}
+}
 int call_changes(void (*f)(struct list *), struct list *l) {
   struct node *_Nullable n = l->head;
   f(l);
