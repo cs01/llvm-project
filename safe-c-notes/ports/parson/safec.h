@@ -209,8 +209,9 @@ char *getenv(const char *__null_terminated);
 #else /* plain clang: [[]] after _Nullable would not parse */
 #define _Unchecked
 #endif
-/* On a struct: holds borrows, so it lives only in locals and parameters (by
-   value or as a pointer to const), and ends with what it borrows. */
+/* On a struct: holds borrows, so it lives only in locals and parameters and
+   ends with what it borrows. Behind a pointer it may be changed only if it has
+   one pointer, which stays inside what it pointed into. */
 #if defined(__clang__)
 #define _View __attribute__((annotate("safec_view")))
 #else

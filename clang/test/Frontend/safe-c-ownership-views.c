@@ -33,7 +33,33 @@ int sum(const struct list *l) {
   return s;
 }
 
+void advance(struct it *i) {
+  if (i->cur)
+    i->cur = i->cur->next;
+}
+void twice(struct it *i) {
+  advance(i);
+  advance(i);
+}
+int last(const struct list *l) {
+  struct it i = {l->head, 0};
+  twice(&i);
+  return value(&i);
+}
+
 // Rejected.
+void points_elsewhere(struct it *i, const struct node *n) {
+  i->cur = n;
+} // expected-error {{'i' is left with a pointer that is not inside the one it came with}}
+void points_to_other(struct it *i, const struct it *j) {
+  i->cur = j->cur;
+} // expected-error {{'i' is left with a pointer that is not inside the one it came with}}
+int advanced_stale(struct list *l) {
+  struct it i = {l->head, 0};
+  advance(&i);
+  free(_Take(l->head));
+  return value(&i); // expected-error {{after '_Take' on line}}
+}
 int field(struct list *l) {
   struct it i = {l->head, 0};
   free(_Take(l->head));
@@ -76,10 +102,14 @@ struct it escapes(const struct list *l) {
 #define _Owned [[clang::annotate_type("safec_owned")]]
 #define _View __attribute__((annotate("safec_view")))
 struct _View two { const int *_Nullable a; const int *_Nullable b; };
+struct list;
 struct _View owner { int *_Owned _Nullable p; }; // expected-error {{a '_View' holds borrows and numbers}}
 struct holds { struct two t; }; // expected-error {{lives only in locals and parameters}}
 static struct two global; // expected-error {{shared by the whole program}}
-void set(struct two *t); // expected-error {{by value or as a pointer to 'const'}}
+void set(struct two *t); // expected-error {{only if it has one pointer}}
+struct _View one { const int *_Nullable a; };
+void both(struct one *x, struct one *y); // expected-error 2 {{a function that changes a '_View' changes one}}
+struct one *_Nullable inside(struct list *l); // expected-error {{is not returned}}
 struct two make(void); // expected-error {{only if it has one pointer}}
 const int *_Nullable pick(struct two t); // expected-error {{which pointer of the '_View'}}
 int callback(int (*f)(const struct two *)); // expected-error {{this function pointer's type has no rule}}

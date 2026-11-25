@@ -23,3 +23,4 @@ import SafeC.CoreSound
 import SafeC.CoreCall
 import SafeC.CoreHoles
 import SafeC.CoreIndirect
+import SafeC.CoreView
