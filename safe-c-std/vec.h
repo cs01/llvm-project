@@ -51,6 +51,18 @@
       return NULL;                                                             \
     return &v->p[i];                                                           \
   }                                                                            \
+  static inline int name##_get(const struct name *v, size_t i, T *out) {       \
+    if (!v->p || i >= v->len || i >= v->cap)                                   \
+      return 0;                                                                \
+    *out = v->p[i];                                                            \
+    return 1;                                                                  \
+  }                                                                            \
+  static inline int name##_set(struct name *v, size_t i, T x) {                \
+    if (!v->p || i >= v->len || i >= v->cap)                                   \
+      return 0;                                                                \
+    v->p[i] = x;                                                               \
+    return 1;                                                                  \
+  }                                                                            \
   static inline int name##_pop(struct name *v, T *out) {                       \
     if (!v->p || v->len == 0)                                                  \
       return 0;                                                                \

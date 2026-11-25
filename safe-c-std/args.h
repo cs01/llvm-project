@@ -6,6 +6,14 @@
 #pragma clang assume_nonnull begin
 #endif
 
+/* Whether it is options ('-x', not '-' or a file). */
+static inline int args_flags(const char *__null_terminated a) {
+  if (*a != '-')
+    return 0;
+  a++;
+  return *a != 0;
+}
+
 /* Where 'name' is. */
 static inline int args_find(int argc, char *__null_terminated _Static const *__counted_by(argc) argv,
                             const char *__null_terminated name) {

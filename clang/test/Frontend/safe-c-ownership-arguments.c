@@ -50,3 +50,8 @@ int kept(void) {
   free(o);
   return p ? r : 0; // expected-error {{'p' is tested after}}
 }
+
+// A struct result passed on beside a counted pointer.
+static struct v part(struct v s) { return s; }
+static int use(struct v s, const int *__counted_by(3) p) { return (int)s.n + p[0]; }
+int nested(struct v s, const int *__counted_by(3) p) { return use(part(s), p); }

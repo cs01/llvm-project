@@ -24,6 +24,13 @@ static inline int str_eq(struct str a, struct str b) {
   return a.len == b.len && (a.len == 0 || memcmp(a.p, b.p, a.len) == 0);
 }
 
+/* Below, at or above 0, in byte order; a shorter text comes first. */
+static inline int str_cmp(struct str a, struct str b) {
+  size_t n = a.len < b.len ? a.len : b.len;
+  int r = n ? memcmp(a.p, b.p, n) : 0;
+  return r ? r : (a.len > b.len) - (a.len < b.len);
+}
+
 /* Where c is, or s.len. */
 static inline size_t str_find(struct str s, char c) {
   size_t i = 0;
@@ -118,6 +125,12 @@ static inline int text_add(struct text *t, const char *__counted_by(n) from, siz
   memcpy(t->p + t->len, from, n);
   t->len = need;
   return 1;
+}
+
+/* Replaces it with from: 1, or 0 and empty if there is no memory. */
+static inline int text_set(struct text *t, struct str from) {
+  t->len = 0;
+  return text_add(t, from.p, from.len);
 }
 
 /* The next line, without its '\n': 1, or 0 at the end. */

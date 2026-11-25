@@ -682,8 +682,10 @@ public:
     Visit(e->getSubExpr());
   }
   void VisitOpaqueValueExpr(OpaqueValueExpr *e) {
-    cgf.cgm.errorNYI(e->getSourceRange(),
-                     "AggExprEmitter: VisitOpaqueValueExpr");
+    if (e->isUnique())
+      Visit(e->getSourceExpr());
+    else
+      emitFinalDestCopy(e->getType(), cgf.getOrCreateOpaqueLValueMapping(e));
   }
 
   void VisitPseudoObjectExpr(PseudoObjectExpr *e) {
