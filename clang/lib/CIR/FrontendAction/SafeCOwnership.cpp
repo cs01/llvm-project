@@ -2831,6 +2831,14 @@ void Consumer::HandleTranslationUnit(ASTContext &Ctx) {
   }
   llvm::DenseSet<const FunctionDecl *> Seen;
   SmallVector<cir::FuncOp, 32> Fns;
+  // '_When' and other 'annotate' attributes name a place; they do nothing to it.
+  Gen.getModule().walk([](mlir::Operation *Op) {
+    if (auto P = mlir::dyn_cast<cir::PtrAnnotationOp>(Op)) {
+      P.getResult().replaceAllUsesWith(P.getAddr());
+      P.erase();
+    } else if (mlir::isa<cir::VarAnnotationOp>(Op))
+      Op->erase();
+  });
   Gen.getModule().walk([&](cir::FuncOp F) { Fns.push_back(F); });
   for (cir::FuncOp F : Fns) {
     if (F.isDeclaration())
