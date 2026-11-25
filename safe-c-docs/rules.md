@@ -94,16 +94,17 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 
 **Types** (14): `Builtin`, `Record`, `Enum`, `BitInt`, `Vector`, `ExtVector`, `FunctionNoProto`, `Complex`, `Pointer`, `Atomic`, `ConstantArray`, `IncompleteArray`, `VariableArray`, `FunctionProto`
 
-**Declaration attributes** (63): `Annotate`, `AnnotateType`, `Unused`, `Used`, `Retain`, `Deprecated`, `Unavailable`, `Availability`, `Format`, `FormatArg`, `NonNull`, `NoReturn`, `AnalyzerNoReturn`, `Pure`, `Const`, `WarnUnusedResult`, `Restrict`, `AllocSize`, `Ownership`, `LifetimeBound`, `NoEscape`, `Capability`, `ScopedLockable`, `GuardedBy`, `PtGuardedBy`, `AcquireCapability`, `ReleaseCapability`, `TryAcquireCapability`, `RequiresCapability`, `LocksExcluded`, `AcquiredBefore`, `AcquiredAfter`, `Cleanup`, `Aligned`, `Packed`, `Visibility`, `AlwaysInline`, `NoInline`, `Cold`, `Hot`, `GNUInline`, `Flatten`, `MinSize`, `Leaf`, `NoThrow`, `NoDebug`, `Constructor`, `Destructor`, `EnumExtensibility`, `FlagEnum`, `Overloadable`, `Suppress`, `NoSanitize`, `Uninitialized`, `FallThrough`, `VectorSize`, `ExtVectorType`, `Mode`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `CDecl`
+**Declaration attributes** (62): `Annotate`, `AnnotateType`, `Unused`, `Used`, `Retain`, `Deprecated`, `Unavailable`, `Availability`, `Format`, `NonNull`, `NoReturn`, `AnalyzerNoReturn`, `Pure`, `Const`, `WarnUnusedResult`, `Restrict`, `AllocSize`, `Ownership`, `LifetimeBound`, `NoEscape`, `Capability`, `ScopedLockable`, `GuardedBy`, `PtGuardedBy`, `AcquireCapability`, `ReleaseCapability`, `TryAcquireCapability`, `RequiresCapability`, `LocksExcluded`, `AcquiredBefore`, `AcquiredAfter`, `Cleanup`, `Aligned`, `Packed`, `Visibility`, `AlwaysInline`, `NoInline`, `Cold`, `Hot`, `GNUInline`, `Flatten`, `MinSize`, `Leaf`, `NoThrow`, `NoDebug`, `Constructor`, `Destructor`, `EnumExtensibility`, `FlagEnum`, `Overloadable`, `Suppress`, `NoSanitize`, `Uninitialized`, `FallThrough`, `VectorSize`, `ExtVectorType`, `Mode`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `CDecl`
 
 **Type attributes** (24): `PtrBidiIndexable`, `PtrIndexable`, `PtrSingle`, `PtrUnsafeIndexable`, `PtrTerminatedBy`, `PtrEndedBy`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `TypeNonNull`, `TypeNullable`, `TypeNullableResult`, `TypeNullUnspecified`, `AnnotateType`, `LifetimeBound`, `NoEscape`, `VectorSize`, `ExtVectorType`, `NoReturn`, `MayAlias`, `Mode`, `CDecl`, `NoThrow`
 
-**Errors** (102; the bounds, null and lifetime errors of Clang itself are not listed):
+**Errors** (108; the bounds, null and lifetime errors of Clang itself are not listed):
 
 | Rule | Message |
 |---|---|
 | `alloc-pointers` | the memory %0 returns is not zeroed, and %1 holds pointers, which would be garbage; use 'calloc' (or 'malloc', which Safe C zeroes) |
 | `alloc-untracked` | a new allocation stored in %0 is not tracked, so nothing stops a use after it is freed; declare the place '_Owned' (for an array: 'T *_Owned a[N]'), or keep the pointer in a local variable |
+| `alloca` | 'alloca' is checked only with a constant size and in a function with no variable-length array; use a fixed-size array, or 'malloc' and 'free' |
 | `atomic-cast` | a pointer to an '_Atomic' object used as a plain pointer makes unsynchronized accesses; keep the '_Atomic' type |
 | `atomic-member` | a field of an '_Atomic' struct is accessed without synchronization; load or store the whole struct |
 | `attr-not-in-safe-c` | Safe C has no rules for the attribute '%0', which may change what the compiler believes; remove it |
@@ -124,8 +125,10 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `excl-reassigned` | %0 is an exclusive borrow of the caller's object, which the caller still owns after the call; %select{assigning a new pointer to it\|giving it away}1 would leave the caller with the wrong object; use a local variable instead |
 | `extern-local` | declare %0 at file scope (in a header), where its type and whether it may be shared are checked |
 | `field-borrow-ended` | this pointer is borrowed from '%0', and the borrow ends (the field is taken, replaced, or lent to an exclusive parameter) before its last use; read '%0' again after that point, or finish using the pointer first |
+| `flex-bytes` | %0 keeps the length of its own array, so writing its bytes can make the length wrong; assign its fields by name |
 | `fn-library-pointer` | %0 is checked only when called by name; call it inside a function of your own and use that one's address |
 | `fn-promise` | %0 of this function has different ownership or bounds annotations than in %1, so a call through the pointer would not be checked the same way; write the function's annotations in the pointer's type |
+| `format-pointer` | only a function can check its arguments against a format, and this is not one; call the function by name |
 | `free-borrowed-take` | %0 is borrowed, so its owner will free what it points to too; declare it '_Owned' if this code is responsible for freeing it |
 | `free-handle` | a %0 is closed, not freed, and only its own library makes one; use 'fclose', 'pclose' or 'closedir' |
 | `free-in-place` | freeing a pointer that is still stored in %0 leaves it dangling; move it out first, as in 'free(_Take(n->next))', where the place is '_Owned' |
@@ -146,6 +149,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `no-bounds-checks-needs-unsafe` | %0 is '_No_bounds_checks', which compiles it without run-time bounds checks; that is a promise only an audited function can make, so mark it '__unsafe' too (and say in a comment why every access is in bounds) |
 | `noescape-stored` | %0 is '_Noescape', so callers count on it not being kept, but it is stored where %1 points; drop '_Noescape' from %0, and callers will keep what it borrows alive as long as they use %1 |
 | `not-in-safe-c` | Safe C has no rules for this ('%0'), so nothing would check it; write it with ordinary statements, expressions and casts |
+| `out-arg` | %0 writes through this pointer unchecked; pass '&variable' of a plain local variable and copy the value where it belongs after the call |
 | `owned-in-union` | %0 is an '_Owned' member of an untagged union, so another member could read and free the same pointer; tag the union ('_Tagged_by', '_When'), or keep the owner outside it |
 | `owned-param-stored` | %0 is owned by this function, which frees it or gives it on, but a borrow of it is stored where %1 points, so the caller could use it after that; return it instead, or store it as an owner ('_Owned *' parameter) |
 | `owned-store` | %0 is '_Owned', so it must be given a pointer it may free: a new allocation, an owned local (which is then moved), or '_Take(...)' of another owned field; this value is borrowed, so its owner would free it too |
@@ -157,6 +161,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `partial-pointer` | %0 holds pointers, so it is copied or cleared only whole: the size must be 'n * sizeof' of it |
 | `pragma-not-in-safe-c` | Safe C has no rules for '#pragma %0', which may change what names or memory mean; remove it |
 | `printf-n` | '%%n' stores through a pointer nothing checks; use the value 'printf' returns |
+| `printf-single` | '%%s' reads until a zero byte, and nothing says this pointer has one; declare it '__null_terminated' (a 'const char *' already is) |
 | `printf-star` | nothing checks that this buffer holds as many characters as '%%.*s' is told to print; print it with 'fwrite(p, 1, n, file)', or pass a terminated string ('__null_terminated') |
 | `realloc-pointers` | %0 holds pointers, and the memory 'realloc' adds is not zeroed, so its pointers would be garbage; 'calloc' the larger array and move the elements over ('_Take' each owned pointer) |
 | `reborrow-ended` | %0 returns a borrow of '%1', which ends (an owned field of it is taken or replaced, or it is lent exclusively or given away) before this pointer's last use; call %0 again after that point, or finish using the pointer first |
@@ -198,6 +203,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `view-storage` | %select{global\|field}0 %1 holds a '_View' struct, whose borrows are tracked only in locals and parameters; make it a local, or pass it as a parameter |
 | `view-write-through-pointer` | writing a borrow into a '_View' through a pointer can outlive what it points to, because the view's own lifetime is unknown here; write to a local view by name ('v = ...' or a field of 'v'), or write through the local '_Owned' pointer that holds the views ('struct %0 *_Owned v = calloc(n, sizeof *v)'), whose borrows are tracked |
 | `vla-param` | a parameter whose row length is another parameter is not checked; pass one row at a time, or a flat array with '__counted_by(rows * cols)' |
+| `vla-pointer` | the length in this pointer's type (%0) is not checked against what it points to; use a pointer to the element with '__counted_by(n)' |
 | `vla-pointers` | a variable-length array is not zeroed, and %0 holds pointers, which would be garbage; use a fixed size, or 'calloc' |
 | `void-over-pointers` | %0 holds pointers, and as a 'void *' kept here its bytes could be overwritten (memcpy, memset, read), forging them; keep the pointer's own type, use 'const void *' if it is only read, or pass it directly in the call that needs 'void *' |
 | `when-duplicate` | tag value %0 is claimed by both %1 and %2; each value must name one live member |

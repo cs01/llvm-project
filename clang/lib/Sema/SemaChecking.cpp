@@ -5108,7 +5108,9 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
       static const llvm::StringSet<> Never = {
           "setvbuf", "setbuf", "setbuffer", "setlinebuf", "setenv", "putenv",
           "unsetenv", "munmap", "mmap", "strtok", "strtok_r", "strsep",
-          "strfmon", "strfmon_l", "poll", "getline", "getdelim", "vsprintf"};
+          "strfmon", "strfmon_l", "poll", "vm_deallocate", "mach_vm_deallocate",
+          "vm_protect", "mach_vm_protect", "vm_map", "mach_vm_map",
+          "vm_remap", "vm_write", "mach_vm_write", "getline", "getdelim", "vsprintf"};
       bool Bad = Never.contains(FD->getName());
       if (!Bad && !Checked.contains(FD->getName()))
         for (unsigned I = 0, N = std::min(FD->getNumParams(),

@@ -387,6 +387,24 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"extern-local", false,
      "declare %0 at file scope (in a header), where its type and whether it "
      "may be shared are checked"},
+    {"alloca", false,
+     "'alloca' is checked only with a constant size and in a function with no "
+     "variable-length array; use a fixed-size array, or 'malloc' and 'free'"},
+    {"out-arg", false,
+     "%0 writes through this pointer unchecked; pass '&variable' of a plain "
+     "local variable and copy the value where it belongs after the call"},
+    {"vla-pointer", false,
+     "the length in this pointer's type (%0) is not checked against what it "
+     "points to; use a pointer to the element with '__counted_by(n)'"},
+    {"flex-bytes", false,
+     "%0 keeps the length of its own array, so writing its bytes can make the "
+     "length wrong; assign its fields by name"},
+    {"printf-single", false,
+     "'%%s' reads until a zero byte, and nothing says this pointer has one; "
+     "declare it '__null_terminated' (a 'const char *' already is)"},
+    {"format-pointer", false,
+     "only a function can check its arguments against a format, and this is "
+     "not one; call the function by name"},
     {"vla-pointers", false,
      "a variable-length array is not zeroed, and %0 holds pointers, which "
      "would be garbage; use a fixed size, or 'calloc'"},
@@ -1592,7 +1610,22 @@ public:
       Sema *S;
       SourceLocation At;
       unsigned Uses = 0;
-      bool Loop = false, Ended = false;
+      const ValueDecl *Fmt = nullptr;
+      bool Loop = false, Ended = false, Changed = false;
+      bool names(const Expr *E) {
+        const auto *DRE = dyn_cast<DeclRefExpr>(E->IgnoreParenImpCasts());
+        return Fmt && DRE && DRE->getDecl() == Fmt;
+      }
+      bool VisitUnaryOperator(UnaryOperator *U) {
+        Changed |=
+            (U->isIncrementDecrementOp() || U->getOpcode() == UO_AddrOf) &&
+            names(U->getSubExpr());
+        return true;
+      }
+      bool VisitBinaryOperator(BinaryOperator *B) {
+        Changed |= B->isAssignmentOp() && names(B->getLHS());
+        return true;
+      }
       bool VisitCallExpr(CallExpr *C) {
         const FunctionDecl *FD = C->getDirectCallee();
         if (FD && FD->getIdentifier() &&
@@ -1611,8 +1644,10 @@ public:
     } Sc;
     Sc.S = &S;
     Sc.At = Call->getExprLoc();
+    // The callers' arguments were checked against the format as passed.
+    Sc.Fmt = DRE ? DRE->getDecl() : nullptr;
     Sc.TraverseStmt(const_cast<Stmt *>(Body));
-    if (!Ok || Sc.Loop || Sc.Ended || Sc.Uses != 1)
+    if (!Ok || Sc.Changed || Sc.Loop || Sc.Ended || Sc.Uses != 1)
       S.SafeCDiag(Call->getExprLoc(), "valist");
   }
   bool checkParam(const ParmVarDecl *P) {
@@ -1971,7 +2006,31 @@ public:
                                "DIR"},
                               RD->getName());
   }
+  // Arguments of 'free', which writes nothing.
+  llvm::SmallPtrSet<const Expr *, 8> FlexMayConvert;
   bool VisitCastExpr(CastExpr *C) {
+    QualType FromT = C->getSubExpr()->getType(), ToT = C->getType();
+    if (FromT->isPointerType() && ToT->isPointerType()) {
+      const auto *RD = FromT->getPointeeType()->getAsRecordDecl();
+      RD = RD ? RD->getDefinition() : nullptr;
+      if (RD && RD->hasFlexibleArrayMember() && !FlexMayConvert.count(C) &&
+          !ToT->getPointeeType()->isRecordType() &&
+          !ToT->getPointeeType().isConstQualified()) {
+        const FieldDecl *Last = nullptr;
+        for (const FieldDecl *F : RD->fields())
+          Last = F;
+        if (Last && Last->getType()->getAs<CountAttributedType>())
+          S.SafeCDiag(C->getExprLoc(), "flex-bytes") << FromT->getPointeeType();
+      }
+      if (ToT->getPointeeType()->isVariablyModifiedType() &&
+          !FromT->getPointeeType()->isVariablyModifiedType() &&
+          C->getCastKind() != CK_ArrayToPointerDecay)
+        S.SafeCDiag(C->getExprLoc(), "vla-pointer") << ToT;
+      if (ToT->isFunctionPointerType() && FromT->isFunctionPointerType())
+        if (ToT->getPointeeType()->castAs<FunctionType>()->getNoReturnAttr() &&
+            !FromT->getPointeeType()->castAs<FunctionType>()->getNoReturnAttr())
+          S.SafeCDiag(C->getExprLoc(), "fn-promise") << "'noreturn'" << ToT;
+    }
     if (QualType From = C->getSubExpr()->getType();
         From->isPointerType() &&
         From->getPointeeType()->isAtomicType() &&
@@ -2016,6 +2075,17 @@ public:
   }
 
   bool VisitVarDecl(VarDecl *VD) {
+    if (VD->hasAttr<FormatAttr>())
+      S.SafeCDiag(VD->getLocation(), "format-pointer");
+    if (VD->isLocalVarDecl() && S.Context.getAsVariableArrayType(VD->getType())) {
+      // Leaving its block also gives back what 'alloca' took in it.
+      SawVLA = VD->getLocation();
+      if (SawAlloca.isValid())
+        S.SafeCDiag(SawAlloca, "alloca");
+    }
+    if (VD->getType()->isPointerType() && !isa<ParmVarDecl>(VD) &&
+        VD->getType()->getPointeeType()->isVariablyModifiedType())
+      S.SafeCDiag(VD->getLocation(), "vla-pointer") << VD->getType();
     if (VD->isLocalExternDecl())
       S.SafeCDiag(VD->getLocation(), "extern-local") << VD;
     if (isLibraryHandle(VD->getType()))
@@ -2336,7 +2406,58 @@ public:
           checkSignalHandler(BO->getRHS());
   }
 
+  SourceLocation SawAlloca, SawVLA;
+  void checkOutCall(const CallExpr *Call) {
+    const FunctionDecl *F = Call->getDirectCallee();
+    if (!F || !F->getIdentifier())
+      return;
+    StringRef N = F->getName();
+    N.consume_front("__builtin_");
+    if (F->getBuiltinID() && N.starts_with("alloca")) {
+      SawAlloca = Call->getExprLoc();
+      Expr::EvalResult R;
+      if (!Call->getNumArgs() || !Call->getArg(0)->EvaluateAsInt(R, S.Context) ||
+          R.Val.getInt().ugt(1 << 20) || SawVLA.isValid())
+        S.SafeCDiag(SawAlloca, "alloca");
+      return;
+    }
+    // An out pointer the compiler or library writes whole: only a plain local,
+    // which is not null, not out of bounds and not the count of a pointer.
+    if (!(F->getBuiltinID() && N.ends_with("_overflow")) &&
+        !(F->isExternC() &&
+          llvm::is_contained({"frexp", "frexpf", "frexpl", "modf", "modff",
+                              "modfl", "remquo", "remquof", "remquol"},
+                             N)))
+      return;
+    const Expr *Out = Call->getNumArgs()
+                          ? lifetimes::safeCPeel(
+                                Call->getArg(Call->getNumArgs() - 1))
+                          : nullptr;
+    const auto *UO = dyn_cast_or_null<UnaryOperator>(
+        Out ? Out->IgnoreParenCasts() : nullptr);
+    const auto *DRE =
+        UO && UO->getOpcode() == UO_AddrOf
+            ? dyn_cast<DeclRefExpr>(UO->getSubExpr()->IgnoreParens())
+            : nullptr;
+    const auto *VD = DRE ? dyn_cast<VarDecl>(DRE->getDecl()) : nullptr;
+    if (!VD || !VD->hasLocalStorage() || VD->hasAttr<DependerDeclsAttr>() ||
+        !VD->getType()->isArithmeticType())
+      S.SafeCDiag(Out ? Out->getExprLoc() : Call->getExprLoc(), "out-arg") << F;
+  }
   bool VisitCallExpr(CallExpr *Call) {
+    checkOutCall(Call);
+    if (const FunctionDecl *F = Call->getDirectCallee();
+        F && F->getIdentifier() && F->getName() == "free")
+      for (const Expr *A : Call->arguments())
+        while (true) {
+          FlexMayConvert.insert(A);
+          if (const auto *PE = dyn_cast<ParenExpr>(A))
+            A = PE->getSubExpr();
+          else if (const auto *IC = dyn_cast<ImplicitCastExpr>(A))
+            A = IC->getSubExpr();
+          else
+            break;
+        }
     for (const Expr *Arg : Call->arguments()) {
       checkSlotCall(Arg);
       // `f(c ? &a : &b)`: which owner f can reach cannot be told.

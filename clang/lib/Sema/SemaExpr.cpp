@@ -7367,6 +7367,14 @@ bool Sema::GatherArgumentsForCall(SourceLocation CallLoc, FunctionDecl *FDecl,
           int64_t Prec = SafeCStrArgs.lookup(J - SafeCFirstDataArg);
           const auto *CAT = Context.getAsConstantArrayType(
               A->IgnoreParens()->getType());
+          if (A->getType()->isSinglePointerType() &&
+              !A->getType()->isValueTerminatedType() &&
+              A->getType()->getPointeeType()->isCharType() &&
+              !isa<StringLiteral>(A->IgnoreParenImpCasts()) && Prec != 1 &&
+              Prec != -2 &&
+              !A->isNullPointerConstant(Context,
+                                        Expr::NPC_ValueDependentIsNotNull))
+            SafeCDiag(A->getExprLoc(), "printf-single");
           if (Prec == -2) {
             const auto *PT = A->getType()->getAs<PointerType>();
             if (!isa<StringLiteral>(A->IgnoreParenImpCasts()) &&

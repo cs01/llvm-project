@@ -9327,7 +9327,6 @@ ProcessDeclAttribute(Sema &S, Decl *D, const ParsedAttr &AL,
     case ParsedAttr::AT_Unavailable:
     case ParsedAttr::AT_Availability:
     case ParsedAttr::AT_Format:
-    case ParsedAttr::AT_FormatArg:
     case ParsedAttr::AT_NonNull:
     case ParsedAttr::AT_NoReturn:
     case ParsedAttr::AT_AnalyzerNoReturn:
