@@ -18,5 +18,5 @@ int main(void) {
   const char *__null_terminated _Nullable c = strchr("abc", 'b'); strcmp("a", "b"); strncmp("a", "b", 1); strstr("abc", "b"); strlcpy(b, "x", 8); strspn("a","b");
   unlink("/tmp/x"); mkdir("/tmp/x", 0700); getcwd(b, 8); access("/", 0); isatty(1); 
   double d; modf(1.5, &d); pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER; pthread_mutex_lock(&m); pthread_mutex_unlock(&m);
-  (void)c; return atoi("3") + isalpha('a') + (int)sqrt(2.0);
+  (void)c; return (int)strtol("3", NULL, 10) + isalpha('a') + (int)sqrt(2.0);
 }
