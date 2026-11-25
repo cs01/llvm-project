@@ -65,7 +65,7 @@ enum json_result_t {
 };
 typedef int JSON_Status;
 
-typedef void *_Nullable __sized_by_or_null(size) (*JSON_Malloc_Function)(size_t size);
+typedef void *_Owned _Nullable __sized_by_or_null(size) (*JSON_Malloc_Function)(size_t size);
 typedef void   (*JSON_Free_Function)(void *_Nullable _Owned __unsafe_indexable ptr);
 
 /* A function used for serializing numbers (see json_set_number_serialization_function).
@@ -77,7 +77,7 @@ typedef int (*JSON_Number_Serialization_Function)(double num, char *_Nullable __
 
 /* Call only once, before calling any other function from parson API. If not called, malloc and free
    from stdlib will be used for all allocations */
-void json_set_allocation_functions(JSON_Malloc_Function malloc_fun, JSON_Free_Function free_fun );
+void json_set_allocation_functions(JSON_Malloc_Function malloc_fun, JSON_Free_Function free_fun);
 
 /* Sets if slashes should be escaped or not when serializing JSON. By default slashes are escaped.
  This function sets a global setting and is not thread safe. */
@@ -93,30 +93,30 @@ void json_set_float_serialization_format(const char *_Nullable format _Noescape)
 void json_set_number_serialization_function(JSON_Number_Serialization_Function _Nullable fun);
 
 /* Parses first JSON value in a file, returns NULL in case of error */
- JSON_Value *_Nullable json_parse_file(const char *filename _Noescape);
+ JSON_Value *_Owned _Nullable json_parse_file(const char *filename _Noescape);
 
 /* Parses first JSON value in a file and ignores comments (/ * * / and //),
    returns NULL in case of error */
- JSON_Value *_Nullable json_parse_file_with_comments(const char *filename _Noescape);
+ JSON_Value *_Owned _Nullable json_parse_file_with_comments(const char *filename _Noescape);
 
 /*  Parses first JSON value in a string, returns NULL in case of error */
- JSON_Value *_Nullable json_parse_string(const char *_Nullable string _Noescape);
+ JSON_Value *_Owned _Nullable json_parse_string(const char *_Nullable string _Noescape);
 
 /*  Parses first JSON value in a string and ignores comments (/ * * / and //),
     returns NULL in case of error */
- JSON_Value *_Nullable json_parse_string_with_comments(const char *_Nullable string _Noescape);
+ JSON_Value *_Owned _Nullable json_parse_string_with_comments(const char *_Nullable string _Noescape);
 
 /* Serialization */
 size_t      json_serialization_size(const JSON_Value *_Nullable value); /* returns 0 on fail */
 JSON_Status json_serialize_to_buffer(const JSON_Value *_Nullable value, char *__counted_by(buf_size_in_bytes) buf, size_t buf_size_in_bytes);
 JSON_Status json_serialize_to_file(const JSON_Value *_Nullable value, const char *filename _Noescape);
- char *_Nullable __null_terminated json_serialize_to_string(const JSON_Value *_Nullable value);
+ char *_Owned _Nullable __null_terminated json_serialize_to_string(const JSON_Value *_Nullable value);
 
 /* Pretty serialization */
 size_t      json_serialization_size_pretty(const JSON_Value *_Nullable value); /* returns 0 on fail */
 JSON_Status json_serialize_to_buffer_pretty(const JSON_Value *_Nullable value, char *__counted_by(buf_size_in_bytes) buf, size_t buf_size_in_bytes);
 JSON_Status json_serialize_to_file_pretty(const JSON_Value *_Nullable value, const char *filename _Noescape);
- char *_Nullable __null_terminated json_serialize_to_string_pretty(const JSON_Value *_Nullable value);
+ char *_Owned _Nullable __null_terminated json_serialize_to_string_pretty(const JSON_Value *_Nullable value);
 
 void        json_free_serialized_string(char *_Nullable _Owned __null_terminated string); /* frees string from json_serialize_to_string and json_serialize_to_string_pretty */
 
@@ -244,9 +244,9 @@ JSON_Status json_array_append_null(JSON_Array * _Nullable array);
  JSON_Value *_Nullable json_value_init_object (void);
  JSON_Value *_Nullable json_value_init_array  (void);
  JSON_Value *_Nullable json_value_init_string (const char *_Nullable string _Noescape); /* copies passed string */
- JSON_Value *_Nullable json_value_init_string_with_len(const char *_Nullable __counted_by_or_null(length) string, size_t length); /* copies passed string, length shouldn't include last null character */
+ JSON_Value *_Owned _Nullable json_value_init_string_with_len(const char *_Nullable __counted_by_or_null(length) string, size_t length); /* copies passed string, length shouldn't include last null character */
  JSON_Value *_Nullable json_value_init_number (double number);
- JSON_Value *_Nullable json_value_init_boolean(int boolean);
+ JSON_Value *_Owned _Nullable json_value_init_boolean(int boolean);
  JSON_Value *_Nullable json_value_init_null   (void);
  JSON_Value *_Nullable json_value_deep_copy   (const JSON_Value *_Nullable value);
 void         json_value_free        (JSON_Value *_Nullable _Owned value);

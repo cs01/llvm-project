@@ -28,7 +28,7 @@
 #include "unity/src/unity.h"
 #include "common.h"
 
-static void *_Nullable __sized_by_or_null(size) CJSON_CDECL failing_malloc(size_t size)
+static void *_Owned _Nullable __sized_by_or_null(size) CJSON_CDECL failing_malloc(size_t size)
 {
     (void)size;
     return NULL;

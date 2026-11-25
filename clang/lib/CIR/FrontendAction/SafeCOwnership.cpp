@@ -556,6 +556,12 @@ public:
         const Expr *From = C->getSubExpr()->IgnoreParenImpCasts();
         if (From->getType()->isVoidPointerType() && isa<CallExpr>(From))
           return true;
+        // Between numbers, nothing is owned (bounds and alignment are checked
+        // elsewhere).
+        if (From->getType()->isPointerType() && C->getType()->isPointerType() &&
+            From->getType()->getPointeeType()->isArithmeticType() &&
+            C->getType()->getPointeeType()->isArithmeticType())
+          return true;
         if (C->getType()->isPointerType() && !Invalid && *P == '(' &&
             !C->getSubExpr()->isNullPointerConstant(
                 R.Ctx, Expr::NPC_ValueDependentIsNotNull))

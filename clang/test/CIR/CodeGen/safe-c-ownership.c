@@ -93,3 +93,9 @@ void believed(int c) {
   if (c)
     abort();
 }
+// A cast between pointers to numbers keeps the borrow.
+unsigned char as_bytes(char *_Owned p) {
+  unsigned char *q = (unsigned char *)p;
+  free(p);
+  return *q; // expected-error {{'q' is read after it was freed on line}}
+}

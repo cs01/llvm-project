@@ -81,7 +81,7 @@ void serialization_example(void);
 static _Thread_local const char *_Static g_tests_path = "tests";
 
 static _Thread_local int g_malloc_count = 0;
-static void *_Nullable __sized_by_or_null(size) counted_malloc(size_t size);
+static void *_Owned _Nullable __sized_by_or_null(size) counted_malloc(size_t size);
 static void counted_free(void *_Nullable _Owned __unsafe_indexable ptr);
 
 typedef struct failing_alloc {
@@ -94,7 +94,7 @@ typedef struct failing_alloc {
 
 static _Thread_local failing_alloc_t g_failing_alloc;
 
-static void *_Nullable __sized_by_or_null(size) failing_malloc(size_t size);
+static void *_Owned _Nullable __sized_by_or_null(size) failing_malloc(size_t size);
 static void failing_free(void *_Nullable _Owned __unsafe_indexable ptr);
 
 static char *_Nullable __null_terminated read_file(const char * filename _Noescape);
@@ -929,7 +929,7 @@ const char* get_file_path(const char *filename _Noescape) {
     __unsafe { return __unsafe_null_terminated_from_indexable(path_buf); }
 }
 
-static void *_Nullable __sized_by_or_null(size) counted_malloc(size_t size) {
+static void *_Owned _Nullable __sized_by_or_null(size) counted_malloc(size_t size) {
     void *_Nullable _Owned res = malloc(size);
     if (res != NULL) {
         g_malloc_count++;
@@ -944,7 +944,7 @@ static void counted_free(void *_Nullable _Owned __unsafe_indexable ptr) {
     free(ptr);
 }
 
-static void *_Nullable __sized_by_or_null(size) failing_malloc(size_t size) {
+static void *_Owned _Nullable __sized_by_or_null(size) failing_malloc(size_t size) {
     void *_Nullable _Owned res = NULL;
     if (g_failing_alloc.should_fail && g_failing_alloc.total_count >= g_failing_alloc.allocation_to_fail) {
         g_failing_alloc.has_failed = 1;

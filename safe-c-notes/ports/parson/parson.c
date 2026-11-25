@@ -94,7 +94,7 @@
 
 /* Wrappers, because the hook types carry annotations that libc's own
  * declarations spell differently. */
-static void *_Nullable __sized_by_or_null(size) default_malloc(size_t size) {
+static void *_Owned _Nullable __sized_by_or_null(size) default_malloc(size_t size) {
     return malloc(size);
 }
 
@@ -116,7 +116,7 @@ static JSON_Number_Serialization_Function _Nullable parson_number_serialization_
 /* unsafe: the one place that trusts a user-supplied malloc to return 'size'
  * fresh bytes. alloc_size lets callers give the result a type. */
 __unsafe __attribute__((alloc_size(1)))
-static void *_Nullable parson_malloc(size_t size) {
+static void *_Owned _Nullable parson_malloc(size_t size) {
     return parson_malloc_hook(size);
 }
 
@@ -180,10 +180,10 @@ typedef struct json_writer {
 } JSON_Writer;
 
 /* Various */
-static char *_Nullable __null_terminated read_file(const char *filename);
+static char *_Owned _Nullable __null_terminated read_file(const char *filename);
 static void   remove_comments(char *__counted_by(length) string, size_t length, const char *start_token, const char *end_token);
-static char *_Nullable __null_terminated parson_strndup(const char *__counted_by(n) string, size_t n);
-static char *_Nullable __null_terminated parson_strdup(const char *string _Noescape);
+static char *_Owned _Nullable __null_terminated parson_strndup(const char *__counted_by(n) string, size_t n);
+static char *_Owned _Nullable __null_terminated parson_strdup(const char *string _Noescape);
 static void   skip_chars(const char **string, size_t n);
 
 static int           hex_char_to_int(char c);
@@ -195,7 +195,7 @@ static parson_bool_t is_decimal(const char *string _Noescape, size_t length);
 static unsigned long hash_string(const char *string _Noescape, size_t n);
 
 /* JSON Object */
-static JSON_Object *_Nullable json_object_make(JSON_Value * wrapping_value);
+static JSON_Object *_Owned _Nullable json_object_make(JSON_Value * wrapping_value);
 static JSON_Status   json_object_grow_and_rehash(JSON_Object * object);
 static size_t        json_object_get_cell_ix(const JSON_Object *object, const char *key _Noescape, size_t key_len, unsigned long hash, parson_bool_t *out_found);
 static JSON_Status   json_object_add(JSON_Object * object, char *_Owned __null_terminated name, JSON_Value *_Owned value);
@@ -203,36 +203,36 @@ static JSON_Value  *_Nullable json_object_getn_value(const JSON_Object *_Nullabl
 static void          json_object_free(JSON_Object *_Nullable _Owned object);
 
 /* JSON Array */
-static JSON_Array *_Nullable json_array_make(JSON_Value * wrapping_value);
+static JSON_Array *_Owned _Nullable json_array_make(JSON_Value * wrapping_value);
 static JSON_Status  json_array_reserve(JSON_Array * array);
 static JSON_Status  json_array_add(JSON_Array * array, JSON_Value *_Owned value);
 static JSON_Status  json_array_resize(JSON_Array * array, size_t new_capacity);
 static void         json_array_free(JSON_Array *_Nullable _Owned array);
 
 /* JSON Value */
-static JSON_Value *_Nullable json_value_init_string_no_copy(char *_Owned __counted_by(size) string, size_t size);
+static JSON_Value *_Owned _Nullable json_value_init_string_no_copy(char *_Owned __counted_by(size) string, size_t size);
 static JSON_Chars json_value_get_chars(const JSON_Value *_Nullable value);
 
 /* Parser */
 static JSON_Status   skip_quotes(const char **string, size_t *length _Noescape);
 static JSON_Status   parse_utf16(const char **unprocessed, char *__counted_by(output_size) output, size_t output_size, size_t *output_pos);
-static char *_Nullable __bidi_indexable process_string(const char *input _Noescape, size_t input_len, size_t *output_len _Noescape);
-static char *_Nullable __bidi_indexable get_quoted_string(const char **string, size_t *output_string_len _Noescape);
-static char *_Nullable __null_terminated get_quoted_key(const char **string);
-static JSON_Value *_Nullable parse_object_value(const char **string, size_t nesting);
-static JSON_Value *_Nullable parse_array_value(const char **string, size_t nesting);
-static JSON_Value *_Nullable parse_string_value(const char **string);
-static JSON_Value *_Nullable parse_boolean_value(const char **string);
-static JSON_Value *_Nullable parse_number_value(const char **string);
-static JSON_Value *_Nullable parse_null_value(const char **string);
-static JSON_Value *_Nullable parse_value(const char **string, size_t nesting);
+static char *_Owned _Nullable __bidi_indexable process_string(const char *input _Noescape, size_t input_len, size_t *output_len _Noescape);
+static char *_Owned _Nullable __bidi_indexable get_quoted_string(const char **string, size_t *output_string_len _Noescape);
+static char *_Owned _Nullable __null_terminated get_quoted_key(const char **string);
+static JSON_Value *_Owned _Nullable parse_object_value(const char **string, size_t nesting);
+static JSON_Value *_Owned _Nullable parse_array_value(const char **string, size_t nesting);
+static JSON_Value *_Owned _Nullable parse_string_value(const char **string);
+static JSON_Value *_Owned _Nullable parse_boolean_value(const char **string);
+static JSON_Value *_Owned _Nullable parse_number_value(const char **string);
+static JSON_Value *_Owned _Nullable parse_null_value(const char **string);
+static JSON_Value *_Owned _Nullable parse_value(const char **string, size_t nesting);
 
 /* Serialization */
 static JSON_Status json_serialize_r(const JSON_Value *_Nullable value, JSON_Writer *writer, int level, parson_bool_t is_pretty);
 static void json_serialize_string(const char *__counted_by(len) string _Noescape, size_t len, JSON_Writer *writer);
 
 /* Various */
-static char *_Nullable __null_terminated read_file(const char * filename) {
+static char *_Owned _Nullable __null_terminated read_file(const char * filename) {
     FILE *_Nullable fp = fopen(filename, "r");
     size_t size_to_read = 0;
     size_t size_read = 0;
@@ -306,7 +306,7 @@ static void remove_comments(char *__counted_by(length) string, size_t length, co
     }
 }
 
-static char *_Nullable __null_terminated parson_strndup(const char *__counted_by(n) string, size_t n) {
+static char *_Owned _Nullable __null_terminated parson_strndup(const char *__counted_by(n) string, size_t n) {
     /* We expect the caller has validated that 'n' fits within the input buffer. */
     char *_Nullable _Owned output_string = (char*)parson_malloc(n + 1);
     if (!output_string) {
@@ -318,7 +318,7 @@ static char *_Nullable __null_terminated parson_strndup(const char *__counted_by
     __unsafe { return __unsafe_null_terminated_from_indexable(output_string, output_string + n); }
 }
 
-static char *_Nullable __null_terminated parson_strdup(const char *string _Noescape) {
+static char *_Owned _Nullable __null_terminated parson_strdup(const char *string _Noescape) {
     size_t n = strlen(string);
     return parson_strndup(__null_terminated_to_indexable(string), n);
 }
@@ -475,7 +475,7 @@ static unsigned long hash_string(const char *string _Noescape, size_t n) {
 }
 
 /* JSON Object */
-static JSON_Object *_Nullable json_object_make(JSON_Value * wrapping_value) {
+static JSON_Object *_Owned _Nullable json_object_make(JSON_Value * wrapping_value) {
     JSON_Object *_Nullable _Owned new_obj = (JSON_Object*)parson_malloc(sizeof(JSON_Object));
     if (new_obj == NULL) {
         return NULL;
@@ -726,7 +726,7 @@ static void json_object_free(JSON_Object *_Nullable _Owned object) {
 }
 
 /* JSON Array */
-static JSON_Array *_Nullable json_array_make(JSON_Value * wrapping_value) {
+static JSON_Array *_Owned _Nullable json_array_make(JSON_Value * wrapping_value) {
     JSON_Array *_Nullable _Owned new_array = (JSON_Array*)parson_malloc(sizeof(JSON_Array));
     if (new_array == NULL) {
         return NULL;
@@ -799,7 +799,7 @@ static void json_array_free(JSON_Array *_Nullable _Owned array) {
 }
 
 /* JSON Value */
-static JSON_Value *_Nullable json_value_init_string_no_copy(char *_Owned __counted_by(size) string, size_t size) {
+static JSON_Value *_Owned _Nullable json_value_init_string_no_copy(char *_Owned __counted_by(size) string, size_t size) {
     JSON_Value *_Nullable _Owned new_value = (JSON_Value*)parson_malloc(sizeof(JSON_Value));
     if (!new_value) {
         parson_free(string);
@@ -889,7 +889,7 @@ static JSON_Status parse_utf16(const char **unprocessed, char *__counted_by(outp
 
 /* Copies and processes passed string up to supplied length.
 Example: "\u006Corem ipsum" -> lorem ipsum */
-static char *_Nullable __bidi_indexable process_string(const char *input _Noescape, size_t input_len, size_t *output_len _Noescape) {
+static char *_Owned _Nullable __bidi_indexable process_string(const char *input _Noescape, size_t input_len, size_t *output_len _Noescape) {
     const char *input_ptr = input;
     size_t initial_size = (input_len + 1) * sizeof(char);
     size_t final_size = 0;
@@ -947,7 +947,7 @@ error:
 
 /* Return processed contents of a string between quotes and
    skips passed argument to a matching quote. */
-static char *_Nullable __bidi_indexable get_quoted_string(const char **string, size_t *output_string_len _Noescape) {
+static char *_Owned _Nullable __bidi_indexable get_quoted_string(const char **string, size_t *output_string_len _Noescape) {
     const char *string_start = *string;
     size_t input_string_len = 0;
     JSON_Status status = skip_quotes(string, &input_string_len);
@@ -959,7 +959,7 @@ static char *_Nullable __bidi_indexable get_quoted_string(const char **string, s
 }
 
 /* Like get_quoted_string, for keys: we do not support key names with embedded \0 chars */
-static char *_Nullable __null_terminated get_quoted_key(const char **string) {
+static char *_Owned _Nullable __null_terminated get_quoted_key(const char **string) {
     size_t length = 0;
     char *_Nullable _Owned key = get_quoted_string(string, &length);
     if (key == NULL) {
@@ -973,7 +973,7 @@ static char *_Nullable __null_terminated get_quoted_key(const char **string) {
     __unsafe { return __unsafe_null_terminated_from_indexable(key, key + length); }
 }
 
-static JSON_Value *_Nullable parse_value(const char **string, size_t nesting) {
+static JSON_Value *_Owned _Nullable parse_value(const char **string, size_t nesting) {
     if (nesting > MAX_NESTING) {
         return NULL;
     }
@@ -998,7 +998,7 @@ static JSON_Value *_Nullable parse_value(const char **string, size_t nesting) {
     }
 }
 
-static JSON_Value *_Nullable parse_object_value(const char **string, size_t nesting) {
+static JSON_Value *_Owned _Nullable parse_object_value(const char **string, size_t nesting) {
     JSON_Value *_Nullable _Owned output_value = NULL;
     JSON_Object *_Nullable output_object = NULL;
 
@@ -1061,7 +1061,7 @@ static JSON_Value *_Nullable parse_object_value(const char **string, size_t nest
     return output_value;
 }
 
-static JSON_Value *_Nullable parse_array_value(const char **string, size_t nesting) {
+static JSON_Value *_Owned _Nullable parse_array_value(const char **string, size_t nesting) {
     JSON_Value *_Nullable _Owned output_value = NULL;
     JSON_Array *_Nullable output_array = NULL;
     output_value = json_value_init_array();
@@ -1110,7 +1110,7 @@ static JSON_Value *_Nullable parse_array_value(const char **string, size_t nesti
     return output_value;
 }
 
-static JSON_Value *_Nullable parse_string_value(const char **string) {
+static JSON_Value *_Owned _Nullable parse_string_value(const char **string) {
     size_t new_string_len = 0;
     char *_Nullable _Owned new_string = get_quoted_string(string, &new_string_len);
     if (new_string == NULL) {
@@ -1119,7 +1119,7 @@ static JSON_Value *_Nullable parse_string_value(const char **string) {
     return json_value_init_string_no_copy(new_string, new_string_len + 1);
 }
 
-static JSON_Value *_Nullable parse_boolean_value(const char **string) {
+static JSON_Value *_Owned _Nullable parse_boolean_value(const char **string) {
     size_t true_token_size = SIZEOF_TOKEN("true");
     size_t false_token_size = SIZEOF_TOKEN("false");
     if (strncmp("true", *string, true_token_size) == 0) {
@@ -1132,7 +1132,7 @@ static JSON_Value *_Nullable parse_boolean_value(const char **string) {
     return NULL;
 }
 
-static JSON_Value *_Nullable parse_number_value(const char **string) {
+static JSON_Value *_Owned _Nullable parse_number_value(const char **string) {
     char *__null_terminated end;
     double number = 0;
     errno = 0;
@@ -1147,7 +1147,7 @@ static JSON_Value *_Nullable parse_number_value(const char **string) {
     return json_value_init_number(number);
 }
 
-static JSON_Value *_Nullable parse_null_value(const char **string) {
+static JSON_Value *_Owned _Nullable parse_null_value(const char **string) {
     size_t token_size = SIZEOF_TOKEN("null");
     if (strncmp("null", *string, token_size) == 0) {
         skip_chars(string, token_size);
@@ -1358,7 +1358,7 @@ static void json_serialize_string(const char *__counted_by(len) string _Noescape
 #undef APPEND_INDENT
 
 /* Parser API */
- JSON_Value *_Nullable json_parse_file(const char *filename _Noescape) {
+ JSON_Value *_Owned _Nullable json_parse_file(const char *filename _Noescape) {
     char *_Nullable _Owned __null_terminated file_contents = read_file(filename);
     JSON_Value *_Nullable _Owned output_value = NULL;
     if (file_contents == NULL) {
@@ -1369,7 +1369,7 @@ static void json_serialize_string(const char *__counted_by(len) string _Noescape
     return output_value;
 }
 
- JSON_Value *_Nullable json_parse_file_with_comments(const char *filename _Noescape) {
+ JSON_Value *_Owned _Nullable json_parse_file_with_comments(const char *filename _Noescape) {
     char *_Nullable _Owned __null_terminated file_contents = read_file(filename);
     JSON_Value *_Nullable _Owned output_value = NULL;
     if (file_contents == NULL) {
@@ -1380,7 +1380,7 @@ static void json_serialize_string(const char *__counted_by(len) string _Noescape
     return output_value;
 }
 
- JSON_Value *_Nullable json_parse_string(const char *_Nullable string _Noescape) {
+ JSON_Value *_Owned _Nullable json_parse_string(const char *_Nullable string _Noescape) {
     const char *_Nullable after_bom = string;
     size_t i = 0;
     if (string == NULL || after_bom == NULL) {
@@ -1395,7 +1395,7 @@ static void json_serialize_string(const char *__counted_by(len) string _Noescape
     return parse_value(&string, 0);
 }
 
- JSON_Value *_Nullable json_parse_string_with_comments(const char *_Nullable string _Noescape) {
+ JSON_Value *_Owned _Nullable json_parse_string_with_comments(const char *_Nullable string _Noescape) {
     JSON_Value *_Nullable _Owned result = NULL;
     size_t length = 0;
     char *_Nullable _Owned string_mutable_copy = NULL;
@@ -1664,7 +1664,7 @@ void json_value_free(JSON_Value *_Nullable _Owned value) {
     parson_free(value);
 }
 
- JSON_Value *_Nullable json_value_init_object(void) {
+ JSON_Value *_Owned _Nullable json_value_init_object(void) {
     JSON_Value *_Nullable _Owned new_value = (JSON_Value*)parson_malloc(sizeof(JSON_Value));
     JSON_Object *_Nullable _Owned object = NULL;
     if (!new_value) {
@@ -1681,7 +1681,7 @@ void json_value_free(JSON_Value *_Nullable _Owned value) {
     return new_value;
 }
 
- JSON_Value *_Nullable json_value_init_array(void) {
+ JSON_Value *_Owned _Nullable json_value_init_array(void) {
     JSON_Value *_Nullable _Owned new_value = (JSON_Value*)parson_malloc(sizeof(JSON_Value));
     JSON_Array *_Nullable _Owned array = NULL;
     if (!new_value) {
@@ -1698,7 +1698,7 @@ void json_value_free(JSON_Value *_Nullable _Owned value) {
     return new_value;
 }
 
- JSON_Value *_Nullable json_value_init_string(const char *_Nullable string _Noescape) {
+ JSON_Value *_Owned _Nullable json_value_init_string(const char *_Nullable string _Noescape) {
     size_t length = 0;
     if (string == NULL) {
         return NULL;
@@ -1707,7 +1707,7 @@ void json_value_free(JSON_Value *_Nullable _Owned value) {
     return json_value_init_string_with_len(__null_terminated_to_indexable(string), length);
 }
 
- JSON_Value *_Nullable json_value_init_string_with_len(const char *_Nullable __counted_by_or_null(length) string, size_t length) {
+ JSON_Value *_Owned _Nullable json_value_init_string_with_len(const char *_Nullable __counted_by_or_null(length) string, size_t length) {
     char *_Nullable _Owned copy = NULL;
     if (string == NULL) {
         return NULL;
@@ -1724,7 +1724,7 @@ void json_value_free(JSON_Value *_Nullable _Owned value) {
     return json_value_init_string_no_copy(copy, length + 1);
 }
 
- JSON_Value *_Nullable json_value_init_number(double number) {
+ JSON_Value *_Owned _Nullable json_value_init_number(double number) {
     JSON_Value *new_value = NULL;
     if (IS_NUMBER_INVALID(number)) {
         return NULL;
@@ -1739,7 +1739,7 @@ void json_value_free(JSON_Value *_Nullable _Owned value) {
     return new_value;
 }
 
- JSON_Value *_Nullable json_value_init_boolean(int boolean) {
+ JSON_Value *_Owned _Nullable json_value_init_boolean(int boolean) {
     JSON_Value *new_value = (JSON_Value*)parson_malloc(sizeof(JSON_Value));
     if (!new_value) {
         return NULL;
@@ -1750,7 +1750,7 @@ void json_value_free(JSON_Value *_Nullable _Owned value) {
     return new_value;
 }
 
- JSON_Value *_Nullable json_value_init_null(void) {
+ JSON_Value *_Owned _Nullable json_value_init_null(void) {
     JSON_Value *new_value = (JSON_Value*)parson_malloc(sizeof(JSON_Value));
     if (!new_value) {
         return NULL;
@@ -1761,7 +1761,7 @@ void json_value_free(JSON_Value *_Nullable _Owned value) {
     return new_value;
 }
 
- JSON_Value *_Nullable json_value_deep_copy(const JSON_Value *_Nullable value) {
+ JSON_Value *_Owned _Nullable json_value_deep_copy(const JSON_Value *_Nullable value) {
     size_t i = 0;
     JSON_Value *_Nullable _Owned return_value = NULL;
     JSON_Chars temp_string;
@@ -1897,7 +1897,7 @@ JSON_Status json_serialize_to_file(const JSON_Value *_Nullable value, const char
     return return_code;
 }
 
- char *_Nullable __null_terminated json_serialize_to_string(const JSON_Value *_Nullable value) {
+ char *_Owned _Nullable __null_terminated json_serialize_to_string(const JSON_Value *_Nullable value) {
     size_t buf_size_bytes = json_serialization_size(value);
     char *_Nullable _Owned buf = NULL;
     if (buf_size_bytes == 0) {
@@ -1950,7 +1950,7 @@ JSON_Status json_serialize_to_file_pretty(const JSON_Value *_Nullable value, con
     return return_code;
 }
 
- char *_Nullable __null_terminated json_serialize_to_string_pretty(const JSON_Value *_Nullable value) {
+ char *_Owned _Nullable __null_terminated json_serialize_to_string_pretty(const JSON_Value *_Nullable value) {
     size_t buf_size_bytes = json_serialization_size_pretty(value);
     char *_Nullable _Owned buf = NULL;
     if (buf_size_bytes == 0) {
@@ -1996,11 +1996,11 @@ JSON_Status json_array_remove(JSON_Array * _Nullable array, size_t ix) {
 /* unsafe: the public functions below take ownership of value only when they
  * succeed, which no annotation can say, so their parameter is a plain borrow.
  * Each calls this after its last failure point; the caller gave value up. */
-__unsafe static JSON_Value *adopt_value(const JSON_Value *value) {
+__unsafe static JSON_Value *_Owned adopt_value(const JSON_Value *value) {
     return (JSON_Value*)value;
 }
 
-static JSON_Value *_Nullable json_array_take(JSON_Array * array, size_t ix) {
+static JSON_Value *_Owned _Nullable json_array_take(JSON_Array * array, size_t ix) {
     return array->items ? _Take(array->items[ix]) : NULL;
 }
 
@@ -2535,7 +2535,7 @@ int json_boolean(const JSON_Value *_Nullable value) {
     return json_value_get_boolean(value);
 }
 
-void json_set_allocation_functions(JSON_Malloc_Function malloc_fun, JSON_Free_Function free_fun ) {
+void json_set_allocation_functions(JSON_Malloc_Function malloc_fun, JSON_Free_Function free_fun) {
     /* unsafe: settings, set before other calls (parson.h says so) */
     __unsafe {
         parson_malloc_hook = malloc_fun;
