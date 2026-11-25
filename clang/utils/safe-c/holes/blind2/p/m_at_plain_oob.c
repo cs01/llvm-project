@@ -1,0 +1,8 @@
+// opts:
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
+int main(int c,char**v){ _Atomic int*p=calloc(2,4); if(!p) return 1; for(int i=0;i<3;i++) p[i]++; }

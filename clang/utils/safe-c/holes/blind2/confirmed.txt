@@ -1,0 +1,86 @@
+alloca_n1 ACCEPT  O0=133 O2=139 ref=0 
+alloca_vs ACCEPT  O0=0 O2=0 ref=0 
+cc_none ACCEPT  O0=139 O2=0 ref=134 ==78898==ERROR: AddressSanitizer: stack-buffer-underflow on address 0x000106601000 at pc 0x000104318b10 bp 0x00016bae67a
+e_addovf_heap ACCEPT  O0=0 O2=0 ref=134 ==78080==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000100 at pc 0x000102c689f8 bp 0x00016d196890 
+e_addovf_null ACCEPT  O0=139 O2=133 ref=134 ==78086==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x0001025888c8 bp 0x00016d876900 sp 0x00016
+e_ckd ACCEPT  O0=0 O2=0 ref=134 ==78219==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000100 at pc 0x00010245c9dc bp 0x00016d9a28a0 
+e_frexp ACCEPT  O0=0 O2=0 ref=134 ==78244==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000100 at pc 0x000104d26cb4 bp 0x00016b96a8c0 
+e_nontemporal ACCEPT  O0=0 O2=0 ref=134 ==78225==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000100 at pc 0x000104d189d0 bp 0x00016b0e6860 
+e_vec_null ACCEPT  O0=139 O2=133 ref=134 ==78389==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x0001040985e0 bp 0x00016bd66920 sp 0x00016
+e_vec_r ACCEPT  O0=0 O2=0 ref=134 ==78250==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000100 at pc 0x0001022f896c bp 0x00016db068d0 
+e_vec_uaf ACCEPT  O0=0 O2=0 ref=134 ==78383==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000104cf0868 bp 0x00016b10e8d0 s
+f_printf_cond ACCEPT  O0=0 O2=0 ref=0 
+f_printf_constfmt ACCEPT  O0=0 O2=0 ref=0 
+f_read_flex ACCEPT  O0=0 O2=0 ref=134 ==78062==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000414 at pc 0x0001028c0b34 bp 0x00016d53e820 
+flex_cast_int ACCEPT  O0=0 O2=0 ref=134 ==78068==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000144 at pc 0x000104620b94 bp 0x00016b7de800 
+flx_single_memcpy ACCEPT  O0=0 O2=0 ref=134 ==78056==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6020000001bc at pc 0x000104cccce4 bp 0x00016b132780 
+fp_cast ACCEPT  O0=0 O2=0 ref=134 ==77251==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000104c84908 bp 0x00016b17a8b0 s
+fp_cl ACCEPT  O0=0 O2=0 ref=134 ==77226==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x0001041f8918 bp 0x00016bc068c0 s
+fp_cond ACCEPT  O0=0 O2=0 ref=134 ==77232==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x00010044c934 bp 0x00016f9b28a0 s
+fp_ret ACCEPT  O0=0 O2=0 ref=134 ==77239==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000104194910 bp 0x00016bc6a8b0 s
+fp_tab_local ACCEPT  O0=0 O2=0 ref=134 ==77245==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000104cbc99c bp 0x00016b142890 s
+g_attrfmt_fp ACCEPT  O0=139 O2=139 ref=134 ==77901==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000003 (pc 0x000102da1800 bp 0x00016d726820 sp 0x00016
+g_dgettext ACCEPT  O0=0 O2=0 ref=0 
+g_fmt_arg ACCEPT  O0=139 O2=139 ref=134 ==77895==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000005 (pc 0x000105531800 bp 0x00016b03a8e0 sp 0x00016
+g_printf_paren2 ACCEPT  O0=0 O2=0 ref=0 
+g_printf_prec_const ACCEPT  O0=0 O2=0 ref=0 
+h_lg_vamod3 ACCEPT  O0=139 O2=139 ref=134 ==77907==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000004 (pc 0x000104af1800 bp 0x00016bcce800 sp 0x00016
+h_single_heap ACCEPT  O0=0 O2=0 ref=134 ==77602==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6020000000f1 at pc 0x000103246ed0 bp 0x00016d496880 
+h_single_leak ACCEPT  O0=0 O2=0 ref=0 
+j_at_init ACCEPT  O0=0 O2=0 ref=134 WARNING: ThreadSanitizer: data race (pid=78723)
+j_atomic_cas ACCEPT  O0=0 O2=0 ref=134 ==78559==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000104f10a8c bp 0x00016aeee810 s
+j_atomic_static2 ACCEPT  O0=0 O2=0 ref=134 WARNING: ThreadSanitizer: data race (pid=78717)
+j_atomic_xchg ACCEPT  O0=0 O2=0 ref=134 ==78553==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000100b20a34 bp 0x00016f2de830 s
+j_file ACCEPT  O0=0 O2=0 ref=134 WARNING: ThreadSanitizer: data race (pid=78736)
+j_goto_null ACCEPT  O0=139 O2=0 ref=134 ==78886==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x000000000000 bp 0x00016ce8e930 sp 0x00016
+j_goto2 ACCEPT  O0=138 O2=0 ref=134 ==78880==ERROR: AddressSanitizer: BUS on unknown address (pc 0x000104bfc965 bp 0x00016b202940 sp 0x00016b2028f0 T0)
+j_heap_shared ACCEPT  O0=0 O2=0 ref=134 WARNING: ThreadSanitizer: data race (pid=78577)
+k_at_struct_own ACCEPT  O0=133 O2=133 ref=134 ==78571==ERROR: AddressSanitizer: attempting double-free on 0x6020000000f0 in thread T0:
+k_at_view2 ACCEPT  O0=0 O2=0 ref=134 ==78565==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000104e3ca6c bp 0x00016afc2810 s
+k_tls_exit ACCEPT  O0=0 O2=0 ref=134 ==78711==ERROR: AddressSanitizer: heap-use-after-free on address 0x625000000114 at pc 0x00010022cbc4 bp 0x00016fbd2810 s
+ls_leak ACCEPT  O0=0 O2=0 ref=0 
+m_at_heap_oob ACCEPT  O0=0 O2=0 ref=134 ==78395==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6020000000f8 at pc 0x000100fc09c0 bp 0x00016ee3e8a0 
+m_at_memset ACCEPT  O0=0 O2=0 ref=0 
+m_at_null ACCEPT  O0=139 O2=133 ref=134 ==78407==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x000102854608 bp 0x00016d5aa920 sp 0x00016
+m_at_plain_oob ACCEPT  O0=0 O2=0 ref=134 ==78401==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6020000000f8 at pc 0x0001047f8820 bp 0x00016b6068b0 
+m_at_scope ACCEPT  O0=0 O2=0 ref=134 ==78547==ERROR: AddressSanitizer: stack-use-after-scope on address 0x000104d01030 at pc 0x000102a5096c bp 0x00016d3ae870
+m_at_uaf ACCEPT  O0=0 O2=0 ref=134 ==78413==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000104b38890 bp 0x00016b2c68e0 s
+m_vec_elem ACCEPT  O0=134 O2=0 ref=134 ==79465==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x000104b0d040 at pc 0x000102710a8c bp 0x00016d6ee7f0
+mf_static_fn ACCEPT  O0=0 O2=0 ref=134 ==77396==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000100648780 bp 0x00016f7b68d0 s
+mf2_bf3 ACCEPT  O0=0 O2=0 ref=134 ==77571==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6020000000f7 at pc 0x0001001d8818 bp 0x00016fc268b0 
+mf2_enum ACCEPT  O0=0 O2=0 ref=134 ==77433==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6020000000f0 at pc 0x000100b80a7c bp 0x00016f27e880 
+mf2_exclfp ACCEPT  O0=0 O2=0 ref=134 ==77404==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000104538a18 bp 0x00016b8c6850 s
+mf2_pack4 ACCEPT  O0=0 O2=0 ref=134 ==77578==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x604000000448 at pc 0x0001041dc864 bp 0x00016bc22890 
+mf3_deep1 ACCEPT  O0=0 O2=0 ref=134 ==77425==ERROR: AddressSanitizer: global-buffer-overflow on address 0x000100340c08 at pc 0x000100340afc bp 0x00016fabe87
+mf3_fptab ACCEPT  O0=0 O2=0 ref=134 ==77418==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000100 at pc 0x000100d2cb04 bp 0x00016f0d2880 
+mf3_fpty3 ACCEPT  O0=0 O2=0 ref=134 ==77411==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x000104ded068 at pc 0x000102c78be4 bp 0x00016d186730
+nr_uafok ACCEPT  O0=0 O2=0 ref=134 p/nr_uafok.c:10:93: runtime error: execution reached an unreachable program point
+o_tern_move ACCEPT  O0=133 O2=133 ref=134 ==79214==ERROR: AddressSanitizer: attempting double-free on 0x6020000000f0 in thread T0:
+p_dblmove_h ACCEPT  O0=133 O2=133 ref=134 ==79057==ERROR: AddressSanitizer: attempting double-free on 0x602000000130 in thread T0:
+p_int ACCEPT  O0=0 O2=0 ref=134 ==79051==ERROR: AddressSanitizer: heap-use-after-free on address 0x602000000110 at pc 0x0001020d0b4c bp 0x00016dd2e820 s
+p_local_clr ACCEPT  O0=0 O2=0 ref=134 ==79202==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x00010030888c bp 0x00016faf6850 s
+p_movefree_arr ACCEPT  O0=133 O2=133 ref=134 ==79063==ERROR: AddressSanitizer: attempting double-free on 0x6020000000f0 in thread T0:
+p_param_loop ACCEPT  O0=133 O2=133 ref=134 ==79069==ERROR: AddressSanitizer: attempting double-free on 0x6020000000f0 in thread T0:
+p_tls_call ACCEPT  O0=0 O2=0 ref=134 ==79208==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x0001005b4880 bp 0x00016f84a8d0 s
+race_leak_ptr_arr ACCEPT  O0=0 O2=0 ref=134 WARNING: ThreadSanitizer: data race (pid=78742)
+t_arr_pass ACCEPT  O0=0 O2=0 ref=134 WARNING: ThreadSanitizer: data race (pid=78874)
+u_assign_arg ACCEPT  O0=133 O2=133 ref=134 ==79227==ERROR: AddressSanitizer: attempting double-free on 0x6020000000f0 in thread T0:
+u_assign_val ACCEPT  O0=133 O2=133 ref=134 ==79233==ERROR: AddressSanitizer: attempting double-free on 0x6020000000f0 in thread T0:
+u2_arr_init ACCEPT  O0=133 O2=133 ref=134 ==79372==ERROR: AddressSanitizer: attempting double-free on 0x6020000000f0 in thread T0:
+u2_desig ACCEPT  O0=0 O2=0 ref=134 ==79366==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000104c4c998 bp 0x00016b1b27d0 s
+u2_ret ACCEPT  O0=0 O2=0 ref=134 ==79378==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000102ab48a8 bp 0x00016d34a850 s
+uaf_fp_mismatch_table ACCEPT  O0=0 O2=0 ref=134 ==77220==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x0001041e89cc bp 0x00016bc16880 s
+vla_heap ACCEPT  O0=0 O2=0 ref=134 ==77590==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x602000000100 at pc 0x0001049bca90 bp 0x00016b442860 
+vla_implicit ACCEPT  O0=139 O2=139 ref=134 ==77584==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x000103281030 at pc 0x000100fecb74 bp 0x00016ee127f0
+w_selfpush ACCEPT  O0=0 O2=0 ref=134 ==79221==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x0001027c9234 bp 0x00016d6365b0 s
+x_freopen2 ACCEPT  O0=0 O2=0 ref=0 
+x1_fcntl_heap ACCEPT  O0=0 O2=0 ref=0 
+x1_getsockname ACCEPT  O0=0 O2=0 ref=0 
+x1_syscall ACCEPT  O0=133 O2=133 ref=134 ==79390==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x0001073c9028 at pc 0x0001058eaed0 bp 0x00016ae16820
+x1_vmdealloc ACCEPT  O0=139 O2=139 ref=134 ==79459==ERROR: AddressSanitizer: SEGV on unknown address 0x000108934814 (pc 0x0001007fcac8 bp 0x00016f602930 sp 0x00016
+y_modf ACCEPT  O0=0 O2=0 ref=134 ==78232==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6020000000f8 at pc 0x00010491098c bp 0x00016b4ee8c0 
+y_modf_null ACCEPT  O0=139 O2=133 ref=134 ==78238==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x0001041988a8 bp 0x00016bc66910 sp 0x00016
+y_ovf_cnt ACCEPT  O0=0 O2=0 ref=134 ==78074==ERROR: AddressSanitizer: global-buffer-overflow on address 0x0001028e8b28 at pc 0x0001028e8a00 bp 0x00016d51689
+z_drop_free_call ACCEPT  O0=0 O2=0 ref=134 ==78904==ERROR: AddressSanitizer: heap-use-after-free on address 0x6020000000f0 at pc 0x000100eb8880 bp 0x00016ef46850 s
+z_drop_free_call2 ACCEPT  O0=134 O2=134 ref=134 ==79037==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x000100932588 bp 0x00016fcca010 sp 0x00016
+z_drop_free_interior ACCEPT  O0=133 O2=133 ref=134 ==79045==ERROR: AddressSanitizer: attempting free on address which was not malloc()-ed: 0x6020000000f1 in thread T0

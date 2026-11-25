@@ -78,12 +78,13 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 models of each rule set, not for Clang itself (see [results](safe-c-docs/results.md)).
 Every open item: [open issues](safe-c-notes/review-2026-11-23.md).
 
-**Not sound yet, in any row.** On 2026-11-24 an independent attacker who had only the
-user docs broke it in 34 different ways: for example, the outer index of a two-dimensional
-array is not checked, the result of `strdup` is not tracked, variables captured by a block
-are not tracked, and annotations are not compared between files. All are listed in the
+**Not sound, in any row.** On 2026-11-24 two independent attackers, each with only the user
+docs, broke it: the first in 34 different ways, and after most of those were fixed, the
+second in 32 more. The second found basic ones: a pointer moved into a field can still be
+freed by its old name, pointers to `_Atomic` are not bounds-checked, and an ordinary
+`char *` printed with `%s` is not scanned. All are listed in the
 [open issues](safe-c-notes/review-2026-11-23.md), and the programs are in
-`clang/utils/safe-c/holes/blind`. Do not rely on it for security.
+`clang/utils/safe-c/holes`. Do not rely on it for security.
 
 Details: [how each is closed](safe-c-docs/protection.md).
 
