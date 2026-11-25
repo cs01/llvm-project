@@ -1,54 +1,140 @@
 # Safe C
 
-**Opt a C file in; what cannot be shown safe does not compile.** An experiment.
+**C that cannot use memory after freeing it, run off the end of a buffer or follow a null pointer, and still reads like C.** A research preview.
 
-A fork of Clang with one flag, `-fsafe-c`:
+A fork of Clang with one flag, `-fsafe-c`, opted into one file at a time. What it cannot show is safe does not compile, or stops at
+run time instead of corrupting memory. The marks come from one header, `safec.h`, and mean nothing to other compilers: the same file
+is C99, and the ABI does not change.
 
-- **Bounds, null, uninitialized memory, casts, format strings and library calls** are
-  checked: an error, or a trap at run time. This is what it aims to get right.
-- **Ownership** (use after free, double free) is checked on ClangIR, new and on by default: an
-  `_Owned` pointer is moved by use, every other pointer is a borrow that dies when its owner
-  changes, and a borrow is never stored. Code it has no rule for is an error:
-  pointers to pointers, borrows stored in the heap. `-mllvm -safe-c-ownership=false` leaves it out for a file.
-- **Explicit boundaries:** `__unsafe`, legacy headers, `-isystem` directories. Anything
-  Clang accepts that this has no rules for is an error.
-
-It does not make C memory safe. See [Status](#status).
+It does not make every C program safe, and it is not proven sound: see [Limits](#limits).
 
 ## What it looks like
 
 ```c
-int sum(const int *__counted_by(n) v,
-        size_t n);
+#include "json.h"
+#include "file.h"
 
-struct json *_Owned parse(
-    const char *text);
-
-void json_delete(
-    struct json *_Owned j);
-
-int x[3];
-// error: passing array 'x' (which has
-// 3 elements) ... with count value of 4
-sum(x, 4);
-
-struct json *_Owned t = parse(text);
-json_delete(t);
-// error: 't' is used after it was passed to
-// 'json_delete' on line 10
-t->kind;
+int main(void) {
+  struct text in = {0};
+  struct json j = {0};
+  if (!file_read("people.json", &in) || !json_parse(&j, text_str(&in)))
+    return 1;
+  for (size_t p = json_first(&j, 0); p; p = json_at(&j, p).next) {
+    struct str name = json_text(&j, json_get(&j, p, STR("name")));
+    str_write(name, "\n", stdout);
+  }
+  json_free(&j);
+  text_free(&in);
+}
 ```
 
-The same code compiles as plain C on any compiler: the annotations come from one header,
-`safec.h`, and expand to nothing elsewhere.
+No marks at all: they are in the headers. What goes wrong is an error:
+
+```c
+struct str name = json_text(j, 1);
+json_parse(j, text);
+return name.p[0];
+// error: 'name.p' is used after the call to 'json_parse' on line 4
+
+struct json_value v = json_at(j, json_get(j, person, STR("age")));
+return v.number;
+// error: reading 'number' needs the tag 'kind' known to be JSON_NUMBER here, or the
+// union's bytes could be another member's; check it first (as in 'if (x.kind == JSON_NUMBER)')
+```
+
+## Real bugs
+
+Bugs from [Magma](https://hexhive.epfl.ch/magma/), a benchmark of real CVEs in libpng, libtiff, libsndfile, libxml2, sqlite and
+OpenSSL, picked by rule and rewritten in Safe C by hand ([how](clang/utils/safe-c/cve/README.md)):
+
+| Kind | Blocked | When | Stock Clang `-Wall -Wextra` |
+|---|---|---|---|
+| Use after free (every one in the sample) | 4 of 4 | compile time | no warning |
+| Out of bounds, null, type confusion, divide by zero | 17 of 17 | 3 at compile time, 14 stop at run time | no warning |
+
+The fixed version of each is accepted and runs. They are reductions of a few lines, not the libraries.
+
+## The style
+
+Seven programs were written this way: `wc`, `uniq`, `comm`, `sort` and `tsort` from [sbase](https://core.suckless.org/sbase/), a JSON
+parser and a text editor ([programs](safe-c-std/programs)). The tools print what the originals print on 4,200 random inputs, the JSON
+parser agrees with JavaScript's on 3,987 documents, and the editor with a model on 17,467 keys. Only the editor has unsafe code: three
+small functions around the terminal.
+
+| Instead of | Write |
+|---|---|
+| a pointer per node, freed one by one | one array of nodes and indexes into it (`VEC`): one thing to free |
+| `char *` with a length somewhere else | `struct str` to look at text, `struct text` to own it |
+| setting a pointer and then its length | `_Set(p, n, new_p, new_n)`, both at once |
+| a union and a comment saying which member | `_Tagged_by(kind)` and `_When(...)` on each member |
+| a pointer that may be null, and hoping | `_Nullable`, and the compiler makes you check |
+| a parameter you only read | `const`: then nothing it points to changes in the call |
+
+## The standard library
+
+Not rewritten. The compiler knows what each C function frees, keeps and returns. Of 118 C99 functions, 98 are checked as they are
+and 20 are errors that name a replacement (`clang/utils/safe-c/libc/check.sh`).
+
+<!-- generated:libc -->
+Each is a compile error that says what to use (47 functions):
+
+| Function | Why | Use instead |
+|---|---|---|
+| `gets` | has no size | `fgets` |
+| `strcpy`, `stpcpy` | has no size | `strlcpy` |
+| `strncpy`, `stpncpy` | may leave no terminator | `strlcpy` |
+| `strcat`, `strncat` | has no size | `strlcat` |
+| `sprintf`, `vsprintf` | has no size | `snprintf`, `vsnprintf` |
+| `wcscpy` | has no size | `wcslcpy` |
+| `strtok`, `strtok_r` | writes into the string and remembers it between calls | `str_before` and `str_after` (text.h), or `strcspn` for where each word ends |
+| `strsep` | writes into the string and moves your pointer to it | `str_before` and `str_after` (text.h), or `strcspn` for where each part ends |
+| `realpath` | writes a path of any length into the buffer it is given | `realpath(path, NULL)`, and free the result |
+| `getwd` | writes a path of any length | `getcwd(buffer, sizeof buffer)` |
+| `tmpnam`, `tempnam`, `mktemp` | names a file that another program may create first | `mkstemp` |
+| `asctime` | writes into one buffer the whole program shares | `strftime` |
+| `asctime_r` | writes a string of any length | `strftime` |
+| `ctime_r` | writes a string of any length | `localtime_r` and `strftime` |
+| `putenv` | keeps the string it is given | a small function marked `__unsafe` that calls `setenv`, before any `getenv` |
+| `setenv`, `unsetenv` | may free what 'getenv' returned | a small function marked `__unsafe` that calls it, before any `getenv` |
+| `strxfrm` | returns a length that may be more than it wrote | `strcoll` |
+| `setbuf` | does not know how big the buffer is | the buffer the stream has |
+| `setvbuf`, `setbuffer` | keeps the buffer it is given | the buffer the stream has |
+| `gethostbyname` | returns memory the next call changes | a small function marked `__unsafe` that calls `getaddrinfo` |
+| `gethostbyaddr` | returns memory the next call changes | a small function marked `__unsafe` that calls `getnameinfo` |
+| `inet_ntoa` | returns memory the next call changes | a small function marked `__unsafe` that calls `inet_ntop` |
+| `getlogin` | returns memory the next call changes | `getlogin_r` |
+| `ttyname` | returns memory the next call changes | `ttyname_r` |
+| `ptsname` | returns memory the next call changes | `ptsname_r` |
+| `swab` | reads and writes a length it cannot check | a loop |
+| `valloc` | returns memory that is not zeroed | `calloc` |
+| `memccpy` | returns a pointer past what it wrote | a loop |
+| `vfork` | shares the parent's memory | a small function marked `__unsafe` that calls `posix_spawn` |
+| `brk`, `sbrk` | takes memory away from under 'malloc' | `malloc` |
+| `freopen` | closes its stream even when it fails | `fclose` and `fopen` |
+| `localeconv` | returns memory the next call changes | a small function marked `__unsafe` that copies what you need |
+| `setjmp`, `longjmp` | goes back past frees and checks | a result that says what failed |
+| `atoi`, `atol` | is undefined for a number too big | `strtol` |
+| `atoll` | is undefined for a number too big | `strtoll` |
+<!-- end generated:libc -->
+
+Where C has no safe way to do something, small headers in [safe-c-std](safe-c-std) do it, with no unsafe code inside:
+
+| Header | For | Instead of |
+|---|---|---|
+| `text.h` | `str` and `text`: split, trim, compare, numbers, lines | `strtok`, `strchr`, `atoi`, `getline` |
+| `vec.h` | a growing array of plain data | `realloc` by hand |
+| `map.h` | text to plain data | hash tables by hand |
+| `file.h` | read a whole file; replace one all at once | `fread` loops, half-written files |
+| `args.h` | options in `argv` | indexing `argv` |
+| `json.h` | JSON, kept by index | trees of pointers |
+| `pool.h` | handles that know when they are stale | pointers between nodes of a graph |
 
 ## Get started
 
-1. **Build the compiler** ([building](safe-c-docs/building.md)), then compile one file:
-   `clang -fsafe-c parser.c`. Start with the file that reads untrusted input.
-2. **Fix what it reports.** Most errors say what is wrong and what to write.
-3. **The annotations you will meet first** (the cJSON port has about 630 annotations in
-   3,300 lines, one every five lines; half are `_Nullable`):
+1. **Build the compiler** ([building](safe-c-docs/building.md)), then compile one file: `clang -fsafe-c parser.c`. Start with the
+   file that reads untrusted input.
+2. **Fix what it reports.** Errors say what is wrong and what to write.
+3. **The marks you meet first:**
 
    | Write | When |
    |---|---|
@@ -56,53 +142,31 @@ The same code compiles as plain C on any compiler: the annotations come from one
    | `__counted_by(n)` | the pointer has a length, `n` |
    | `_Owned` | whoever holds it must free it |
    | `_Take(place)` | move an owner out of a field, leaving null |
-   | `_Trusted` | a function whose ownership is not checked inside; callers still are |
+   | `_View` | a struct that borrows, kept on the stack |
 
-4. **Not ready to fix a spot yet?** Put `#pragma clang safe_c legacy` at the top of a
-   header to trust it as is, or wrap the code in `__unsafe { }`. Both are easy to find
-   later.
+4. **Not ready to fix a spot?** `__unsafe { }` around it, or `#pragma clang safe_c legacy` at the top of a header. A plain C
+   library is called from a small `__unsafe` function, which answers for what it passes.
 
-Every annotation, with its Rust equivalent: [annotations](safe-c-docs/annotations.md).
-Twelve bugs as small examples, and their errors: [examples](safe-c-docs/examples.md).
+Every mark: [annotations](safe-c-docs/annotations.md). Every rule: [rules](safe-c-docs/rules.md) (frozen; ideas wait in
+[later](safe-c-docs/later.md)).
 
-## Status
+## Limits
 
-| Problem | Status |
+| | |
 |---|---|
-| Out of bounds | checked (compile time where provable, a trap otherwise) |
-| Null dereference | checked |
-| Uninitialized reads | locals must be set before use; heap memory is zero-filled, except what `realloc`, `reallocf` and `aligned_alloc` add (which may not hold pointers) |
-| Integer UB | division by zero and oversized shifts trap; signed overflow wraps (as in Rust release builds) |
-| Type confusion | a union's pointer members are used only in `__unsafe`; unions of plain data can be tagged and checked. Files that disagree about a shared type do not link. A pointer to memory holding pointers may be a writable `void *` only in the call that needs one |
-| Use after free, double free | on by default; the rules are proved in Lean for a model, not for the compiler; attacked only as a prototype |
-| Data races | only data marked `_Guarded_by` a lock |
+| **Not proven sound** | small Lean models cover ownership; fields, views, strings and bounds are argued and tested, not proved, and Clang itself is not proved |
+| **Attacked four times** | blind attacks found 34, 32, 33, then 19 root causes, all fixed; the fixes and the later rules have not been attacked |
+| **Threads** | data races are checked only for data marked `_Guarded_by` a lock |
+| **Containers hold plain data** | a vector of strings is one text and indexes |
+| **Platform** | macOS (arm64) with Apple's SDK; Linux builds, but glibc's headers have no annotations |
+| **Cost** | 0% to 7% run time on the programs above, against the same code in plain Clang; ported libraries from 0.58x to 1.28x |
 
-**Maturity.** Early. Tested on macOS (arm64) against Apple's SDK. Linux builds but is not usable yet
-(glibc's headers have no annotations). Ported: jsmn, inih, parson and cJSON with ownership on (cJSON's references are not sound), lz4 without. Some rule sets have small Lean models with
-soundness proofs; they are not Clang, and Clang is not sound (see
-[results](safe-c-docs/results.md)).
-Every open item: [open issues](safe-c-notes/review-2026-11-23.md).
+Ported libraries: jsmn, inih, parson and cJSON with ownership on (cJSON's references are not sound), lz4 without. Every open item:
+[open issues](safe-c-notes/review-2026-11-23.md), and `clang/utils/safe-c/holes`.
 
-**Not sound, in any row.** Four blind attacks, by agents given only the user docs, found 34, then 32,
-33, then 19 root causes (one of the 19 in ownership); those are fixed, but the fixes have not been attacked.
-Do not rely on it for security. All of it is in the
-[open issues](safe-c-notes/review-2026-11-23.md) and `clang/utils/safe-c/holes`.
+## Juliet
 
-**Cost.** On 45 small GitHub projects picked by hash (those with 200+ lines that build here), unmodified code has a median of
-about 8 errors per 100 lines per project. Five real files were ported with no restructuring in four of them, at 0.99x to 1.28x
-run time before the last checks were added ([details](safe-c-notes/realsize.md)).
-
-Details: [how each is closed](safe-c-docs/protection.md).
-
-## Results
-
-NIST's [Juliet](https://samate.nist.gov/SARD/test-suites/112) is the US government's
-test suite for C security tools: thousands of small programs, each with a known bug and a
-fixed version. Juliet is written for plain C, so it was ported first (the changes are
-listed in [results](safe-c-docs/results.md)); 41% of its cases still do not build and are
-not counted.
-
-Measured before the ownership checker was replaced (2026-11-25); not rerun since.
+Measured before the ownership checker was replaced; not rerun since.
 
 <!-- generated:summary -->
 On a ported copy of NIST's Juliet suite, 6,773 of 11,522 cases in 10 bug classes (those whose fixed version builds after porting):
@@ -113,21 +177,9 @@ On a ported copy of NIST's Juliet suite, 6,773 of 11,522 cases in 10 bug classes
 A case counts only when Safe C gives a compile error or traps at the bug. [Full table, the port and the exclusions](safe-c-docs/results.md).
 <!-- end generated:summary -->
 
-Ports: [jsmn](safe-c-notes/ports/jsmn/PORT.md), [cJSON](safe-c-notes/ports/cjson/PORT.md)
-and [lz4](safe-c-notes/ports/lz4/PORT.md) pass their tests under Safe C, Apple clang and
-AddressSanitizer. lz4 runs at Apple clang's speed with its two hot loops marked audited
-(`__unsafe _No_bounds_checks`), and at 0.77x (compress) and 0.58x (decompress) fully
-checked.
-
 ## More
 
-- [Safe C for Rust programmers](safe-c-docs/for-rust-programmers.md): the map, and real errors
-- [The rules](safe-c-docs/rules.md): what is accepted, in one place
-- [What you annotate](safe-c-docs/annotations.md), with the Rust equivalent of each
-- [Examples](safe-c-docs/examples.md)
-- [Adopting it one file at a time](safe-c-docs/adoption.md)
-- [Results](safe-c-docs/results.md): Juliet, real code, the Lean proofs
-- [Building](safe-c-docs/building.md)
-- [Open issues](safe-c-notes/review-2026-11-23.md)
+- [Safe C for Rust programmers](safe-c-docs/for-rust-programmers.md)
+- [Examples](safe-c-docs/examples.md), [adoption](safe-c-docs/adoption.md), [results](safe-c-docs/results.md), [building](safe-c-docs/building.md)
 
 Apache License v2.0 with LLVM Exceptions, like LLVM.

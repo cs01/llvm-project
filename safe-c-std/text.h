@@ -31,6 +31,11 @@ static inline int str_cmp(struct str a, struct str b) {
   return r ? r : (a.len > b.len) - (a.len < b.len);
 }
 
+/* Writes s, then the end of line if there is one: 1, or 0 if it could not. */
+static inline int str_write(struct str s, const char *__null_terminated end, FILE *f) {
+  return fwrite(s.p, 1, s.len, f) == s.len && fputs(end, f) >= 0;
+}
+
 /* Where c is, or s.len. */
 static inline size_t str_find(struct str s, char c) {
   size_t i = 0;

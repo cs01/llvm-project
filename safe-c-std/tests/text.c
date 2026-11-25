@@ -20,6 +20,7 @@ int main(void) {
   CHECK(!str_int(STR("-"), &v) && !str_int(STR(""), &v) && !str_int(STR("1x"), &v));
   CHECK(str_eq(str_after(STR("a=b=c"), '='), STR("b=c")) && str_after(STR("a"), '=').len == 0);
   CHECK(str_eq(str_trim(STR(" \t ")), STR("")) && !str_eq(STR("a"), STR("b")));
+  CHECK(str_write(STR(""), "", stdout));
   struct text t = {0};
   CHECK(str_eq(text_str(&t), STR("")));
   for (int i = 0; i < 1000; i++)

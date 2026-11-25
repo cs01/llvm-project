@@ -16,6 +16,7 @@ const partFiles: Record<string, string> = {
   annotations: join(root, "safe-c-docs/annotations.md"),
   juliet: join(root, "safe-c-docs/results.md"),
   rules: join(root, "safe-c-docs/rules.md"),
+  libc: readmePath,
 };
 const check = process.argv.includes("--check");
 
@@ -211,7 +212,43 @@ function rules(): string {
   ].join("\n");
 }
 
-const parts: Record<string, () => string> = { annotations, juliet, summary, rules };
+// Library functions that are errors, from the table in SemaSafeC.cpp, and the
+// ones Apple's headers already make unavailable with -fbounds-safety (each
+// checked when it was added: clang/utils/safe-c/libc/check.sh covers C99's).
+function libc(): string {
+  const src = readFileSync(join(root, "clang/lib/Sema/SemaSafeC.cpp"), "utf8");
+  const table = src.slice(src.indexOf("UnsafeFunctions[] = {"), src.indexOf("};", src.indexOf("UnsafeFunctions[] = {")));
+  const lit = (x: string) => [...x.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1].replace(/\\'/g, "'")).join("");
+  const rows: [string, string, string][] = [];
+  for (const m of table.matchAll(/\{\s*("(?:[^}])*?)\},/g)) {
+    const fields: string[] = [];
+    let cur = "", inStr = false;
+    for (const c of m[1]) {
+      if (c === '"' && cur.slice(-1) !== "\\") inStr = !inStr;
+      if (c === "," && !inStr) { fields.push(cur); cur = ""; } else cur += c;
+    }
+    fields.push(cur);
+    if (fields.length !== 3) throw new Error("bad UnsafeFunctions entry: " + m[1]);
+    rows.push([lit(fields[0]), lit(fields[1]), lit(fields[2])]);
+  }
+  if (rows.length < 20) throw new Error("UnsafeFunctions table not found");
+  const apple: [string, string, string][] = [
+    ["gets", "has no size", "'fgets'"], ["strcpy, stpcpy", "has no size", "'strlcpy'"],
+    ["strncpy, stpncpy", "may leave no terminator", "'strlcpy'"], ["strcat, strncat", "has no size", "'strlcat'"],
+    ["sprintf, vsprintf", "has no size", "'snprintf', 'vsnprintf'"], ["wcscpy", "has no size", "'wcslcpy'"],
+  ];
+  const all = [...apple, ...rows];
+  // Rows with the same reason and replacement go together.
+  const merged = new Map<string, string[]>();
+  for (const [n, w, i] of all) (merged.get(w + "|" + i) ?? merged.set(w + "|" + i, []).get(w + "|" + i)!).push(n);
+  return [
+    `Each is a compile error that says what to use (${all.reduce((k, r) => k + r[0].split(", ").length, 0)} functions):`, "",
+    "| Function | Why | Use instead |", "|---|---|---|",
+    ...[...merged].map(([k, ns]) => { const [w, i] = k.split("|"); return `| ${ns.map((n) => n.split(", ").map((x) => "`" + x + "`").join(", ")).join(", ")} | ${w} | ${i.replace(/'([^']+)'/g, "`$1`")} |`; }),
+  ].join("\n");
+}
+
+const parts: Record<string, () => string> = { annotations, juliet, summary, rules, libc };
 const files: Record<string, { original: string; text: string }> = {};
 for (const [name, gen] of Object.entries(parts)) {
   const path = partFiles[name];
