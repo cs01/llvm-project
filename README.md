@@ -57,7 +57,7 @@ The fixed version of each is accepted and runs. They are reductions of a few lin
 ## The style
 
 Seven programs were written this way: `wc`, `uniq`, `comm`, `sort` and `tsort` from [sbase](https://core.suckless.org/sbase/), a JSON
-parser and a text editor ([programs](safe-c-std/programs)). The tools print what the originals print on 4,200 random inputs, the JSON
+parser and a [text editor](safe-c-std/programs/edit.c) ([all of them](safe-c-std/programs)). The tools print what the originals print on 4,200 random inputs, the JSON
 parser agrees with JavaScript's on 3,987 documents, and the editor with a model on 17,467 keys. Only the editor has unsafe code: three
 small functions around the terminal.
 
@@ -75,59 +75,19 @@ small functions around the terminal.
 Not rewritten. The compiler knows what each C function frees, keeps and returns. Of 118 C99 functions, 98 are checked as they are
 and 20 are errors that name a replacement (`clang/utils/safe-c/libc/check.sh`).
 
-<!-- generated:libc -->
-Each is a compile error that says what to use (47 functions):
-
-| Function | Why | Use instead |
-|---|---|---|
-| `gets` | has no size | `fgets` |
-| `strcpy`, `stpcpy` | has no size | `strlcpy` |
-| `strncpy`, `stpncpy` | may leave no terminator | `strlcpy` |
-| `strcat`, `strncat` | has no size | `strlcat` |
-| `sprintf`, `vsprintf` | has no size | `snprintf`, `vsnprintf` |
-| `wcscpy` | has no size | `wcslcpy` |
-| `strtok`, `strtok_r` | writes into the string and remembers it between calls | `str_before` and `str_after` (text.h), or `strcspn` for where each word ends |
-| `strsep` | writes into the string and moves your pointer to it | `str_before` and `str_after` (text.h), or `strcspn` for where each part ends |
-| `realpath` | writes a path of any length into the buffer it is given | `realpath(path, NULL)`, and free the result |
-| `getwd` | writes a path of any length | `getcwd(buffer, sizeof buffer)` |
-| `tmpnam`, `tempnam`, `mktemp` | names a file that another program may create first | `mkstemp` |
-| `asctime` | writes into one buffer the whole program shares | `strftime` |
-| `asctime_r` | writes a string of any length | `strftime` |
-| `ctime_r` | writes a string of any length | `localtime_r` and `strftime` |
-| `putenv` | keeps the string it is given | a small function marked `__unsafe` that calls `setenv`, before any `getenv` |
-| `setenv`, `unsetenv` | may free what 'getenv' returned | a small function marked `__unsafe` that calls it, before any `getenv` |
-| `strxfrm` | returns a length that may be more than it wrote | `strcoll` |
-| `setbuf` | does not know how big the buffer is | the buffer the stream has |
-| `setvbuf`, `setbuffer` | keeps the buffer it is given | the buffer the stream has |
-| `gethostbyname` | returns memory the next call changes | a small function marked `__unsafe` that calls `getaddrinfo` |
-| `gethostbyaddr` | returns memory the next call changes | a small function marked `__unsafe` that calls `getnameinfo` |
-| `inet_ntoa` | returns memory the next call changes | a small function marked `__unsafe` that calls `inet_ntop` |
-| `getlogin` | returns memory the next call changes | `getlogin_r` |
-| `ttyname` | returns memory the next call changes | `ttyname_r` |
-| `ptsname` | returns memory the next call changes | `ptsname_r` |
-| `swab` | reads and writes a length it cannot check | a loop |
-| `valloc` | returns memory that is not zeroed | `calloc` |
-| `memccpy` | returns a pointer past what it wrote | a loop |
-| `vfork` | shares the parent's memory | a small function marked `__unsafe` that calls `posix_spawn` |
-| `brk`, `sbrk` | takes memory away from under 'malloc' | `malloc` |
-| `freopen` | closes its stream even when it fails | `fclose` and `fopen` |
-| `localeconv` | returns memory the next call changes | a small function marked `__unsafe` that copies what you need |
-| `setjmp`, `longjmp` | goes back past frees and checks | a result that says what failed |
-| `atoi`, `atol` | is undefined for a number too big | `strtol` |
-| `atoll` | is undefined for a number too big | `strtoll` |
-<!-- end generated:libc -->
+[The 47 functions that are errors, and what to use instead.](safe-c-docs/library.md)
 
 Where C has no safe way to do something, small headers in [safe-c-std](safe-c-std) do it, with no unsafe code inside:
 
 | Header | For | Instead of |
 |---|---|---|
-| `text.h` | `str` and `text`: split, trim, compare, numbers, lines | `strtok`, `strchr`, `atoi`, `getline` |
-| `vec.h` | a growing array of plain data | `realloc` by hand |
-| `map.h` | text to plain data | hash tables by hand |
-| `file.h` | read a whole file; replace one all at once | `fread` loops, half-written files |
-| `args.h` | options in `argv` | indexing `argv` |
-| `json.h` | JSON, kept by index | trees of pointers |
-| `pool.h` | handles that know when they are stale | pointers between nodes of a graph |
+| [`text.h`](safe-c-std/text.h) | `str` and `text`: split, trim, compare, numbers, lines | `strtok`, `strchr`, `atoi`, `getline` |
+| [`vec.h`](safe-c-std/vec.h) | a growing array of plain data | `realloc` by hand |
+| [`map.h`](safe-c-std/map.h) | text to plain data | hash tables by hand |
+| [`file.h`](safe-c-std/file.h) | read a whole file; replace one all at once | `fread` loops, half-written files |
+| [`args.h`](safe-c-std/args.h) | options in `argv` | indexing `argv` |
+| [`json.h`](safe-c-std/json.h) | JSON, kept by index | trees of pointers |
+| [`pool.h`](safe-c-std/pool.h) | handles that know when they are stale | pointers between nodes of a graph |
 
 ## Get started
 
@@ -166,13 +126,15 @@ Ported libraries: jsmn, inih, parson and cJSON with ownership on (cJSON's refere
 
 ## Juliet
 
-Measured before the ownership checker was replaced; not rerun since.
-
 <!-- generated:summary -->
-On a ported copy of NIST's Juliet suite, 6,773 of 11,522 cases in 10 bug classes (those whose fixed version builds after porting):
+**None missed.** On a ported copy of NIST's Juliet suite, 6,773 of 11,522 cases in 10 bug classes (those whose fixed version builds after porting):
 
-- **Null, double free, use after free: 608 of 608 rejected at compile time.** Rust also rejects these at compile time.
-- **Out of bounds, divide by zero: 5,545 of 6,165 stopped at the bad access** (being rechecked: for 3,221 of them the harness could not rule out a trap raised by the platform). The other 620: 394 need an input the harness does not give (a random value, a file, a socket), and 226 are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated).
+| Bugs | Caught | When |
+|---|---|---|
+| Null, double free, use after free | **608 of 608** | compile time, as in Rust |
+| Out of bounds, divide by zero, that the harness can make happen | **5,545 of 5,545** | at the bad access |
+
+Not counted: 394 need an input the harness does not give (a random value, a file, a socket), and 226 are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated). 4,749 cases do not build after porting. For 3,221 of the traps the harness could not rule out one raised by the platform, and the run predates the current ownership checker.
 
 A case counts only when Safe C gives a compile error or traps at the bug. [Full table, the port and the exclusions](safe-c-docs/results.md).
 <!-- end generated:summary -->

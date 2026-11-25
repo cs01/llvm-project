@@ -16,7 +16,7 @@ const partFiles: Record<string, string> = {
   annotations: join(root, "safe-c-docs/annotations.md"),
   juliet: join(root, "safe-c-docs/results.md"),
   rules: join(root, "safe-c-docs/rules.md"),
-  libc: readmePath,
+  libc: join(root, "safe-c-docs/library.md"),
 };
 const check = process.argv.includes("--check");
 
@@ -82,11 +82,16 @@ function summary(): string {
   const n = (x: number) => x.toLocaleString("en-US");
   const porting = PORTED ? " (those whose fixed version builds after porting)" : "";
   const missText = missed ? `, ${n(missed)} missed` : "";
+  const runnable = rt.n - rt.inputMiss - rt.excused;
   return [
-    `On ${PORTED ? "a ported copy of " : ""}NIST's Juliet suite, ${n(ct.n + rt.n)} of ${n(ct.all + rt.all)} cases in 10 bug classes${porting}:`,
+    `**${missed ? n(missed) : "None"} missed.** On ${PORTED ? "a ported copy of " : ""}NIST's Juliet suite, ${n(ct.n + rt.n)} of ${n(ct.all + rt.all)} cases in 10 bug classes${porting}:`,
     ``,
-    `- **Null, double free, use after free: ${n(ct.c)} of ${n(ct.n)} rejected at compile time.** Rust also rejects these at compile time.`,
-    `- **Out of bounds, divide by zero: ${n(caught)} of ${n(rt.n)} stopped at the bad access**${missText} (being rechecked: for 3,221 of them the harness could not rule out a trap raised by the platform). The other ${n(rt.n - caught - missed)}: ${n(rt.inputMiss)} need an input the harness does not give (a random value, a file, a socket), and ${n(rt.excused)} are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated).`,
+    `| Bugs | Caught | When |`,
+    `|---|---|---|`,
+    `| Null, double free, use after free | **${n(ct.c)} of ${n(ct.n)}** | compile time, as in Rust |`,
+    `| Out of bounds, divide by zero, that the harness can make happen | **${n(caught)} of ${n(runnable)}** | at the bad access |`,
+    ``,
+    `Not counted: ${n(rt.inputMiss)} need an input the harness does not give (a random value, a file, a socket), and ${n(rt.excused)} are not bugs on this target (32-bit-only overflows, floating-point division, buffers that stay terminated). ${n(ct.all + rt.all - ct.n - rt.n)} cases do not build after porting. For 3,221 of the traps the harness could not rule out one raised by the platform, and the run predates the current ownership checker.`,
     ``,
     `A case counts only when Safe C gives a compile error or traps at the bug. [Full table, the port and the exclusions](safe-c-docs/results.md).`,
   ].join("\n");
