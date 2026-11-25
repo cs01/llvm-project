@@ -63,3 +63,26 @@ functions. Two rules would keep it, and both are new and unproved:
 Changes to code, not API: `const char **string` cursors become an index (18 lines mention
 them), moving between arrays replaces copying pointers and rolling back, `memmove` of owners becomes a
 loop of moves, and an undo path re-derives a borrow. 7 kinds in all, marked CHANGED in the file.
+
+## The rules to prove (2026-11-24)
+
+Heap: objects with owner fields (null or one object); a forest, each object owned by at most one owner local
+or field. A local is an owner, or a borrow with a parent local and a mode.
+
+- Borrow `x = &*v` or a field step through owners: x's parent is v. Shared borrow from v kills v's exclusive
+  descendants. Exclusive borrow from v needs v an owner or exclusive, and kills all v's descendants.
+- Mutate through v (store or take an owner field, free, move, exclusive argument): v must be an owner or
+  exclusive; kills all v's descendants. A dead local cannot be used.
+- Moving an owner (into a field, argument, return, local) also makes it dead. Overwriting a non-null
+  owner leaks, which is allowed. free(o) frees one object; objects it owned leak.
+- Call: arguments are owned (moved), taken on success, exclusive, shared. Two arguments where one is
+  exclusive or owned may not share a root. The callee may only touch what it reaches from its parameters;
+  an exclusive parameter's own object is not freed.
+- Result: a fresh owner, or a borrow inside one named shared or exclusive parameter (rule 9): in the
+  caller a child of that argument, exclusive only if the caller made an exclusive borrow of it.
+- Taken on success (rule 10): the body must have moved the parameter on every path returning true and
+  must still hold it live on every path returning false; in the caller it is maybe-moved, tied to the
+  result, until a branch on that result. Its borrows die at the call.
+- Branches join to the weaker state; loops need an invariant state. No path sensitivity otherwise.
+
+Paths are left out on purpose: borrowing any part of v borrows all of v.
