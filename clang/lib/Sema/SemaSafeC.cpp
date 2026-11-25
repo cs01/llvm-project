@@ -749,7 +749,6 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   }
 
   void checkStore(QualType Dst, const Expr *Src) {
-    checkFgets(Dst, Src);
     if (Dst->isPointerType() && !Dst->getPointeeType().isConstQualified())
       checkConstSearch(Src);
   }
@@ -1074,6 +1073,7 @@ public:
   /// statement, expression or cast is added here only with the rules that
   /// cover it (safe-c-docs/rules.md lists them).
   bool VisitStmt(Stmt *St) {
+    markTested(St);
     switch (St->getStmtClass()) {
     case Stmt::NullStmtClass:
     case Stmt::CompoundStmtClass:
@@ -1826,25 +1826,68 @@ public:
         S.SafeCDiag(A->getExprLoc(), "scanf-plain");
     }
   }
-  /// What fgets returns is the buffer, which can still be changed.
-  void checkFgets(QualType To, const Expr *E) {
-    const auto *C = dyn_cast<CallExpr>(plain(E));
-    const FunctionDecl *F = C ? C->getDirectCallee() : nullptr;
-    if (To->isValueTerminatedType() && F && F->isExternC() && F->getIdentifier() &&
-        llvm::is_contained({"fgets", "gets_s", "strncpy", "stpcpy", "stpncpy"},
-                           F->getName()))
-      S.SafeCDiag(E->getExprLoc(), "string-result");
+  /// What fgets or getcwd returns is the buffer, which can still be changed: it
+  /// is only tested or ignored.
+  llvm::SmallPtrSet<const Expr *, 8> Tested;
+  llvm::SmallPtrSet<const Stmt *, 4> Values;
+  void tested(const Stmt *St) {
+    if (const auto *E = dyn_cast_or_null<Expr>(St); E && !Values.contains(St))
+      Tested.insert(plain(E));
   }
-  bool VisitReturnStmt(ReturnStmt *RS) {
-    if (const Expr *V = RS->getRetValue())
-      if (const FunctionDecl *F = S.getCurFunctionDecl())
-        checkFgets(F->getReturnType(), V);
-    return true;
+  void markTested(const Stmt *St) {
+    if (const auto *X = dyn_cast<StmtExpr>(St)) {
+      if (!X->getSubStmt()->body_empty())
+        Values.insert(X->getSubStmt()->body_back());
+    } else if (const auto *C = dyn_cast<CompoundStmt>(St)) {
+      for (const Stmt *B : C->body())
+        tested(B);
+    } else if (const auto *I = dyn_cast<IfStmt>(St)) {
+      tested(I->getCond()), tested(I->getThen()), tested(I->getElse());
+    } else if (const auto *W = dyn_cast<WhileStmt>(St)) {
+      tested(W->getCond()), tested(W->getBody());
+    } else if (const auto *D = dyn_cast<DoStmt>(St)) {
+      tested(D->getCond()), tested(D->getBody());
+    } else if (const auto *F = dyn_cast<ForStmt>(St)) {
+      tested(F->getInit()), tested(F->getCond()), tested(F->getInc()),
+          tested(F->getBody());
+    } else if (const auto *L = dyn_cast<LabelStmt>(St)) {
+      tested(L->getSubStmt());
+    } else if (const auto *C = dyn_cast<SwitchCase>(St)) {
+      tested(C->getSubStmt());
+    } else if (const auto *Q = dyn_cast<ConditionalOperator>(St)) {
+      tested(Q->getCond());
+    } else if (const auto *C = dyn_cast<CStyleCastExpr>(St)) {
+      if (C->getType()->isVoidType())
+        tested(C->getSubExpr());
+    } else if (const auto *U = dyn_cast<UnaryOperator>(St)) {
+      if (U->getOpcode() == UO_LNot)
+        tested(U->getSubExpr());
+    } else if (const auto *B = dyn_cast<BinaryOperator>(St)) {
+      if (B->isLogicalOp() || B->isEqualityOp())
+        tested(B->getLHS()), tested(B->getRHS());
+    }
+  }
+  void checkFgets(const CallExpr *C) {
+    const FunctionDecl *F = C->getDirectCallee();
+    if (!F || Tested.contains(C) || !F->isExternC() ||
+        !C->getType()->isValueTerminatedType() ||
+        !S.getSourceManager().isInSystemHeader(F->getLocation()))
+      return;
+    // Any library function given a buffer to write may return it.
+    for (const ParmVarDecl *P : F->parameters())
+      if (P->getFunctionScopeIndex() < C->getNumArgs() &&
+          !plain(C->getArg(P->getFunctionScopeIndex()))
+               ->isNullPointerConstant(S.Context, Expr::NPC_ValueDependentIsNotNull) &&
+          P->getType()->isAnyPointerType() &&
+          P->getType()->getPointeeType()->isAnyCharacterType() &&
+          !P->getType()->getPointeeType().isConstQualified() &&
+          !P->getType()->isValueTerminatedType()) {
+        S.SafeCDiag(C->getExprLoc(), "string-result");
+        return;
+      }
   }
   bool VisitCallExpr(CallExpr *Call) {
-    if (const FunctionDecl *F = Call->getDirectCallee())
-      for (unsigned I = 0; I < Call->getNumArgs() && I < F->getNumParams(); ++I)
-        checkFgets(F->getParamDecl(I)->getType(), Call->getArg(I));
+    checkFgets(Call);
     checkStrings(Call);
     checkFormats(Call);
     for (unsigned I = 0; I < Call->getNumArgs(); ++I)
