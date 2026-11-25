@@ -112,3 +112,8 @@ store a pointer in memory other than a fresh allocation or null: bearssl 2%, sds
 cmark 21%, zlib 22%, libyaml 34%. No Linux source is on this machine; nothing is known about it.
 
 Added gate, before any verdict: slices of cmark's node tree, redis dict, zlib inflate and a Linux-style file.
+
+Linux v6.12 (adc2186), part only, in ~/git/ref/linux-part: drivers/base, ipc, lib, drivers/misc/eeprom, include/linux.
+Slices are chosen by rule, not by eye: in each directory, the non-test file of 150 to 500 lines whose path
+has the lowest sha1. The Linux-style file in the gate is replaced by these four files, read and
+classified, and the first one that has an intrusive list or a refcount is the slice.
