@@ -35,7 +35,7 @@ void library(void) {
 }
 void block(int *p) {
   void (^b)(void) = ^{ *p = 3; }; // expected-error {{blocks are not checked}}
-  b();
+  b(); // expected-error {{blocks are not checked}}
 }
 struct t { int k; union _Tagged_by(k) { const char *_Static p _When(1); long l _When(0); }; };
 void tag(void) {

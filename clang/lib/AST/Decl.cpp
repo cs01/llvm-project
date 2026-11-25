@@ -5400,6 +5400,8 @@ bool RecordDecl::isOrContainsUnion() const {
 
 /* TO_UPSTREAM(BoundsSafety) ON*/
 bool RecordDecl::isParentStructOf(const Decl *Inner) const {
+  if (!Inner)
+    return false;
   auto DeclCtx = Inner->getDeclContext();
   if (DeclCtx == this)
     return true;

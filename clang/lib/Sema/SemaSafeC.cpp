@@ -392,6 +392,27 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"static-element", false,
      "these elements are '_Static', so they may point only at string literals, "
      "globals, functions or constants"},
+    {"library-global-write", false,
+     "%0 belongs to the C library and every thread shares it, unguarded; use "
+     "the library's functions that do not need it"},
+    {"nested-count", false,
+     "%0 holds the count of another field, so replacing it whole would change "
+     "that count unseen; assign its fields one by one"},
+    {"vla-param", false,
+     "a parameter whose row length is another parameter is not checked; pass "
+     "one row at a time, or a flat array with '__counted_by(rows * cols)'"},
+    {"vector-index", false,
+     "the lane index of a vector is not checked; use a constant, or store the "
+     "vector into an array first"},
+    {"restrict", false,
+     "'restrict' promises that nothing else reaches this memory, and nothing "
+     "checks it; leave it out"},
+    {"atomic-member", false,
+     "a field of an '_Atomic' struct is accessed without synchronization; load "
+     "or store the whole struct"},
+    {"cast-align", false,
+     "%0 needs stricter alignment than %1 has, and the address may not have "
+     "it; 'memcpy' the bytes into a variable of type %0"},
     {"partial-pointer", false,
      "%0 holds pointers, so it is copied or cleared only whole: the size must "
      "be 'n * sizeof' of it"},
@@ -1446,7 +1467,16 @@ public:
   explicit PointerKindChecker(Sema &S, const Stmt *Body = nullptr)
       : S(S), Body(Body) {}
 
+  /// `s->h = z`, `&s->h`, where a count `__counted_by(h.n)` is inside h.
+  void checkNestedCount(const Expr *E) {
+    const auto *ME = dyn_cast<MemberExpr>(E->IgnoreParens());
+    if (ME && ME->getType()->isRecordType() &&
+        ME->getMemberDecl()->hasAttr<DependerDeclsAttr>())
+      S.SafeCDiag(E->getExprLoc(), "nested-count") << ME->getMemberDecl();
+  }
   bool VisitBinaryOperator(BinaryOperator *BO) {
+    if (BO->getOpcode() == BO_Assign)
+      checkNestedCount(BO->getLHS());
     if (BO->isCompoundAssignmentOp())
       if (const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens()))
         if (const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl());
@@ -1547,6 +1577,23 @@ public:
     Sc.TraverseStmt(const_cast<Stmt *>(Body));
     if (!Ok || Sc.Loop || Sc.Ended || Sc.Uses != 1)
       S.SafeCDiag(Call->getExprLoc(), "valist");
+  }
+  bool checkParam(const ParmVarDecl *P) {
+    QualType T = P->getType();
+    while (T->isPointerType()) {
+      if (T.isRestrictQualified())
+        S.SafeCDiag(P->getLocation(), "restrict");
+      T = T->getPointeeType();
+    }
+    if (T->isVariablyModifiedType())
+      S.SafeCDiag(P->getLocation(), "vla-param");
+    return true;
+  }
+  bool VisitMatrixOrVector(const Expr *Base, const Expr *Idx) {
+    if (Base->IgnoreParenImpCasts()->getType()->isVectorType() &&
+        !Idx->isIntegerConstantExpr(S.Context))
+      S.SafeCDiag(Idx->getExprLoc(), "vector-index");
+    return true;
   }
   bool VisitAtomicExpr(AtomicExpr *E) {
     if (E->getOpAsString().starts_with("__atomic_") ||
@@ -1660,11 +1707,15 @@ public:
   }
   bool VisitMemberExpr(MemberExpr *E) {
     VisitMemberExprFields(E);
+    if (!E->isArrow() &&
+        E->getBase()->IgnoreParenImpCasts()->getType()->isAtomicType())
+      S.SafeCDiag(E->getExprLoc(), "atomic-member");
     if (E->isArrow())
       checkSlotCall(E->getBase());
     return true;
   }
   bool VisitArraySubscriptExpr(ArraySubscriptExpr *E) {
+    VisitMatrixOrVector(E->getBase(), E->getIdx());
     checkSlotCall(E->getBase());
     return true;
   }
@@ -1775,6 +1826,17 @@ public:
           << C->getType()->getPointeeType();
     collectVoid();
     QualType To = C->getType();
+    // (Bytes from the allocator, through void, are aligned for anything.)
+    if (QualType F = C->getSubExpr()->getType();
+        C->getCastKind() == CK_BitCast && To->isPointerType() &&
+        F->isPointerType() && !F->isVoidPointerType() &&
+        !To->isVoidPointerType() && !To->isFunctionPointerType() &&
+        !To->getPointeeType()->isIncompleteType() &&
+        !F->getPointeeType()->isIncompleteType() &&
+        S.Context.getTypeAlignInChars(To->getPointeeType()) >
+            S.Context.getTypeAlignInChars(F->getPointeeType()))
+      S.SafeCDiag(C->getExprLoc(), "cast-align")
+          << To->getPointeeType() << F->getPointeeType();
     if (!To->isVoidPointerType() || To->getPointeeType().isConstQualified() ||
         VoidOk.contains(C))
       return true;
@@ -1910,6 +1972,8 @@ public:
       checkSlotValue(UO);
     StringRef Tag;
     VisitGuardedAddress(UO);
+    if (UO->getOpcode() == UO_AddrOf)
+      checkNestedCount(UO->getSubExpr());
     if (UO->getOpcode() == UO_AddrOf || UO->isIncrementDecrementOp())
       if (const auto *ME = dyn_cast<MemberExpr>(UO->getSubExpr()->IgnoreParens()))
         if (const auto *F = dyn_cast<FieldDecl>(ME->getMemberDecl());
@@ -2126,6 +2190,8 @@ public:
     if (const FunctionDecl *F = Call->getDirectCallee();
         F && F->getIdentifier() && F->getName().starts_with("__sync_"))
       S.SafeCDiag(Call->getExprLoc(), "builtin-unchecked-name") << F->getName();
+    if (Call->getCallee()->getType()->isBlockPointerType())
+      S.SafeCDiag(Call->getExprLoc(), "block");
     if (const FunctionDecl *F = Call->getDirectCallee())
       checkVaList(Call, F);
     // `_Take(id(&s)->p)`, `del(id(&s))`: whose borrows end?
@@ -2257,8 +2323,13 @@ public:
 } // namespace
 
 void clang::checkSafeCPointerKindsIn(Sema &S, Stmt *Body) {
-  if (Body && safeCOwnershipEnabled(S))
-    PointerKindChecker(S, Body).TraverseStmt(Body);
+  if (Body && safeCOwnershipEnabled(S)) {
+    PointerKindChecker C(S, Body);
+    if (const FunctionDecl *F = S.getCurFunctionDecl())
+      for (const ParmVarDecl *P : F->parameters())
+        C.checkParam(P);
+    C.TraverseStmt(Body);
+  }
 }
 
 void clang::checkSafeCPointerKindsIn(Sema &S, Decl *GlobalVar) {
@@ -3129,6 +3200,14 @@ void clang::checkSafeCSharedGlobals(Sema &S) {
   F.TraverseDecl(S.Context.getTranslationUnitDecl());
   if (!SafeCSharedGlobals)
     return;
+  // A library's own variables (optind, timezone) are every thread's too.
+  for (auto [VD, At] : F.AllWrites)
+    if (SM.isInSystemHeader(VD->getLocation()) &&
+        VD->getTLSKind() == VarDecl::TLS_None && !VD->getType().isConstQualified() &&
+        !SM.isInSystemHeader(At->getExprLoc()) &&
+        !SM.isInSystemMacro(At->getExprLoc()) &&
+        !S.isInSafeCUnsafeRegion(At->getExprLoc()))
+      S.SafeCDiag(At->getExprLoc(), "library-global-write") << VD;
   for (auto [VD, At] : F.AllWrites)
     if (Unsynchronized(VD) && !SM.isInSystemHeader(At->getExprLoc()) &&
         !S.isInSafeCUnsafeRegion(At->getExprLoc()))

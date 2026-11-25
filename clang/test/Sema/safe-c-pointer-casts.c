@@ -53,6 +53,6 @@ _Takes(1) void grow_same(long *_Nullable l) {
 
 struct S { char c; long secret; };
 void widen(char *p) {
-  long *l = (long *)p; // expected-error {{can treat memory as the wrong type}}
+  long *l = (long *)p; // expected-error {{can treat memory as the wrong type}} expected-error {{needs stricter alignment}}
   (void)l;
 }

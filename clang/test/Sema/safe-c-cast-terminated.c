@@ -20,5 +20,5 @@ unsigned f(const char *__null_terminated s) {
 
 // Not characters: no terminated view of a wider type.
 const int *g(const char *__null_terminated s _Lifetimebound) {
-  return (const int *)s; // expected-error {{can treat memory as the wrong type}} expected-note {{memcpy them into a variable of the new type}}
+  return (const int *)s; // expected-error {{can treat memory as the wrong type}} expected-note {{memcpy them into a variable of the new type}} expected-error {{needs stricter alignment}}
 }

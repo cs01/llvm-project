@@ -2159,7 +2159,8 @@ RecordDecl *DynamicCountPointerAssignmentAnalysis::computeFlexBaseKey(
 
   // There is no pointer base. Emit the whole lvalue base.
   auto *EndME = dyn_cast<MemberExpr>(InE->IgnoreParenCasts());
-  if (!EndME || !BaseRD->hasFlexibleArrayMember())
+  // (The base of an _Atomic struct's field is no plain record.)
+  if (!EndME || !BaseRD || !BaseRD->hasFlexibleArrayMember())
     return nullptr;
   if (OS)
     computeMemberExprKey(EndME, *OS);
@@ -3081,7 +3082,10 @@ bool CheckCountAttributedDeclAssignments::TraverseBinaryOperator(BinaryOperator 
       // so the number can be >1
       assert(Att->dependerDecls_size() > 0);
       for (auto DepDecl : Att->dependerDecls()) {
-        if (!LHSResult.FlexBaseDecl->isParentStructOf(DepDecl))
+        // (No flexible base: a count inside another struct, which Safe C
+        // rejects at the field.)
+        if (!LHSResult.FlexBaseDecl ||
+            !LHSResult.FlexBaseDecl->isParentStructOf(DepDecl))
           continue;
         ValueDecl *FAMDecl = cast<ValueDecl>(DepDecl);
         auto *DCTy = FAMDecl->getType()->getAs<CountAttributedType>();
