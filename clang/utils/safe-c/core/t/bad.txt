@@ -78,3 +78,14 @@ int use(struct n *a) { const struct n *_Nullable z = a->k; swap(a); return z ? z
 struct n { struct n *_Owned _Nullable k; int v; };
 _Trusted void swap(struct n *a) { struct n *_Nullable x = a->k; a->k = x; }
 void other(struct n *a) { struct n *_Nullable x = a->k; a->k = x; }
+//// taken_result_address
+struct n { struct n *_Owned _Nullable k; int v; };
+int put(struct n *p, struct n *_Taken_if_true x);
+void g(struct n *p) { struct n *_Owned _Nullable x = calloc(1, sizeof *x); if (!x) return; int r = put(p, x); int *z = &r; *z = 0; if (!r) free(x); }
+//// taken_result_narrowed
+struct n { struct n *_Owned _Nullable k; int v; };
+int put(struct n *p, struct n *_Taken_if_true x);
+void g(struct n *p) { struct n *_Owned _Nullable x = calloc(1, sizeof *x); if (!x) return; char r = (char)put(p, x); if (!r) free(x); }
+//// taken_constant_narrowed
+struct n { struct n *_Owned _Nullable k; int v; };
+char put(struct n *p, struct n *_Taken_if_true x) { p->k = x; return (char)256; }

@@ -154,3 +154,15 @@ and 10. Added rule: a parameter is never assigned (two counterexamples proved wi
 programs. Not modeled: scalars, allocation failure, `_Trusted`, threads, and the C checker itself. "Moved on every path returning
 true" only prevents leaks. This proves the model, not check.ts and not Clang; check.ts does not enforce the new rule except
 for conditionally taken parameters, and was not compared with the model.
+
+## Blind attack (2026-11-24): the narrow claim passes its bar
+
+3,239 programs (1,170 hand-written batches, 1,369 templated, 700 random), 1,046 accepted. 2 root causes, 30 programs,
+both in rule 10 (the scalar result of a conditional take): its address escapes and it is overwritten; it is narrowed so
+nonzero becomes zero. 0.6 per 1,000 programs, 1.7 counting only hand-written ones; the bar was 5. Earlier ownership
+checkers: 34 and 32 root causes in their two attacks. Both reproduced, fixed, with tests; 0 of the 30 are accepted now. No fresh attack since
+the fixes. The checker had no `_Trusted` then. Not covered: -O2, large programs, threads, most multi-file. The attacker
+is the same kind of model that wrote the checker, and was told, not forced, to stay blind.
+
+Its 12 most common false rejections are the real cost: forwarding a take (`return put(p, x)`), `exit` not ending a path,
+`?:` on owners, disjoint fields and elements, struct initializers, stdio, most of the library, callbacks, out parameters, `main(argc, argv)`.
