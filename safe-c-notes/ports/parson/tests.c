@@ -47,7 +47,10 @@ if (A) {\
 }\
 } while(0)
 
-#define STREQ(A, B) ((A) && (B) ? strcmp((A), (B)) == 0 : 0)
+/* a function, not a macro: each argument is a call whose result must be checked and used once */
+static int STREQ(const char *_Nullable a _Noescape, const char *_Nullable b _Noescape) {
+    return a && b ? strcmp(a, b) == 0 : 0;
+}
 #define DBL_EPSILON 2.2204460492503131e-16
 #define DBL_EQ(a, b) (fabs((a) - (b)) < DBL_EPSILON)
 
@@ -75,11 +78,11 @@ void print_commits_info(const char *username, const char *repo);
 void persistence_example(void);
 void serialization_example(void);
 
-static const char *g_tests_path = "tests";
+static _Thread_local const char *_Static g_tests_path = "tests";
 
-static int g_malloc_count = 0;
-static void *counted_malloc(size_t size);
-static void counted_free(void *ptr);
+static _Thread_local int g_malloc_count = 0;
+static _Returns_owned void *_Nullable __sized_by_or_null(size) counted_malloc(size_t size);
+static void counted_free(void *_Nullable _Owned __unsafe_indexable ptr);
 
 typedef struct failing_alloc {
     int allocation_to_fail;
@@ -89,16 +92,16 @@ typedef struct failing_alloc {
     int should_fail;
 } failing_alloc_t;
 
-static failing_alloc_t g_failing_alloc;
+static _Thread_local failing_alloc_t g_failing_alloc;
 
-static void *failing_malloc(size_t size);
-static void failing_free(void *ptr);
+static _Returns_owned void *_Nullable __sized_by_or_null(size) failing_malloc(size_t size);
+static void failing_free(void *_Nullable _Owned __unsafe_indexable ptr);
 
-static char * read_file(const char * filename);
-const char* get_file_path(const char *filename);
+static _Returns_owned char *_Nullable __null_terminated read_file(const char * filename _Noescape);
+const char* get_file_path(const char *filename _Noescape);
 
-static int g_tests_passed;
-static int g_tests_failed;
+static _Thread_local int g_tests_passed;
+static _Thread_local int g_tests_failed;
 
 #ifdef TESTS_MAIN
 int main(int argc, char *argv[]) {
@@ -118,7 +121,8 @@ int tests_main(int argc, char *argv[]) {
     puts("Running parson tests");
 
     if (argc == 2) {
-        g_tests_path = argv[1];
+        /* unsafe: argv lives as long as the program */
+        __unsafe { g_tests_path = argv[1]; }
     } else {
         g_tests_path = "tests";
     }
@@ -146,11 +150,11 @@ int tests_main(int argc, char *argv[]) {
     printf("Tests failed: %d\n", g_tests_failed);
     printf("Tests passed: %d\n", g_tests_passed);
     puts("################################################################################");
-    return 0;
+    return g_tests_failed ? 1 : 0;
 }
 
 void test_suite_1(void) {
-    JSON_Value *val;
+    JSON_Value *_Nullable __single val;
     TEST((val = json_parse_file(get_file_path("test_1_1.txt"))) != NULL);
     TEST(json_value_equals(json_parse_string(json_serialize_to_string(val)), val));
     TEST(json_value_equals(json_parse_string(json_serialize_to_string_pretty(val)), val));
@@ -179,11 +183,12 @@ void test_suite_1(void) {
 }
 
 void test_suite_2(JSON_Value *root_value) {
-    JSON_Object *root_object;
-    JSON_Array *array;
-    JSON_Value *array_value;
+    JSON_Object *_Nullable __single root_object;
+    JSON_Array *_Nullable __single array;
+    JSON_Value *_Nullable __single array_value;
     size_t len;
     size_t i;
+    const char *_Nullable __null_terminated string_with_null;
     TEST(root_value);
     TEST(json_value_get_type(root_value) == JSONObject);
     root_object = json_value_get_object(root_value);
@@ -225,7 +230,9 @@ void test_suite_2(JSON_Value *root_value) {
 
     len = json_object_get_string_len(root_object, "string with null");
     TEST(len == 7);
-    TEST(memcmp(json_object_get_string(root_object, "string with null"), "abc\0def", len) == 0);
+    string_with_null = json_object_get_string(root_object, "string with null");
+    /* unsafe: the string has len characters, with a null among them, so its bounds cannot come from a scan */
+    __unsafe { TEST(memcmp(__unsafe_forge_bidi_indexable(const char *, string_with_null, len), "abc\0def", len) == 0); }
 
     TEST(DBL_EQ(json_object_get_number(root_object, "positive one"), 1.0));
     TEST(DBL_EQ(json_object_get_number(root_object, "negative one"), -1.0));
@@ -290,7 +297,7 @@ void test_suite_2(JSON_Value *root_value) {
 
 void test_suite_2_no_comments(void) {
     const char *filename = "test_2.txt";
-    JSON_Value *root_value = NULL;
+    JSON_Value *_Nullable __single root_value = NULL;
     root_value = json_parse_file(get_file_path(filename));
     test_suite_2(root_value);
     TEST(json_value_equals(root_value, json_parse_string(json_serialize_to_string(root_value))));
@@ -300,7 +307,7 @@ void test_suite_2_no_comments(void) {
 
 void test_suite_2_with_comments(void) {
     const char *filename = "test_2_comments.txt";
-    JSON_Value *root_value = NULL;
+    JSON_Value *_Nullable __single root_value = NULL;
     root_value = json_parse_file_with_comments(get_file_path(filename));
     test_suite_2(root_value);
     TEST(json_value_equals(root_value, json_parse_string(json_serialize_to_string(root_value))));
@@ -377,7 +384,7 @@ void test_suite_3(void) {
 
 void test_suite_4(void) {
     const char *filename = "test_2.txt";
-    JSON_Value *a = NULL, *a_copy = NULL;
+    JSON_Value *_Nullable __single a = NULL, *_Nullable __single a_copy = NULL;
     a = json_parse_file(get_file_path(filename));
     TEST(json_value_equals(a, a)); /* test equality test */
     a_copy = json_value_deep_copy(a);
@@ -388,14 +395,14 @@ void test_suite_4(void) {
 void test_suite_5(void) {
     double zero = 0.0; /* msvc is silly (workaround for error C2124) */
 
-    JSON_Value *val_from_file = json_parse_file(get_file_path("test_5.txt"));
+    JSON_Value *_Nullable __single val_from_file = json_parse_file(get_file_path("test_5.txt"));
 
-    JSON_Value *val = NULL, *val_with_parent;
-    JSON_Object *obj = NULL;
-    JSON_Array *interests_arr = NULL;
+    JSON_Value *_Nullable __single val = NULL, *_Nullable __single val_with_parent;
+    JSON_Object *_Nullable __single obj = NULL;
+    JSON_Array *_Nullable __single interests_arr = NULL;
 
-    JSON_Value *remove_test_val = NULL;
-    JSON_Array *remove_test_arr = NULL;
+    JSON_Value *_Nullable __single remove_test_val = NULL;
+    JSON_Array *_Nullable __single remove_test_arr = NULL;
 
     val = json_value_init_object();
     TEST(val != NULL);
@@ -415,6 +422,7 @@ void test_suite_5(void) {
     TEST(json_array_append_string(interests_arr, "Mountain Biking") == JSONSuccess);
     TEST(json_array_replace_string(interests_arr, 0, "Reading") == JSONSuccess);
 
+    obj = json_value_get_object(val);
     TEST(json_object_dotset_string(obj, "favorites.color", "blue") == JSONSuccess);
     TEST(json_object_dotset_string(obj, "favorites.sport", "running") == JSONSuccess);
     TEST(json_object_dotset_string(obj, "favorites.fruit", "apple") == JSONSuccess);
@@ -436,6 +444,7 @@ void test_suite_5(void) {
     TEST(json_object_dotset_string(obj, NULL, NULL) == JSONFailure);
     TEST(json_object_dotset_value(obj, NULL, NULL) == JSONFailure);
 
+    interests_arr = json_object_get_array(obj, "interests");
     TEST(json_array_append_string(NULL, "lorem") == JSONFailure);
     TEST(json_array_append_value(interests_arr, NULL) == JSONFailure);
     TEST(json_array_append_value(NULL, NULL) == JSONFailure);
@@ -445,7 +454,7 @@ void test_suite_5(void) {
     TEST(json_array_replace_string(NULL, 0, "lorem") == JSONFailure);
     TEST(json_array_replace_string(interests_arr, 100, "not existing") == JSONFailure);
 
-    TEST(json_array_append_string(json_object_get_array(obj, "interests"), NULL) == JSONFailure);
+    TEST(json_array_append_string(interests_arr, NULL) == JSONFailure);
 
     TEST(json_array_append_string(interests_arr, "Writing") == JSONSuccess);
     TEST(json_array_remove(interests_arr, 0) == JSONSuccess);
@@ -453,10 +462,12 @@ void test_suite_5(void) {
     TEST(json_array_remove(interests_arr, 0) == JSONSuccess);
     TEST(json_array_remove(interests_arr, 0) == JSONFailure); /* should be empty by now */
 
+    obj = json_value_get_object(val);
     val_with_parent = json_value_init_null();
     TEST(json_object_set_value(obj, "x", val_with_parent) == JSONSuccess);
     TEST(json_object_set_value(obj, "x", val_with_parent) == JSONFailure);
 
+    interests_arr = json_object_get_array(obj, "interests");
     val_with_parent = json_value_init_null();
     TEST(json_array_append_value(interests_arr, val_with_parent) == JSONSuccess);
     TEST(json_array_append_value(interests_arr, val_with_parent) == JSONFailure);
@@ -465,6 +476,7 @@ void test_suite_5(void) {
     TEST(json_array_replace_value(interests_arr, 0, val_with_parent) == JSONSuccess);
     TEST(json_array_replace_value(interests_arr, 0, val_with_parent) == JSONFailure);
 
+    obj = json_value_get_object(val);
     TEST(json_object_remove(obj, "interests") == JSONSuccess);
 
     /* UTF-8 tests */
@@ -517,30 +529,35 @@ void test_suite_5(void) {
 
 void test_suite_6(void) {
     const char *filename = "test_2.txt";
-    JSON_Value *a = NULL;
-    JSON_Value *b = NULL;
+    JSON_Value *_Nullable __single a = NULL;
+    JSON_Value *_Nullable __single b = NULL;
+    JSON_Object *_Nullable __single object = NULL;
+    JSON_Array *_Nullable __single array = NULL;
     a = json_parse_file(get_file_path(filename));
     b = json_parse_file(get_file_path(filename));
     TEST(json_value_equals(a, b));
-    json_object_set_string(json_object(a), "string", "eki");
+    object = json_object(a);
+    json_object_set_string(object, "string", "eki");
     TEST(!json_value_equals(a, b));
     a = json_value_deep_copy(b);
     TEST(json_value_equals(a, b));
-    json_array_append_number(json_object_get_array(json_object(b), "string array"), 1337);
+    array = json_object_get_array(json_object(b), "string array");
+    json_array_append_number(array, 1337);
     TEST(!json_value_equals(a, b));
 }
 
 void test_suite_7(void) {
-    JSON_Value *val_from_file = json_parse_file(get_file_path("test_5.txt"));
-    JSON_Value *schema = json_value_init_object();
-    JSON_Object *schema_obj = json_value_get_object(schema);
-    JSON_Array *interests_arr = NULL;
+    JSON_Value *_Nullable __single val_from_file = json_parse_file(get_file_path("test_5.txt"));
+    JSON_Value *_Nullable __single schema = json_value_init_object();
+    JSON_Object *_Nullable __single schema_obj = json_value_get_object(schema);
+    JSON_Array *_Nullable __single interests_arr = NULL;
     json_object_set_string(schema_obj, "first", "");
     json_object_set_string(schema_obj, "last", "");
     json_object_set_number(schema_obj, "age", 0);
     json_object_set_value(schema_obj, "interests", json_value_init_array());
     interests_arr = json_object_get_array(schema_obj, "interests");
     json_array_append_string(interests_arr, "");
+    schema_obj = json_value_get_object(schema);
     json_object_set_null(schema_obj, "favorites");
     TEST(json_validate(schema, val_from_file) == JSONSuccess);
     json_object_set_string(schema_obj, "age", "");
@@ -550,9 +567,9 @@ void test_suite_7(void) {
 void test_suite_8(void) {
     const char *filename = "test_2.txt";
     const char *temp_filename = "test_2_serialized.txt";
-    JSON_Value *a = NULL;
-    JSON_Value *b = NULL;
-    char *buf = NULL;
+    JSON_Value *_Nullable __single a = NULL;
+    JSON_Value *_Nullable __single b = NULL;
+    char *_Nullable _Owned __null_terminated buf = NULL;
     size_t serialization_size = 0;
     a = json_parse_file(get_file_path(filename));
     TEST(json_serialize_to_file(a, get_file_path(temp_filename)) == JSONSuccess);
@@ -561,16 +578,16 @@ void test_suite_8(void) {
     remove(temp_filename);
     serialization_size = json_serialization_size(a);
     buf = json_serialize_to_string(a);
-    TEST((strlen(buf)+1) == serialization_size);
+    TEST(buf != NULL && (strlen(buf)+1) == serialization_size);
 }
 
 void test_suite_9(void) {
     const char *filename = "test_2_pretty.txt";
     const char *temp_filename = "test_2_serialized_pretty.txt";
-    char *file_contents = NULL;
-    char *serialized = NULL;
-    JSON_Value *a = NULL;
-    JSON_Value *b = NULL;
+    char *_Nullable _Owned __null_terminated file_contents = NULL;
+    char *_Nullable _Owned __null_terminated serialized = NULL;
+    JSON_Value *_Nullable __single a = NULL;
+    JSON_Value *_Nullable __single b = NULL;
     size_t serialization_size = 0;
     a = json_parse_file(get_file_path(filename));
     TEST(json_serialize_to_file_pretty(a, get_file_path(temp_filename)) == JSONSuccess);
@@ -579,7 +596,7 @@ void test_suite_9(void) {
     remove(temp_filename);
     serialization_size = json_serialization_size_pretty(a);
     serialized = json_serialize_to_string_pretty(a);
-    TEST((strlen(serialized)+1) == serialization_size);
+    TEST(serialized != NULL && (strlen(serialized)+1) == serialization_size);
 
     file_contents = read_file(get_file_path(filename));
 
@@ -587,8 +604,8 @@ void test_suite_9(void) {
 }
 
 void test_suite_10(void) {
-    JSON_Value *val;
-    char *serialized;
+    JSON_Value *_Nullable __single val;
+    char *_Nullable _Owned __null_terminated serialized;
 
     g_malloc_count = 0;
 
@@ -612,8 +629,8 @@ void test_suite_10(void) {
 void test_suite_11(void) {
     const char * array_with_slashes = "[\"a/b/c\"]";
     const char * array_with_escaped_slashes = "[\"a\\/b\\/c\"]";
-    char *serialized = NULL;
-    JSON_Value *value = json_parse_string(array_with_slashes);
+    char *_Nullable _Owned __null_terminated serialized = NULL;
+    JSON_Value *_Nullable __single value = json_parse_string(array_with_slashes);
 
     serialized = json_serialize_to_string(value);
     TEST(STREQ(array_with_escaped_slashes, serialized));
@@ -632,7 +649,7 @@ void test_suite_12(void) {
     static const char buf_4_byte[] = "abcd\xf0\x9f\x98\x80";
     static const char buf_3_byte[] = "ab\xe2\x82\xac";
     static const char buf_2_byte[] = "ab\xc2\xa9";
-    JSON_Value *value = NULL;
+    JSON_Value *_Nullable __single value = NULL;
     
     TEST(json_value_init_string_with_len(buf_no_prefix, 1) == NULL);
     TEST(json_value_init_string_with_len(buf_no_prefix, 2) == NULL);
@@ -673,8 +690,8 @@ void test_memory_leaks(void) {
 
 void test_failing_allocations(void) {
     const char *filename = "test_2.txt";
-    JSON_Value *root_value = NULL;
-    JSON_Object *root_object = NULL;
+    JSON_Value *_Nullable __single root_value = NULL;
+    JSON_Object *_Nullable __single root_object = NULL;
     int i = 0;
     int n = 0;
     char key_val_buf[32];
@@ -704,12 +721,12 @@ void test_failing_allocations(void) {
         if (root_value) {
             root_object = json_object(root_value);
             for (i = 0; i < 64; i++) {
-                sprintf(key_val_buf, "%d", i);
+                snprintf(key_val_buf, sizeof(key_val_buf), "%d", i);
                 json_object_set_string(root_object, key_val_buf, key_val_buf);
             }
 
             for (i = 0; i < 64; i++) {
-                sprintf(key_val_buf, "%d", i);
+                snprintf(key_val_buf, sizeof(key_val_buf), "%d", i);
                 json_object_set_string(root_object, key_val_buf, key_val_buf);
             }
 
@@ -738,8 +755,8 @@ void test_failing_allocations(void) {
 void test_custom_number_format(void) {
     g_malloc_count = 0;
     {
-        char *serialized = NULL;
-        JSON_Value *val = json_value_init_number(0.6);
+        char *_Nullable _Owned __null_terminated serialized = NULL;
+        JSON_Value *_Nullable __single val = json_value_init_number(0.6);
         json_set_float_serialization_format("%.1f");
         serialized = json_serialize_to_string(val);
         json_set_float_serialization_format(NULL);
@@ -750,21 +767,21 @@ void test_custom_number_format(void) {
     TEST(g_malloc_count == 0);
 }
 
-static int custom_serialization_func_called = 0;
-static int custom_serialization_func(double num, char *buf) {
-    char num_buf[32];
+static _Thread_local int custom_serialization_func_called = 0;
+static int custom_serialization_func(double num, char *_Nullable __counted_by_or_null(64) buf) {
+    char num_buf[64];
     custom_serialization_func_called = 1;
     if (buf == NULL)
         buf = num_buf;
-    return sprintf(buf, "%.1f", num);
+    return snprintf(buf, 64, "%.1f", num);
 }
 
 void test_custom_number_serialization_function(void) {
     g_malloc_count = 0;
     {
         /* We just test that custom_serialization_func() gets called, not it's performance */
-        char *serialized = NULL;
-        JSON_Value *val = json_value_init_number(0.6);
+        char *_Nullable _Owned __null_terminated serialized = NULL;
+        JSON_Value *_Nullable __single val = json_value_init_number(0.6);
         json_set_number_serialization_function(custom_serialization_func);
         serialized = json_serialize_to_string(val);
         TEST(STREQ(serialized, "0.6"));
@@ -779,8 +796,8 @@ void test_custom_number_serialization_function(void) {
 void test_object_clear(void) {
     g_malloc_count = 0;
     {
-        JSON_Value *val = json_value_init_object();
-        JSON_Object *obj = json_value_get_object(val);
+        JSON_Value *_Nullable __single val = json_value_init_object();
+        JSON_Object *_Nullable __single obj = json_value_get_object(val);
         json_object_set_string(obj, "foo", "bar");
         json_object_clear(obj);
         TEST(json_object_get_value(obj, "foo") == NULL);
@@ -790,9 +807,9 @@ void test_object_clear(void) {
 }
 
 void print_commits_info(const char *username, const char *repo) {
-    JSON_Value *root_value;
-    JSON_Array *commits;
-    JSON_Object *commit;
+    JSON_Value *_Nullable __single root_value;
+    JSON_Array *_Nullable __single commits;
+    JSON_Object *_Nullable __single commit;
     size_t i;
 
     char curl_command[512];
@@ -800,10 +817,10 @@ void print_commits_info(const char *username, const char *repo) {
     char output_filename[] = "commits.json";
 
     /* it ain't pretty, but it's not a libcurl tutorial */
-    sprintf(curl_command,
+    snprintf(curl_command, sizeof(curl_command),
         "curl -s \"https://api.github.com/repos/%s/%s/commits\" > %s",
         username, repo, output_filename);
-    sprintf(cleanup_command, "rm -f %s", output_filename);
+    snprintf(cleanup_command, sizeof(cleanup_command), "rm -f %s", output_filename);
     system(curl_command);
 
     /* parsing json and validating output */
@@ -830,15 +847,17 @@ void print_commits_info(const char *username, const char *repo) {
 }
 
 void persistence_example(void) {
-    JSON_Value *schema = json_parse_string("{\"name\":\"\"}");
-    JSON_Value *user_data = json_parse_file(get_file_path("user_data.json"));
+    JSON_Value *_Nullable __single schema = json_parse_string("{\"name\":\"\"}");
+    JSON_Value *_Nullable __single user_data = json_parse_file(get_file_path("user_data.json"));
+    JSON_Object *_Nullable __single user_object = NULL;
     char buf[256];
-    const char *name = NULL;
+    const char *_Nullable __null_terminated name = NULL;
     if (user_data == NULL || json_validate(schema, user_data) != JSONSuccess) {
         puts("Enter your name:");
-        scanf("%s", buf);
+        scanf("%255s", buf);
         user_data = json_value_init_object();
-        json_object_set_string(json_object(user_data), "name", buf);
+        user_object = json_object(user_data);
+        json_object_set_string(user_object, "name", buf);
         json_serialize_to_file(user_data, "user_data.json");
     }
     name = json_object_get_string(json_object(user_data), "name");
@@ -849,26 +868,26 @@ void persistence_example(void) {
 }
 
 void serialization_example(void) {
-    JSON_Value *root_value = json_value_init_object();
-    JSON_Object *root_object = json_value_get_object(root_value);
-    char *serialized_string = NULL;
+    JSON_Value *_Nullable __single root_value = json_value_init_object();
+    JSON_Object *_Nullable __single root_object = json_value_get_object(root_value);
+    char *_Nullable _Owned __null_terminated serialized_string = NULL;
     json_object_set_string(root_object, "name", "John Smith");
     json_object_set_number(root_object, "age", 25);
     json_object_dotset_string(root_object, "address.city", "Cupertino");
     json_object_dotset_value(root_object, "contact.emails",
                              json_parse_string("[\"email@example.com\", \"email2@example.com\"]"));
     serialized_string = json_serialize_to_string_pretty(root_value);
-    puts(serialized_string);
+    if (serialized_string) { puts(serialized_string); }
     json_free_serialized_string(serialized_string);
     json_value_free(root_value);
 }
 
-static char * read_file(const char * file_path) {
-    FILE *fp = NULL;
+static _Returns_owned char *_Nullable __null_terminated read_file(const char * file_path _Noescape) {
+    FILE *_Nullable fp = NULL;
     size_t size_to_read = 0;
     size_t size_read = 0;
     long pos;
-    char *file_contents;
+    char *_Nullable _Owned file_contents;
     fp = fopen(file_path, "r");
     if (!fp) {
         assert(0);
@@ -898,33 +917,35 @@ static char * read_file(const char * file_path) {
     }
     fclose(fp);
     file_contents[size_read] = '\0';
-    return file_contents;
+    /* unsafe: the terminator was just written at file_contents[size_read] */
+    __unsafe { return __unsafe_null_terminated_from_indexable(file_contents, file_contents + size_read); }
 }
 
-const char* get_file_path(const char *filename) {
-    static char path_buf[2048] = { 0 };
+const char* get_file_path(const char *filename _Noescape) {
+    static _Thread_local char path_buf[2048] = { 0 };
     memset(path_buf, 0, sizeof(path_buf));
-    sprintf(path_buf, "%s/%s", g_tests_path, filename);
-    return path_buf;
+    snprintf(path_buf, sizeof(path_buf), "%s/%s", g_tests_path, filename);
+    /* unsafe: snprintf terminated path_buf; the result is good until the next call */
+    __unsafe { return __unsafe_null_terminated_from_indexable(path_buf); }
 }
 
-static void *counted_malloc(size_t size) {
-    void *res = malloc(size);
+static _Returns_owned void *_Nullable __sized_by_or_null(size) counted_malloc(size_t size) {
+    void *_Nullable _Owned res = malloc(size);
     if (res != NULL) {
         g_malloc_count++;
     }
     return res;
 }
 
-static void counted_free(void *ptr) {
+static void counted_free(void *_Nullable _Owned __unsafe_indexable ptr) {
     if (ptr != NULL) {
         g_malloc_count--;
     }
     free(ptr);
 }
 
-static void *failing_malloc(size_t size) {
-    void *res = NULL;
+static _Returns_owned void *_Nullable __sized_by_or_null(size) failing_malloc(size_t size) {
+    void *_Nullable _Owned res = NULL;
     if (g_failing_alloc.should_fail && g_failing_alloc.total_count >= g_failing_alloc.allocation_to_fail) {
         g_failing_alloc.has_failed = 1;
         return NULL;
@@ -937,7 +958,7 @@ static void *failing_malloc(size_t size) {
     return res;
 }
 
-static void failing_free(void *ptr) {
+static void failing_free(void *_Nullable _Owned __unsafe_indexable ptr) {
     if (ptr != NULL) {
         g_failing_alloc.alloc_count--;
     }

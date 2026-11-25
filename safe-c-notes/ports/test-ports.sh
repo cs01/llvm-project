@@ -10,7 +10,7 @@ out=$(mktemp -d)
 fail=0
 # The vendored safec.h copies (for compilers without Safe C) must match the
 # real one, or the non-Safe-C builds test a different header.
-for copy in "$here"/cjson/safec.h "$here"/jsmn/safec.h "$here"/lz4/safec.h "$here"/inih/safec.h "$here"/../../safe-c-std/safec.h; do
+for copy in "$here"/cjson/safec.h "$here"/jsmn/safec.h "$here"/lz4/safec.h "$here"/inih/safec.h "$here"/parson/safec.h "$here"/../../safe-c-std/safec.h; do
   cmp -s "$copy" "$here/../../clang/lib/Headers/safec.h" ||
     { echo "stale: $copy (cp clang/lib/Headers/safec.h there)"; fail=1; }
 done
@@ -100,6 +100,14 @@ for spec in "${configs[@]}"; do
   port=$here/lz4; label=lz4; lib=$port/lz4.c
   run "$name" "$cc" "$port"/test.c
   run_inih "$name" "$cc"
+  # tests.c runs every suite in one program and exits 1 if any check failed. The
+  # second build puts every key in one hash chain, as upstream's Makefile does.
+  # It reads tests/ and leaves two files there (it removes them by the wrong name).
+  port=$here/parson; label=parson; lib="-DTESTS_MAIN $port/parson.c"
+  run "$name" "$cc" "$port"/tests.c
+  label=parson-collisions; lib="$lib -DPARSON_FORCE_HASH_COLLISIONS"
+  run "$name" "$cc" "$port"/tests.c
+  rm -f "$port"/tests/*_serialized*.txt
   port=$here/../../safe-c-std; label=std; lib=
   run "$name" "$cc" "$port"/tests/*.c "$port"/examples/*.c
 done
