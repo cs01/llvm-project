@@ -50,7 +50,28 @@ int handed_on(const struct node *n, const struct node *_Unchecked _Nullable *_Nu
   return position(n, end) + position(n, &mine) + position(n, 0) + (mine == n);
 }
 
+// The first time round the loop, 'last' is null: an error there is not final.
+void last_node(struct list *l) {
+  struct node *_Nullable last = 0;
+  for (struct node *_Nullable c = l->head; c; c = c->next)
+    last = c;
+  if (last)
+    last->next = 0;
+}
+void copy_ops(struct ops *a, const struct ops *b) { *a = *b; }
+struct tree *_Unchecked _Nullable parent(const struct tree *t) { return t->up; }
+
 // Rejected.
+int round_again(struct list *l, int k) {
+  struct node *_Nullable p = 0;
+  while (k--) {
+    if (p) // expected-error {{after '_Take' on line}}
+      return p->v;
+    p = l->head;
+    free(_Take(l->head));
+  }
+  return 0;
+}
 void clear(struct node *_Unchecked _Nullable *o) { *o = 0; }
 void owner_slot(struct list *l) {
   clear(&l->head); // expected-error {{this takes the address of an '_Unchecked' variable}}

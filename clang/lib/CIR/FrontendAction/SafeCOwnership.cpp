@@ -550,9 +550,13 @@ public:
           return true;
         // Between numbers, nothing is owned (bounds and alignment are checked
         // elsewhere).
-        if (From->getType()->isPointerType() && C->getType()->isPointerType() &&
-            From->getType()->getPointeeType()->isArithmeticType() &&
-            C->getType()->getPointeeType()->isArithmeticType())
+        QualType Bytes = From->getType()->isArrayType()
+                             ? R.Ctx.getBaseElementType(From->getType())
+                             : From->getType()->getPointeeType();
+        if (!Bytes.isNull() && Bytes->isArithmeticType() &&
+            C->getType()->isPointerType() &&
+            (C->getType()->getPointeeType()->isArithmeticType() ||
+             C->getType()->isVoidPointerType()))
           return true;
         if (C->getType()->isPointerType() && !Invalid && *P == '(' &&
             !C->getSubExpr()->isNullPointerConstant(
@@ -586,6 +590,7 @@ class FunctionCheck {
     std::string Scope, Name;
     bool Pointer = false, Owned = false, Capable = true;
     const RecordDecl *View = nullptr;
+    bool UncheckedResult = false;
     // A view the program has no name for: its blocks are checked where it is
     // copied to one that has.
     bool Temporary = false;
@@ -1009,7 +1014,8 @@ private:
   bool markedUnchecked(Value Addr) const {
     auto It = Vars.find(Addr);
     if (It != Vars.end())
-      return It->second.VD && pointerKind(It->second.VD->getType()) == "unchecked";
+      return It->second.UncheckedResult ||
+             (It->second.VD && pointerKind(It->second.VD->getType()) == "unchecked");
     // '*end', where end is a parameter 'T *_Unchecked *end'.
     if (auto L = Addr.getDefiningOp<cir::LoadOp>()) {
       auto P = Vars.find(L.getAddr());
@@ -1378,6 +1384,7 @@ void FunctionCheck::alloca_(cir::AllocaOp Op) {
   if (X.Pointer) {
     if (X.Name == "__retval") {
       X.Owned = isOwned(FD->getReturnType());
+      X.UncheckedResult = pointerKind(FD->getReturnType()) == "unchecked";
       X.Name.clear();
     } else if (X.VD) {
       X.Owned = isOwned(X.VD->getType());
@@ -1484,6 +1491,16 @@ void FunctionCheck::cast(cir::CastOp Op) {
   auto OnlyFreed = [&] {
     return llvm::all_of(Res.getUsers(), [&](mlir::Operation *U) {
       auto C = mlir::dyn_cast<cir::CallOp>(U);
+      if (C && C.isIndirect() && !ownersIn(F)) {
+        const FunctionProtoType *P = calledThrough(C.getIndirectCall());
+        unsigned I = 0;
+        for (Value A : C.getArgOperands()) {
+          if (A == Res && (!P || I >= P->getNumParams() || !isOwned(P->getParamType(I))))
+            return false;
+          ++I;
+        }
+        return true;
+      }
       if (!C || !C.getCallee())
         return false;
       StringRef N = cName(*C.getCallee());
@@ -2459,6 +2476,20 @@ void FunctionCheck::operation(mlir::Operation *Op) {
       if (!isPtr(A.getType()))
         continue;
       Val *V = val(A);
+      // One struct to another of its type, with no owner and no borrow in it.
+      auto Plain = [&](mlir::Type T) {
+        auto RT = mlir::dyn_cast<cir::RecordType>(T);
+        auto It = RT && RT.getName() ? Records.find(RT.getName().getValue())
+                                     : Records.end();
+        return It != Records.end() &&
+               R.isShareable(R.Ctx.getCanonicalTagType(It->second));
+      };
+      if (N == "copy" && Op->getOperand(0).getType() == Op->getOperand(1).getType() &&
+          Plain(pointee(A.getType()))) {
+        if (!base(A, "copied"))
+          return;
+        continue;
+      }
       if (ownersIn(pointee(A.getType())))
         return fail("this copies bytes that hold owners; move them one by one");
       if (V && V->K == Val::Local && Vars.lookup(V->Of).Pointer)
@@ -2635,8 +2666,23 @@ std::optional<Rejected> FunctionCheck::run() {
       break;
     }
     block(Work.pop_back_val());
+    // Not yet what every path into the block agrees on: a block that fails goes
+    // no further, and is run again if what reaches it changes.
+    Failure.reset();
+  }
+  if (Failed())
+    return Failure;
+  // Now it is. A block that does not fail here has gone on to its successors.
+  for (mlir::Block &B : Fn.getBody()) {
+    if (!In.count(&B))
+      continue;
+    block(&B);
     if (Failed())
       break;
+    if (!Work.empty()) {
+      fail("this function is too tangled to check; split it");
+      break;
+    }
   }
   return Failure;
 }
