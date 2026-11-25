@@ -38,3 +38,7 @@ int len(const struct s *s) { return s->name ? (int)strlen(s->name) : 0; }
 void hello(int n) { printf("%d\n", n); }
 //// locals
 int f(int n) { int a[4] = {0}; int *p = a; for (int i = 0; i < 4; i++) a[i] = n; { int x = 3; int *q = &x; *q = 4; n = x; } return p[1] + n; }
+//// trusted_body
+struct n { struct n *_Owned _Nullable k; int v; };
+_Trusted void swap(struct n *a) { struct n *_Nullable x = a->k; a->k = x; }
+int use(struct n *a) { swap(a); const struct n *_Nullable z = a->k; return z ? z->v : 0; }

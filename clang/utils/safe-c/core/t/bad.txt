@@ -70,3 +70,11 @@ struct n { struct n *_Owned _Nullable k; int v; };
 void g(void) { struct n *_Owned _Nullable x = calloc(1, sizeof *x); if (!x) return; struct n *y = x; y->k = x; }
 //// tern
 int f(int c) { int *_Owned _Nullable p = malloc(4); int *_Owned _Nullable q = malloc(4); if (!p || !q) return 0; int *r = c ? p : q; free(p); return *r; }
+//// trusted_caller
+struct n { struct n *_Owned _Nullable k; int v; };
+_Trusted void swap(struct n *a) { struct n *_Nullable x = a->k; a->k = x; }
+int use(struct n *a) { const struct n *_Nullable z = a->k; swap(a); return z ? z->v : 0; }
+//// trusted_not_next
+struct n { struct n *_Owned _Nullable k; int v; };
+_Trusted void swap(struct n *a) { struct n *_Nullable x = a->k; a->k = x; }
+void other(struct n *a) { struct n *_Nullable x = a->k; a->k = x; }

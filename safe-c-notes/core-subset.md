@@ -117,3 +117,12 @@ Linux v6.12 (adc2186), part only, in ~/git/ref/linux-part: drivers/base, ipc, li
 Slices are chosen by rule, not by eye: in each directory, the non-test file of 150 to 500 lines whose path
 has the lowest sha1. The Linux-style file in the gate is replaced by these four files, read and
 classified, and the first one that has an intrusive list or a refcount is the slice.
+
+## Escape hatch (user, 2026-11-24: "some unsafe or escape hatches is ok")
+
+`_Trusted` on a function definition: its body is not checked, its signature is, and callers get the normal
+rules. The claim becomes: no use after free or double free unless a trusted body breaks its signature's
+promise. There is no hatch smaller than a function, so nothing unchecked flows into checked code except
+through a signature. It is a count, not a free pass: each slice of the variety gate reports trusted
+functions and lines. Fits = at most 5% of its lines trusted; fits with a type = trusted lines are only in
+one reusable type under 100 lines; otherwise it does not fit.

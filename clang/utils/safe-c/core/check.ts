@@ -23,7 +23,7 @@ function ast(file: string) {
   const recs = new Map<string, Rec>(), sigs = new Map<string, Sig>(); const locals = new Map<string, boolean>(); const typedefs = new Map<string, string>();
   let f = ""; 
   const strip = (t: string) => t.replace(/\[\[clang::annotate_type\([^)]*\)\]\]|_Nullable|_Nonnull|__single|__bidi_indexable|__indexable|__null_terminated|__unsafe_indexable|__(counted|sized)_by(_or_null)?\([^)]*\)|__terminated_by\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
-  const userTop: any[] = [];
+  const userTop: any[] = []; const trusted = new Set<string>();
   // clang prints a file name only when it differs from the last one printed, in document order
   const visit = (n: any) => { if (!n || typeof n !== "object") return; if (Array.isArray(n)) { n.forEach(visit); return; } for (const k in n) { if (k === "includedFrom") continue; if (k === "file" && typeof n[k] === "string") f = n[k]; else visit(n[k]); } };
   for (const d of j.inner) { let mine = false; for (const k in d) { visit({ [k]: d[k] }); if (k === "loc") mine = Object.keys(d.loc).length > 0 && f === file && !d.isImplicit; } d.mine = mine; if (d.kind === "TypedefDecl") typedefs.set(d.name, d.type.desugaredQualType ?? d.type.qualType); if (d.mine) userTop.push(d); }
@@ -39,6 +39,8 @@ function ast(file: string) {
     if (d.kind === "RecordDecl") addRec(d);
     if (d.kind === "VarDecl") { const full = (d.type.desugaredQualType ?? d.type.qualType) as string; if (isPtrT(full) || hasOwners(full)) throw new Reject(`global '${d.name}' holds a pointer`); }
   }
+  // _Trusted: the body is not checked, the signature is, and callers get the normal rules. Must be on the definition.
+  for (const d of userTop) if (d.kind === "FunctionDecl" && (d.inner ?? []).some((x: any) => x.kind === "CompoundStmt") && (d.inner ?? []).some((x: any) => x.kind === "AnnotateAttr")) trusted.add(d.name);
   for (const d of j.inner) if (d.kind === "FunctionDecl") {
     const ps = (d.inner ?? []).filter((x: any) => x.kind === "ParmVarDecl"); const rt = (d.type.qualType as string); const ret = rt.slice(0, rt.search(/ ?\((?!\*)/) < 0 ? undefined : rt.indexOf(ps.length || /\(void\)$|\(\)$/.test(rt) ? "(" : "("));
     const trail = rt.match(/(\s*\[\[clang::annotate_type\(\.\.\.\)\]\])+$/)?.[0] ?? ""; const retHead = retType(rt.slice(0, rt.length - trail.length)) + trail, typedefRet = typedefs.get(bare(retHead)) ?? retHead;
@@ -55,8 +57,8 @@ function ast(file: string) {
       const key = fn + ":" + n.name; const v = p ? (nOwned(t) > 0) : false; if (locals.has(key) && locals.get(key) !== v) throw new Reject(`two locals named '${n.name}' of different kinds`); locals.set(key, v); konst.set(key, (konst.get(key) ?? true) && /^const\b/.test(strip(t))); }
     for (const c of n.inner ?? []) walk(c, fn, sc); };
   const konst = new Map<string, boolean>();
-  for (const d of userTop) { if (d.kind === "FunctionDecl") walk(d, d.name); else if (d.kind !== "RecordDecl" && d.kind !== "TypedefDecl" && d.kind !== "VarDecl" && d.kind !== "EnumDecl" && d.kind !== "EmptyDecl") throw new Reject(d.kind + " has no rule"); }
-  return { recs, sigs, locals, scopes, konst, hasOwners, mine: new Set(userTop.filter(d => d.kind === "FunctionDecl").map(d => d.name as string)) };
+  for (const d of userTop) { if (d.kind === "FunctionDecl") { if (!trusted.has(d.name)) walk(d, d.name); } else if (d.kind !== "RecordDecl" && d.kind !== "TypedefDecl" && d.kind !== "VarDecl" && d.kind !== "EnumDecl" && d.kind !== "EmptyDecl") throw new Reject(d.kind + " has no rule"); }
+  return { recs, sigs, trusted, locals, scopes, konst, hasOwners, mine: new Set(userTop.filter(d => d.kind === "FunctionDecl").map(d => d.name as string)) };
 }
 // bounds checks contain casts the compiler made up; those do not start at a '('
 let srcText = "";
@@ -69,12 +71,12 @@ function takenText(file: string, x: any): "true" | "zero" { const l = paramText(
 type Op = { res: string; name: string; args: string[]; succ: string[]; attr: string; inT: string[]; outT: string; line: number };
 type Blk = { args: string[]; ops: Op[] };
 const splitTop = (s: string) => { const r: string[] = []; let d = 0, c = ""; for (let i = 0; i < s.length; i++) { const ch = s[i]; if (ch === "-" && s[i + 1] === ">") { c += "->"; i++; continue; } if ("<([{".includes(ch)) d++; if (">)]}".includes(ch)) d--; if (ch === "," && !d) { r.push(c.trim()); c = ""; } else c += ch; } if (c.trim()) r.push(c.trim()); return r; };
-function parse(text: string) {
+function parse(text: string, skip: Set<string>) {
   const locs = new Map<string, string>(); for (const m of text.matchAll(/^(#loc\d+) = loc\((.*)\)$/gm)) locs.set(m[1], m[2]);
   const line = (l: string, n = 0): number => { const m = l.match(/:(\d+):\d+/); if (m) return +m[1]; const r = l.match(/#loc\d+/); return r && n < 9 ? line(locs.get(r[0]) ?? "", n + 1) : 0; };
   const fns: { name: string; params: string[]; entry: string; blocks: Map<string, Blk> }[] = []; let cur: any = null, b: Blk | null = null;
   for (const raw of text.split("\n")) { let m = raw.match(/^  "cir\.func"\(\).*sym_name = "([^"]+)"/);
-    if (m) { cur = { name: m[1], params: [], entry: "", blocks: new Map() }; b = null; continue; } if (!cur) continue;
+    if (m) { cur = skip.has(m[1]) ? null : { name: m[1], params: [], entry: "", blocks: new Map() }; b = null; continue; } if (!cur) continue;
     if (/^  \}\)/.test(raw)) { if (cur.entry) fns.push(cur); cur = null; continue; } if (!raw.trim()) continue;
     m = raw.match(/^  \^(bb\d+)(?:\((.*)\))?:/); if (m) { const args = [...(m[2] ?? "").matchAll(/(%\w+): /g)].map(x => x[1]); b = { args, ops: [] }; if (!cur.entry) { cur.entry = m[1]; cur.params = args; } cur.blocks.set(m[1], b); continue; }
     m = raw.match(/^    (?:(%\w+)(?::\d+)? = )?"(\w+\.[\w.]+)"\(([^)]*)\)(?:\[([^\]]*)\])?(.*)$/); if (!m || !m[2].startsWith("cir.")) throw new Reject("unparsed IR: " + raw.trim().slice(0, 80));
@@ -95,7 +97,7 @@ export function check(file: string): string[] {
     const r1 = spawnSync(bin + "clang", CC1(file, ["-fclangir"], ["-emit-cir", "-o", dir + "/a.cir"])); if (r1.status !== 0) throw new Reject("no ClangIR: " + r1.stderr.toString().split("\n")[0].slice(0, 100));
     const r2 = spawnSync(bin + "cir-opt", [dir + "/a.cir", "--cir-flatten-cfg", "--cir-goto-solver", "--mlir-print-op-generic", "--mlir-print-debuginfo", "-o", dir + "/a.flat"]); if (r2.status !== 0) throw new Reject("no flat ClangIR");
     const text = readFileSync(dir + "/a.flat", "utf8"); const seen = new Set<string>();
-    for (const f of parse(text)) { seen.add(f.name); try { fn(f, A); } catch (e) { if (e instanceof Reject) out.push(f.name + ": " + e.message); else throw e; } }
+    for (const f of parse(text, A.trusted)) { seen.add(f.name); if (A.trusted.has(f.name)) continue; try { fn(f, A); } catch (e) { if (e instanceof Reject) out.push(f.name + ": " + e.message); else throw e; } }
     for (const m of A.mine) if (A.sigs.get(m)!.hasBody && !seen.has(m) ) { /* unused static inline functions are not emitted */ }
   } finally { rmSync(dir, { recursive: true }); }
   return out;

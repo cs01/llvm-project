@@ -3,3 +3,5 @@
 #include <safec.h>
 #define _Taken_if_true [[clang::annotate_type("safec_taken_if_true")]]
 #define _Taken_if_zero [[clang::annotate_type("safec_taken_if_zero")]]
+// Escape hatch: the body is not checked, the signature is.
+#define _Trusted __attribute__((annotate("safec_trusted")))
