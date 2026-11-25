@@ -387,6 +387,9 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"extern-local", false,
      "declare %0 at file scope (in a header), where its type and whether it "
      "may be shared are checked"},
+    {"tagged-pointers", false,
+     "a tag is not checked for a union that holds pointers; use a struct with "
+     "one field per member and leave the others null"},
     {"alloca", false,
      "'alloca' is checked only with a constant size and in a function with no "
      "variable-length array; use a fixed-size array, or 'malloc' and 'free'"},
@@ -693,9 +696,24 @@ static const AnnotateAttr *getSafeCAnnotation(const Decl *D, StringRef Name) {
   return nullptr;
 }
 
-/// The tag field name of a tagged union, or "".
+static bool holdsPointer(QualType T) {
+  T = T.getCanonicalType();
+  if (const auto *AT = T->getAsArrayTypeUnsafe())
+    return holdsPointer(AT->getElementType());
+  if (const auto *At = T->getAs<AtomicType>())
+    return holdsPointer(At->getValueType());
+  if (const RecordDecl *RD = T->getAsRecordDecl())
+    return llvm::any_of(RD->fields(), [](const FieldDecl *F) {
+      return holdsPointer(F->getType());
+    });
+  return T->isAnyPointerType() || T->isBlockPointerType();
+}
+
+/// The tag field name of a tagged union, or "". A union that holds pointers is
+/// not one: its pointer members are read and written only in '__unsafe'.
 static StringRef taggedByName(const RecordDecl *U) {
-  if (!U || !U->isUnion())
+  if (!U || !U->isUnion() ||
+      holdsPointer(U->getASTContext().getCanonicalTagType(U)))
     return "";
   const AnnotateAttr *A = getSafeCAnnotation(U, "safec_tagged_by");
   if (!A || A->args_size() == 0)
@@ -725,6 +743,10 @@ static void whenValues(
 /// each of its members says, with distinct values, when it is live.
 static void checkTaggedUnions(Sema &S, const RecordDecl *RD) {
   for (const FieldDecl *FD : RD->fields()) {
+    if (const RecordDecl *U = FD->getType()->getAsRecordDecl();
+        U && U->isUnion() && getSafeCAnnotation(U, "safec_tagged_by") &&
+        holdsPointer(FD->getType()))
+      S.SafeCDiag(FD->getLocation(), "tagged-pointers");
     StringRef Tag = taggedByName(FD->getType());
     if (Tag.empty())
       continue;

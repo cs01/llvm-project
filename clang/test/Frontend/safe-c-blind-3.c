@@ -44,16 +44,16 @@ struct s ret(void) {
 void dropfree(void) {
   long x _Drop_free = 3; // expected-error {{must be a pointer to memory from the allocator}} expected-error 0+ {{}}
 }
-struct t { int k; union _Tagged_by(k) { const char *_Static p _When(1); long l _When(0); }; };
+struct t { int k; union _Tagged_by(k) { double p _When(1); long l _When(0); }; };
 void tags(int c) {
   struct t t = {.k = c, .l = 77}; // expected-error {{known only at run time}}
-  t.k = 1; // expected-error {{after this the tag 'k'}}
+  t.k = 1;
   (void)t;
 }
 struct t paired(void) {
   struct t t = {.k = 0, .l = 77};
   t.k = 1;
-  t.p = "x";
+  t.p = 1;
   return t;
 }
 void bytes(struct s *x, const char *m) {
@@ -96,8 +96,8 @@ __attribute__((format(printf, 1, 2))) int forward(const char *m, ...) {
 void look(struct t *t);
 long peek(struct t *t);
 void between(void) {
-  struct t t = {.k = 1, .p = "x"};
-  t.k = 0; // expected-error {{after this the tag 'k'}}
+  struct t t = {.k = 1, .p = 1};
+  t.k = 0;
   t.l = peek(&t); // expected-error {{needs the tag}}
 }
 __attribute__((malloc, alloc_size(1))) char *liar(size_t n) {

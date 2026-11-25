@@ -137,13 +137,13 @@ typedef struct json_string {
 struct json_value_t {
     JSON_Value      *_Unchecked _Nullable parent; /* back pointer: the parent owns this value */
     JSON_Value_Type  type;
-    union _Tagged_by(type) {
-        JSON_String  string                   _When(JSONString);
-        double       number                   _When(JSONNumber);
-        JSON_Object *_Owned _Nullable object  _When(JSONObject);
-        JSON_Array  *_Owned _Nullable array   _When(JSONArray);
-        int          boolean                  _When(JSONBoolean);
-        int          null                     _When(JSONNull);
+    struct { /* one field per type, the others null: a union of owners is not checked */
+        JSON_String  string;
+        double       number;
+        JSON_Object *_Owned _Nullable object;
+        JSON_Array  *_Owned _Nullable array;
+        int          boolean;
+        int          null;
     } value;
 };
 

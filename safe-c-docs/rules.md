@@ -98,7 +98,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 
 **Type attributes** (24): `PtrBidiIndexable`, `PtrIndexable`, `PtrSingle`, `PtrUnsafeIndexable`, `PtrTerminatedBy`, `PtrEndedBy`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `TypeNonNull`, `TypeNullable`, `TypeNullableResult`, `TypeNullUnspecified`, `AnnotateType`, `LifetimeBound`, `NoEscape`, `VectorSize`, `ExtVectorType`, `NoReturn`, `MayAlias`, `Mode`, `CDecl`, `NoThrow`
 
-**Errors** (108; the bounds, null and lifetime errors of Clang itself are not listed):
+**Errors** (109; the bounds, null and lifetime errors of Clang itself are not listed):
 
 | Rule | Message |
 |---|---|
@@ -183,6 +183,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `tag-init-unknown` | the tag %0 is known only at run time, so the member initialized beside it may be the wrong one; set them together in a branch for each value |
 | `tag-unpaired` | after this the tag %0 says one member is live while the union still holds another's bytes; assign a constant tag, and make the very next statement write the member it selects, in the same object |
 | `tagged-member-address` | a pointer to %0 would outlive a change of the tag '%1', after which these bytes may be another member's (one that holds pointers); use the member by name, or copy its value out ('x = s.%2;') |
+| `tagged-pointers` | a tag is not checked for a union that holds pointers; use a struct with one field per member and leave the others null |
 | `take-nonnull` | '_Take' leaves null behind, so '%0' must be declared '_Nullable' |
 | `take-operand` | '_Take' moves a pointer out of a field or global and leaves null behind, so it needs a pointer that can be assigned, such as '_Take(n->next)' |
 | `type-not-in-safe-c` | Safe C has no rules for this kind of type ('%0') |

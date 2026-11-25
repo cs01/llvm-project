@@ -7,7 +7,6 @@
 // RUN:   -fnullability-default=nonnull -include safec.h -verify %s
 // RUN: %clang_cc1 -mllvm -safe-c-ownership=false -fsyntax-only -mllvm -safe-c-shared-globals=false -fsafe-c -fbounds-safety \
 // RUN:   -fnullability-safety -fnullability-default=nonnull -include safec.h -verify=off %s
-// off-no-diagnostics
 
 enum kind { CIRCLE, RECT };
 struct shape {
@@ -66,18 +65,17 @@ double locals(void) {
   return a.radius;
 }
 
-// A tagged union may hold pointers: every access is checked against the tag,
-// so an int's bytes are never read as a pointer.
+// Members of plain data; a union that holds pointers is rejected (end of file).
 struct value {
   int is_ptr;
   union _Tagged_by(is_ptr) {
     long n _When(0);
-    int *_Static p _When(1);
+    double p _When(1);
   };
 };
 int deref(const struct value *v) {
   if (v->is_ptr == 1)
-    return *v->p;
+    return (int)v->p;
   if (v->is_ptr == 0)
     return (int)v->n;
   return 0;
@@ -89,7 +87,7 @@ int not_one(const struct value *v) {
   return (int)v->n; // expected-error {{reading 'n' needs the tag 'is_ptr' known to be 0 here}}
 }
 int pun(const struct value *v) {
-  return *v->p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
+  return (int)v->p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
 }
 
 // A bool tag (as in a Result): `if (r.ok)`, `!r.ok`, `r.ok && r.value`, and
@@ -122,38 +120,46 @@ double deref_form(const struct shape *s) {
   return 0;
 }
 
-// Three back doors to a member whose bytes a tag change reuses: a pointer to
-// the member, a tag write through an alias, and a call given an alias.
-int g_int = 42;
-int member_address(void) {
-  struct value x = {1, {.p = &g_int}};
-  int *_Static *_Nullable pp = 0;
-  if (x.is_ptr == 1)
-    pp = &x.p; // expected-error {{a pointer to 'p' would outlive a change of the tag 'is_ptr', after which these bytes may be another member's (one that holds pointers); use the member by name, or copy its value out ('x = s.p;')}}
-  return pp ? **pp : 0;
-}
+// Two back doors to a member whose bytes a tag change reuses: a tag write
+// through an alias, and a call given an alias.
 int alias_write(void) {
-  struct value x = {1, {.p = &g_int}};
+  struct value x = {1, {.p = 42}};
   struct value *q = &x;
   if (x.is_ptr != 1)
     return 0;
-  q->is_ptr = 0; // expected-error {{after this the tag}}
-  return *x.p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
+  q->is_ptr = 0;
+  return (int)x.p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
 }
 void clobber(struct value *w);
 int alias_call(void) {
-  struct value x = {1, {.p = &g_int}};
+  struct value x = {1, {.p = 42}};
   struct value *q = &x;
   if (x.is_ptr != 1)
     return 0;
   clobber(q);
-  return *x.p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
+  return (int)x.p; // expected-error {{reading 'p' needs the tag 'is_ptr' known to be 1 here}}
 }
 int unaliased_local_survives_calls(void) {
-  struct value x = {1, {.p = &g_int}};
+  struct value x = {1, {.p = 42}};
   struct value other = {0, {.n = 0}};
   if (x.is_ptr != 1)
     return 0;
   clobber(&other); // x's address was never taken: its tag cannot change
-  return *x.p;
+  return (int)x.p;
+}
+
+// Following the tag through copies, aliases and initializers was where most
+// holes were, so a union that holds pointers has no checked access.
+struct ptrs {
+  int k;
+  union _Tagged_by(k) { // expected-error@+3 {{a tag is not checked for a union that holds pointers}}
+    long n _When(0);
+    int *_Static p _When(1);
+  } u;
+};
+int punned(struct ptrs *a, struct ptrs *b) {
+  b->u = a->u;
+  if (b->k == 1)
+    return *b->u.p; // off-error 1+ {{can read memory as a pointer}} expected-error 1+ {{can read memory as a pointer it does not hold}}
+  return 0;
 }

@@ -24,7 +24,7 @@ Safe C, Apple clang and ASan, and every error is copied from the compiler.
 | `&'static T` | `T *_Static` |
 | `Option::take` | `_Take(place)` |
 | `Drop` | `_Drop(fn)` on a variable |
-| `enum` with data | `union _Tagged_by(kind)` + `_When(V)` |
+| `enum` with data | `union _Tagged_by(kind)` + `_When(V)`, of plain data only |
 | exhaustive `match` | `switch` on the tag |
 | `Result<T, E>`, `?` | `RESULT(...)`, `TRY(...)` |
 | `Vec<T>`, `String` | `VEC(T)`, `string` |

@@ -2616,6 +2616,7 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     const Expr *arg = e->getArg(0)->IgnoreParens();
     LValue lv = emitLValue(arg);
     mlir::Location loc = getLoc(e->getExprLoc());
+    SourceLocRAIIObject at(*this, e->getSourceRange());
     mlir::Value v = emitLoadOfScalar(lv, e->getExprLoc());
     emitStoreThroughLValue(
         RValue::get(builder.getNullPtr(v.getType(), loc)), lv);
