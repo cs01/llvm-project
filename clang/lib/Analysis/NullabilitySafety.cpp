@@ -1915,7 +1915,13 @@ public:
     if (!ME->isArrow())
       return;
 
-    const Expr *Operand = ME->getBase()->IgnoreParenImpCasts();
+    // Bounds safety reads 's->p' and its count 's->n' from one opaque 's'. The
+    // count is not written anywhere, and 's->p' is checked itself.
+    if (ME->getMemberLoc().isInvalid() &&
+        isa<OpaqueValueExpr>(ME->getBase()->IgnoreParenImpCasts()))
+      return;
+    const Expr *Operand =
+        stripOpaqueValue(ME->getBase()->IgnoreParenImpCasts());
     ExplicitCastInfo Cast = getExplicitCastInfo(Operand);
     if (Cast.isNonnull())
       return;

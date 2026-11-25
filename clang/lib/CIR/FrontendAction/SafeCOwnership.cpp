@@ -1386,6 +1386,8 @@ void FunctionCheck::alloca_(cir::AllocaOp Op) {
       X.Owned = isOwned(FD->getReturnType());
       X.UncheckedResult = pointerKind(FD->getReturnType()) == "unchecked";
       X.Name.clear();
+    } else if (X.VD && !X.VD->getType()->isPointerType()) {
+      return fail("a pointer in an '_Atomic' or other wrapper has no rule");
     } else if (X.VD) {
       X.Owned = isOwned(X.VD->getType());
       if (!Parm || L)

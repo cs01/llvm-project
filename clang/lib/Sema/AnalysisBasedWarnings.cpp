@@ -1702,6 +1702,9 @@ struct SortDiagBySourceLocation {
   SortDiagBySourceLocation(SourceManager &SM) : SM(SM) {}
 
   bool operator()(const DelayedDiag &left, const DelayedDiag &right) {
+    // Code the compiler made up (a bounds check's) has no place.
+    if (left.first.first.isInvalid() || right.first.first.isInvalid())
+      return left.first.first.isInvalid() && right.first.first.isValid();
     // Although this call will be slow, this is only called when outputting
     // multiple warnings.
     return SM.isBeforeInTranslationUnit(left.first.first, right.first.first);
