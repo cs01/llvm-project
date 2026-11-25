@@ -1,0 +1,72 @@
+//// store_then_free
+struct n { int *_Owned _Nullable l; };
+void g(struct n *a) { int *_Owned _Nullable k = malloc(4); if (!k) return; a->l = k; free(k); }
+//// use_after_take
+struct n { int *_Owned _Nullable l; };
+int g(struct n *a) { int *_Nullable q = a->l; free(_Take(a->l)); return q ? *q : 0; }
+//// sibling
+struct n { struct n *_Owned _Nullable k; int v; };
+int g(struct n *a) { struct n *x = a; struct n *y = a; struct n *_Nullable z = y->k; free(_Take(x->k)); return z ? z->v : 0; }
+//// scope
+int f(int c) { int *_Nullable q = 0; { int x = c; q = &x; } return q ? *q : 0; }
+//// call_kills
+struct n { struct n *_Owned _Nullable k; int v; };
+void chop(struct n *a) { free(_Take(a->k)); }
+int g(struct n *a) { const struct n *_Nullable z = a->k; chop(a); return z ? z->v : 0; }
+//// const_getter
+struct n { struct n *_Owned _Nullable k; int v; };
+struct n *_Nullable kid(const struct n *a) { return a->k; }
+void chop(struct n *a) { free(_Take(a->k)); }
+void wipe(const struct n *a) { struct n *_Nullable k = kid(a); if (k) chop(k); }
+//// getter_then_free
+struct n { struct n *_Owned _Nullable k; int v; };
+struct n *_Nullable kid(const struct n *a) { return a->k; }
+int g(struct n *a) { struct n *_Nullable z = kid(a); free(_Take(a->k)); return z ? z->v : 0; }
+//// returns_other
+struct n { struct n *_Owned _Nullable k; int v; };
+struct n *_Nullable kid(const struct n *a, const struct n *b) { return b->k; }
+//// taken_untested
+struct n { struct n *_Owned _Nullable k; int v; };
+_Bool put(struct n *p, struct n *_Taken_if_true x);
+void g(struct n *p) { struct n *_Owned _Nullable x = calloc(1, sizeof *x); if (!x) return; put(p, x); free(x); }
+//// taken_wrong_side
+struct n { struct n *_Owned _Nullable k; int v; };
+_Bool put(struct n *p, struct n *_Taken_if_true x);
+void g(struct n *p) { struct n *_Owned _Nullable x = calloc(1, sizeof *x); if (!x) return; if (put(p, x)) free(x); }
+//// taken_lies
+struct n { struct n *_Owned _Nullable k; int v; };
+_Bool put(struct n *p, struct n *_Taken_if_true x) { p->k = x; return 0; }
+//// taken_lies2
+struct n { struct n *_Owned _Nullable k; int v; };
+_Bool put(struct n *p, struct n *_Taken_if_true x) { if (p->v) return 1; p->k = x; return 1; }
+//// loop_move
+void f(int *_Owned p, int n) { for (int i = 0; i < n; i++) free(p); }
+//// double_field
+struct n { int *_Owned _Nullable a; int *_Owned _Nullable b; };
+void g(struct n *s) { int *_Owned _Nullable k = malloc(4); s->a = k; s->b = k; }
+//// copy_struct
+struct n { int *_Owned _Nullable a; };
+void g(struct n *s, struct n *t) { *s = *t; }
+//// alias_args
+struct n { struct n *_Owned _Nullable k; int v; };
+int two(struct n *a, const struct n *b) { free(_Take(a->k)); return b->v; }
+int g(struct n *a) { return a->k ? two(a, a->k) : 0; }
+//// store_borrow
+struct n { int *_Nullable p; };
+void g(struct n *s, int *q) { s->p = q; }
+//// free_stack
+void f(void) { int x = 0; free(&x); }
+//// free_borrow
+void f(int *p) { free(p); }
+//// global
+int *_Owned _Nullable g;
+//// local_struct
+struct n { int *_Owned _Nullable a; };
+int f(void) { struct n s = {0}; s.a = malloc(4); int *_Nullable q = s.a; free(_Take(s.a)); return q ? *q : 0; }
+//// ret_local
+int *f(int *p) { int x = *p; int *q = &x; return q; }
+//// self_store
+struct n { struct n *_Owned _Nullable k; int v; };
+void g(void) { struct n *_Owned _Nullable x = calloc(1, sizeof *x); if (!x) return; struct n *y = x; y->k = x; }
+//// tern
+int f(int c) { int *_Owned _Nullable p = malloc(4); int *_Owned _Nullable q = malloc(4); if (!p || !q) return 0; int *r = c ? p : q; free(p); return *r; }
