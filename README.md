@@ -113,6 +113,7 @@ checked.
 ## More
 
 - [Safe C for Rust programmers](safe-c-docs/for-rust-programmers.md): the map, and real errors
+- [The rules](safe-c-docs/rules.md): what is accepted, in one place
 - [What you annotate](safe-c-docs/annotations.md), with the Rust equivalent of each
 - [Examples](safe-c-docs/examples.md)
 - [Adopting it one file at a time](safe-c-docs/adoption.md)

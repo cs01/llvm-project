@@ -10149,6 +10149,44 @@ static void processTypeAttrs(TypeProcessingState &state, QualType &type,
     if (attr.isInvalid())
       continue;
 
+    // Safe C: only type attributes it has rules for.
+    if (Sema &S = state.getSema();
+        S.getLangOpts().SafeC && !S.getLangOpts().CPlusPlus &&
+        attr.isTypeAttr() && attr.getKind() != ParsedAttr::UnknownAttribute &&
+        !S.getSourceManager().isInSystemHeader(
+            S.getSourceManager().getSpellingLoc(attr.getLoc())))
+      switch (attr.getKind()) {
+      case ParsedAttr::AT_PtrBidiIndexable:
+      case ParsedAttr::AT_PtrIndexable:
+      case ParsedAttr::AT_PtrSingle:
+      case ParsedAttr::AT_PtrUnsafeIndexable:
+      case ParsedAttr::AT_PtrTerminatedBy:
+      case ParsedAttr::AT_PtrEndedBy:
+      case ParsedAttr::AT_CountedBy:
+      case ParsedAttr::AT_CountedByOrNull:
+      case ParsedAttr::AT_SizedBy:
+      case ParsedAttr::AT_SizedByOrNull:
+      case ParsedAttr::AT_TypeNonNull:
+      case ParsedAttr::AT_TypeNullable:
+      case ParsedAttr::AT_TypeNullableResult:
+      case ParsedAttr::AT_TypeNullUnspecified:
+      case ParsedAttr::AT_AnnotateType:
+      case ParsedAttr::AT_LifetimeBound:
+      case ParsedAttr::AT_NoEscape:
+      case ParsedAttr::AT_VectorSize:
+      case ParsedAttr::AT_ExtVectorType:
+      case ParsedAttr::AT_NoReturn:
+      case ParsedAttr::AT_MayAlias:
+      case ParsedAttr::AT_Mode:
+      case ParsedAttr::AT_CDecl:
+      case ParsedAttr::AT_NoThrow:
+        break;
+      default:
+        S.SafeCDiag(attr.getLoc(), "attr-not-in-safe-c")
+            << attr.getAttrName()->getName();
+        break;
+      }
+
     if (attr.isStandardAttributeSyntax() || attr.isRegularKeywordAttribute()) {
       // [[gnu::...]] attributes are treated as declaration attributes, so may
       // not appertain to a DeclaratorChunk. If we handle them as type

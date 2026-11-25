@@ -15,6 +15,7 @@ const partFiles: Record<string, string> = {
   summary: readmePath,
   annotations: join(root, "safe-c-docs/annotations.md"),
   juliet: join(root, "safe-c-docs/results.md"),
+  rules: join(root, "safe-c-docs/rules.md"),
 };
 const check = process.argv.includes("--check");
 
@@ -177,7 +178,40 @@ function examplesTest(): string {
   ].join("\n");
 }
 
-const parts: Record<string, () => string> = { annotations, juliet, summary };
+// The lists in rules.md, read from the compiler's source so they cannot drift.
+function rules(): string {
+  const sema = readFileSync(join(root, "clang/lib/Sema/SemaSafeC.cpp"), "utf8");
+  const between = (text: string, from: string, to: string) => {
+    const i = text.indexOf(from);
+    const j = text.indexOf(to, i);
+    if (i < 0 || j < 0) throw new Error("rules: cannot find " + from);
+    return text.slice(i, j);
+  };
+  const names = (text: string, re: RegExp) => [...new Set([...text.matchAll(re)].map((m) => m[1]))];
+  const stmts = names(between(sema, "switch (St->getStmtClass())", "default:"), /Stmt::(\w+?)Class:/g);
+  const casts = names(between(sema, "switch (C->getCastKind())", "default:"), /case CK_(\w+):/g);
+  const attr = readFileSync(join(root, "clang/lib/Sema/SemaDeclAttr.cpp"), "utf8");
+  const attrs = names(between(attr, "// Known: checked by their own rules", "default:"), /AT_(\w+):/g);
+  const type = readFileSync(join(root, "clang/lib/Sema/SemaType.cpp"), "utf8");
+  const typeAttrs = names(between(type, "// Safe C: only type attributes it has rules for.", "default:"), /AT_(\w+):/g);
+  const diags = [...sema.matchAll(/\{"([a-z0-9-]+)",\s*(true|false),\s*((?:"(?:[^"\\]|\\.)*"\s*)+)\}/g)]
+    .filter((m) => m[2] === "false")
+    .map((m) => [m[1], [...m[3].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]).join("")]);
+  if (stmts.length < 40 || casts.length < 20 || attrs.length < 30 || diags.length < 80)
+    throw new Error(`rules: parsed too little (${stmts.length} ${casts.length} ${attrs.length} ${diags.length})`);
+  const code = (xs: string[]) => xs.map((x) => "`" + x + "`").join(", ");
+  return [
+    `**Statements and expressions** (${stmts.length}): ${code(stmts)}`, "",
+    `**Casts** (${casts.length}): ${code(casts)}`, "",
+    `**Declaration attributes** (${attrs.length}): ${code(attrs)}`, "",
+    `**Type attributes** (${typeAttrs.length}): ${code(typeAttrs)}`, "",
+    `**Errors** (${diags.length}; the bounds, null and lifetime errors of Clang itself are not listed):`, "",
+    "| Rule | Message |", "|---|---|",
+    ...diags.sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, t]) => `| \`${k}\` | ${t.replace(/\\"/g, '"').replace(/\|/g, "\\|")} |`),
+  ].join("\n");
+}
+
+const parts: Record<string, () => string> = { annotations, juliet, summary, rules };
 const files: Record<string, { original: string; text: string }> = {};
 for (const [name, gen] of Object.entries(parts)) {
   const path = partFiles[name];

@@ -413,6 +413,15 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"cast-align", false,
      "%0 needs stricter alignment than %1 has, and the address may not have "
      "it; 'memcpy' the bytes into a variable of type %0"},
+    {"not-in-safe-c", false,
+     "Safe C has no rules for this ('%0'), so nothing would check it; write it "
+     "with ordinary statements, expressions and casts"},
+    {"pragma-not-in-safe-c", false,
+     "Safe C has no rules for '#pragma %0', which may change what names or "
+     "memory mean; remove it"},
+    {"attr-not-in-safe-c", false,
+     "Safe C has no rules for the attribute '%0', which may change what the "
+     "compiler believes; remove it"},
     {"partial-pointer", false,
      "%0 holds pointers, so it is copied or cleared only whole: the size must "
      "be 'n * sizeof' of it"},
@@ -1593,6 +1602,132 @@ public:
     if (Base->IgnoreParenImpCasts()->getType()->isVectorType() &&
         !Idx->isIntegerConstantExpr(S.Context))
       S.SafeCDiag(Idx->getExprLoc(), "vector-index");
+    return true;
+  }
+  /// The language Safe C has rules for. Anything else is an error: a kind of
+  /// statement, expression or cast is added here only with the rules that
+  /// cover it (safe-c-docs/rules.md lists them).
+  bool VisitStmt(Stmt *St) {
+    switch (St->getStmtClass()) {
+    case Stmt::NullStmtClass:
+    case Stmt::CompoundStmtClass:
+    case Stmt::DeclStmtClass:
+    case Stmt::IfStmtClass:
+    case Stmt::SwitchStmtClass:
+    case Stmt::WhileStmtClass:
+    case Stmt::DoStmtClass:
+    case Stmt::ForStmtClass:
+    case Stmt::GotoStmtClass:
+    case Stmt::ReturnStmtClass:
+    case Stmt::CaseStmtClass:
+    case Stmt::DefaultStmtClass:
+    case Stmt::ContinueStmtClass:
+    case Stmt::BreakStmtClass:
+    case Stmt::LabelStmtClass:
+    case Stmt::AttributedStmtClass:
+    case Stmt::PredefinedExprClass:
+    case Stmt::DeclRefExprClass:
+    case Stmt::IntegerLiteralClass:
+    case Stmt::FloatingLiteralClass:
+    case Stmt::ImaginaryLiteralClass:
+    case Stmt::StringLiteralClass:
+    case Stmt::CharacterLiteralClass:
+    case Stmt::ParenExprClass:
+    case Stmt::UnaryOperatorClass:
+    case Stmt::OffsetOfExprClass:
+    case Stmt::UnaryExprOrTypeTraitExprClass:
+    case Stmt::ArraySubscriptExprClass:
+    case Stmt::CallExprClass:
+    case Stmt::MemberExprClass:
+    case Stmt::BinaryOperatorClass:
+    case Stmt::CompoundAssignOperatorClass:
+    case Stmt::ConditionalOperatorClass:
+    case Stmt::BinaryConditionalOperatorClass:
+    case Stmt::ImplicitCastExprClass:
+    case Stmt::CStyleCastExprClass:
+    case Stmt::CompoundLiteralExprClass:
+    case Stmt::InitListExprClass:
+    case Stmt::DesignatedInitExprClass:
+    case Stmt::DesignatedInitUpdateExprClass:
+    case Stmt::ImplicitValueInitExprClass:
+    case Stmt::NoInitExprClass:
+    case Stmt::ParenListExprClass:
+    case Stmt::GenericSelectionExprClass:
+    case Stmt::SourceLocExprClass:
+    case Stmt::ConstantExprClass:
+    case Stmt::AtomicExprClass:
+    case Stmt::StmtExprClass:
+    case Stmt::ChooseExprClass:
+    case Stmt::GNUNullExprClass:
+    case Stmt::CXXNullPtrLiteralExprClass:
+    case Stmt::CXXBoolLiteralExprClass:
+    case Stmt::TypeTraitExprClass:
+    case Stmt::ExprWithCleanupsClass:
+    case Stmt::OpaqueValueExprClass:
+    case Stmt::RecoveryExprClass: // already an error
+    case Stmt::EmbedExprClass:
+    case Stmt::ShuffleVectorExprClass:
+    case Stmt::MaterializeTemporaryExprClass: // an array in a returned struct
+    case Stmt::ConvertVectorExprClass:
+    // Have their own rules, which reject or check them.
+    case Stmt::GCCAsmStmtClass:
+    case Stmt::VAArgExprClass:
+    case Stmt::BlockExprClass:
+    // Made by -fbounds-safety.
+    case Stmt::AssumptionExprClass:
+    case Stmt::BoundsSafetyPointerPromotionExprClass:
+    case Stmt::ForgePtrExprClass:
+    case Stmt::GetBoundExprClass:
+    case Stmt::PredefinedBoundsCheckExprClass:
+    case Stmt::BoundsCheckExprClass:
+    case Stmt::MaterializeSequenceExprClass:
+    case Stmt::TerminatedByToIndexableExprClass:
+    case Stmt::TerminatedByFromIndexableExprClass:
+      break;
+    default:
+      S.SafeCDiag(St->getBeginLoc(), "not-in-safe-c") << St->getStmtClassName();
+      break;
+    }
+    if (const auto *C = dyn_cast<CastExpr>(St))
+      switch (C->getCastKind()) {
+      case CK_BitCast:
+      case CK_LValueToRValue:
+      case CK_NoOp:
+      case CK_ArrayToPointerDecay:
+      case CK_FunctionToPointerDecay:
+      case CK_NullToPointer:
+      case CK_IntegralToPointer: // rejected with its own message
+      case CK_PointerToIntegral:
+      case CK_PointerToBoolean:
+      case CK_ToVoid:
+      case CK_VectorSplat:
+      case CK_IntegralCast:
+      case CK_IntegralToBoolean:
+      case CK_IntegralToFloating:
+      case CK_FloatingToIntegral:
+      case CK_FloatingToBoolean:
+      case CK_BooleanToSignedIntegral:
+      case CK_FloatingCast:
+      case CK_FloatingRealToComplex:
+      case CK_FloatingComplexToReal:
+      case CK_FloatingComplexToBoolean:
+      case CK_FloatingComplexCast:
+      case CK_FloatingComplexToIntegralComplex:
+      case CK_IntegralRealToComplex:
+      case CK_IntegralComplexToReal:
+      case CK_IntegralComplexToBoolean:
+      case CK_IntegralComplexCast:
+      case CK_IntegralComplexToFloatingComplex:
+      case CK_AtomicToNonAtomic:
+      case CK_NonAtomicToAtomic:
+      case CK_BuiltinFnToFnPtr:
+      case CK_BoundsSafetyPointerCast:
+      case CK_Dependent:
+        break;
+      default:
+        S.SafeCDiag(St->getBeginLoc(), "not-in-safe-c") << C->getCastKindName();
+        break;
+      }
     return true;
   }
   bool VisitAtomicExpr(AtomicExpr *E) {

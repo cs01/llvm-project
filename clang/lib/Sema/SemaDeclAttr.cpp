@@ -9317,7 +9317,76 @@ ProcessDeclAttribute(Sema &S, Decl *D, const ParsedAttr &AL,
       S.Diag(AL.getLoc(), diag::warn_safe_c_escape)
           << ("'" + AL.getAttrName()->getName() + "'").str();
       break;
+    // Known: checked by their own rules, or no promise about memory.
+    case ParsedAttr::AT_Annotate:
+    case ParsedAttr::AT_AnnotateType:
+    case ParsedAttr::AT_Unused:
+    case ParsedAttr::AT_Used:
+    case ParsedAttr::AT_Retain:
+    case ParsedAttr::AT_Deprecated:
+    case ParsedAttr::AT_Unavailable:
+    case ParsedAttr::AT_Availability:
+    case ParsedAttr::AT_Format:
+    case ParsedAttr::AT_FormatArg:
+    case ParsedAttr::AT_NonNull:
+    case ParsedAttr::AT_NoReturn:
+    case ParsedAttr::AT_AnalyzerNoReturn:
+    case ParsedAttr::AT_Pure:
+    case ParsedAttr::AT_Const:
+    case ParsedAttr::AT_WarnUnusedResult:
+    case ParsedAttr::AT_Restrict:
+    case ParsedAttr::AT_AllocSize:
+    case ParsedAttr::AT_Ownership:
+    case ParsedAttr::AT_LifetimeBound:
+    case ParsedAttr::AT_NoEscape:
+    case ParsedAttr::AT_Capability:
+    case ParsedAttr::AT_ScopedLockable:
+    case ParsedAttr::AT_GuardedBy:
+    case ParsedAttr::AT_PtGuardedBy:
+    case ParsedAttr::AT_AcquireCapability:
+    case ParsedAttr::AT_ReleaseCapability:
+    case ParsedAttr::AT_TryAcquireCapability:
+    case ParsedAttr::AT_RequiresCapability:
+    case ParsedAttr::AT_LocksExcluded:
+    case ParsedAttr::AT_AcquiredBefore:
+    case ParsedAttr::AT_AcquiredAfter:
+    case ParsedAttr::AT_Cleanup:
+    case ParsedAttr::AT_Aligned:
+    case ParsedAttr::AT_Packed:
+    case ParsedAttr::AT_Visibility:
+    case ParsedAttr::AT_AlwaysInline:
+    case ParsedAttr::AT_NoInline:
+    case ParsedAttr::AT_Cold:
+    case ParsedAttr::AT_Hot:
+    case ParsedAttr::AT_GNUInline:
+    case ParsedAttr::AT_Flatten:
+    case ParsedAttr::AT_MinSize:
+    case ParsedAttr::AT_Leaf:
+    case ParsedAttr::AT_NoThrow:
+    case ParsedAttr::AT_NoDebug:
+    case ParsedAttr::AT_Constructor:
+    case ParsedAttr::AT_Destructor:
+    case ParsedAttr::AT_EnumExtensibility:
+    case ParsedAttr::AT_FlagEnum:
+    case ParsedAttr::AT_Overloadable:
+    case ParsedAttr::AT_Suppress:
+    case ParsedAttr::AT_NoSanitize:
+    case ParsedAttr::AT_Uninitialized:
+    case ParsedAttr::AT_FallThrough:
+    case ParsedAttr::AT_VectorSize:
+    case ParsedAttr::AT_ExtVectorType:
+    case ParsedAttr::AT_Mode:
+    case ParsedAttr::AT_CountedBy:
+    case ParsedAttr::AT_CountedByOrNull:
+    case ParsedAttr::AT_SizedBy:
+    case ParsedAttr::AT_SizedByOrNull:
+    case ParsedAttr::AT_CDecl:
+      break;
     default:
+      // (Type attributes are checked where types are built.)
+      if (!AL.isTypeAttr() && AL.getKind() != ParsedAttr::UnknownAttribute)
+        S.SafeCDiag(AL.getLoc(), "attr-not-in-safe-c")
+            << AL.getAttrName()->getName();
       break;
     }
 

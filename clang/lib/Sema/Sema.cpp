@@ -234,6 +234,43 @@ public:
 
   void set(Sema &S) { this->S = &S; }
 
+  /// Safe C: only pragmas it knows. Others can rename symbols, move data
+  /// or change what types mean.
+  void PragmaDirective(SourceLocation Loc, PragmaIntroducerKind) override {
+    if (!S || !S->getLangOpts().SafeC || S->getLangOpts().CPlusPlus ||
+        S->getSourceManager().isInSystemHeader(Loc))
+      return;
+    SourceManager &SM = S->getSourceManager();
+    bool Invalid = false;
+    const char *P = SM.getCharacterData(SM.getSpellingLoc(Loc), &Invalid);
+    if (Invalid)
+      return;
+    StringRef Text(P);
+    Text = Text.substr(0, Text.find_first_of("\r\n"));
+    Text = Text.ltrim("# \t");
+    if (Text.consume_front("pragma") || Text.consume_front("_Pragma"))
+      Text = Text.ltrim("( \t\"");
+    SmallVector<StringRef, 8> W;
+    SplitString(Text, W, " \t(\")");
+    if (W.empty())
+      return;
+    StringRef First = W[0], Second = W.size() > 1 ? W[1] : StringRef();
+    bool Known = llvm::is_contained({"once", "mark", "region", "endregion",
+                                     "message", "STDC", "pack", "unused",
+                                     "push_macro", "pop_macro", "unroll",
+                                     "nounroll", "weak"}, // weak: own message
+                                    First);
+    if (First == "clang" || First == "GCC")
+      Known = llvm::is_contained(
+          {"diagnostic", "safe_c", "assume_nonnull", "loop", "system_header",
+           "poison", "warning", "error", "abi_ptr_attr", "unroll", "fp",
+           "dependency", "attribute", "deprecated", "final", "visibility"},
+          Second);
+    if (!Known)
+      S->SafeCDiag(Loc, "pragma-not-in-safe-c")
+          << (Second.empty() ? First.str() : (First + " " + Second).str());
+  }
+
   void reset() { S = nullptr; }
 
   void FileChanged(SourceLocation Loc, FileChangeReason Reason,
