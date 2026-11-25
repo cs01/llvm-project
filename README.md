@@ -1,14 +1,14 @@
 # Safe C
 
-**Hardened C: Clang's bounds checking, null and type rules, mandatory.** An experiment.
+**Opt a C file in; what cannot be shown safe does not compile.** An experiment.
 
 A fork of Clang with one flag, `-fsafe-c`:
 
 - **Bounds, null, uninitialized memory, casts, format strings and library calls** are
   checked: an error, or a trap at run time. This is what it aims to get right.
-- **Use after free** is caught in common cases (a local freed and used again). Ownership
-  annotations that catch more are off unless asked for
-  (`-mllvm -safe-c-strict-ownership=true`), and are not sound.
+- **Use after free** is caught in common cases (a local freed and used again, an address that
+  outlives its scope). A new ownership checker that aims to catch the rest is a prototype, not
+  in the compiler yet ([notes](safe-c-notes/core-subset.md)).
 - **Explicit boundaries:** `__unsafe`, legacy headers, `-isystem` directories. Anything
   Clang accepts that this has no rules for is an error.
 
@@ -72,23 +72,24 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 | Null dereference | checked |
 | Uninitialized reads | locals must be set before use; heap memory is zero-filled, except what `realloc`, `reallocf` and `aligned_alloc` add (which may not hold pointers) |
 | Integer UB | division by zero and oversized shifts trap; signed overflow wraps (as in Rust release builds) |
-| Type confusion | unions holding pointers must be tagged unions, and every read checks the tag. A pointer to memory holding pointers may be a writable `void *` only in the call that needs one |
-| Use after free, double free | on by default, **not sound**: see below |
-| Data races | a thread owns its argument; locked data, mutable globals and signal handlers are checked. Not yet: a counted pointer and its count under one lock, shared owners (`Arc`) |
+| Type confusion | a union's pointer members are used only in `__unsafe`; unions of plain data can be tagged and checked. Files that disagree about a shared type do not link. A pointer to memory holding pointers may be a writable `void *` only in the call that needs one |
+| Use after free, double free | simple cases only; the old ownership rules are off by default and were broken |
+| Data races | a few rules for locked data; the rest are off with the old ownership rules |
 
 **Maturity.** Early. Tested on macOS (arm64) against Apple's SDK. Linux builds but is not usable yet
-(glibc's headers have no annotations). Ported so far: jsmn, cJSON, lz4, inih. Some rule sets have small Lean models with
+(glibc's headers have no annotations). Ported so far: jsmn, cJSON, lz4, inih, parson. Some rule sets have small Lean models with
 soundness proofs; they are not Clang, and Clang is not sound (see
 [results](safe-c-docs/results.md)).
 Every open item: [open issues](safe-c-notes/review-2026-11-23.md).
 
-**Not sound, in any row.** On 2026-11-24 two independent attackers, each with only the user
-docs, broke it: the first in 34 different ways, and after most of those were fixed, the
-second in 32 more. The second found basic ones: a pointer moved into a field can still be
-freed by its old name, pointers to `_Atomic` are not bounds-checked, and an ordinary
-`char *` printed with `%s` is not scanned. All are listed in the
-[open issues](safe-c-notes/review-2026-11-23.md), and the programs are in
-`clang/utils/safe-c/holes`. Do not rely on it for security.
+**Not sound, in any row.** Three blind attacks, by agents given only the user docs, found 34, then 32,
+then 33 root causes; every program saved from the third is now rejected, and no fresh attack has been
+run since. Do not rely on it for security. All of it is in the
+[open issues](safe-c-notes/review-2026-11-23.md) and `clang/utils/safe-c/holes`.
+
+**Cost.** On 45 small GitHub projects picked by hash (those with 200+ lines that build here), unmodified code has a median of
+about 8 errors per 100 lines per project. Five real files were ported with no restructuring in four of them, at 0.99x to 1.28x
+run time before the last checks were added ([details](safe-c-notes/realsize.md)).
 
 Details: [how each is closed](safe-c-docs/protection.md).
 
