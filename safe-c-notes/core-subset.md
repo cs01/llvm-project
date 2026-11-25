@@ -41,3 +41,25 @@ only, like a borrow) is the likely extension. Back pointers become an index or a
    `__unsafe`, or an API change beyond dropping functions that return the parent.
 3. The pass, with the 342 known-bad programs: any accepted one that goes wrong is a failure.
 4. A blind attack on the pass.
+
+## Step 2 result (2026-11-24): parson's core, refereed by rustc
+
+`clang/utils/safe-c/core/parson_core.rs` is a hand transliteration of the object, array, dotted
+path, deep copy and simplified parse functions, under the subset's limits. rustc accepts it and
+its small test passes. Planting a use after remove in it is rejected. Not modeled: failed
+allocation, serializing, schema validation, parson's own 362 checks. No C was written yet.
+
+**By the bar above, the rules as written fail**: parson's API would have to change beyond the parent
+functions. Two rules would keep it, and both are new and unproved:
+
+9. **A result follows its argument.** 18 public functions take `const` and return a mutable
+   `JSON_Value`, `JSON_Object` or `JSON_Array` pointer (3 of them are the parent functions).
+   `T *f(const S *s)` returning something inside `*s`: the result is exclusive if the caller used
+   an exclusive `s`, else shared. The body may only return what it reached through `s`. Rust
+   writes each such function twice.
+10. **Ownership on success.** 4 public functions take a value only if they succeed. The owner is
+   "maybe moved" until the result is tested. Rust returns the value in the error.
+
+Changes to code, not API: `const char **string` cursors become an index (18 lines mention
+them), moving between arrays replaces copying pointers and rolling back, `memmove` of owners becomes a
+loop of moves, and an undo path re-derives a borrow. 7 kinds in all, marked CHANGED in the file.
