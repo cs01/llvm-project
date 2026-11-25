@@ -31,6 +31,7 @@
 #include "clang/AST/ParentMapContext.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtVisitor.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/DiagnosticTrap.h"
 #include "clang/Basic/TargetInfo.h"
@@ -3125,6 +3126,37 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_LValueToRValue:
     assert(CGF.getContext().hasSameUnqualifiedType(E->getType(), DestTy));
     assert(E->isGLValue() && "lvalue-to-rvalue applied to r-value!");
+    // Safe C: memory starts zeroed, so a non-null field, element or global may
+    // not have been set yet. A local is (the compiler checks), a parameter is
+    // the caller's promise.
+    if (CGF.getLangOpts().SafeC && !CGF.getLangOpts().CPlusPlus &&
+        E->getType()->isPointerType()) {
+      auto N = E->getType()->getNullability();
+      const ValueDecl *D = nullptr;
+      const Expr *Place = E->IgnoreParens();
+      while (const auto *ASE = dyn_cast<ArraySubscriptExpr>(Place))
+        Place = ASE->getBase()->IgnoreParenImpCasts();
+      if (const auto *DRE = dyn_cast<DeclRefExpr>(Place))
+        D = DRE->getDecl();
+      else if (const auto *ME = dyn_cast<MemberExpr>(Place))
+        D = ME->getMemberDecl();
+      const auto *VD = dyn_cast_or_null<VarDecl>(D);
+      const bool Scalar = VD && VD->hasLocalStorage() &&
+                          VD->getType()->isPointerType();
+      // Unannotated means non-null in Safe C code (not in a library's).
+      const bool NonNull =
+          N ? *N == NullabilityKind::NonNull
+            : !D ? isa<ArraySubscriptExpr>(E->IgnoreParens())
+                 : !CGF.getContext().getSourceManager().isInSystemHeader(
+                       D->getLocation());
+      if (NonNull && !Scalar && !E->getType()->isUnsafeIndexablePointerType()) {
+        Value *V = Visit(E);
+        if (V && V->getType()->isPointerTy())
+          CGF.EmitTrapCheck(Builder.CreateIsNotNull(V),
+                            SanitizerHandler::TypeMismatch);
+        return V;
+      }
+    }
     return Visit(E);
 
   case CK_IntegralToPointer: {

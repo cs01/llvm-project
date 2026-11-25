@@ -7772,6 +7772,11 @@ CGCallee CodeGenFunction::EmitCallee(const Expr *E) {
       if (const auto *PtrType = SubExpr->getType()->getAs<PointerType>()) {
         std::pair<llvm::Value *, CGPointerAuthInfo> Result =
             EmitOrigPointerRValue(E);
+        // Safe C: a function pointer may come from memory never set.
+        if (getLangOpts().SafeC && !getLangOpts().CPlusPlus &&
+            Result.first->getType()->isPointerTy())
+          EmitTrapCheck(Builder.CreateIsNotNull(Result.first),
+                        SanitizerHandler::TypeMismatch);
 
         QualType FunctionType = PtrType->getPointeeType();
         assert(FunctionType->isFunctionType());
@@ -7845,6 +7850,10 @@ CGCallee CodeGenFunction::EmitCallee(const Expr *E) {
   if (auto ptrType = E->getType()->getAs<PointerType>()) {
     calleePtr = EmitScalarExpr(E);
     functionType = ptrType->getPointeeType();
+    // Safe C: a function pointer may come from memory that was never set.
+    if (getLangOpts().SafeC && !getLangOpts().CPlusPlus)
+      EmitTrapCheck(Builder.CreateIsNotNull(calleePtr),
+                    SanitizerHandler::TypeMismatch);
   } else {
     functionType = E->getType();
     calleePtr = EmitLValue(E, KnownNonNull).getPointer(*this);
