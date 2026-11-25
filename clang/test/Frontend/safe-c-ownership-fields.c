@@ -5,6 +5,7 @@
 #define _Static [[clang::annotate_type("safec_static")]]
 #define _Unchecked [[clang::annotate_type("safec_unchecked")]]
 #define _Trusted __attribute__((annotate("safec_trusted")))
+#define __single __attribute__((__single__))
 #define _Take(p) __builtin_safec_take(p)
 void free(void *_Nullable);
 struct node { int v; struct node *_Owned _Nullable next; };
@@ -38,7 +39,22 @@ int parent_is(const struct tree *t, const struct tree *p) {
   return up == p ? up_value(up) : 0;
 }
 
+// Out parameters: any pointer may be put there, and only there.
+int position(const struct node *n, const struct node *_Unchecked _Nullable *_Nullable end) {
+  if (end)
+    *end = n;
+  return n->v;
+}
+int handed_on(const struct node *n, const struct node *_Unchecked _Nullable *_Nullable end) {
+  const struct node *__single _Unchecked _Nullable mine = 0;
+  return position(n, end) + position(n, &mine) + position(n, 0) + (mine == n);
+}
+
 // Rejected.
+void clear(struct node *_Unchecked _Nullable *o) { *o = 0; }
+void owner_slot(struct list *l) {
+  clear(&l->head); // expected-error {{this takes the address of an '_Unchecked' variable}}
+}
 struct lists { void (*f)(struct list *); };
 int changes(struct lists *o, struct list *l) {
   struct node *_Nullable n = l->head;

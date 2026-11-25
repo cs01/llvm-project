@@ -283,6 +283,12 @@ public:
       return std::nullopt;
     return Out;
   }
+  /// The address of an '_Unchecked' pointer, where any pointer may be put.
+  static bool pointsToUnchecked(QualType T) {
+    return T->isPointerType() && T->getPointeeType()->isPointerType() &&
+           !T->getPointeeType()->getPointeeType()->isPointerType() &&
+           pointerKind(T->getPointeeType()) == "unchecked";
+  }
   static const FunctionProtoType *pointedProto(QualType T) {
     return T->isFunctionPointerType()
                ? T->getPointeeType()->getAs<FunctionProtoType>()
@@ -302,6 +308,8 @@ public:
              QualType FT = F->getType(), E = Ctx.getBaseElementType(FT);
              return !hasOwners(FT) || isShareable(FT) ||
                     (E->isFunctionPointerType() && marks(pointedProto(E))) ||
+                    (pointerKind(FT) == "unchecked" && E->isPointerType() &&
+                     !E->getPointeeType()->isPointerType()) ||
                     (pointerKind(FT) == "static" && E->isPointerType() &&
                      !hasOwners(E->getPointeeType()));
            });
@@ -429,7 +437,7 @@ public:
                                 "function pointers, '...' or structs that own "
                                 "memory");
       } else if (T->isPointerType() && T->getPointeeType()->isPointerType() &&
-               !FD->isMain())
+               !pointsToUnchecked(T) && !FD->isMain())
         Bad(P->getLocation(), "a pointer to a pointer parameter has no rule; "
                               "pass the struct that holds the pointer");
       else if (changesView(T)) {
@@ -997,6 +1005,12 @@ private:
     auto It = Vars.find(Addr);
     if (It != Vars.end())
       return It->second.VD && pointerKind(It->second.VD->getType()) == "unchecked";
+    // '*end', where end is a parameter 'T *_Unchecked *end'.
+    if (auto L = Addr.getDefiningOp<cir::LoadOp>()) {
+      auto P = Vars.find(L.getAddr());
+      if (P != Vars.end() && isa_and_nonnull<ParmVarDecl>(P->second.VD))
+        return FileRules::pointsToUnchecked(P->second.VD->getType());
+    }
     const FieldDecl *F = fieldOf(Addr);
     return F && pointerKind(F->getType()) == "unchecked";
   }
@@ -1883,6 +1897,18 @@ void FunctionCheck::call(cir::CallOp Op) {
         return;
       continue;
     }
+    // What the callee puts there is any pointer, so nothing else may be there.
+    if (Ours && I < NumParams() && FileRules::pointsToUnchecked(ParamType(I))) {
+      auto L = A.getDefiningOp<cir::LoadOp>();
+      auto P = L ? Vars.find(L.getAddr()) : Vars.end();
+      bool HandedOn = P != Vars.end() && isa_and_nonnull<ParmVarDecl>(P->second.VD) &&
+                      FileRules::pointsToUnchecked(P->second.VD->getType());
+      if (V->K != Val::Null && !HandedOn &&
+          !(V->K == Val::Local && Vars.lookup(V->Of).Pointer && markedUnchecked(V->Of)))
+        return fail("this takes the address of an '_Unchecked' variable");
+      if (V->K == Val::Local)
+        continue;
+    }
     if (V->K == Val::Local && Vars.lookup(V->Of).Pointer)
       return fail("the address of a pointer variable is passed, which has no rule; "
                   "pass the struct that holds the pointer, or return the pointer");
@@ -2037,6 +2063,9 @@ void FunctionCheck::call(cir::CallOp Op) {
   SmallVector<Value, 2> Changed;
   for (unsigned I = 0; I < Args.size() && I < NumParams(); ++I) {
     QualType PT = ParamType(I);
+    if (Val *X = isPtr(Args[I].getType()) ? val(Args[I]) : nullptr;
+        X && X->K == Val::Local && FileRules::pointsToUnchecked(PT))
+      continue;
     const RecordDecl *ByValue = R.view(PT);
     if (ByValue || R.constViewPointer(PT) || R.changesView(PT)) {
       const bool Changes = R.changesView(PT);
