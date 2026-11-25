@@ -162,7 +162,9 @@ int           json_object_dotget_boolean(const JSON_Object *_Nullable object, co
 size_t        json_object_get_count   (const JSON_Object *_Nullable object);
 const char  *_Nullable json_object_get_name    (const JSON_Object *_Nullable object, size_t index);
 JSON_Value  *_Nullable json_object_get_value_at(const JSON_Object *_Nullable object, size_t index);
-JSON_Value  *_Nullable json_object_get_wrapping_value(const JSON_Object *_Nullable object);
+/* _Unchecked: what is returned is not inside object, so a checked caller may compare it but not follow it.
+ * The same holds for json_array_get_wrapping_value and json_value_get_parent. */
+JSON_Value  *_Unchecked _Nullable json_object_get_wrapping_value(const JSON_Object *_Nullable object);
 
 /* Functions to check if object has a value with a specific name. Returned value is 1 if object has
  * a value and 0 if it doesn't. dothas functions behave exactly like dotget functions. */
@@ -173,8 +175,9 @@ int json_object_dothas_value        (const JSON_Object *_Nullable object, const 
 int json_object_dothas_value_of_type(const JSON_Object *_Nullable object, const char *name _Noescape, JSON_Value_Type type);
 
 /* Creates new name-value pair or frees and replaces old value with a new one.
- * json_object_set_value does not copy passed value so it shouldn't be freed afterwards. */
-JSON_Status json_object_set_value(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, JSON_Value *_Nullable value);
+ * json_object_set_value does not copy passed value so it shouldn't be freed afterwards:
+ * it is taken even on JSONFailure (upstream leaves it with the caller then), which frees it unless it has a parent. */
+JSON_Status json_object_set_value(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, JSON_Value *_Owned _Nullable value);
 JSON_Status json_object_set_string(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, const char *_Nullable string _Noescape);
 JSON_Status json_object_set_string_with_len(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, const char *_Nullable __counted_by_or_null(len) string, size_t len);  /* length shouldn't include last null character */
 JSON_Status json_object_set_number(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, double number);
@@ -182,8 +185,9 @@ JSON_Status json_object_set_boolean(JSON_Object * _Nullable object, const char *
 JSON_Status json_object_set_null(JSON_Object * _Nullable object, const char *_Nullable name _Noescape);
 
 /* Works like dotget functions, but creates whole hierarchy if necessary.
- * json_object_dotset_value does not copy passed value so it shouldn't be freed afterwards. */
-JSON_Status json_object_dotset_value(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, JSON_Value *_Nullable value);
+ * json_object_dotset_value does not copy passed value so it shouldn't be freed afterwards:
+ * it is taken even on JSONFailure (upstream leaves it with the caller then), which frees it unless it has a parent. */
+JSON_Status json_object_dotset_value(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, JSON_Value *_Owned _Nullable value);
 JSON_Status json_object_dotset_string(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, const char *_Nullable string _Noescape);
 JSON_Status json_object_dotset_string_with_len(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, const char *_Nullable __counted_by_or_null(len) string, size_t len); /* length shouldn't include last null character */
 JSON_Status json_object_dotset_number(JSON_Object * _Nullable object, const char *_Nullable name _Noescape, double number);
@@ -210,7 +214,7 @@ JSON_Array  *_Nullable json_array_get_array  (const JSON_Array *_Nullable array,
 double        json_array_get_number (const JSON_Array *_Nullable array, size_t index); /* returns 0 on fail */
 int           json_array_get_boolean(const JSON_Array *_Nullable array, size_t index); /* returns -1 on fail */
 size_t        json_array_get_count  (const JSON_Array *_Nullable array);
-JSON_Value  *_Nullable json_array_get_wrapping_value(const JSON_Array *_Nullable array);
+JSON_Value  *_Unchecked _Nullable json_array_get_wrapping_value(const JSON_Array *_Nullable array);
 
 /* Frees and removes value at given index, does nothing and returns JSONFailure if index doesn't exist.
  * Order of values in array may change during execution.  */
@@ -218,8 +222,9 @@ JSON_Status json_array_remove(JSON_Array * _Nullable array, size_t i);
 
 /* Frees and removes from array value at given index and replaces it with given one.
  * Does nothing and returns JSONFailure if index doesn't exist.
- * json_array_replace_value does not copy passed value so it shouldn't be freed afterwards. */
-JSON_Status json_array_replace_value(JSON_Array * _Nullable array, size_t i, JSON_Value *_Nullable value);
+ * json_array_replace_value does not copy passed value so it shouldn't be freed afterwards:
+ * it is taken even on JSONFailure (upstream leaves it with the caller then), which frees it unless it has a parent. */
+JSON_Status json_array_replace_value(JSON_Array * _Nullable array, size_t i, JSON_Value *_Owned _Nullable value);
 JSON_Status json_array_replace_string(JSON_Array * _Nullable array, size_t i, const char *_Nullable string _Noescape);
 JSON_Status json_array_replace_string_with_len(JSON_Array * _Nullable array, size_t i, const char *_Nullable __counted_by_or_null(len) string, size_t len); /* length shouldn't include last null character */
 JSON_Status json_array_replace_number(JSON_Array * _Nullable array, size_t i, double number);
@@ -230,8 +235,9 @@ JSON_Status json_array_replace_null(JSON_Array * _Nullable array, size_t i);
 JSON_Status json_array_clear(JSON_Array * _Nullable array);
 
 /* Appends new value at the end of array.
- * json_array_append_value does not copy passed value so it shouldn't be freed afterwards. */
-JSON_Status json_array_append_value(JSON_Array * _Nullable array, JSON_Value *_Nullable value);
+ * json_array_append_value does not copy passed value so it shouldn't be freed afterwards:
+ * it is taken even on JSONFailure (upstream leaves it with the caller then), which frees it unless it has a parent. */
+JSON_Status json_array_append_value(JSON_Array * _Nullable array, JSON_Value *_Owned _Nullable value);
 JSON_Status json_array_append_string(JSON_Array * _Nullable array, const char *_Nullable string _Noescape);
 JSON_Status json_array_append_string_with_len(JSON_Array * _Nullable array, const char *_Nullable __counted_by_or_null(len) string, size_t len); /* length shouldn't include last null character */
 JSON_Status json_array_append_number(JSON_Array * _Nullable array, double number);
@@ -241,14 +247,14 @@ JSON_Status json_array_append_null(JSON_Array * _Nullable array);
 /*
  *JSON Value
  */
- JSON_Value *_Nullable json_value_init_object (void);
- JSON_Value *_Nullable json_value_init_array  (void);
- JSON_Value *_Nullable json_value_init_string (const char *_Nullable string _Noescape); /* copies passed string */
+ JSON_Value *_Owned _Nullable json_value_init_object (void);
+ JSON_Value *_Owned _Nullable json_value_init_array  (void);
+ JSON_Value *_Owned _Nullable json_value_init_string (const char *_Nullable string _Noescape); /* copies passed string */
  JSON_Value *_Owned _Nullable json_value_init_string_with_len(const char *_Nullable __counted_by_or_null(length) string, size_t length); /* copies passed string, length shouldn't include last null character */
- JSON_Value *_Nullable json_value_init_number (double number);
+ JSON_Value *_Owned _Nullable json_value_init_number (double number);
  JSON_Value *_Owned _Nullable json_value_init_boolean(int boolean);
- JSON_Value *_Nullable json_value_init_null   (void);
- JSON_Value *_Nullable json_value_deep_copy   (const JSON_Value *_Nullable value);
+ JSON_Value *_Owned _Nullable json_value_init_null   (void);
+ JSON_Value *_Owned _Nullable json_value_deep_copy   (const JSON_Value *_Nullable value);
 void         json_value_free        (JSON_Value *_Nullable _Owned value);
 
 JSON_Value_Type json_value_get_type   (const JSON_Value *_Nullable value);
@@ -258,7 +264,7 @@ const char  *_Nullable json_value_get_string (const JSON_Value *_Nullable value)
 size_t          json_value_get_string_len(const JSON_Value *_Nullable value); /* doesn't account for last null character */
 double          json_value_get_number (const JSON_Value *_Nullable value);
 int             json_value_get_boolean(const JSON_Value *_Nullable value);
-JSON_Value  *_Nullable json_value_get_parent (const JSON_Value *_Nullable value);
+JSON_Value  *_Unchecked _Nullable json_value_get_parent (const JSON_Value *_Nullable value);
 
 /* Same as above, but shorter */
 JSON_Value_Type json_type   (const JSON_Value *_Nullable value);

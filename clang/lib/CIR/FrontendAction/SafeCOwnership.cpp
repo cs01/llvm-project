@@ -455,9 +455,9 @@ public:
           return changesView(Q->getType());
         });
         // (With several pointers, only its numbers change.)
-        if (pointersIn(view(T->getPointeeType())) == 1 && (Changed > 1 || R->isPointerType() || hasOwners(R)))
+        if (pointersIn(view(T->getPointeeType())) == 1 && (Changed > 1 || (!isOwned(R) && (R->isPointerType() || hasOwners(R)))))
           Bad(P->getLocation(), "a function that changes a '_View' changes one, and "
-                                "returns a number or nothing");
+                                "returns a number, an owner or nothing");
         else if (T->getNullability() == NullabilityKind::Nullable)
           Bad(P->getLocation(), "a '_View' that is changed is always there; remove "
                                 "'_Nullable'");
@@ -1209,6 +1209,13 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
     Val *X = val(V);
     if (!X)
       continue;
+    // '_Unchecked' on one path, so on all of them (an owner cannot become one).
+    if ((X->K == Val::Raw || (val(Arg) && val(Arg)->K == Val::Raw)) &&
+        X->K != Val::Owner && X->K != Val::Function && X->K != Val::Local) {
+      Vals[Arg] = mk(Val::Raw);
+      O.N.erase(Arg);
+      continue;
+    }
     Val NV = mk(Val::Pointer, Arg);
     Node NN;
     const Node *From = nullptr;
@@ -2438,12 +2445,20 @@ void FunctionCheck::operation(mlir::Operation *Op) {
   if (N == "select" && Op->getNumOperands() == 3 && isPtr(Op->getResult(0).getType())) {
     // 'c ? p : q' where at most one can end.
     Value Res = Op->getResult(0), From;
+    bool Raw = false;
     for (Value X : {Op->getOperand(1), Op->getOperand(2)}) {
+      if (val(X) && val(X)->K == Val::Raw)
+        Raw = true;
       if (isStatic(X))
         continue;
       if (From || holdsFunction(X.getType()))
         return fail("this value flows through '?:', which has no rule");
       From = X;
+    }
+    // With an '_Unchecked' pointer, the result is one.
+    if (Raw) {
+      Vals[Res] = mk(Val::Raw);
+      return;
     }
     if (!From) {
       setNode(Res, plain(Node::Static));

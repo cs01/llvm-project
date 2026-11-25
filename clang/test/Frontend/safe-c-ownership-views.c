@@ -47,6 +47,12 @@ int last(const struct list *l) {
   return value(&i);
 }
 
+// It may hand back an owner too.
+struct node *_Owned _Nullable parse(struct it *i, struct node *_Owned n) {
+  advance(i);
+  return n;
+}
+
 // With several pointers, a function may change the numbers.
 struct _View source {
   int (*get)(void *);

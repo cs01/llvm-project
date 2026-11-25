@@ -450,3 +450,15 @@ The three changes that would help most:
    const getter hole. Without these the ownership annotations cost the most and do
    not protect the API's main hazard. Also needed, though not a checker change: a safec.h
    that a C89 pedantic build and MSVC accept.
+
+## Ownership on (2026-11-25)
+
+parson.c compiles with the ownership checker on; its tests run with it off. `__unsafe` 21 to 7. 19 `_Trusted` functions
+(13 are two macros' instances). None knowingly breaks its signature. Two rest on something only parson.c's own code keeps true: `replace_float_format`
+(nothing else stores into `settings.float_format`) and `string_from_chars` (the byte after the counted characters is the terminator).
+
+Behavior changes: `json_object_set_value`, `json_object_dotset_value`, `json_array_append_value` and `json_array_replace_value` take the
+value always and free it on failure (**callers that free on failure now free twice**), except a value that already has a parent, which is
+left where it is. `json_value_get_parent` and the two `get_wrapping_value` return an `_Unchecked` pointer: to compare, not to follow,
+because the result is not inside the argument. New arrays are zeroed. Nothing else: a randomized trace of 600,000
+calls is identical to the version before (checks/fuzz.sh).

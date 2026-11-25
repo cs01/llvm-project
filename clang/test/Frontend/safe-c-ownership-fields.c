@@ -125,3 +125,8 @@ done:
   return r;
 }
 unsigned long address(const struct node *n) { return (unsigned long)n; }
+struct tree *_Unchecked _Nullable parent_or_null(const struct tree *_Nullable t) { return t ? t->up : 0; }
+int either(struct tree *t, struct tree *u, int c) {
+  struct tree *_Nullable p = c ? u : t->up; // expected-error {{an '_Unchecked' pointer is followed only}}
+  return p ? p->v : 0;
+}
