@@ -75,3 +75,8 @@ Microsoft's SAL. Safe C code stays portable through `safec.h` (see [Same code, a
 compiler](#same-code-any-compiler)).
 
 The code is still C. It compiles with the normal C ABI and links with any C library.
+
+## Plain C libraries
+
+A C library nobody checked is not safe to call, and Safe C does not try to make it so. Put its header in a `-isystem` directory and call it from a small
+function marked `__unsafe`, which is responsible for what it passes.

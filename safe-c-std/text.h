@@ -135,16 +135,24 @@ static inline int text_set(struct text *t, struct str from) {
 
 /* The next line, without its '\n': 1, or 0 at the end. */
 static inline int text_line(struct text *t, FILE *f) {
+  char part[256];
   t->len = 0;
-  int c = getc(f);
-  if (c == EOF)
-    return 0;
-  for (; c != EOF && c != '\n'; c = getc(f)) {
-    char one = (char)c;
-    if (!text_add(t, &one, 1))
+  for (int some = 0;; some = 1) {
+    /* A '\n' with the 0 fgets adds after it was read; any other is filler. */
+    memset(part, '\n', sizeof part);
+    if (!fgets(part, sizeof part, f))
+      return some;
+    struct str all = {part, sizeof part};
+    size_t n = str_find(all, '\n');
+    if (n == sizeof part)
+      n = sizeof part - 1; /* no end of line yet */
+    else if (n + 1 < sizeof part && part[n + 1] == 0)
+      return text_add(t, part, n);
+    else
+      return n > 0 && text_add(t, part, n - 1); /* the end of the file */
+    if (!text_add(t, part, n))
       return 0;
   }
-  return 1;
 }
 
 #if defined(__clang__)
