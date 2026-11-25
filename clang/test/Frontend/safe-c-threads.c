@@ -3,7 +3,7 @@
 // it handed over, and a start routine whose types differ from the SDK's only
 // in sugar is accepted, as long as its parameter accepts null.
 // REQUIRES: system-darwin
-// RUN: %clang -fsafe-c -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -fsyntax-only -Xclang -verify %s
 #include <pthread.h>
 #include <safec.h>
 #include <stdlib.h>

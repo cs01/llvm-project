@@ -2,8 +2,8 @@
 // memcpy can be a fortify or bounds-safety wrapper (__memcpy_ptrchk,
 // __builtin___memcpy_chk). A test that declares its own memcpy missed that
 // (found by the 2026-11-23 audit, probes y2_memcpy_forge, w09a-c, v08).
-// RUN: %clang -fsafe-c -fsyntax-only -Xclang -verify %s
-// RUN: %clang -fsafe-c -fsyntax-only -O2 -D_FORTIFY_SOURCE=2 -Xclang -verify %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -fsyntax-only -O2 -D_FORTIFY_SOURCE=2 -Xclang -verify %s
 // RUN: %clang -fsyntax-only -Xclang -verify=plain %s
 // plain-no-diagnostics
 #include <stdlib.h>

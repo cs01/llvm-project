@@ -24,9 +24,9 @@ ulimit -s 65520
 
 configs=(
   "safec|$safec -fsafe-c -isysroot $sdk"
-  # Ownership is on by default now; the driver rejects a bare
+  # Ownership annotations are opt-in; the driver rejects a bare
   # -mllvm -safe-c-ownership (it allows only =true or =1 for -safe-c-* switches).
-  "safec-own|$safec -fsafe-c -mllvm -safe-c-ownership=true -isysroot $sdk"
+  "safec-own|$safec -fsafe-c -mllvm -safe-c-strict-ownership=true -isysroot $sdk"
   "system|/usr/bin/clang"
   "asan|/usr/bin/clang -fsanitize=address,undefined -fno-sanitize-recover=all"
 )

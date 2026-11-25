@@ -8368,6 +8368,13 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
         return false;
       return !V.ends_with("=true") && !V.ends_with("=1");
     };
+    // Ownership annotations are opt-in: -mllvm -safe-c-strict-ownership=true.
+    if (llvm::none_of(Args.filtered(options::OPT_mllvm), [](const Arg *A) {
+          return StringRef(A->getValue()).starts_with("-safe-c-strict-ownership");
+        })) {
+      CmdArgs.push_back("-mllvm");
+      CmdArgs.push_back("-safe-c-strict-ownership=false");
+    }
     for (const Arg *A : Args.filtered(options::OPT_mllvm))
       if (WeakensSafeC(A->getValue()))
         D.Diag(diag::err_drv_argument_not_allowed_with)

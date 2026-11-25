@@ -657,6 +657,16 @@ static llvm::cl::opt<bool>
 
 bool safeCOwnershipFlag() { return SafeCOwnership; }
 
+// The rules that ask for ownership annotations (who frees what, exclusive and
+// shared borrows, thread sharing). The driver turns them off unless asked for;
+// the analyses still run, and report what needs no annotation.
+static llvm::cl::opt<bool> SafeCStrictOwnership(
+    "safe-c-strict-ownership",
+    llvm::cl::desc("Safe C: require ownership annotations and report what "
+                   "they show"),
+    llvm::cl::init(true));
+bool safeCStrictOwnership() { return SafeCStrictOwnership; }
+
 static llvm::cl::opt<bool> SafeCExclDefault(
     "safe-c-excl-default",
     llvm::cl::desc("Safe C: an unannotated pointer-to-non-const parameter is "

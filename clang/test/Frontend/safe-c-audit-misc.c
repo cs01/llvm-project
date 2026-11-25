@@ -2,7 +2,7 @@
 // a noreturn function that returns, asm labels (bind a declaration to any
 // symbol of any type), setjmp/longjmp (resume a dead frame), and use of a
 // FILE after fclose.
-// RUN: %clang -fsafe-c -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -fsyntax-only -Xclang -verify %s
 // RUN: %clang -fsyntax-only -Xclang -verify=plain %s
 #include <setjmp.h>
 #include <stdio.h>

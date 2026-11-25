@@ -14,7 +14,7 @@ cp "$H/dfree.c" "$H"/void/*.c "$H"/frees/*.c "$H"/juliet/*.c "$H"/tags/*.c .
 total=0; holes=0
 for f in *.c; do
   total=$((total + 1))
-  $SC -fsafe-c ${SDK:+-isysroot $SDK} -fsyntax-only $f 2>$f.err || {
+  $SC -fsafe-c ${OWN--mllvm -safe-c-strict-ownership=true} ${SDK:+-isysroot $SDK} -fsyntax-only $f 2>$f.err || {
     grep -qE "Assertion|PLEASE submit" $f.err && { echo "CRASH $f"; holes=$((holes + 1)); }
     continue
   }
@@ -25,7 +25,7 @@ for f in *.c; do
   # v08 (bounds) and v12 (null) are stopped by Safe C at run time: they must
   # trap. Nothing else may, or a trap in malloc would hide a double free.
   case $f in v08.c|v12.c)
-    $SC -fsafe-c ${SDK:+-isysroot $SDK} $f -o $f.sc 2>/dev/null
+    $SC -fsafe-c ${OWN--mllvm -safe-c-strict-ownership=true} ${SDK:+-isysroot $SDK} $f -o $f.sc 2>/dev/null
     ./$f.sc >/dev/null 2>&1; [ $? -eq 133 ] && continue ;;
   esac
   echo "HOLE $f"; holes=$((holes + 1))

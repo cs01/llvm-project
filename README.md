@@ -1,15 +1,18 @@
 # Safe C
 
-**C with Rust's memory-safety rules, checked by Clang.** An early preview.
+**Hardened C: Clang's bounds checking, null and type rules, mandatory.** An experiment.
 
 A fork of Clang with one flag, `-fsafe-c`:
 
-- Explicit boundaries around unsafe code.
-- Clang's newest safety features (bounds checking, null and lifetime analysis), all on.
-- Rust's ownership and borrowing rules, tagged unions and thread rules, added.
+- **Bounds, null, uninitialized memory, casts, format strings and library calls** are
+  checked: an error, or a trap at run time. This is what it aims to get right.
+- **Use after free** is caught in common cases (a local freed and used again). Ownership
+  annotations that catch more are off unless asked for
+  (`-mllvm -safe-c-strict-ownership=true`), and are not sound.
+- **Explicit boundaries:** `__unsafe`, legacy headers, `-isystem` directories. Anything
+  Clang accepts that this has no rules for is an error.
 
-**The goal:** code outside `__unsafe` is memory safe, as in Rust. It is not there yet:
-the known gaps are listed under [Status](#status).
+It does not make C memory safe. See [Status](#status).
 
 ## What it looks like
 

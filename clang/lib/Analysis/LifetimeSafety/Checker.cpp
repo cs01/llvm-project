@@ -342,6 +342,11 @@ public:
   /// hold that are prefixed by the expired path.
   void checkExpiry(const ExpireFact *EF) {
     const AccessPath &ExpiredPath = EF->getAccessPath();
+    // Safe C without required annotations: the end of a borrow of an owned
+    // field (an interior path) is reported only where they are.
+    if (FD->getASTContext().getLangOpts().SafeC && !safeCStrictOwnership() &&
+        ExpiredPath.isInterior())
+      return;
     LiveOriginSet Origins = LiveOrigins.getLiveOriginsAt(EF);
     for (const LivenessMap &Live : {Origins.Persistent, Origins.BlockLocal})
       for (auto &[OID, LiveInfo] : Live) {

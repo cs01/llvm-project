@@ -154,6 +154,10 @@ public:
     Elements.push_back(E);
   }
 
+  /// Whether the path ends in what the base owns or contains.
+  bool isInterior() const {
+    return !Elements.empty() && Elements.back().isInterior();
+  }
   const clang::ValueDecl *getAsValueDecl() const {
     return dyn_cast<const clang::ValueDecl *>(Base);
   }

@@ -1,7 +1,7 @@
 // Blind attack, owners, tags, builtins and races (2026-11-24).
 // REQUIRES: system-darwin
-// RUN: %clang -fsafe-c -ferror-limit=0 -fsyntax-only -Xclang -verify %s
-// RUN: %clang -fsafe-c -DRUN -O1 %s -o %t && not --crash %t
+// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -ferror-limit=0 -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -DRUN -O1 %s -o %t && not --crash %t
 #include <safec.h>
 #include <signal.h>
 #include <stdarg.h>

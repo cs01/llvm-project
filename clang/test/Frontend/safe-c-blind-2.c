@@ -1,7 +1,7 @@
 // Blind attack, group 2 (2026-11-24): function pointers keep a function's
 // promises, library functions as pointers, blocks, and tags through pointers.
 // REQUIRES: system-darwin
-// RUN: %clang -fsafe-c -fblocks -fsyntax-only -Xclang -verify %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -fblocks -fsyntax-only -Xclang -verify %s
 #include <safec.h>
 #include <setjmp.h>
 #include <stdio.h>

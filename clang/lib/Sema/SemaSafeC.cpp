@@ -22,6 +22,7 @@
 #include "clang/Analysis/CFG.h"
 #include "clang/Analysis/Analyses/LifetimeSafety/LifetimeAnnotations.h"
 #include "clang/Basic/Builtins.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/SourceManager.h"
@@ -539,6 +540,31 @@ Sema::SemaDiagnosticBuilder Sema::SafeCDiag(SourceLocation Loc,
   auto It = Table.find(Key);
   assert(It != Table.end() && "unknown Safe C diagnostic key");
   const SafeCDiagInfo &D = *It->second;
+  // Rules that need ownership annotations to be satisfied.
+  static const llvm::StringSet<> Ownership = {
+      "returns-fresh", "frees-param", "storage-borrow", "static-store",
+      "unchecked-read", "view-storage", "take-operand", "take-nonnull",
+      "owned-store", "free-in-place", "free-borrowed-take", "alloc-untracked",
+      "owning-struct-copy", "heap-slot-borrow", "ownership-through-borrow",
+      "excl-reassigned", "excl-aliased-arg", "return-needs-lifetimebound",
+      "excl-arg-borrowed", "drop-store", "drop-moved-by-name",
+      "owning-struct-byte-copy", "global-unshared", "unsynchronized-write",
+      "signal-handler-global", "spawn-borrow", "used-after-spawn",
+      "param-escape", "global-borrow-stored", "global-lent", "give-not-owner",
+      "owned-store-unnamed", "literal-move", "helper-place",
+      "owned-param-stored", "view-of-owner", "view-realloc",
+      "global-borrow-returned", "noescape-stored", "field-borrow-ended",
+      "reborrow-ended", "view-write-through-pointer", "view-memcpy",
+      "borrow-slot", "borrow-slot-value", "view-pointer-storage",
+      "drop-return", "static-element", "extern-local",
+      "library-global-write"};
+  const bool Off =
+      !D.IsNote && Ownership.contains(Key) && !lifetimes::safeCStrictOwnership();
+  if (Off)
+    return Diag(Loc, getDiagnostics().getDiagnosticIDs()->getCustomDiagID(
+                         DiagnosticIDs::CustomDiagDesc(
+                             diag::Severity::Ignored, D.Text,
+                             DiagnosticIDs::CLASS_WARNING)));
   DiagnosticIDs &IDs = *getDiagnostics().getDiagnosticIDs();
   if (D.IsNote)
     return Diag(Loc, IDs.getCustomDiagID(DiagnosticIDs::CustomDiagDesc(

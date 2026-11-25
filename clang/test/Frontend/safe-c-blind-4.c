@@ -1,6 +1,6 @@
 // Blind attack, the last groups and four compiler crashes (2026-11-24).
 // REQUIRES: system-darwin
-// RUN: %clang -fsafe-c -fsyntax-only -ferror-limit=0 -Xclang -verify %s
+// RUN: %clang -fsafe-c -mllvm -safe-c-strict-ownership=true -fsyntax-only -ferror-limit=0 -Xclang -verify %s
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <time.h>

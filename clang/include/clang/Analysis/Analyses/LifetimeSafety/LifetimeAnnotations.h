@@ -65,6 +65,8 @@ llvm::StringRef safeCDeclKind(const ValueDecl *D);
 /// Safe C: whether the M2 ownership rules are on (default; turned off by
 /// -mllvm -safe-c-ownership=false).
 bool safeCOwnershipFlag();
+/// Whether ownership annotations are required (off by default in the driver).
+bool safeCStrictOwnership();
 
 /// Safe C: the local variable or parameter a place is reached from (`l` in
 /// `l->head->next`, `v` in `v.items[i]`), or null for globals and others.
