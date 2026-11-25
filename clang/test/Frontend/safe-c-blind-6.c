@@ -3,8 +3,13 @@
 // lanes, builtins that check their own arguments, terminators in function types.
 // REQUIRES: system-darwin
 // RUN: %clang -fsafe-c -fsyntax-only -Xclang -verify %s
+#include <fcntl.h>
+#include <mach/mach.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <wchar.h>
 struct O;
 struct O *later(int *p) { return (struct O *)p; } // expected-error 1+ {{is not complete here}}
 int *before(struct O *o) { return (int *)o; } // expected-error 1+ {{is not complete here}}
@@ -27,3 +32,8 @@ void store(char *__counted_by(8) b, int i) { __builtin_nontemporal_store(42, b +
 int slash(const char *__terminated_by('/') p) { return *p; }
 typedef int (*fn)(const char *);
 fn convert(void) { return slash; } // expected-error 1+ {{}}
+void wide(wchar_t *__counted_by(2) w) { printf("%ls", w); } // expected-error 1+ {{}}
+void sys(char *__counted_by(4) b) { fcntl(0, F_GETPATH, b); } // expected-error {{nothing says how much memory 'fcntl'}}
+int sys_ok(void) { return fcntl(0, F_GETFL, 0); }
+int opened(void) { return open("/dev/null", O_CREAT, 0644); }
+void mach(int *__single out) { vm_size_t z; vm_read_overwrite(mach_task_self(), 0, 4, 0, &z); } // expected-error {{nothing says how much memory 'vm_read_overwrite'}}

@@ -7158,6 +7158,7 @@ class SafeCStringConversions
 public:
   SafeCPrecisions &Out;
   bool PercentN = false;
+  bool Wide = false;
   explicit SafeCStringConversions(SafeCPrecisions &Out)
       : Out(Out) {}
   bool HandlePrintfSpecifier(const analyze_printf::PrintfSpecifier &FS,
@@ -7166,6 +7167,14 @@ public:
     if (FS.getConversionSpecifier().getKind() ==
         analyze_format_string::ConversionSpecifier::nArg)
       PercentN = true;
+    // '%ls' and '%S' read wide characters up to a zero nobody checks for.
+    if (FS.getConversionSpecifier().getKind() ==
+            analyze_format_string::ConversionSpecifier::SArg ||
+        (FS.getConversionSpecifier().getKind() ==
+             analyze_format_string::ConversionSpecifier::sArg &&
+         FS.getLengthModifier().getKind() !=
+             analyze_format_string::LengthModifier::None))
+      Wide = true;
     if (FS.getConversionSpecifier().getKind() ==
             analyze_format_string::ConversionSpecifier::sArg) {
       using analyze_format_string::OptionalAmount;
@@ -7206,6 +7215,8 @@ static unsigned safeCPrintfStringArgs(Sema &S, const FunctionDecl *FD,
         S.Context.getTargetInfo(), T == FormatStringType::FreeBSDKPrintf);
     if (H.PercentN)
       S.SafeCDiag(Args[FmtIdx - 1]->getExprLoc(), "printf-n");
+    if (H.Wide)
+      S.SafeCDiag(Args[FmtIdx - 1]->getExprLoc(), "wide-format") << FD;
     return Out.empty() ? 0 : First - 1;
   }
   return 0;

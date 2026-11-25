@@ -5112,6 +5112,18 @@ static void checkSafeCByteWrite(Sema &S, CallExpr *TheCall,
           "vm_protect", "mach_vm_protect", "vm_map", "mach_vm_map",
           "vm_remap", "vm_write", "mach_vm_write", "getline", "getdelim", "vsprintf"};
       bool Bad = Never.contains(FD->getName());
+      // What a system call does with '...' depends on its other arguments.
+      if (FD->isVariadic() && !FD->hasAttr<FormatAttr>())
+        for (unsigned I = FD->getNumParams(), N = TheCall->getNumArgs(); I < N;
+             ++I)
+          Bad |= TheCall->getArg(I)->getType()->isAnyPointerType() ||
+                 TheCall->getArg(I)->getType()->isArrayType();
+      // Mach calls take addresses as integers and counts in other units.
+      Bad |= S.getSourceManager()
+                 .getFilename(S.getSourceManager().getSpellingLoc(
+                     FD->getCanonicalDecl()->getLocation()))
+                 .contains("/usr/include/mach/") &&
+             FD->getNumParams() > 1;
       if (!Bad && !Checked.contains(FD->getName()))
         for (unsigned I = 0, N = std::min(FD->getNumParams(),
                                           TheCall->getNumArgs());
