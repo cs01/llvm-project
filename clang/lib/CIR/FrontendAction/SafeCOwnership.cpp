@@ -26,6 +26,7 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringSwitch.h"
+#include <map>
 
 using namespace clang;
 
@@ -160,7 +161,8 @@ struct State {
 /// What an SSA value is, the same on every path.
 struct Val {
   // Raw: an '_Unchecked' pointer, which is compared and copied but not followed.
-  enum Kind { Pointer, Address, Local, Null, Owner, OwnerOf, Static, Function, Raw } K;
+  enum Kind { Pointer, Address, Local, Null, Owner, OwnerOf, Static, Function, Raw,
+              View } K; // View: a '_View' struct by value
   Value Of; // Pointer, Address: the node; Local, OwnerOf: the variable
   bool Zeroed = false, Typed = false; // Owner
   bool Table = false; // Static: inside a constant table of static pointers
@@ -218,6 +220,39 @@ public:
     D.Report(L, D.getCustomDiagID(DiagnosticsEngine::Error, "%0")) << Msg.str();
   }
 
+  /// A '_View' struct holds borrows, each as if it were a variable of its own:
+  /// it lives in locals and parameters.
+  const RecordDecl *view(QualType T) const {
+    const RecordDecl *RD = T->getAsRecordDecl();
+    RD = RD ? RD->getDefinition() : nullptr;
+    if (RD && mine(RD))
+      for (const auto *A : RD->specific_attrs<AnnotateAttr>())
+        if (A->getAnnotation() == "safec_view")
+          return RD;
+    return nullptr;
+  }
+  static unsigned pointersIn(const RecordDecl *RD) {
+    return llvm::count_if(RD->fields(), [](const FieldDecl *F) {
+      return F->getType()->isPointerType();
+    });
+  }
+  /// A view reached through a pointer, or in an array.
+  bool indirectView(QualType T) const {
+    bool Through = false;
+    for (;; Through = true) {
+      if (T->isPointerType())
+        T = T->getPointeeType();
+      else if (const ArrayType *AT = T->getAsArrayTypeUnsafe())
+        T = AT->getElementType();
+      else
+        return Through && view(T);
+    }
+  }
+  bool constViewPointer(QualType T) const {
+    return T->isPointerType() && T->getPointeeType().isConstQualified() &&
+           view(T->getPointeeType());
+  }
+
   /// Constant at every level, so its pointers are the ones it was initialized
   /// with, and those are addresses of globals and literals.
   bool isTable(QualType T) const {
@@ -242,6 +277,8 @@ public:
       return std::nullopt;
     SmallVector<std::string, 4> Out;
     auto Add = [&](QualType T) {
+      if (indirectView(T))
+        return false;
       if (T->isPointerType()
               ? T->getPointeeType()->isPointerType() || T->isFunctionPointerType()
               : hasOwners(T))
@@ -305,6 +342,17 @@ public:
 
   void field(const FieldDecl *F) {
     QualType T = F->getType(), E = Ctx.getBaseElementType(T);
+    if (view(E) || indirectView(T))
+      return error(F->getLocation(), "a '_View' lives only in locals and parameters; "
+                                     "keep its fields here as owners or indexes");
+    if (view(Ctx.getCanonicalTagType(F->getParent()))) {
+      bool Plain = T->isPointerType() && pointerKind(T).empty() &&
+                   !T->isFunctionPointerType() && !T->getPointeeType()->isPointerType();
+      if (hasOwners(T) && !Plain)
+        error(F->getLocation(), "a '_View' holds borrows and numbers; a pointer here "
+                                "has no mark and does not point to a pointer");
+      return;
+    }
     if (!E->isPointerType()) {
       if (F->getParent()->isUnion() && hasOwners(E))
         error(F->getLocation(), "a union holding owners has no checked access; "
@@ -356,7 +404,28 @@ public:
     if (R->isPointerType() && pointerKind(R) == "static" &&
         hasOwners(R->getPointeeType()))
       Bad(FD->getLocation(), "a '_Static' result points to nothing that owns memory");
-    if (!R->isPointerType() && hasOwners(R))
+    auto IsBorrow = [&](QualType T) {
+      return view(T) || (T->isPointerType() && !T->isFunctionPointerType() &&
+                         !isOwned(T) && !isTaken(T) && pointerKind(T) != "unchecked");
+    };
+    auto First = llvm::find_if(FD->parameters(), [&](const ParmVarDecl *P) {
+      return IsBorrow(P->getType());
+    });
+    if (indirectView(R))
+      Bad(FD->getLocation(), "a pointer to a '_View' is not returned; return the "
+                             "'_View' itself");
+    else if (const RecordDecl *V = view(R);
+             V && (pointersIn(V) != 1 || First == FD->param_end()))
+      Bad(FD->getLocation(), "a '_View' is returned only if it has one pointer, which "
+                             "comes from the first parameter that is not '_Owned'");
+    if (IsBorrow(R) && pointerKind(R) != "static" && First != FD->param_end()) {
+      QualType T = (*First)->getType();
+      const RecordDecl *V = view(T->isPointerType() ? T->getPointeeType() : T);
+      if (V && pointersIn(V) != 1)
+        Bad(FD->getLocation(), "which pointer of the '_View' the result comes from "
+                               "cannot be told; pass that pointer");
+    }
+    if (!R->isPointerType() && hasOwners(R) && !view(R))
       Bad(FD->getLocation(), "a struct that owns memory is returned by value, "
                              "which copies its owners; fill one through a pointer");
     for (const ParmVarDecl *P : FD->parameters()) {
@@ -371,7 +440,10 @@ public:
                !FD->isMain())
         Bad(P->getLocation(), "a pointer to a pointer parameter has no rule; "
                               "pass the struct that holds the pointer");
-      else if (!T->isPointerType() && hasOwners(T))
+      else if (indirectView(T) && !constViewPointer(T))
+        Bad(P->getLocation(), "a '_View' is passed by value or as a pointer to "
+                              "'const'; return the changed pointer");
+      else if (!T->isPointerType() && hasOwners(T) && !view(T))
         Bad(P->getLocation(), "a struct that owns memory is passed by value, "
                               "which copies its owners; pass a pointer");
     }
@@ -426,6 +498,9 @@ public:
             (T->isArrayType() || !R.marks(pointedProto(E))))
           R.error(V->getLocation(), "this function pointer's type has no rule; "
                                     "call the function by name");
+        if (R.indirectView(T))
+          R.error(V->getLocation(), "a '_View' is not kept in an array or behind a "
+                                    "pointer; use the variable itself");
         if (V->hasAttr<CleanupAttr>())
           R.error(V->getLocation(), "'cleanup' has no ownership rule; free it "
                                     "by name");
@@ -485,6 +560,10 @@ class FunctionCheck {
     const VarDecl *VD = nullptr; // null for the return slot
     std::string Scope, Name;
     bool Pointer = false, Owned = false, Capable = true;
+    const RecordDecl *View = nullptr;
+    // A view the program has no name for: its blocks are checked where it is
+    // copied to one that has.
+    bool Temporary = false;
   };
   llvm::DenseMap<Value, Var> Vars;
   llvm::DenseMap<Value, std::string> Globals;
@@ -492,6 +571,8 @@ class FunctionCheck {
   llvm::DenseMap<mlir::Block *, State> In;
   SmallVector<mlir::Block *, 16> Work;
   int FirstBorrow = -1;
+  // The variable each pointer of a view is, named by the first access to it.
+  std::map<std::pair<void *, const FieldDecl *>, Value> ViewFields;
 
   // The block being run.
   State *S = nullptr;
@@ -735,6 +816,9 @@ private:
     case Val::Raw:
       fail("an '_Unchecked' pointer is followed only inside a '_Trusted' function");
       return std::nullopt;
+    case Val::View:
+      fail(What + ": a '_View' is used by its fields");
+      return std::nullopt;
     case Val::Static:
     case Val::Function:
     case Val::Null:
@@ -931,6 +1015,94 @@ private:
   }
   void assignBorrow(Value A, Value P, bool Cap);
 
+  const RecordDecl *viewOf(mlir::Type T) const {
+    auto RT = mlir::dyn_cast<cir::RecordType>(T);
+    auto It = RT && RT.getName() ? Records.find(RT.getName().getValue())
+                                 : Records.end();
+    return It == Records.end()
+               ? nullptr
+               : R.view(R.Ctx.getCanonicalTagType(It->second));
+  }
+  /// The variable that F of the view in slot V is; none if it was never named,
+  /// so never set.
+  Value viewField(Value V, const FieldDecl *F) const {
+    auto It = ViewFields.find({V.getAsOpaquePointer(), F});
+    return It == ViewFields.end() ? Value() : It->second;
+  }
+  static SmallVector<const FieldDecl *, 2> viewPointers(const RecordDecl *RD) {
+    SmallVector<const FieldDecl *, 2> Out;
+    for (const FieldDecl *F : RD->fields())
+      if (F->getType()->isPointerType())
+        Out.push_back(F);
+    return Out;
+  }
+  /// The slot a view was just read from.
+  Value viewSlot(Value V) {
+    auto L = V.getDefiningOp<cir::LoadOp>();
+    if (!L || !Cur || L->getBlock() != Cur->getBlock())
+      return Value();
+    for (mlir::Operation *Q = L->getNextNode(); Q && Q != Cur; Q = Q->getNextNode())
+      if (!mlir::isa<cir::LoadOp, cir::ConstantOp, cir::CastOp, cir::GetMemberOp,
+                     cir::GetGlobalOp>(Q))
+        return Value();
+    Val *X = val(L.getAddr());
+    return X && X->K == Val::Local && Vars[X->Of].View ? X->Of : Value();
+  }
+  /// Every pointer of the view in slot V, live.
+  bool viewParts(Value V, const Twine &What, SmallVectorImpl<Value> &Out) {
+    for (const FieldDecl *F : viewPointers(Vars[V].View)) {
+      Value K = viewField(V, F);
+      if (!K || !node(K)) {
+        fail("'" + Vars[V].Name + "." + F->getNameAsString() + "' may be unset here");
+        return false;
+      }
+      if (!live(K, What))
+        return false;
+      Out.push_back(K);
+    }
+    return true;
+  }
+  void assignPart(Value A, Value From) {
+    Node *N = live(From, "copied");
+    if (!N)
+      return;
+    if (N->K == Node::Static) {
+      reparent(A);
+      S->N[A] = plain(Node::Static);
+      return;
+    }
+    assignBorrow(A, From, capable(N) && Vars[A].Capable);
+  }
+  /// The view in slot V gets a whole new value.
+  void assignView(Value V, Value From) {
+    const RecordDecl *RD = Vars[V].View;
+    Val *X = val(From);
+    if (auto C = From.getDefiningOp<cir::ConstantOp>()) {
+      for (const FieldDecl *F : viewPointers(RD))
+        if (Value K = viewField(V, F)) {
+          reparent(K);
+          S->N[K] = plain(Node::Static);
+        }
+      return;
+    }
+    if (!X || X->K != Val::View)
+      return fail("a '_View' is set from another, or field by field");
+    Value Slot = viewSlot(From);
+    if (!Slot && !node(From))
+      return fail("copy this '_View' into a variable first");
+    if (!Slot && !live(From, "copied"))
+      return;
+    for (const FieldDecl *F : viewPointers(RD)) {
+      Value K = viewField(V, F), P = Slot ? viewField(Slot, F) : From;
+      if (Slot && (!P || !node(P)))
+        return fail("'" + Vars[Slot].Name + "." + F->getNameAsString() +
+                    "' may be unset here");
+      assignPart(K, P);
+      if (Failed())
+        return;
+    }
+  }
+
   void operation(mlir::Operation *Op);
   void call(cir::CallOp Op);
   void ret(cir::ReturnOp Op);
@@ -981,6 +1153,7 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
     case Val::Local:
     case Val::Function:
     case Val::Raw:
+    case Val::View:
       return fail("this value flows through '?:', which has no rule");
     }
     if (From && From->K == Node::Static)
@@ -1154,7 +1327,31 @@ void FunctionCheck::alloca_(cir::AllocaOp Op) {
     S->N.erase(V);
   } else {
     S->N[V] = plain(Node::Own);
+    X.View = viewOf(T);
+    if (X.View) {
+      X.Temporary = !X.VD && X.Name != "__retval" && !Parm;
+      if (Op.isDynamic())
+        return fail("a '_View' is not kept in an array");
+    }
   }
+  if (X.View)
+    for (mlir::Operation *U : V.getUsers())
+      if (auto M = mlir::dyn_cast<cir::GetMemberOp>(U))
+        for (const FieldDecl *F : viewPointers(X.View))
+          if (F->getName() == M.getName()) {
+            Value K = ViewFields.try_emplace({V.getAsOpaquePointer(), F},
+                                             M.getResult()).first->second;
+            reparent(K);
+            S->N.erase(K);
+            Var P;
+            P.Name = X.Name + "." + F->getNameAsString();
+            P.Scope = X.Scope;
+            P.Pointer = true;
+            P.Temporary = X.Temporary;
+            P.Capable = !F->getType()->getPointeeType().isConstQualified();
+            Vars[K] = P;
+            Vals[M.getResult()] = mk(Val::Local, K);
+          }
   Vars[V] = X;
   Vals[V] = mk(Val::Local, V);
   S->F.erase(V);
@@ -1307,6 +1504,10 @@ void FunctionCheck::load(cir::LoadOp Op) {
   if (V->K == Val::Local) {
     Value A = V->Of;
     const Var &X = Vars[A];
+    if (X.View) {
+      Vals[Res] = mk(Val::View);
+      return;
+    }
     if (!X.Pointer) {
       if (ownersIn(T))
         return fail("this copies a struct that owns memory; pass a pointer to it");
@@ -1426,8 +1627,11 @@ void FunctionCheck::assignBorrow(Value A, Value P, bool Cap) {
   // A variable may not be pointed to from outside its block.
   Value Root = rootOf(*S, P);
   auto RIt = Vars.find(Root);
-  if (RIt != Vars.end() && !RIt->second.Pointer) {
+  if (RIt != Vars.end() && !RIt->second.Pointer && !X.Temporary) {
     const Var &RV = RIt->second;
+    if (StringRef(X.Name).starts_with("__retval") || X.Name.empty())
+      return fail("this returns a pointer to " + nameOf(Root) +
+                  ", which ends with the function");
     if (RV.Scope.empty() || X.Scope.empty())
       return fail(nameOf(A) + " points to a variable or temporary with no known "
                               "block");
@@ -1448,6 +1652,8 @@ void FunctionCheck::store(cir::StoreOp Op) {
   if (DV->K == Val::Local) {
     Value A = DV->Of;
     Var X = Vars[A];
+    if (X.View)
+      return assignView(A, V);
     if (!X.Pointer) {
       if (ownersIn(T)) {
         auto C = V.getDefiningOp<cir::ConstantOp>();
@@ -1637,6 +1843,10 @@ void FunctionCheck::call(cir::CallOp Op) {
   };
   mlir::OperandRange Args = Op.getArgOperands();
   bool ResPtr = Res && isPtr(Res.getType());
+  if (!Ours)
+    for (Value A : Args)
+      if (viewOf(A.getType()))
+        return fail("a '_View' is passed only to functions of this program");
   for (auto [I, A] : llvm::enumerate(Args)) {
     if (!isPtr(A.getType()))
       continue;
@@ -1796,6 +2006,34 @@ void FunctionCheck::call(cir::CallOp Op) {
   SmallVector<Use, 4> Uses;
   for (unsigned I = 0; I < Args.size(); ++I) {
     QualType PT = ParamType(I);
+    const RecordDecl *ByValue = R.view(PT);
+    if (ByValue || R.constViewPointer(PT)) {
+      Value Slot;
+      if (ByValue) {
+        Slot = viewSlot(Args[I]);
+        if (!Slot)
+          return fail("copy this '_View' into a variable first");
+      } else {
+        Val *X = val(Args[I]);
+        if (X && X->K == Val::Local && Vars[X->Of].View)
+          Slot = X->Of;
+      }
+      if (Slot) {
+        SmallVector<Value, 2> Parts;
+        if (!viewParts(Slot, "passed to '" + Name + "'", Parts))
+          return;
+        auto Fields = viewPointers(Vars[Slot].View);
+        for (auto [F, K] : llvm::zip(Fields, Parts)) {
+          if (node(K)->K == Node::Static)
+            continue;
+          QualType Pointee = F->getType()->getPointeeType();
+          Uses.push_back({K, ByValue && !Pointee.isConstQualified() &&
+                                 R.hasOwners(Pointee), I});
+        }
+        continue;
+      }
+      // A 'const' pointer parameter handed on: an ordinary borrow.
+    }
     if (!PT->isPointerType() || PT->isFunctionPointerType() || isOwned(PT) ||
         isTaken(PT) || pointerKind(PT) == "unchecked")
       continue;
@@ -1820,8 +2058,9 @@ void FunctionCheck::call(cir::CallOp Op) {
   int First = -1;
   for (unsigned I = 0; I < NumParams() && First < 0; ++I) {
     QualType PT = ParamType(I);
-    if (PT->isPointerType() && !PT->isFunctionPointerType() && !isOwned(PT) &&
-        !isTaken(PT) && pointerKind(PT) != "unchecked")
+    if (R.view(PT) ||
+        (PT->isPointerType() && !PT->isFunctionPointerType() && !isOwned(PT) &&
+         !isTaken(PT) && pointerKind(PT) != "unchecked"))
       First = I;
   }
   const Use *From = nullptr;
@@ -1876,7 +2115,8 @@ void FunctionCheck::call(cir::CallOp Op) {
   }
   if (!Res)
     return;
-  if (!ResPtr) {
+  const bool ResView = viewOf(Res.getType());
+  if (!ResPtr && !ResView) {
     Fact F;
     F.Token = Res;
     S->F[Res] = F;
@@ -1902,13 +2142,13 @@ void FunctionCheck::call(cir::CallOp Op) {
                                "the result, mark it '_Owned'; if it is a literal or a "
                   "global, '_Static'");
     setNode(Res, plain(Node::Static));
-    Vals[Res] = mk(Val::Pointer, Res);
+    Vals[Res] = mk(ResView ? Val::View : Val::Pointer, Res);
     return;
   }
   if (!live(From->Base, "the result"))
     return;
   setNode(Res, borrow(From->Base, FromCap));
-  Vals[Res] = mk(Val::Pointer, Res);
+  Vals[Res] = mk(ResView ? Val::View : Val::Pointer, Res);
 }
 
 void FunctionCheck::takenParameters(mlir::Operation *Op, Value Result) {
@@ -1939,6 +2179,26 @@ void FunctionCheck::takenParameters(mlir::Operation *Op, Value Result) {
 
 void FunctionCheck::ret(cir::ReturnOp Op) {
   Value V = Op->getNumOperands() ? Op->getOperand(0) : Value();
+  if (V && viewOf(V.getType())) {
+    Value K = viewSlot(V);
+    if (K) {
+      SmallVector<Value, 2> Parts;
+      if (!viewParts(K, "returned", Parts))
+        return;
+      K = Parts.empty() ? Value() : Parts.front();
+    } else {
+      K = node(V) ? V : Value();
+      if (!K)
+        return fail("copy this '_View' into a variable first");
+    }
+    Node *N = live(K, "returned");
+    if (!N)
+      return;
+    if (N->K != Node::Static &&
+        (FirstBorrow < 0 || rootOf(*S, K) != Fn.getArgument(FirstBorrow)))
+      return fail("the pointer of a returned '_View' comes from inside the first "
+                  "parameter that is not '_Owned'");
+  }
   if (V && isPtr(V.getType())) {
     Val *X = val(V);
     if (!X)
@@ -2033,6 +2293,16 @@ void FunctionCheck::operation(mlir::Operation *Op) {
       if (Vars.lookup(V->Of).Pointer)
         return fail("the address of a pointer variable has no rule");
       Value Of = V->Of;
+      if (const RecordDecl *RD = Vars[Of].View)
+        if (auto M = mlir::dyn_cast<cir::GetMemberOp>(Op))
+          for (const FieldDecl *F : viewPointers(RD))
+            if (F->getName() == M.getName()) {
+              Value K = viewField(Of, F);
+              if (!K)
+                return fail("this '_View' has no rule here");
+              Vals[Res] = mk(Val::Local, K);
+              return;
+            }
       setNode(Res, borrow(Of, true));
       Vals[Res] = mk(Val::Address, Res);
       return;
@@ -2125,6 +2395,27 @@ void FunctionCheck::operation(mlir::Operation *Op) {
   StringRef N = Op->getName().stripDialect();
   if (N == "trap" || N == "unreachable")
     return;
+  if (N == "copy") {
+    auto Slot = [&](Value V) {
+      Val *X = val(V);
+      return X && X->K == Val::Local && Vars[X->Of].View ? X->Of : Value();
+    };
+    Value D = Slot(Op->getOperand(0)), F = Slot(Op->getOperand(1));
+    if (D && F) {
+      for (const FieldDecl *FD : viewPointers(Vars[D].View)) {
+        Value K = viewField(D, FD), P = viewField(F, FD);
+        if (!K && !P)
+          continue;
+        if (!K || !P || !node(P))
+          return fail("'" + Vars[F].Name + "." + FD->getNameAsString() +
+                      "' may be unset here");
+        assignPart(K, P);
+        if (Failed())
+          return;
+      }
+      return;
+    }
+  }
   if (N == "copy" || N.starts_with("libc.mem")) {
     for (unsigned I = 0; I < 2 && I < Op->getNumOperands(); ++I) {
       Value A = Op->getOperand(I);
@@ -2205,17 +2496,53 @@ void FunctionCheck::block(mlir::Block *B) {
 
 std::optional<Rejected> FunctionCheck::run() {
   Locals = R.body(FD);
+  // Name every pointer of every view, used or not.
+  SmallVector<cir::AllocaOp, 4> Views;
+  Fn.walk([&](cir::AllocaOp A) {
+    if (viewOf(A.getAllocaType()))
+      Views.push_back(A);
+  });
+  for (cir::AllocaOp A : Views) {
+    auto RT = mlir::cast<cir::RecordType>(A.getAllocaType());
+    mlir::OpBuilder B(A->getContext());
+    B.setInsertionPointAfter(A);
+    for (const FieldDecl *F : viewPointers(viewOf(RT))) {
+      unsigned I = F->getFieldIndex();
+      if (I >= RT.getMembers().size() || !isPtr(RT.getMembers()[I])) {
+        fail("the layout of this '_View' has no rule");
+        return Failure;
+      }
+      cir::GetMemberOp::create(B, A.getLoc(), cir::PointerType::get(RT.getMembers()[I]),
+                               A.getResult(), F->getName(), I);
+    }
+  }
   mlir::Block &Entry = Fn.getBody().front();
   State St;
   for (unsigned I = 0; I < FD->getNumParams(); ++I) {
     QualType T = FD->getParamDecl(I)->getType();
-    if (!T->isPointerType())
+    const RecordDecl *View = R.view(T);
+    if (!T->isPointerType() && !View)
       continue;
     if (I >= Entry.getNumArguments()) {
       fail("this function's parameters have no ownership rule");
       return Failure;
     }
     Value A = Entry.getArgument(I);
+    if (View) {
+      // One root for all its pointers, which ends more than it must.
+      if (Fn.getNumArguments() != FD->getNumParams() || !viewOf(A.getType())) {
+        fail("this function's parameters have no ownership rule");
+        return Failure;
+      }
+      if (FirstBorrow < 0)
+        FirstBorrow = I;
+      bool Cap = llvm::any_of(viewPointers(View), [](const FieldDecl *F) {
+        return !F->getType()->getPointeeType().isConstQualified();
+      });
+      St.N[A] = borrow(Value(), Cap);
+      Vals[A] = mk(Val::View, A);
+      continue;
+    }
     if (T->isFunctionPointerType() || pointerKind(T) == "unchecked") {
       St.N[A] = plain(Node::Static);
       Vals[A] = mk(Val::Pointer, A);

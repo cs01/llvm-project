@@ -21,6 +21,7 @@ struct node *_Owned _Nullable pop(struct node *n) { return _Take(n->next); }
 struct op { const char *_Static name; int code; };
 size_t count_spaces(const char *s _Noescape);
 struct child { struct child *_Unchecked _Nullable up; };
+struct _View span { const int *__counted_by(n) p; int n; };
 struct shape { int kind; union _Tagged_by(kind) { double radius _When(0); double side _When(1); }; };
 struct _Capability("mutex") mtx { int state; }; struct mtx stats_lock; int hits _Guarded_by(stats_lock);
 void bump(void) _Requires(&stats_lock);

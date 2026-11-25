@@ -31,6 +31,7 @@
    @annotation `T *_Static` | Safe C | points only at string literals, globals or functions | `&'static T` | `struct op { const char *_Static name; int code; };`
    @annotation `_Noescape` | Safe C (Clang's `noescape`) | on a parameter: the function does not keep the pointer | a plain `&T` parameter, which cannot outlive the call | `size_t count_spaces(const char *s _Noescape);`
    @annotation `T *_Unchecked` | Safe C | kept for its value: stored, copied and compared freely, followed only inside a `_Trusted` function | `*const T` (a raw pointer) | `struct child { struct child *_Unchecked _Nullable up; };`
+   @annotation `struct _View` | Safe C | a struct holding borrows: lives in locals and parameters, and ends with what it borrows | a struct with a lifetime, `struct S<'a>` | `struct _View span { const int *__counted_by(n) p; int n; };`
    @annotation `_Tagged_by(f)`, `_When(V)` | Safe C | a union whose live member is named by the sibling field `f`: a member is read or written only where `f` is known to be one of its `_When` values; a `switch` on `f` must handle every value | an `enum` with data, and `match` | `struct shape { int kind; union _Tagged_by(kind) { double radius _When(0); double side _When(1); }; };`
    @annotation `_Guarded_by(m)` | Safe C (Clang's `guarded_by`) | data read or written only while holding lock `m`; Clang's thread-safety analysis checks it | `Mutex<T>` | `struct _Capability("mutex") mtx { int state; }; struct mtx stats_lock; int hits _Guarded_by(stats_lock);`
    @annotation `_Requires(m)`, `_Acquires(m)`, `_Releases(m)` | Safe C (Clang's thread-safety attributes) | a function's callers must hold `m`; or it takes or releases `m` | a `MutexGuard` held across a call | `void bump(void) _Requires(&stats_lock);`
@@ -207,6 +208,13 @@ char *getenv(const char *__null_terminated);
 #define _Unchecked [[clang::annotate_type("safec_unchecked")]]
 #else /* plain clang: [[]] after _Nullable would not parse */
 #define _Unchecked
+#endif
+/* On a struct: holds borrows, so it lives only in locals and parameters (by
+   value or as a pointer to const), and ends with what it borrows. */
+#if defined(__clang__)
+#define _View __attribute__((annotate("safec_view")))
+#else
+#define _View
 #endif
 /* Move an owned pointer out of a field or global, leaving null (and a zero
    count): free(_Take(n->next)). Like Rust's Option::take. */

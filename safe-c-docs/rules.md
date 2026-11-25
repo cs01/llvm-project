@@ -1,6 +1,6 @@
 # The rules
 
-> Being rewritten. `_Exclusive`, `_View`, `_Unchecked`, `_Takes`, `_Returns_owned`, `_Lifetimebound`, `_Drop` and
+> Being rewritten. `_Exclusive`, `_Takes`, `_Returns_owned`, `_Lifetimebound`, `_Drop` and
 > `_Unsynchronized` no longer exist; [annotations](annotations.md) is current.
 
 This is the one place that says what Safe C accepts. It has two kinds of content: the
