@@ -4528,6 +4528,9 @@ public:
   /// Same as EmitLValue but additionally we generate checking code to
   /// guard against undefined behavior.  This is only suitable when we know
   /// that the address will be used to access the object.
+  /// The operand of '&': like EmitLValue, but a subscript is not an access.
+  LValue EmitLValueForAddrOf(const Expr *E);
+
   LValue EmitCheckedLValue(const Expr *E, TypeCheckKind TCK);
 
   RValue convertTempToRValue(Address addr, QualType type, SourceLocation Loc);

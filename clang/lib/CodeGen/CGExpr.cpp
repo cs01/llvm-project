@@ -2264,6 +2264,13 @@ bool CodeGenFunction::IsWrappedCXXThis(const Expr *Obj) {
   return true;
 }
 
+LValue CodeGenFunction::EmitLValueForAddrOf(const Expr *E) {
+  // '&a[n]' is one past the end and reads nothing.
+  if (const auto *ASE = dyn_cast<ArraySubscriptExpr>(E->IgnoreParens()))
+    return EmitArraySubscriptExpr(ASE, /*Accessed=*/false);
+  return EmitLValue(E);
+}
+
 LValue CodeGenFunction::EmitCheckedLValue(const Expr *E, TypeCheckKind TCK) {
   LValue LV;
   auto *ASE = dyn_cast<ArraySubscriptExpr>(E);
@@ -2441,8 +2448,15 @@ LValue CodeGenFunction::EmitLValueHelper(const Expr *E,
     return EmitStmtExprLValue(cast<StmtExpr>(E));
   case Expr::UnaryOperatorClass:
     return EmitUnaryOpLValue(cast<UnaryOperator>(E));
-  case Expr::ArraySubscriptExprClass:
-    return EmitArraySubscriptExpr(cast<ArraySubscriptExpr>(E));
+  case Expr::ArraySubscriptExprClass: {
+    // Safe C checks every subscript here, whatever is done with it ('a[i]++',
+    // an atomic, a vector component): callers that forget to ask for the check
+    // were holes. Taking an address goes through EmitLValueForAddrOf.
+    const auto *ASE = cast<ArraySubscriptExpr>(E);
+    return EmitArraySubscriptExpr(
+        ASE, /*Accessed=*/getLangOpts().SafeC &&
+                 ASE->getBase()->getType()->isPointerTypeWithBounds());
+  }
   case Expr::MatrixSingleSubscriptExprClass:
     return EmitMatrixSingleSubscriptExpr(cast<MatrixSingleSubscriptExpr>(E));
   case Expr::MatrixSubscriptExprClass:
