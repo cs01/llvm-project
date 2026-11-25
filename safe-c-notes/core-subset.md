@@ -145,3 +145,12 @@ mutable). Rust handles that with reference counts, cells, locks, pinning and gen
 
 What still stands: the core suits tree-shaped owners (parson's core, checked and run). Proof and blind
 attack were still running when this was written; they decide only whether that narrow claim holds.
+
+## Lean result (2026-11-24): proved, with one rule added
+
+`SafeC/Core*.lean` (2,753 lines, `core_sound`, axioms propext, Classical.choice, Quot.sound; no sorry): a program the
+modeled checker accepts never reaches use after free or double free, from an empty heap, with recursion, loops, rules 9
+and 10. Added rule: a parameter is never assigned (two counterexamples proved without it). 17 necessity
+programs. Not modeled: scalars, allocation failure, `_Trusted`, threads, and the C checker itself. "Moved on every path returning
+true" only prevents leaks. This proves the model, not check.ts and not Clang; check.ts does not enforce the new rule except
+for conditionally taken parameters, and was not compared with the model.
