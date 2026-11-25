@@ -103,3 +103,25 @@ void stale(struct tree *t, struct tree *_Owned p) {
 int param(int *_Unchecked p) {
   return *p; // expected-error {{an '_Unchecked' pointer is followed only}}
 }
+// A jump past a declaration: the variable may be unset.
+int jumped_over(struct list *l, int c) {
+  struct node *_Nullable p = l->head;
+  if (c)
+    goto out;
+  free(_Take(l->head));
+  int k = 3;
+  c = k;
+out:
+  return p ? p->v : c; // expected-error {{'p' is tested after '_Take' on line}}
+}
+int cleanup_label(int c, struct node *_Owned n) {
+  int r = 0;
+  if (c)
+    goto done;
+  int k = 2;
+  r = k;
+done:
+  free(n);
+  return r;
+}
+unsigned long address(const struct node *n) { return (unsigned long)n; }

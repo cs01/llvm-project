@@ -338,6 +338,11 @@ public:
       W.TraverseStmt(const_cast<Expr *>(Init));
   }
 
+  /// (With one member there is nothing to confuse it with.)
+  static bool inUnion(const FieldDecl *F) {
+    const RecordDecl *RD = F->getParent();
+    return RD->isUnion() && std::distance(RD->field_begin(), RD->field_end()) > 1;
+  }
   void field(const FieldDecl *F) {
     QualType T = F->getType(), E = Ctx.getBaseElementType(T);
     if (view(E) || indirectView(T))
@@ -354,18 +359,18 @@ public:
       return;
     }
     if (!E->isPointerType()) {
-      if (F->getParent()->isUnion() && hasOwners(E))
+      if (inUnion(F) && hasOwners(E))
         error(F->getLocation(), "a union holding owners has no checked access; "
                                 "use one field per member");
       return;
     }
-    if (E->isFunctionPointerType() && !F->getParent()->isUnion()) {
+    if (E->isFunctionPointerType() && !inUnion(F)) {
       if (!marks(pointedProto(E)))
         error(F->getLocation(), "this function pointer's type has no rule: its "
                                 "parameters may not be pointers to pointers, "
                                 "function pointers, '...' or structs that own "
                                 "memory");
-    } else if (F->getParent()->isUnion())
+    } else if (inUnion(F))
       error(F->getLocation(), "a union holding pointers has no checked access; "
                               "use one field per member");
     else if (pointerKind(T) == "static" && !hasOwners(E->getPointeeType()))
@@ -1438,6 +1443,12 @@ void FunctionCheck::cast(cir::CastOp Op) {
   if (K == CK::ptr_to_bool) {
     if (!val(Src) || val(Src)->K != Val::Raw)
       base(Src, "test");
+    return;
+  }
+  // An address as a number: nothing turns it back.
+  if (K == CK::ptr_to_int) {
+    if (!val(Src) || val(Src)->K != Val::Raw)
+      base(Src, "used");
     return;
   }
   if (K == CK::array_to_ptrdecay) {
@@ -2793,6 +2804,9 @@ void Consumer::HandleTranslationUnit(ASTContext &Ctx) {
   if (Diags.hasErrorOccurred() || !Gen.getModule())
     return;
   mlir::PassManager PM(&Gen.getMLIRContext());
+  // A jump past a declaration leaves uses its slot does not dominate, which the
+  // verifier rejects. Here such a variable is one that may be unset.
+  PM.enableVerifier(false);
   PM.addPass(mlir::createCIRFlattenCFGPass());
   PM.addPass(mlir::createGotoSolverPass());
   if (mlir::failed(PM.run(Gen.getModule()))) {

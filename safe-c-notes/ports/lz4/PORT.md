@@ -177,3 +177,8 @@ its start), then drop `LZ4_AUDITED` and measure again.
    - Definitions must repeat every bounds annotation of the header (also in cJSON).
    - Bounds checks the program already guards against are kept (see Speed). That
      is a cost, not a rejection, but it is the largest one.
+
+## Ownership (2026-11-25): left off
+
+With ownership on, lz4.c has about 50 findings, nearly all byte casts of raw state, pointers into earlier output kept across calls (now marked
+`_Unchecked`), and one hot cursor passed as `BYTE **`. It allocates in two places, so there is little ownership to check.

@@ -793,8 +793,8 @@ LZ4LIB_STATIC_API int LZ4_decompress_incomplete(const char* __counted_by(*srcSiz
 typedef struct LZ4_stream_t_internal LZ4_stream_t_internal;
 struct LZ4_stream_t_internal {
     LZ4_u32 hashTable[LZ4_HASH_SIZE_U32];
-    const LZ4_byte* _Nullable __unsafe_indexable dictionary;   /* Safe C: a borrow of the caller's previous block or dictionary, kept across calls */
-    const LZ4_stream_t_internal* _Nullable __unsafe_indexable dictCtx;   /* Safe C: a borrow of another stream, kept across calls */
+    const LZ4_byte* _Unchecked _Nullable __unsafe_indexable dictionary;   /* Safe C: a borrow of the caller's previous block or dictionary, kept across calls */
+    const LZ4_stream_t_internal* _Unchecked _Nullable __unsafe_indexable dictCtx;   /* Safe C: a borrow of another stream, kept across calls */
     LZ4_u32 currentOffset;
     LZ4_u32 tableType;
     LZ4_u32 dictSize;
@@ -833,8 +833,8 @@ LZ4LIB_API LZ4_stream_t* _Nullable LZ4_initStream (void* _Nullable __sized_by(si
  *  If you need static allocation, declare or allocate an LZ4_streamDecode_t object.
 **/
 typedef struct {
-    const LZ4_byte* _Nullable __unsafe_indexable externalDict;   /* Safe C: borrows of earlier output, kept across calls */
-    const LZ4_byte* _Nullable __unsafe_indexable prefixEnd;
+    const LZ4_byte* _Unchecked _Nullable __unsafe_indexable externalDict;   /* Safe C: borrows of earlier output, kept across calls */
+    const LZ4_byte* _Unchecked _Nullable __unsafe_indexable prefixEnd;
     size_t extDictSize;
     size_t prefixSize;
 } LZ4_streamDecode_t_internal;
