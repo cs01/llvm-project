@@ -2137,6 +2137,9 @@ public:
 
   LValue emitCastLValue(const CastExpr *e);
 
+  void bindMaterializedValues(MaterializeSequenceExpr *e);
+  void unbindMaterializedValues(MaterializeSequenceExpr *e);
+
   /// Emits an argument for a call to a `__builtin_assume`. If the builtin
   /// sanitizer is enabled, a runtime check is also emitted.
   mlir::Value emitCheckedArgForAssume(const Expr *e);

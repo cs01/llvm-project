@@ -4770,6 +4770,11 @@ CIRGenModule::getOrCreateAnnotationArgs(const AnnotateAttr *attr) {
                    dyn_cast<clang::IntegerLiteral>(e->IgnoreParenCasts())) {
       auto intTy = builder.getIntegerType(intE->getValue().getBitWidth());
       args.push_back(builder.getIntegerAttr(intTy, intE->getValue()));
+    } else if (Expr::EvalResult r; getLangOpts().SafeC &&
+                                   e->EvaluateAsInt(r, getASTContext())) {
+      llvm::APSInt v = r.Val.getInt();
+      args.push_back(builder.getIntegerAttr(
+          builder.getIntegerType(v.getBitWidth()), v));
     } else {
       errorNYI(e->getExprLoc(), "annotation argument expression");
     }

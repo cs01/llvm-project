@@ -706,7 +706,9 @@ static RValue emitBuiltinAlloca(CIRGenFunction &cgf, const CallExpr *e,
       break;
     case LangOptions::TrivialAutoVarInitKind::Zero:
     case LangOptions::TrivialAutoVarInitKind::Pattern:
-      cgf.cgm.errorNYI("trivial auto var init");
+      // Safe C's CIR is only analyzed, and zeroing frees nothing.
+      if (!cgf.getLangOpts().SafeC)
+        cgf.cgm.errorNYI("trivial auto var init");
       break;
     }
   }
@@ -2607,6 +2609,17 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     cir::EhLongjmpOp::create(builder, loc, buf);
     cir::UnreachableOp::create(builder, loc);
     return RValue::get(nullptr);
+  }
+  case Builtin::BI__builtin_safec_take: {
+    // Load the pointer and leave null behind: a move out of the place. (The
+    // count next to it is left alone; this CIR is only analyzed.)
+    const Expr *arg = e->getArg(0)->IgnoreParens();
+    LValue lv = emitLValue(arg);
+    mlir::Location loc = getLoc(e->getExprLoc());
+    mlir::Value v = emitLoadOfScalar(lv, e->getExprLoc());
+    emitStoreThroughLValue(
+        RValue::get(builder.getNullPtr(v.getType(), loc)), lv);
+    return RValue::get(v);
   }
   case Builtin::BI__builtin_launder: {
     const Expr *arg = e->getArg(0);

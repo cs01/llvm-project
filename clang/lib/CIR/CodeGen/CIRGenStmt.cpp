@@ -193,6 +193,13 @@ CIRGenFunction::emitAttributedStmt(const AttributedStmt &s) {
 mlir::LogicalResult CIRGenFunction::emitCompoundStmt(const CompoundStmt &s,
                                                      Address *lastValue,
                                                      AggValueSlot slot) {
+  // Under -fbounds-safety a group of assignments shares values bound by its
+  // first statement, and an '__unsafe' block around that statement alone must
+  // not hide them in a region. A block with no declarations needs no scope.
+  if (getLangOpts().BoundsSafety &&
+      llvm::none_of(s.body(), [](const Stmt *c) { return isa<DeclStmt>(c); }))
+    return emitCompoundStmtWithoutScope(s, lastValue, slot);
+
   // Add local scope to track new declared variables.
   SymTableScopeTy varScope(symbolTable);
   mlir::Location scopeLoc = getLoc(s.getSourceRange());

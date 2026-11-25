@@ -344,6 +344,9 @@ void CIRGenFunction::emitAutoVarInit(
     if (trivialAutoVarInit ==
         LangOptions::TrivialAutoVarInitKind::Uninitialized)
       return;
+    // Safe C's CIR is only analyzed, and zeroing frees nothing.
+    if (getLangOpts().SafeC)
+      return;
 
     cgm.errorNYI(d.getSourceRange(), "emitAutoVarInit: trivial initialization");
   };
@@ -362,7 +365,8 @@ void CIRGenFunction::emitAutoVarInit(
     // frequently return an empty Attribute, to signal we want to codegen
     // some trivial ctor calls and whatnots.
     constant = ConstantEmitter(*this).tryEmitAbstractForInitializer(d);
-    if (constant && !mlir::isa<cir::ZeroAttr>(constant) &&
+    if (constant && !getLangOpts().SafeC &&
+        !mlir::isa<cir::ZeroAttr>(constant) &&
         (trivialAutoVarInit !=
          LangOptions::TrivialAutoVarInitKind::Uninitialized)) {
       cgm.errorNYI(d.getSourceRange(), "emitAutoVarInit: constant aggregate");

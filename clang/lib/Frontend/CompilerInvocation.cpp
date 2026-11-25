@@ -5658,6 +5658,11 @@ bool CompilerInvocation::CreateFromArgsImpl(
       Res.getTargetOpts().HostTriple = Res.getFrontendOpts().AuxTriple;
   }
 
+  // CIR of bounds-checked code is only analyzed, as generated: the passes
+  // prepare code for lowering (ABI, va_arg), which never happens.
+  if (LangOpts.BoundsSafety && Res.getFrontendOpts().UseClangIRPipeline)
+    Res.getFrontendOpts().ClangIRDisablePasses = true;
+
   if (LangOpts.OpenACC && !Res.getFrontendOpts().UseClangIRPipeline &&
       isCodeGenAction(Res.getFrontendOpts().ProgramAction))
     Diags.Report(diag::warn_drv_openacc_without_cir);

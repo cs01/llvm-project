@@ -324,6 +324,27 @@ public:
                          s->getStmtClassName());
   }
   void VisitParenExpr(ParenExpr *pe) { Visit(pe->getSubExpr()); }
+  // -fbounds-safety nodes: see ScalarExprEmitter::emitAsPlainPointer.
+  void VisitMaterializeSequenceExpr(MaterializeSequenceExpr *e) {
+    if (e->isBinding())
+      cgf.bindMaterializedValues(e);
+    Visit(e->getWrappedExpr());
+    if (e->isUnbinding())
+      cgf.unbindMaterializedValues(e);
+  }
+  void VisitBoundsCheckExpr(BoundsCheckExpr *e) {
+    llvm::SmallVector<CIRGenFunction::OpaqueValueMappingData, 4> bindings;
+    for (OpaqueValueExpr *ov : e->opaquevalues())
+      bindings.push_back(CIRGenFunction::OpaqueValueMappingData::bind(
+          cgf, ov, ov->getSourceExpr()));
+    Visit(e->getGuardedExpr());
+    for (CIRGenFunction::OpaqueValueMappingData &b : bindings)
+      b.unbind(cgf);
+  }
+  void VisitPredefinedBoundsCheckExpr(PredefinedBoundsCheckExpr *e) {
+    Visit(e->getGuardedExpr());
+  }
+  void VisitAssumptionExpr(AssumptionExpr *e) { Visit(e->getWrappedExpr()); }
   void VisitGenericSelectionExpr(GenericSelectionExpr *ge) {
     Visit(ge->getResultExpr());
   }

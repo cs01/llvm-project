@@ -63,6 +63,19 @@ CreateFrontendBaseAction(CompilerInstance &CI) {
     llvm::report_fatal_error(
         "-emit-cir and -emit-cir-bc only valid when using -fclangir");
 
+  // CIR generation leaves out every -fbounds-safety check, so its output for
+  // such code may be analyzed but must never become a program.
+  const bool MakesCode = Act == EmitAssembly || Act == EmitBC ||
+                         Act == EmitLLVM || Act == EmitLLVMOnly ||
+                         Act == EmitCodeGenOnly || Act == EmitObj;
+  if (UseCIR && MakesCode && CI.getLangOpts().BoundsSafety) {
+    CI.getDiagnostics().Report(CI.getDiagnostics().getCustomDiagID(
+        DiagnosticsEngine::Error,
+        "-fclangir leaves out the checks of -fbounds-safety and -fsafe-c, so "
+        "it can only emit CIR for analysis; remove -fclangir to compile"));
+    return nullptr;
+  }
+
   switch (CI.getFrontendOpts().ProgramAction) {
   case ASTDeclList:            return std::make_unique<ASTDeclListAction>();
   case ASTDump:                return std::make_unique<ASTDumpAction>();

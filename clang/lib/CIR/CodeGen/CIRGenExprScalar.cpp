@@ -290,6 +290,64 @@ public:
     return cgf.getOrCreateOpaqueRValueMapping(e).getValue();
   }
 
+  // -fbounds-safety nodes. CIR of such code is only analyzed, never lowered
+  // (ExecuteCompilerInvocation.cpp refuses), so every pointer is a plain
+  // pointer here and the checks and bounds are left out. Shared operands are
+  // still evaluated once: a call among them must not appear twice.
+  mlir::Value emitAsPlainPointer(const Expr *e, QualType type) {
+    mlir::Value v = Visit(const_cast<Expr *>(e));
+    mlir::Type ty = cgf.convertType(type);
+    if (v.getType() == ty)
+      return v;
+    mlir::Location loc = cgf.getLoc(e->getExprLoc());
+    if (mlir::isa<cir::IntType>(v.getType()))
+      return cir::CastOp::create(builder, loc, ty,
+                                 cir::CastKind::int_to_ptr, v);
+    return builder.createBitcast(loc, v, ty);
+  }
+  mlir::Value VisitBoundsCheckExpr(BoundsCheckExpr *e) {
+    llvm::SmallVector<CIRGenFunction::OpaqueValueMappingData, 4> bindings;
+    for (OpaqueValueExpr *ov : e->opaquevalues())
+      bindings.push_back(CIRGenFunction::OpaqueValueMappingData::bind(
+          cgf, ov, ov->getSourceExpr()));
+    mlir::Value v = Visit(e->getGuardedExpr());
+    for (CIRGenFunction::OpaqueValueMappingData &b : bindings)
+      b.unbind(cgf);
+    return v;
+  }
+  mlir::Value VisitMaterializeSequenceExpr(MaterializeSequenceExpr *e) {
+    if (e->isBinding())
+      cgf.bindMaterializedValues(e);
+    mlir::Value v = Visit(e->getWrappedExpr());
+    if (e->isUnbinding())
+      cgf.unbindMaterializedValues(e);
+    return v;
+  }
+  mlir::Value VisitPredefinedBoundsCheckExpr(PredefinedBoundsCheckExpr *e) {
+    return Visit(e->getGuardedExpr());
+  }
+  mlir::Value VisitAssumptionExpr(AssumptionExpr *e) {
+    return Visit(e->getWrappedExpr());
+  }
+  mlir::Value VisitGetBoundExpr(GetBoundExpr *e) {
+    return emitAsPlainPointer(e->getSubExpr(), e->getType());
+  }
+  mlir::Value VisitForgePtrExpr(ForgePtrExpr *e) {
+    return emitAsPlainPointer(e->getAddr(), e->getType());
+  }
+  mlir::Value
+  VisitBoundsSafetyPointerPromotionExpr(BoundsSafetyPointerPromotionExpr *e) {
+    return emitAsPlainPointer(e->getPointer(), e->getType());
+  }
+  mlir::Value
+  VisitTerminatedByToIndexableExpr(TerminatedByToIndexableExpr *e) {
+    return emitAsPlainPointer(e->getPointer(), e->getType());
+  }
+  mlir::Value
+  VisitTerminatedByFromIndexableExpr(TerminatedByFromIndexableExpr *e) {
+    return emitAsPlainPointer(e->getPointer(), e->getType());
+  }
+
   mlir::Value VisitObjCSelectorExpr(ObjCSelectorExpr *e) {
     cgf.cgm.errorNYI(e->getSourceRange(), "ScalarExprEmitter: objc selector");
     return {};
@@ -2709,6 +2767,7 @@ mlir::Value ScalarExprEmitter::VisitCastExpr(CastExpr *ce) {
   case CK_CPointerToObjCPointerCast:
   case CK_BlockPointerToObjCPointerCast:
   case CK_AnyPointerToBlockPointerCast:
+  case CK_BoundsSafetyPointerCast: // a plain pointer, see emitAsPlainPointer
   case CK_BitCast: {
     mlir::Value src = Visit(const_cast<Expr *>(subExpr));
     mlir::Type dstTy = cgf.convertType(destTy);

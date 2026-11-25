@@ -1233,6 +1233,18 @@ LValue CIRGenFunction::emitPseudoObjectLValue(const PseudoObjectExpr *e) {
 /// Emit code to compute a designator that specifies the location
 /// of the expression.
 /// FIXME: document this function better.
+void CIRGenFunction::bindMaterializedValues(MaterializeSequenceExpr *e) {
+  for (OpaqueValueExpr *ov : e->opaquevalues())
+    OpaqueValueMappingData::bind(*this, ov, ov->getSourceExpr());
+}
+
+void CIRGenFunction::unbindMaterializedValues(MaterializeSequenceExpr *e) {
+  for (OpaqueValueExpr *ov : e->opaquevalues()) {
+    opaqueLValues.erase(ov);
+    opaqueRValues.erase(ov);
+  }
+}
+
 LValue CIRGenFunction::emitLValue(const Expr *e) {
   assert(!cir::MissingFeatures::generateDebugInfo());
   switch (e->getStmtClass()) {
@@ -1241,6 +1253,34 @@ LValue CIRGenFunction::emitLValue(const Expr *e) {
                                "emitLValue: unsupported l-value class");
     return LValue();
 
+  // -fbounds-safety nodes: see ScalarExprEmitter::emitAsPlainPointer.
+  case Expr::BoundsCheckExprClass: {
+    auto *bce = const_cast<BoundsCheckExpr *>(cast<BoundsCheckExpr>(e));
+    llvm::SmallVector<OpaqueValueMappingData, 4> bindings;
+    for (OpaqueValueExpr *ov : bce->opaquevalues())
+      bindings.push_back(
+          OpaqueValueMappingData::bind(*this, ov, ov->getSourceExpr()));
+    LValue lv = emitLValue(bce->getGuardedExpr());
+    for (OpaqueValueMappingData &b : bindings)
+      b.unbind(*this);
+    return lv;
+  }
+  case Expr::MaterializeSequenceExprClass: {
+    auto *mse =
+        const_cast<MaterializeSequenceExpr *>(cast<MaterializeSequenceExpr>(e));
+    if (mse->isBinding())
+      bindMaterializedValues(mse);
+    LValue lv = emitLValue(mse->getWrappedExpr());
+    if (mse->isUnbinding())
+      unbindMaterializedValues(mse);
+    return lv;
+  }
+  case Expr::PredefinedBoundsCheckExprClass:
+    return emitLValue(const_cast<PredefinedBoundsCheckExpr *>(
+                          cast<PredefinedBoundsCheckExpr>(e))
+                          ->getGuardedExpr());
+  case Expr::AssumptionExprClass:
+    return emitLValue(cast<AssumptionExpr>(e)->getWrappedExpr());
   case Expr::ObjCPropertyRefExprClass:
     llvm_unreachable("cannot emit a property reference directly");
 

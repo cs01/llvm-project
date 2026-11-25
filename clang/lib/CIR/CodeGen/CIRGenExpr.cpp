@@ -1834,6 +1834,8 @@ LValue CIRGenFunction::emitStringLiteralLValue(const StringLiteral *e,
 /// result, including noop aggregate casts, and cast from scalar to union.
 LValue CIRGenFunction::emitCastLValue(const CastExpr *e) {
   switch (e->getCastKind()) {
+  case CK_BoundsSafetyPointerCast:
+    return emitLValue(e->getSubExpr());
   case CK_ToVoid:
   case CK_BitCast:
   case CK_LValueToRValueBitCast:
