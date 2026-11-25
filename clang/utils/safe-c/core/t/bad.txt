@@ -89,3 +89,5 @@ void g(struct n *p) { struct n *_Owned _Nullable x = calloc(1, sizeof *x); if (!
 //// taken_constant_narrowed
 struct n { struct n *_Owned _Nullable k; int v; };
 char put(struct n *p, struct n *_Taken_if_true x) { p->k = x; return (char)256; }
+//// unchecked_static
+static int f(int *p) { free(p); return 0; }

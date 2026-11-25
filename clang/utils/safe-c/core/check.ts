@@ -98,7 +98,8 @@ export function check(file: string): string[] {
     const r2 = spawnSync(bin + "cir-opt", [dir + "/a.cir", "--cir-flatten-cfg", "--cir-goto-solver", "--mlir-print-op-generic", "--mlir-print-debuginfo", "-o", dir + "/a.flat"]); if (r2.status !== 0) throw new Reject("no flat ClangIR");
     const text = readFileSync(dir + "/a.flat", "utf8"); const seen = new Set<string>();
     for (const f of parse(text, A.trusted)) { seen.add(f.name); if (A.trusted.has(f.name)) continue; try { fn(f, A); } catch (e) { if (e instanceof Reject) out.push(f.name + ": " + e.message); else throw e; } }
-    for (const m of A.mine) if (A.sigs.get(m)!.hasBody && !seen.has(m) ) { /* unused static inline functions are not emitted */ }
+    // an unused static or inline function has no IR, so nothing was checked: say so
+    for (const m of A.mine) if (A.sigs.get(m)!.hasBody && !seen.has(m) && !A.trusted.has(m)) out.push(m + ": not checked, it is static or inline and nothing here calls it");
   } finally { rmSync(dir, { recursive: true }); }
   return out;
 }
