@@ -1638,7 +1638,8 @@ int LZ4_compress_default(const char* _Nullable __counted_by(srcSize) src, char* 
 /* Note!: This function leaves the stream in an unclean/broken state!
  * It is not safe to subsequently use the same state with a _fastReset() or
  * _continue() call without resetting it. */
-static int LZ4_compress_destSize_extState_internal(LZ4_stream_t* state, const char* __counted_by(*srcSizePtr) src, char* __counted_by(targetDstSize) dst, int* srcSizePtr, int targetDstSize, int acceleration)
+/* unsafe: a count behind a pointer; nothing else here writes *srcSizePtr */
+__unsafe static int LZ4_compress_destSize_extState_internal(LZ4_stream_t* state, const char* __counted_by(*srcSizePtr) src, char* __counted_by(targetDstSize) dst, int* srcSizePtr, int targetDstSize, int acceleration)
 {
     int const srcSize = *srcSizePtr;
     LZ4_initStream_internal(&state->internal_donotuse);
@@ -1660,7 +1661,8 @@ static int LZ4_compress_destSize_extState_internal(LZ4_stream_t* state, const ch
     }
 }
 
-int LZ4_compress_destSize_extState(void* __sized_by(LZ4_STREAM_MINSIZE) state, const char* __counted_by(*srcSizePtr) src, char* __counted_by(targetDstSize) dst, int* srcSizePtr, int targetDstSize, int acceleration)
+/* unsafe: a count behind a pointer; nothing else here writes *srcSizePtr */
+__unsafe int LZ4_compress_destSize_extState(void* __sized_by(LZ4_STREAM_MINSIZE) state, const char* __counted_by(*srcSizePtr) src, char* __counted_by(targetDstSize) dst, int* srcSizePtr, int targetDstSize, int acceleration)
 {
     int r;
     LZ4_stream_t* _Nullable const s = LZ4_initStream(state, LZ4_STREAM_MINSIZE);
@@ -1672,7 +1674,8 @@ int LZ4_compress_destSize_extState(void* __sized_by(LZ4_STREAM_MINSIZE) state, c
 }
 
 
-int LZ4_compress_destSize(const char* __counted_by(*srcSizePtr) src, char* __counted_by(targetDstSize) dst, int* srcSizePtr, int targetDstSize)
+/* unsafe: a count behind a pointer; nothing else here writes *srcSizePtr */
+__unsafe int LZ4_compress_destSize(const char* __counted_by(*srcSizePtr) src, char* __counted_by(targetDstSize) dst, int* srcSizePtr, int targetDstSize)
 {
     int result;
 #if (LZ4_HEAPMODE)
@@ -2617,7 +2620,7 @@ int LZ4_decompress_safe_doubleDict(const char* __counted_by(compressedSize) sour
 /* incomplete block : a single instantiation, history being a prefix or an external dictionary
  * Safe C port: a history that ends at dst (upstream's prefix) is decoded as an external
  * dictionary : the same bytes, without a pointer spanning two buffers. */
-LZ4_FORCE_O2
+LZ4_FORCE_O2 __unsafe /* unsafe: as LZ4_compress_destSize */
 int LZ4_decompress_incomplete(const char* __counted_by(*srcSizePtr) src, char* __counted_by(dstCapacity) dst, int* srcSizePtr, int dstCapacity,
                               const char* _Nullable __counted_by(dictSize) dictStart, int dictSize)
 {

@@ -17,7 +17,7 @@ struct F *_Nullable make(int n) {
 int get(struct F *f, int i) { return f->d[i]; }
 int forged(struct A *a) { return get((struct F *__single)a, 6); } // expected-error 1+ {{nothing says the memory behind this pointer has the array}}
 void aliased(void) { struct F *f = calloc(1, 12); if (!f) return; *(unsigned *)&f->n = 400; } // expected-error 1+ {{is the count of another field}}
-void scanned(void) { struct F *f = calloc(1, 12); if (!f) return; sscanf("400", "%d", &f->n); } // expected-error 1+ {{is the count of another field}}
+void scanned(void) { struct F *f = calloc(1, 12); if (!f) return; sscanf("400", "%d", &f->n); } // expected-error 1+ {{is the count of another field}} expected-error {{scanf writes whatever the address is}}
 void retyped(struct F *f) { ((struct A *)f)->k = 400; } // expected-error 1+ {{keeps the length of its own array}}
 struct G { int a; struct F f; }; // expected-error {{inside another struct that length is not checked}}
 struct H { int n; };

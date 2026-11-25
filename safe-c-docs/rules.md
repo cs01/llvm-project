@@ -101,7 +101,7 @@ Not covered: every other data race.
 
 **Type attributes** (24): `PtrBidiIndexable`, `PtrIndexable`, `PtrSingle`, `PtrUnsafeIndexable`, `PtrTerminatedBy`, `PtrEndedBy`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `TypeNonNull`, `TypeNullable`, `TypeNullableResult`, `TypeNullUnspecified`, `AnnotateType`, `LifetimeBound`, `NoEscape`, `VectorSize`, `ExtVectorType`, `NoReturn`, `MayAlias`, `Mode`, `CDecl`, `NoThrow`
 
-**Errors** (66; the bounds, null and lifetime errors of Clang itself are not listed):
+**Errors** (77; the bounds, null and lifetime errors of Clang itself are not listed):
 
 | Rule | Message |
 |---|---|
@@ -119,6 +119,9 @@ Not covered: every other data race.
 | `compound-literal-store` | this compound literal's storage ends with the block it is written in, and the pointer assigned here may outlive it; declare it as a named variable in the block where the pointer is used (as in 'int vals[] = {1, 2};'), or initialize a new pointer with it |
 | `const-search` | %0 drops the 'const' of what it searches, so this could write memory that must not change; keep the result in a 'const' pointer |
 | `count-address` | %0 is the count of another field, and a write through its address would not be checked; use a local variable and assign '%0' from it |
+| `count-behind` | a count behind a pointer can be changed through another name; pass the count by value and return the new one |
+| `count-group-base` | a pointer and its count are set together, through a plain variable ('p->n', 's.n'); make a pointer to the element first |
+| `count-group-between` | %0 changes between a pointer and its count, which are set together; move this before or after them |
 | `flex-bytes` | %0 keeps the length of its own array, so writing its bytes can make the length wrong; assign its fields by name |
 | `flex-cast` | nothing says the memory behind this pointer has the array that %0 ends with, or its length; allocate a %0 and fill it field by field |
 | `flex-nested` | %0 ends in an array whose length is a field, and inside another struct that length is not checked; keep a pointer to it |
@@ -130,13 +133,16 @@ Not covered: every other data race.
 | `init-override` | this replaces part of a value given whole earlier in the same braces, and the rest may depend on it; assign it after the declaration |
 | `library-field` | the fields of %0 belong to the library; use its functions |
 | `library-unchecked` | nothing says how much memory %0 accesses or keeps, so this call cannot be checked; use a checked function ('snprintf', 'fread', 'strtol'), or write one wrapper for it that checks its sizes, with the call itself in '__unsafe' |
+| `main-count` | the only count 'main' is given is 'argc' |
 | `nested-count` | %0 holds the count of another field, so replacing it whole would change that count unseen; assign its fields one by one |
 | `no-bounds-checks-needs-unsafe` | %0 is '_No_bounds_checks', which compiles it without run-time bounds checks; that is a promise only an audited function can make, so mark it '__unsafe' too (and say in a comment why every access is in bounds) |
 | `not-in-safe-c` | Safe C has no rules for this ('%0'), so nothing would check it; write it with ordinary statements, expressions and casts |
+| `order` | C does not say which side of this runs first, and one reads a pointer from memory that the other may change or free; do it in two statements |
 | `out-arg` | %0 writes through this pointer unchecked; pass '&variable' of a plain local variable and copy the value where it belongs after the call |
 | `owned-in-union` | %0 is an '_Owned' member of an untagged union, so another member could read and free the same pointer; tag the union ('_Tagged_by', '_When'), or keep the owner outside it |
 | `partial-pointer` | %0 holds pointers, so it is copied or cleared only whole: the size must be 'n * sizeof' of it |
 | `pragma-not-in-safe-c` | Safe C has no rules for '#pragma %0', which may change what names or memory mean; remove it |
+| `printf-format` | the format is a string literal, so that what it prints can be checked; write it in the call ('"%%s"' prints a string) |
 | `printf-n` | '%%n' stores through a pointer nothing checks; use the value 'printf' returns |
 | `printf-single` | '%%s' reads until a zero byte, and nothing says this pointer has one; declare it '__null_terminated' (a 'const char *' already is) |
 | `printf-star` | nothing checks that this buffer holds as many characters as '%%.*s' is told to print; print it with 'fwrite(p, 1, n, file)', or pass a terminated string ('__null_terminated') |
@@ -144,8 +150,11 @@ Not covered: every other data race.
 | `redeclared` | %0 is a library function; include its header, whose declaration says what it accesses |
 | `restrict` | 'restrict' promises that nothing else reaches this memory, and nothing checks it; leave it out |
 | `scanf-arg` | scanf stores a whole value here unchecked; pass '&variable' of exactly the conversion's type, with no cast, that cannot be null |
+| `scanf-plain` | scanf writes whatever the address is; pass '&' of a local variable that is not a count, or the name of a local array, or read a line with 'fgets' and convert it ('strtol') |
 | `scanf-size` | this conversion can store %0 characters here, so the argument must be an array of at least that size; lower the width, or enlarge the array |
 | `sort-size` | the element size must be the size of %0 (write it with 'sizeof'): with any other size the sort would mix or overrun its elements |
+| `string-alias` | this buffer is checked for its terminator before the call, and %0 could change it after that; pass a string ('__null_terminated'), or a local array that no other argument can reach |
+| `string-result` | the result is a string inside a buffer that can still be changed; search a string ('__null_terminated'), or use 'memchr' and the length |
 | `switch-not-exhaustive` | this switch on '%0' does not handle %1, a tag value of the union it describes; add 'case %1:' (or 'default:') |
 | `tag-address` | %0 is a tag: changing it through a pointer would leave the union holding another member's bytes; assign it by name, together with the member |
 | `tag-field-missing` | the union is tagged by '%0', but the struct has no field of that name; name the field that holds the tag, as in '_Tagged_by(kind)' |
@@ -156,6 +165,8 @@ Not covered: every other data race.
 | `tagged-pointers` | a tag is not checked for a union that holds pointers; use a struct with one field per member and leave the others null |
 | `take-nonnull` | '_Take' leaves null behind, so '%0' must be declared '_Nullable' |
 | `take-operand` | '_Take' moves a pointer out of a field or global and leaves null behind, so it needs a pointer that can be assigned, such as '_Take(n->next)' |
+| `take-shared-count` | the count of %0 is also the count of another pointer, which '_Take' would change; give each its own count |
+| `terminator-step` | this may overwrite the terminator of a string; assign a character instead |
 | `type-not-in-safe-c` | Safe C has no rules for this kind of type ('%0') |
 | `union-init-mismatch` | this initializer sets the tag to %0 but fills %1, which is not live for that tag; initialize the member the tag names |
 | `union-member-unchecked` | %select{reading\|writing}0 %1 needs the tag '%2' known to be %3 here, or the union's bytes could be another member's; check it first (as in %select{'if (x.%2 == %3)' or 'case %3:'\|'if (x.%2)'\|'if (!x.%2)'}4)%select{\|, or set it ('x.%2 = %3;') before writing}0 |

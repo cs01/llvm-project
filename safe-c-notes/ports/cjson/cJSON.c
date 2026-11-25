@@ -488,11 +488,12 @@ loop_end:
         }
     }
 
-    number = strtod((const char*)number_c_string, &after_end);
-    if ((char*)number_c_string == after_end)
+    char *_Owned __null_terminated number_text = end_string(number_c_string, number_string_length);
+    number = strtod(number_text, &after_end);
+    if (number_text == after_end)
     {
         /* free the temporary buffer */
-        release(&global_hooks, number_c_string);
+        release_string(&global_hooks, number_text);
         return false; /* parse_error */
     }
 
@@ -514,9 +515,9 @@ loop_end:
 
     item->type = cJSON_Number;
 
-    input_buffer->offset += (size_t)(after_end - (char*)number_c_string);
+    input_buffer->offset += (size_t)(after_end - number_text);
     /* free the temporary buffer */
-    release(&global_hooks, number_c_string);
+    release_string(&global_hooks, number_text);
     return true;
 }
 

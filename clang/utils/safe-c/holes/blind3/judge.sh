@@ -15,5 +15,5 @@ for f in "$@"; do b=$(basename "$f")
  k=$(perl -e 'alarm 20; exec @ARGV' $t/a 2>&1 </dev/null | grep -am1 -oE "AddressSanitizer: [a-zA-Z-]+|runtime error: [a-z A-Z-]+")
  tr() { [ $1 = 133 -o $1 = 132 -o $1 = 134 ]; }
  # The order of evaluation in the Safe C build is its own: catch what ASan on the plain build cannot.
- if [ -z "$k" ]; then for e in s s2; do DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib perl -e 'alarm 20; exec @ARGV' $t/$e </dev/null >/dev/null 2>&1; [ $? = 139 ] && k="guard malloc"; done; fi
+ if [ -z "$k" ]; then for e in s s2; do perl -e 'alarm 20; exec @ARGV' /usr/bin/env DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib $t/$e </dev/null >/dev/null 2>&1; [ $? = 139 ] && k="guard malloc"; done; fi
  if [ -z "$k" ]; then echo "ACCEPT-OK $b O0=$x O2=$y"; elif tr $x && tr $y; then echo "STOPPED $b: $k"; else echo "HOLE $b: $k O0=$x O2=$y"; fi; done

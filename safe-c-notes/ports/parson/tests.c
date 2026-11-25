@@ -98,7 +98,7 @@ static void *_Owned _Nullable __sized_by_or_null(size) failing_malloc(size_t siz
 static void failing_free(void *_Nullable _Owned __unsafe_indexable ptr);
 
 static char *_Nullable __null_terminated read_file(const char * filename _Noescape);
-const char* get_file_path(const char *filename _Noescape);
+const char *_Static get_file_path(const char *filename _Noescape);
 
 static _Thread_local int g_tests_passed;
 static _Thread_local int g_tests_failed;
@@ -921,7 +921,7 @@ static char *_Nullable __null_terminated read_file(const char * file_path _Noesc
     __unsafe { return __unsafe_null_terminated_from_indexable(file_contents, file_contents + size_read); }
 }
 
-const char* get_file_path(const char *filename _Noescape) {
+const char *_Static get_file_path(const char *filename _Noescape) {
     static _Thread_local char path_buf[2048] = { 0 };
     memset(path_buf, 0, sizeof(path_buf));
     snprintf(path_buf, sizeof(path_buf), "%s/%s", g_tests_path, filename);

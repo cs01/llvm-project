@@ -3963,7 +3963,18 @@ static const Expr *unwrapBoundsSafety(const Expr *E) {
 /// such memory as another pointer-free type cannot forge a pointer.
 bool Sema::isSafeCPlainData(const ASTContext &Ctx, QualType T,
                             bool VoidIsPlain) {
+  // A terminated array is not any bytes: one of them is the terminator.
+  if (T->getAs<ValueTerminatedType>())
+    return false;
   T = Ctx.getCanonicalType(T).getUnqualifiedType();
+  // Types whose values are fewer than their bytes, as 'bool'.
+  if (const auto *ED = T->getAsEnumDecl())
+    if (const EnumDecl *Def = ED->getDefinition();
+        Def && !Def->getIntegerType().isNull())
+      return isSafeCPlainData(Ctx, Def->getIntegerType(), VoidIsPlain);
+  if (const auto *BT = T->getAs<BitIntType>())
+    if (BT->getNumBits() % 8)
+      return false;
   if (const auto *AT = T->getAs<AtomicType>())
     return isSafeCPlainData(Ctx, AT->getValueType(), VoidIsPlain);
   if (T->isVoidType())

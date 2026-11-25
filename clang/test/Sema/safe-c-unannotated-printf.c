@@ -6,4 +6,4 @@
 #include <safe-c-unannotated-libc.h>
 int ok(int n) { return printf("%d\n", n); }
 int wrong(int n) { return printf("%s\n", n); } // expected-error {{format specifies type 'char *'}}
-int var(const char *f) { return printf(f, 1); } // expected-error {{format string is not a string literal}}
+int var(const char *f) { return printf(f, 1); } // expected-error {{format string is not a string literal}} expected-error {{the format is a string literal}}

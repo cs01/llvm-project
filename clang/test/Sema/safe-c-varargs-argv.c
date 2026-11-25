@@ -22,7 +22,7 @@ int sum(int n, ...) {
 
 void *_Nullable parse(const char *__null_terminated s) {
   void *_Nullable p = 0;
-  sscanf(s, "%p", &p); // expected-error {{scanf's '%p', which makes up a pointer, can switch off Safe C's checks}}
+  sscanf(s, "%p", &p); // expected-error {{scanf writes whatever}} expected-error {{scanf's '%p', which makes up a pointer, can switch off Safe C's checks}}
   return p;
 }
 

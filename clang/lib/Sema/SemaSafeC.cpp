@@ -259,6 +259,40 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"flex-bytes", false,
      "%0 keeps the length of its own array, so writing its bytes can make the "
      "length wrong; assign its fields by name"},
+    {"order", false,
+     "C does not say which side of this runs first, and one reads a pointer "
+     "from memory that the other may change or free; do it in two statements"},
+    {"count-group-base", false,
+     "a pointer and its count are set together, through a plain variable "
+     "('p->n', 's.n'); make a pointer to the element first"},
+    {"count-group-between", false,
+     "%0 changes between a pointer and its count, which are set together; "
+     "move this before or after them"},
+    {"count-behind", false,
+     "a count behind a pointer can be changed through another name; pass the "
+     "count by value and return the new one"},
+    {"take-shared-count", false,
+     "the count of %0 is also the count of another pointer, which '_Take' would "
+     "change; give each its own count"},
+    {"main-count", false,
+     "the only count 'main' is given is 'argc'"},
+    {"printf-format", false,
+     "the format is a string literal, so that what it prints can be checked; "
+     "write it in the call ('\"%%s\"' prints a string)"},
+    {"scanf-plain", false,
+     "scanf writes whatever the address is; pass '&' of a local variable that "
+     "is not a count, or the name of a local array, or read a line with "
+     "'fgets' and convert it ('strtol')"},
+    {"terminator-step", false,
+     "this may overwrite the terminator of a string; assign a character "
+     "instead"},
+    {"string-alias", false,
+     "this buffer is checked for its terminator before the call, and %0 could "
+     "change it after that; pass a string ('__null_terminated'), or a local "
+     "array that no other argument can reach"},
+    {"string-result", false,
+     "the result is a string inside a buffer that can still be changed; search "
+     "a string ('__null_terminated'), or use 'memchr' and the length"},
     {"printf-single", false,
      "'%%s' reads until a zero byte, and nothing says this pointer has one; "
      "declare it '__null_terminated' (a 'const char *' already is)"},
@@ -607,6 +641,13 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
     const auto *Call =
         dyn_cast<CallExpr>(safec::peel(Src)->IgnoreParenCasts());
     const FunctionDecl *F = Call ? Call->getDirectCallee() : nullptr;
+    // Text the library keeps.
+    if (F && F->isExternC() && F->getIdentifier() &&
+        llvm::is_contained({"strerror", "getenv", "setlocale", "strsignal", "tmpnam"},
+                           F->getName())) {
+      S.SafeCDiag(Call->getExprLoc(), "const-search") << F;
+      return;
+    }
     if (!F || !F->isExternC() || !F->getIdentifier() ||
         !llvm::is_contained({"strchr", "strrchr", "strstr", "strpbrk", "memchr",
                              "strcasestr", "strnstr", "index", "rindex"},
@@ -637,6 +678,7 @@ class PointerKindChecker : public RecursiveASTVisitor<PointerKindChecker> {
   }
 
   void checkStore(QualType Dst, const Expr *Src) {
+    checkFgets(Dst, Src);
     if (Dst->isPointerType() && !Dst->getPointeeType().isConstQualified())
       checkConstSearch(Src);
   }
@@ -646,6 +688,167 @@ public:
   const Stmt *Body = nullptr;
   explicit PointerKindChecker(Sema &S, const Stmt *Body = nullptr)
       : S(S), Body(Body) {}
+
+  /// A call that may free or change memory: one given a pointer it may write
+  /// through, or an owner. (A global holds no pointer that can end.)
+  static bool mayChange(const CallExpr *C) {
+    const FunctionDecl *F = C->getDirectCallee();
+    if (unsigned ID = C->getBuiltinCallee();
+        ID == Builtin::BI__builtin_object_size ||
+        ID == Builtin::BI__builtin_dynamic_object_size)
+      return false; // evaluates nothing
+    QualType CT = C->getCallee()->getType();
+    const auto *FT = F ? F->getType()->getAs<FunctionProtoType>()
+                     : CT->isFunctionPointerType()
+                           ? CT->getPointeeType()->getAs<FunctionProtoType>()
+                           : nullptr;
+    if (!FT)
+      return true;
+    for (unsigned I = 0; I < C->getNumArgs(); ++I) {
+      QualType T = I < FT->getNumParams() ? FT->getParamType(I)
+                                          : C->getArg(I)->getType();
+      if (T->isRecordType() ||
+          (T->isAnyPointerType() && !T->getPointeeType().isConstQualified() &&
+           !T->isFunctionPointerType()))
+        return true;
+    }
+    return false;
+  }
+  struct Effects : RecursiveASTVisitor<Effects> {
+    bool Call = false, PointerSet = false;
+    bool VisitCallExpr(CallExpr *C) {
+      Call |= mayChange(C);
+      return true;
+    }
+    bool VisitBinaryOperator(BinaryOperator *B) {
+      if (B->isAssignmentOp())
+        PointerSet |= !B->getLHS()->getType()->isArithmeticType();
+      return true;
+    }
+    bool VisitUnaryOperator(UnaryOperator *U) {
+      if (U->isIncrementDecrementOp())
+        PointerSet |= U->getType()->isAnyPointerType();
+      return true;
+    }
+    bool VisitOpaqueValueExpr(OpaqueValueExpr *O) {
+      return !O->getSourceExpr() || TraverseStmt(O->getSourceExpr());
+    }
+  };
+  struct PointerReads : RecursiveASTVisitor<PointerReads> {
+    bool Memory = false, Variable = false;
+    bool VisitImplicitCastExpr(ImplicitCastExpr *C) {
+      if (C->getCastKind() == CK_LValueToRValue && C->getType()->isAnyPointerType()) {
+        const Expr *L = C->getSubExpr()->IgnoreParens();
+        const auto *D = dyn_cast<DeclRefExpr>(L);
+        const auto *V = D ? dyn_cast<VarDecl>(D->getDecl()) : nullptr;
+        (V && V->hasLocalStorage() ? Variable : Memory) = true;
+      }
+      return true;
+    }
+    bool VisitOpaqueValueExpr(OpaqueValueExpr *O) {
+      return !O->getSourceExpr() || TraverseStmt(O->getSourceExpr());
+    }
+  };
+  /// A reads pointers; B must not change them.
+  void checkOrder(const Expr *A, const Expr *B, SourceLocation L) {
+    Effects E;
+    E.TraverseStmt(const_cast<Expr *>(B));
+    if (!E.Call && !E.PointerSet)
+      return;
+    PointerReads P;
+    P.TraverseStmt(const_cast<Expr *>(A));
+    if ((P.Memory && (E.Call || E.PointerSet)) || (P.Variable && E.PointerSet))
+      S.SafeCDiag(L, "order");
+  }
+
+  /// The counted pointer or count an assignment sets, and the variable its
+  /// struct is reached from.
+  struct GroupPart {
+    const ValueDecl *Set = nullptr;
+    const VarDecl *Base = nullptr;
+  };
+  static bool countLinked(const ValueDecl *A, const ValueDecl *B) {
+    for (int I = 0; I < 2; ++I, std::swap(A, B))
+      if (const auto *CAT = A->getType()->getAs<CountAttributedType>())
+        for (const TypeCoupledDeclRefInfo &D : CAT->getCoupledDecls())
+          if (D.getDecl() == B)
+            return true;
+    return false;
+  }
+  static const Expr *assigned(const Stmt *St) {
+    const auto *E = dyn_cast<Expr>(St);
+    E = E ? E->IgnoreParenImpCasts() : nullptr;
+    if (const auto *B = dyn_cast_or_null<BinaryOperator>(E))
+      return B->isAssignmentOp() ? B->getLHS()->IgnoreParens() : nullptr;
+    if (const auto *U = dyn_cast_or_null<UnaryOperator>(E))
+      return U->isIncrementDecrementOp() ? U->getSubExpr()->IgnoreParens() : nullptr;
+    return nullptr;
+  }
+  /// The statement as written, inside what bounds safety wraps a group in.
+  static const Stmt *written(const Stmt *St) {
+    while (true) {
+      if (const auto *EC = dyn_cast<ExprWithCleanups>(St))
+        St = EC->getSubExpr();
+      else if (const auto *M = dyn_cast<MaterializeSequenceExpr>(St))
+        St = M->getWrappedExpr();
+      else if (const auto *B = dyn_cast<BoundsCheckExpr>(St))
+        St = B->getGuardedExpr();
+      else if (const auto *P = dyn_cast<ParenExpr>(St))
+        St = P->getSubExpr();
+      else
+        return St;
+    }
+  }
+  static GroupPart groupPart(const Stmt *St) {
+    GroupPart G;
+    const Expr *L = assigned(written(St));
+    const auto *ME = dyn_cast_or_null<MemberExpr>(L);
+    const auto *DRE = dyn_cast_or_null<DeclRefExpr>(L);
+    const ValueDecl *D = ME ? ME->getMemberDecl() : DRE ? DRE->getDecl() : nullptr;
+    if (!D || !(D->hasAttr<DependerDeclsAttr>() ||
+                D->getType()->getAs<CountAttributedType>()))
+      return G;
+    G.Set = D;
+    const Expr *B = L;
+    while (const auto *M = dyn_cast<MemberExpr>(B))
+      B = M->getBase()->IgnoreParenImpCasts();
+    if (const auto *R = dyn_cast<DeclRefExpr>(B))
+      G.Base = dyn_cast<VarDecl>(R->getDecl());
+    return G;
+  }
+  static void flatten(const Stmt *St, SmallVectorImpl<const Stmt *> &Out) {
+    const auto *E = dyn_cast_or_null<Expr>(written(St));
+    if (const auto *B = E ? dyn_cast<BinaryOperator>(E->IgnoreParens()) : nullptr;
+        B && B->getOpcode() == BO_Comma) {
+      flatten(B->getLHS(), Out);
+      flatten(B->getRHS(), Out);
+    } else {
+      Out.push_back(St);
+    }
+  }
+  bool VisitCompoundStmt(CompoundStmt *CS) {
+    SmallVector<const Stmt *, 8> Body;
+    for (const Stmt *St : CS->body())
+      flatten(St, Body);
+    for (size_t I = 0; I < Body.size(); ++I) {
+      GroupPart A = groupPart(Body[I]);
+      if (!A.Set)
+        continue;
+      for (size_t J = I + 1; J < Body.size() && assigned(written(Body[J])); ++J) {
+        GroupPart B = groupPart(Body[J]);
+        if (!B.Set || !countLinked(A.Set, B.Set))
+          continue;
+        for (size_t K = I + 1; K < J; ++K) {
+          if (groupPart(Body[K]).Set)
+            continue;
+          const Expr *L = assigned(written(Body[K]));
+          if (!L->getType()->isArithmeticType())
+            S.SafeCDiag(L->getExprLoc(), "count-group-between") << "a pointer";
+        }
+      }
+    }
+    return true;
+  }
 
   /// `s->h = z`, `&s->h`, where a count `__counted_by(h.n)` is inside h.
   void checkNestedCount(const Expr *E, bool Address = false) {
@@ -666,6 +869,23 @@ public:
       S.SafeCDiag(E->getExprLoc(), "nested-count") << ME->getMemberDecl();
   }
   bool VisitBinaryOperator(BinaryOperator *BO) {
+    // (Not the sums bounds safety makes of values it already has.)
+    if (BO->isAdditiveOp() && BO->getType()->isAnyPointerType() &&
+        !isa<OpaqueValueExpr>(BO->getLHS()->IgnoreParenCasts()) &&
+        !isa<OpaqueValueExpr>(BO->getRHS()->IgnoreParenCasts())) {
+      checkOrder(BO->getLHS(), BO->getRHS(), BO->getOperatorLoc());
+      checkOrder(BO->getRHS(), BO->getLHS(), BO->getOperatorLoc());
+    }
+    if (BO->isAssignmentOp() &&
+        BO->getLHS()->getType()->isPointerTypeWithBounds())
+      checkOrder(BO->getLHS(), BO->getRHS(), BO->getOperatorLoc());
+    if (BO->isAssignmentOp()) {
+      const auto *ME = dyn_cast<MemberExpr>(BO->getLHS()->IgnoreParens());
+      if (ME && (ME->getMemberDecl()->hasAttr<DependerDeclsAttr>() ||
+                 ME->getType()->getAs<CountAttributedType>()) &&
+          !groupPart(BO).Base)
+        S.SafeCDiag(BO->getOperatorLoc(), "count-group-base");
+    }
     if (BO->isAssignmentOp())
       checkNestedCount(BO->getLHS());
     if (BO->isCompoundAssignmentOp())
@@ -982,6 +1202,8 @@ public:
     return true;
   }
   bool VisitArraySubscriptExpr(ArraySubscriptExpr *E) {
+    checkOrder(E->getBase(), E->getIdx(), E->getExprLoc());
+    checkOrder(E->getIdx(), E->getBase(), E->getExprLoc());
     VisitMatrixOrVector(E->getBase(), E->getIdx());
     return true;
   }
@@ -1206,8 +1428,29 @@ public:
     return true;
   }
 
+  /// Does E name a character of a terminated string?
+  static bool inString(const Expr *E) {
+    E = E->IgnoreParens();
+    const Expr *P = nullptr;
+    if (const auto *U = dyn_cast<UnaryOperator>(E);
+        U && U->getOpcode() == UO_Deref)
+      P = U->getSubExpr();
+    else if (const auto *A = dyn_cast<ArraySubscriptExpr>(E))
+      P = A->getBase();
+    if (!P)
+      return false;
+    return P->getType()->isValueTerminatedType() ||
+           safec::peel(P)->getType()->isValueTerminatedType();
+  }
   bool VisitUnaryOperator(UnaryOperator *UO) {
     StringRef Tag;
+    if (UO->isIncrementDecrementOp() && inString(UO->getSubExpr()))
+      S.SafeCDiag(UO->getOperatorLoc(), "terminator-step");
+    if (UO->getOpcode() == UO_AddrOf)
+      if (const auto *D = dyn_cast<DeclRefExpr>(UO->getSubExpr()->IgnoreParens());
+          D && D->getDecl()->hasAttr<DependerDeclsAttr>() &&
+          !isa<ParmVarDecl>(D->getDecl()))
+        S.SafeCDiag(UO->getOperatorLoc(), "count-address") << D->getDecl();
     VisitGuardedAddress(UO);
     if (UO->getOpcode() == UO_AddrOf)
       checkNestedCount(UO->getSubExpr(), /*Address=*/true);
@@ -1278,7 +1521,272 @@ public:
         !VD->getType()->isArithmeticType())
       S.SafeCDiag(Out ? Out->getExprLoc() : Call->getExprLoc(), "out-arg") << F;
   }
+  /// What was written, inside what bounds safety adds.
+  static const Expr *plain(const Expr *E) {
+    for (;;) {
+      E = safec::peel(E)->IgnoreParenCasts();
+      if (const auto *P = dyn_cast<BoundsSafetyPointerPromotionExpr>(E))
+        E = P->getPointer();
+      else if (const auto *M = dyn_cast<MaterializeSequenceExpr>(E))
+        E = M->getWrappedExpr();
+      else if (const auto *B = dyn_cast<BoundsCheckExpr>(E))
+        E = B->getGuardedExpr();
+      else if (const auto *T = dyn_cast<TerminatedByFromIndexableExpr>(E))
+        E = T->getPointer();
+      else
+        return E;
+    }
+  }
+  /// The variable an array or pointer argument names.
+  static const VarDecl *named(const Expr *E) {
+    E = plain(E);
+    const auto *D = dyn_cast<DeclRefExpr>(E);
+    return D ? dyn_cast<VarDecl>(D->getDecl()) : nullptr;
+  }
+  static bool isOwner(const VarDecl *V) {
+    return V->hasLocalStorage() && safeCPointerKind(V->getType()) == "owned";
+  }
+  /// Does everything V is set from come from locals and fresh memory, so that
+  /// no global is or can reach it?
+  bool onlyLocal(const VarDecl *V) {
+    llvm::SmallPtrSet<const VarDecl *, 8> Seen;
+    return onlyLocal(V, Seen);
+  }
+  bool onlyLocal(const VarDecl *V, llvm::SmallPtrSetImpl<const VarDecl *> &Seen) {
+    if (!V->hasLocalStorage())
+      return false;
+    if (!Seen.insert(V).second)
+      return true; // being looked at
+    if (V->getType()->isArrayType() || isOwner(V))
+      return true;
+    if (isa<ParmVarDecl>(V))
+      return false;
+    struct From : RecursiveASTVisitor<From> {
+      PointerKindChecker *C;
+      llvm::SmallPtrSetImpl<const VarDecl *> *Seen;
+      const VarDecl *V;
+      bool Ok = true;
+      bool VisitDeclRefExpr(DeclRefExpr *D) {
+        if (const auto *O = dyn_cast<VarDecl>(D->getDecl()))
+          if (O != V && (O->getType()->isAnyPointerType() ||
+                         O->getType()->isArrayType() || O->getType()->isRecordType()))
+            Ok &= C->onlyLocal(O, *Seen);
+        return true;
+      }
+      bool VisitMemberExpr(MemberExpr *M) {
+        if (M->getType()->isAnyPointerType())
+          Ok = false;
+        return true;
+      }
+      bool VisitOpaqueValueExpr(OpaqueValueExpr *O) {
+        return !O->getSourceExpr() || TraverseStmt(O->getSourceExpr());
+      }
+    } F;
+    F.C = this;
+    F.Seen = &Seen;
+    F.V = V;
+    if (V->getInit())
+      F.TraverseStmt(const_cast<Expr *>(V->getInit()));
+    struct Assigns : RecursiveASTVisitor<Assigns> {
+      From *F;
+      bool VisitBinaryOperator(BinaryOperator *B) {
+        const auto *D = dyn_cast<DeclRefExpr>(B->getLHS()->IgnoreParens());
+        if (B->isAssignmentOp() && D && D->getDecl() == F->V)
+          F->TraverseStmt(B->getRHS());
+        return true;
+      }
+    } A;
+    A.F = &F;
+    if (Body)
+      A.TraverseStmt(const_cast<Stmt *>(Body));
+    return F.Ok && Body;
+  }
+  /// A buffer passed as a string for one call: nothing changes it in between.
+  void checkStrings(const CallExpr *Call) {
+    const FunctionDecl *F = Call->getDirectCallee();
+    for (unsigned I = 0; I < Call->getNumArgs(); ++I) {
+      const Expr *E = Call->getArg(I);
+      const TerminatedByFromIndexableExpr *T = nullptr;
+      for (const Expr *X = E; X && !T;) {
+        T = dyn_cast<TerminatedByFromIndexableExpr>(X);
+        const Expr *N = X->IgnoreParenImpCasts();
+        if (const auto *O = dyn_cast<OpaqueValueExpr>(N))
+          N = O->getSourceExpr();
+        X = N == X ? nullptr : N;
+        if (X)
+          T = dyn_cast<TerminatedByFromIndexableExpr>(X);
+      }
+      if (!T)
+        continue;
+      // strtol's end is in the buffer; as a string it would outlive the check.
+      if (F && F->isExternC() && F->getIdentifier() &&
+          (F->getName().starts_with("strto") || F->getName().starts_with("wcsto")) &&
+          Call->getNumArgs() > 1) {
+        const auto *U = dyn_cast<UnaryOperator>(plain(Call->getArg(1)));
+        if (U && U->getOpcode() == UO_AddrOf &&
+            U->getSubExpr()->getType()->isValueTerminatedType())
+          S.SafeCDiag(T->getExprLoc(), "string-result");
+      }
+      const VarDecl *Buf = named(T->getPointer());
+      bool Local = Buf && Buf->hasLocalStorage() && Buf->getType()->isArrayType();
+      bool System = F && S.getSourceManager().isInSystemHeader(F->getLocation());
+      if (Call->getType()->isAnyPointerType() &&
+          !Call->getType()->isVoidPointerType() &&
+          Call->getType()->getPointeeType()->isAnyCharacterType() && System &&
+          !llvm::is_contained({"strdup", "strndup", "getenv", "strcpy", "strcat"},
+                              F->getName()))
+        S.SafeCDiag(T->getExprLoc(), "string-result");
+      StringRef Kind = safeCPointerKind(Call->getType());
+      // (A borrow a function returns is from its first borrowed parameter.)
+      bool First = true;
+      for (unsigned J = 0; F && J < I && J < F->getNumParams(); ++J) {
+        QualType T = F->getParamDecl(J)->getType();
+        StringRef K = safeCPointerKind(T);
+        First &= !(T->isRecordType() ||
+                   (T->isAnyPointerType() && K != "owned" && K != "static" &&
+                    K != "unchecked"));
+      }
+      if (!System && First && Kind != "owned" && Kind != "static" && Kind != "unchecked" &&
+          (Call->getType()->isValueTerminatedType() ||
+           Call->getType()->isRecordType()))
+        S.SafeCDiag(T->getExprLoc(), "string-result");
+      for (unsigned J = 0; J < Call->getNumArgs(); ++J) {
+        if (J == I)
+          continue;
+        const Expr *O = Call->getArg(J);
+        Effects Fx;
+        Fx.TraverseStmt(const_cast<Expr *>(O));
+        struct Sets : RecursiveASTVisitor<Sets> {
+          bool Any = false;
+          bool VisitBinaryOperator(BinaryOperator *B) {
+            Any |= B->isAssignmentOp();
+            return true;
+          }
+          bool VisitUnaryOperator(UnaryOperator *U) {
+            Any |= U->isIncrementDecrementOp();
+            return true;
+          }
+        } Set;
+        Set.TraverseStmt(const_cast<Expr *>(O));
+        struct Calls : RecursiveASTVisitor<Calls> {
+          Sema *S;
+          bool Ours = false;
+          bool VisitCallExpr(CallExpr *C) {
+            const FunctionDecl *D = C->getDirectCallee();
+            Ours |= !D || (!D->getBuiltinID() &&
+                           !S->getSourceManager().isInSystemHeader(D->getLocation()));
+            return true;
+          }
+        } Cs;
+        Cs.S = &S;
+        Cs.TraverseStmt(const_cast<Expr *>(O));
+        bool Reach = Cs.Ours && !Local && !(Buf && onlyLocal(Buf));
+        if (Fx.Call || Set.Any || Reach)
+          S.SafeCDiag(O->getExprLoc(), "string-alias") << "this argument";
+        // (printf only reads its data.)
+        if (const auto *FA = F ? F->getAttr<FormatAttr>() : nullptr;
+            FA && J >= F->getNumParams() && !F->getName().contains("scanf"))
+          continue;
+        QualType OT = O->getType();
+        QualType To = OT->isAnyPointerType() ? OT->getPointeeType() : QualType();
+        if (F && J < F->getNumParams() && F->getParamDecl(J)->getType()->isAnyPointerType())
+          To = F->getParamDecl(J)->getType()->getPointeeType();
+        if (To.isNull() || To.isConstQualified() || To->isFunctionType())
+          continue;
+        const VarDecl *Other = named(O);
+        bool Apart = Other && Buf && Other != Buf &&
+                     ((Buf->getType()->isArrayType() && Other->getType()->isArrayType()) ||
+                      (Buf->getType()->isArrayType() && Local && isa<ParmVarDecl>(Other)) ||
+                      (Other->getType()->isArrayType() && Other->hasLocalStorage() &&
+                       isa<ParmVarDecl>(Buf)) ||
+                      (isOwner(Buf) != isOwner(Other)) ||
+                      (isOwner(Buf) && isOwner(Other)));
+        QualType Elem = T->getType()->getPointeeType();
+        bool Bytes = To->isAnyCharacterType() || (System && To->isVoidType()) ||
+                     S.Context.hasSameUnqualifiedType(To, Elem);
+        if (Bytes && !Apart)
+          S.SafeCDiag(O->getExprLoc(), "string-alias") << "this argument";
+      }
+      // A function of this program can reach a global, and what a parameter
+      // points to.
+      if (!System && !Local && !(Buf && onlyLocal(Buf)))
+        S.SafeCDiag(T->getExprLoc(), "string-alias") << "the function";
+    }
+  }
+  /// printf's format is written in the call; scanf writes plain variables.
+  void checkFormats(const CallExpr *Call) {
+    const FunctionDecl *F = Call->getDirectCallee();
+    const auto *FA = F ? F->getAttr<FormatAttr>() : nullptr;
+    if (!FA || FA->getFirstArg() == 0 || !FA->getFormatIdx() ||
+        FA->getFormatIdx() > int(Call->getNumArgs()))
+      return;
+    const Expr *Fmt = plain(Call->getArg(FA->getFormatIdx() - 1));
+    const auto *SL = dyn_cast<StringLiteral>(Fmt->IgnoreParenImpCasts());
+    if (!SL || !SL->isOrdinary())
+      S.SafeCDiag(Fmt->getExprLoc(), "printf-format");
+    if (!F->getIdentifier() || !F->getName().contains("scanf"))
+      return;
+    for (unsigned I = FA->getFirstArg() - 1; I < Call->getNumArgs(); ++I) {
+      const Expr *A = safec::peel(Call->getArg(I))->IgnoreParenImpCasts();
+      const VarDecl *V = nullptr;
+      if (const auto *U = dyn_cast<UnaryOperator>(A);
+          U && U->getOpcode() == UO_AddrOf) {
+        V = named(U->getSubExpr());
+        if (V && !V->getType()->isArithmeticType())
+          V = nullptr;
+      } else {
+        V = named(A);
+        if (V && (!V->getType()->isConstantArrayType() ||
+                  V->getType()->isValueTerminatedType()))
+          V = nullptr;
+      }
+      if (!V || !V->hasLocalStorage() || V->hasAttr<DependerDeclsAttr>())
+        S.SafeCDiag(A->getExprLoc(), "scanf-plain");
+    }
+  }
+  /// What fgets returns is the buffer, which can still be changed.
+  void checkFgets(QualType To, const Expr *E) {
+    const auto *C = dyn_cast<CallExpr>(plain(E));
+    const FunctionDecl *F = C ? C->getDirectCallee() : nullptr;
+    if (To->isValueTerminatedType() && F && F->isExternC() && F->getIdentifier() &&
+        llvm::is_contained({"fgets", "gets_s", "strncpy", "stpcpy", "stpncpy"},
+                           F->getName()))
+      S.SafeCDiag(E->getExprLoc(), "string-result");
+  }
+  bool VisitReturnStmt(ReturnStmt *RS) {
+    if (const Expr *V = RS->getRetValue())
+      if (const FunctionDecl *F = S.getCurFunctionDecl())
+        checkFgets(F->getReturnType(), V);
+    return true;
+  }
   bool VisitCallExpr(CallExpr *Call) {
+    if (const FunctionDecl *F = Call->getDirectCallee())
+      for (unsigned I = 0; I < Call->getNumArgs() && I < F->getNumParams(); ++I)
+        checkFgets(F->getParamDecl(I)->getType(), Call->getArg(I));
+    checkStrings(Call);
+    checkFormats(Call);
+    for (unsigned I = 0; I < Call->getNumArgs(); ++I)
+      if (Call->getArg(I)->getType()->isPointerTypeWithBounds())
+        for (unsigned J = 0; J < Call->getNumArgs(); ++J)
+          if (J != I)
+            checkOrder(Call->getArg(I), Call->getArg(J),
+                       Call->getArg(I)->getExprLoc());
+    if (Call->getBuiltinCallee() == Builtin::BI__builtin_safec_take &&
+        Call->getNumArgs() == 1)
+      if (const auto *ME = dyn_cast<MemberExpr>(Call->getArg(0)->IgnoreParens()))
+        if (const auto *CAT = ME->getType()->getAs<CountAttributedType>())
+          for (const TypeCoupledDeclRefInfo &D : CAT->getCoupledDecls())
+            if (const auto *Dep = D.getDecl()->getAttr<DependerDeclsAttr>();
+                Dep && Dep->dependerDecls_size() > 1)
+              // Zero is the smallest of '__counted_by(n)', not of '(4 - n)'.
+              for (const Decl *Sib : Dep->dependerDecls()) {
+                const auto *V = dyn_cast<ValueDecl>(Sib);
+                const auto *SC =
+                    V ? V->getType()->getAs<CountAttributedType>() : nullptr;
+                if (SC && !isa<DeclRefExpr>(SC->getCountExpr()->IgnoreParenImpCasts()))
+                  S.SafeCDiag(Call->getExprLoc(), "take-shared-count")
+                      << ME->getMemberDecl();
+              }
     checkOutCall(Call);
     if (const FunctionDecl *F = Call->getDirectCallee();
         F && F->getIdentifier() && F->getName() == "free")
@@ -1329,8 +1837,19 @@ void clang::checkSafeCPointerKindsIn(Sema &S, Stmt *Body) {
   if (Body) {
     PointerKindChecker C(S, Body);
     if (const FunctionDecl *F = S.getCurFunctionDecl())
-      for (const ParmVarDecl *P : F->parameters())
+      for (const ParmVarDecl *P : F->parameters()) {
         C.checkParam(P);
+        if (const auto *CAT = P->getType()->getAs<CountAttributedType>())
+          for (const TypeCoupledDeclRefInfo &D : CAT->getCoupledDecls())
+            if (D.isDeref())
+              S.SafeCDiag(P->getLocation(), "count-behind");
+        if (F->isMain()) {
+          const auto *CAT = P->getType()->getAs<CountAttributedType>();
+          const auto *N = CAT ? dyn_cast<DeclRefExpr>(CAT->getCountExpr()->IgnoreParenImpCasts()) : nullptr;
+          if (CAT && (!N || N->getDecl() != F->getParamDecl(0) || P->getFunctionScopeIndex() != 1))
+            S.SafeCDiag(P->getLocation(), "main-count");
+        }
+      }
     C.TraverseStmt(Body);
   }
 }

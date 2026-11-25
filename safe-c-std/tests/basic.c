@@ -132,6 +132,9 @@ int main(void) {
   test_drop();
   test_io();
   test_result();
-  printf(failures ? "%d failed\n" : "ok\n", failures);
+  if (failures)
+    printf("%d failed\n", failures);
+  else
+    printf("ok\n");
   return failures != 0;
 }
