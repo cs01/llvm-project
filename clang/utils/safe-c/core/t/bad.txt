@@ -91,3 +91,54 @@ struct n { struct n *_Owned _Nullable k; int v; };
 char put(struct n *p, struct n *_Taken_if_true x) { p->k = x; return (char)256; }
 //// unchecked_static
 static int f(int *p) { free(p); return 0; }
+//// fclose_twice
+#include <stdio.h>
+void f(const char *p) { FILE *_Owned _Nullable h = fopen(p, "r"); if (!h) return; fclose(h); fclose(h); }
+//// use_after_fclose
+#include <stdio.h>
+int f(const char *p) { FILE *_Owned _Nullable h = fopen(p, "r"); if (!h) return 0; FILE *g = h; fclose(h); return fgetc(g); }
+//// close_stderr
+#include <stdio.h>
+void f(void) { fclose(stderr); }
+//// strchr_after_free
+#include <string.h>
+int f(const char *a) { char *_Owned _Nullable __null_terminated s = strdup(a); if (!s) return 0; char *_Nullable __null_terminated e = strchr(s, 'x'); free(s); return e ? *e : 0; }
+//// free_argv
+int main(int argc, char *__null_terminated *__counted_by(argc) argv) { free(argv[0]); return 0; }
+//// kept
+#include <stdlib.h>
+void f(char *__null_terminated s) { putenv(s); }
+//// later_call
+#include <stdio.h>
+#include <stdlib.h>
+int f(void) { const char *_Nullable __null_terminated e = getenv("A"); puts("x"); return e ? *e : 0; }
+//// two_errors
+#include <stdio.h>
+#include <string.h>
+void f(int a, int b) { printf("%s %s", strerror(a), strerror(b)); }
+//// keep_error
+#include <string.h>
+const char *__null_terminated f(int e, const char *s) { return strerror(e); }
+//// macro_cast
+#define AS(T, p) ((T *)(p))
+struct a { int x; }; struct b { long y; };
+long f(struct a *p) { return AS(struct b, p)->y; }
+//// fclose_field_then_use
+#include <stdio.h>
+struct log { FILE *_Owned _Nullable f; };
+int g(struct log *l) { FILE *_Nullable h = l->f; fclose(_Take(l->f)); return h ? fgetc(h) : 0; }
+//// strchr_field_then_free
+#include <string.h>
+struct s { char *_Owned _Nullable __null_terminated name; };
+int g(struct s *s) { if (!s->name) return 0; char *_Nullable __null_terminated e = strchr(s->name, 'x'); free(_Take(s->name)); return e ? *e : 0; }
+//// store_stderr
+#include <stdio.h>
+struct log { FILE *_Owned _Nullable f; };
+void g(struct log *l) { l->f = stderr; }
+//// exit_other_path
+struct n { struct n *_Owned _Nullable k; int v; };
+int g(struct n *a, int c) { struct n *_Nullable z = a->k; if (c) exit(1); free(_Take(a->k)); return z ? z->v : 0; }
+//// used_by_call
+#include <stdlib.h>
+void g(const char *s);
+int f(void) { const char *_Nullable __null_terminated e = getenv("A"); if (!e) return 0; g(e); return *e; }

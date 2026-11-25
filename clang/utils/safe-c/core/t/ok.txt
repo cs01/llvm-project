@@ -44,3 +44,35 @@ _Trusted void swap(struct n *a) { struct n *_Nullable x = a->k; a->k = x; }
 int use(struct n *a) { swap(a); const struct n *_Nullable z = a->k; return z ? z->v : 0; }
 //// floats
 double f(double a, double b) { double c = a * b - a / b; return c + 1.0; }
+//// libc
+#include <assert.h>
+#include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+int lines(const char *path) {
+  FILE *_Owned _Nullable f = fopen(path, "r");
+  if (!f) { fprintf(stderr, "open: %d\n", errno); return -1; }
+  char buf[64]; int n = 0;
+  while (fgets(buf, sizeof buf, f)) { if (isupper((unsigned char)buf[0])) n++; }
+  fclose(f);
+  return n;
+}
+void need(int x) { assert(x); if (x < 0) exit(1); printf("%d %ld\n", x, (long)time(NULL)); }
+int leave(int *_Owned _Nullable p) { if (!p) abort(); int v = *p; free(p); return v; }
+//// argv
+#include <stdio.h>
+int main(int argc, char *__null_terminated *__counted_by(argc) argv) { for (int i = 1; i < argc; i++) puts(argv[i]); return 0; }
+//// macro_made
+#define VEC(T, N) struct N { unsigned long len, cap; T *_Owned _Nullable __counted_by(cap) data; }; T N##_at(const struct N *v, unsigned long i, T d) { return v->data && i < v->len ? v->data[i] : d; }
+VEC(int, ints)
+//// next_call
+#include <errno.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+void why(void) { fprintf(stderr, "%s\n", strerror(errno)); }
+void env(void) { const char *_Nullable __null_terminated e = getenv("HOME"); if (e) puts(e); }
+double m(double x) { return acos(x) + fma(x, x, 1.0); }
