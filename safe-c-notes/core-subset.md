@@ -88,3 +88,17 @@ or field. A local is an owner, or a borrow with a parent local and a mode.
 - Branches join to the weaker state; loops need an invariant state. No path sensitivity otherwise.
 
 Paths are left out on purpose: borrowing any part of v borrows all of v.
+
+## Steps 2 and 3 in C (2026-11-24)
+
+`core/check.ts` is a prototype checker over ClangIR that fails closed. `core/parson_core.c` (300 lines:
+objects, arrays, dotted paths, remove, grow, deep copy, parse) passes it with no `__unsafe`, runs under
+`-fsafe-c` and under ASan and UBSan, and 8 planted bugs are each rejected. 176 marks in 300 lines (92 `_Nullable`,
+59 `_Owned`, 21 `__counted_by`, 4 `_Taken_if_true`). It is shaped like parson, not parson: counted keys, owner fields
+for the union, no parent pointers. Workarounds: clang crashes on counted fields indexed through
+`_Nullable` pointers, so null checks are split into helpers; locals of one name must be of one kind.
+
+Corpus of the earlier attacks: 0 of the 351 programs ASan called use after free, double free or bad free were
+accepted. That says little: only 8 of 459 ASan-clean corpus programs are accepted, since those use marks and
+headers outside the subset. Two accepted programs fail in ASan for other reasons (b1r_bb37 SEGV, void_v08
+stack overflow, which Safe C is recorded as trapping at run time; not rechecked here).
