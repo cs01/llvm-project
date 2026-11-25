@@ -293,7 +293,7 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "array that no other argument can reach"},
     {"string-result", false,
      "the result is a string inside a buffer that can still be changed; search "
-     "a string ('__null_terminated'), or use 'memchr' and the length"},
+     "a string ('__null_terminated'), or use 'str_find' (text.h)"},
     {"printf-single", false,
      "'%%s' reads until a zero byte, and nothing says this pointer has one; "
      "declare it '__null_terminated' (a 'const char *' already is)"},
@@ -421,11 +421,14 @@ struct UnsafeFunction {
 /// headers already name the replacements of gets, strcpy, strcat, sprintf...)
 static const UnsafeFunction UnsafeFunctions[] = {
     {"strtok", "writes into the string and remembers it between calls",
-     "'strcspn' and 'strspn' for where each word starts and ends"},
+     "'str_before' and 'str_after' (text.h), or 'strcspn' for where each "
+     "word ends"},
     {"strtok_r", "writes into the string and remembers it between calls",
-     "'strcspn' and 'strspn' for where each word starts and ends"},
+     "'str_before' and 'str_after' (text.h), or 'strcspn' for where each "
+     "word ends"},
     {"strsep", "writes into the string and moves your pointer to it",
-     "'strcspn' for where each part ends"},
+     "'str_before' and 'str_after' (text.h), or 'strcspn' for where each "
+     "part ends"},
     {"realpath", "writes a path of any length into the buffer it is given",
      "'realpath(path, NULL)', and free the result"},
     {"getwd", "writes a path of any length", "'getcwd(buffer, sizeof buffer)'"},

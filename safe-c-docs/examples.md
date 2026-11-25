@@ -177,3 +177,15 @@ void install(void) { signal(SIGINT, handler); }
 error: a signal may arrive in the middle of 'malloc' or 'printf', so a handler calls nothing but
 'write' and '_exit'; set a 'volatile sig_atomic_t' and act on it later
 ```
+
+## Text
+
+[text.h](../safe-c-std/text.h) has the common string work, with no `__unsafe` in it: `str` is text someone else owns, `text` grows and is freed. It also
+compiles as C99 with other compilers.
+
+```c
+long n, total = 0;
+for (struct str rest = csv; rest.len; rest = str_after(rest, ','))
+  if (str_int(str_trim(str_before(rest, ',')), &n))
+    total += n;
+```

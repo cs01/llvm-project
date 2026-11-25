@@ -6,7 +6,7 @@
 #include <time.h>
 #include <unistd.h>
 void words(char *s) {
-  strtok(s, ","); // expected-error {{'strtok' writes into the string and remembers it between calls; use 'strcspn' and 'strspn'}}
+  strtok(s, ","); // expected-error {{'strtok' writes into the string and remembers it between calls; use 'str_before' and 'str_after' (text.h)}}
 }
 int number(const char *s) { return atoi(s); } // expected-error {{use 'strtol'}}
 void path(const char *p, char *__counted_by(9) b) { realpath(p, b); } // expected-error {{use 'realpath(path, NULL)'}}

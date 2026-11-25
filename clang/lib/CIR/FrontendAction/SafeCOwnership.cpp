@@ -81,7 +81,7 @@ Lib libraryContract(StringRef N) {
       .Cases({"strtol", "strtoul", "strtoll", "strtoull", "strtod", "strtof"},
              Lib::EndOut)
       .Case("asprintf", Lib::OwnerOut)
-      .Cases({"malloc", "strdup", "strndup", "fopen", "fdopen", "popen", "opendir",
+      .Cases({"malloc", "strdup", "strndup", "fopen", "fdopen", "popen", "opendir", "tmpfile",
               "realpath"},
              Lib::Owner)
       .Case("calloc", Lib::ZeroedOwner)

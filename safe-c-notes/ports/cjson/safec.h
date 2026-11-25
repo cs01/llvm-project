@@ -219,6 +219,7 @@ char *getenv(const char *__null_terminated);
 #define _Owned
 #define _Static
 #define _Unchecked
+#define _View
 #define _Trusted
 /* Evaluates lv twice; fine for the plain lvalues take is used on. */
 #define _Take(lv) ({ __typeof__(lv) __safec_t = (lv); (lv) = 0; __safec_t; })

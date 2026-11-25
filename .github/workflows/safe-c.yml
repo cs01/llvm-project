@@ -71,10 +71,10 @@ jobs:
         run: |
           SYSROOT=""
           if [ "$RUNNER_OS" = "macOS" ]; then SYSROOT="-isysroot $(xcrun --show-sdk-path)"; fi
-          build/bin/clang -fsafe-c $SYSROOT -O1 safe-c-std/tests/basic.c -o basic
-          ./basic
-          build/bin/clang -fsafe-c $SYSROOT -O1 safe-c-std/examples/rust_tour.c -o tour
-          ./tour
+          build/bin/clang -fsafe-c $SYSROOT -O1 safe-c-std/tests/text.c -o text
+          ./text
+          build/bin/clang -fsafe-c $SYSROOT -O1 safe-c-std/tests/pool.c -o pool
+          ./pool
 
       - name: Package
         run: |

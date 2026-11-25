@@ -19,7 +19,9 @@ ulimit -s 65520
 # cJSON.c under ownership (its tests include a test framework, so they run without).
 "$safec" -fsafe-c -w -isysroot "$sdk" -fsyntax-only "$here/cjson/cJSON.c" || { echo "cJSON.c: ownership errors"; fail=1; }
 "$safec" -fsafe-c -w -isysroot "$sdk" -fsyntax-only "$here/parson/parson.c" || { echo "parson.c: ownership errors"; fail=1; }
-"$safec" -fsafe-c -w -isysroot "$sdk" -fsyntax-only "$here/../../safe-c-std/tests/pool.c" || { echo "pool.c: ownership errors"; fail=1; }
+for t in "$here"/../../safe-c-std/tests/*.c; do
+  "$safec" -fsafe-c -w -isysroot "$sdk" -fsyntax-only "$t" || { echo "$t: ownership errors"; fail=1; }
+done
 # Unity (the test framework) is not ported code: build it once, unchecked.
 /usr/bin/clang -c -o "$out/unity.o" "$here/cjson/tests/unity/src/unity.c" || exit 1
 /usr/bin/clang -fsanitize=address,undefined -c -o "$out/unity-asan.o" \
@@ -109,6 +111,6 @@ for spec in "${configs[@]}"; do
   run "$name" "$cc" "$port"/tests.c
   rm -f "$port"/tests/*_serialized*.txt
   port=$here/../../safe-c-std; label=std; lib=
-  run "$name" "$cc" "$port"/tests/*.c "$port"/examples/*.c
+  run "$name" "$cc" "$port"/tests/*.c
 done
 exit $fail

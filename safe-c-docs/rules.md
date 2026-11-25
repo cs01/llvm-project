@@ -154,7 +154,7 @@ Not covered: every other data race.
 | `scanf-size` | this conversion can store %0 characters here, so the argument must be an array of at least that size; lower the width, or enlarge the array |
 | `sort-size` | the element size must be the size of %0 (write it with 'sizeof'): with any other size the sort would mix or overrun its elements |
 | `string-alias` | this buffer is checked for its terminator before the call, and %0 could change it after that; pass a string ('__null_terminated'), or a local array that no other argument can reach |
-| `string-result` | the result is a string inside a buffer that can still be changed; search a string ('__null_terminated'), or use 'memchr' and the length |
+| `string-result` | the result is a string inside a buffer that can still be changed; search a string ('__null_terminated'), or use 'str_find' (text.h) |
 | `switch-not-exhaustive` | this switch on '%0' does not handle %1, a tag value of the union it describes; add 'case %1:' (or 'default:') |
 | `tag-address` | %0 is a tag: changing it through a pointer would leave the union holding another member's bytes; assign it by name, together with the member |
 | `tag-field-missing` | the union is tagged by '%0', but the struct has no field of that name; name the field that holds the tag, as in '_Tagged_by(kind)' |
