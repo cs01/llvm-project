@@ -83,9 +83,9 @@ soundness proofs; they are not Clang, and Clang is not sound (see
 [results](safe-c-docs/results.md)).
 Every open item: [open issues](safe-c-notes/review-2026-11-23.md).
 
-**Not sound, in any row.** Three blind attacks, by agents given only the user docs, found 34, then 32,
-then 33 root causes; every program saved from the third is now rejected, and no fresh attack has been
-run since. Do not rely on it for security. All of it is in the
+**Not sound, in any row.** Four blind attacks, by agents given only the user docs, found 34, then 32,
+33, then 19 root causes (one of the 19 in ownership); those are fixed, but the fixes have not been attacked.
+Do not rely on it for security. All of it is in the
 [open issues](safe-c-notes/review-2026-11-23.md) and `clang/utils/safe-c/holes`.
 
 **Cost.** On 45 small GitHub projects picked by hash (those with 200+ lines that build here), unmodified code has a median of
