@@ -17,7 +17,7 @@ extern int *view __asm__("_cell"); // expected-error {{an asm label can switch o
 
 _Thread_local jmp_buf jb;
 void jump(void) {
-  longjmp(jb, 1); // expected-error {{'longjmp' can switch off Safe C's checks}}
+  longjmp(jb, 1); // expected-error {{'longjmp' goes back past frees and checks}}
 }
 
 void free_local(void) {

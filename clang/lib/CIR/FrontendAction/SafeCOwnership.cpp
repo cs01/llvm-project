@@ -78,7 +78,8 @@ Lib libraryContract(StringRef N) {
       .Case("realloc", Lib::Reallocs)
       .Cases({"qsort", "signal", "atexit"}, Lib::Callback)
       .Cases({"bsearch", "localtime_r", "gmtime_r"}, Lib::InsideSecond)
-      .Cases({"strtol", "strtoul", "strtoll", "strtoull", "strtod", "strtof"},
+      .Cases({"strtol", "strtoul", "strtoll", "strtoull", "strtod", "strtof",
+              "strtold"},
              Lib::EndOut)
       .Case("asprintf", Lib::OwnerOut)
       .Cases({"malloc", "strdup", "strndup", "fopen", "fdopen", "popen", "opendir", "tmpfile",
@@ -87,12 +88,12 @@ Lib libraryContract(StringRef N) {
       .Case("calloc", Lib::ZeroedOwner)
       .Cases({"memset", "memcpy", "memmove", "memchr", "strchr", "strrchr",
               "strstr", "strpbrk", "strncpy", "strcpy", "strcat", "strncat",
-              "fgets", "getcwd"},
+              "fgets", "getcwd", "wmemcpy", "wmemmove", "wmemset"},
              Lib::InsideFirst)
       .Cases({"abort", "exit", "_exit", "__assert_rtn", "__assert_fail"}, Lib::Stops)
       .Cases({"__error", "__errno_location"}, Lib::Static)
       .Cases({"strerror", "getenv", "localtime", "gmtime", "ctime", "asctime",
-              "readdir"},
+              "readdir", "setlocale"},
              Lib::UntilNextCall)
       .Cases({"printf", "fprintf", "dprintf", "snprintf", "sprintf", "puts",
               "fputs", "fputc", "putc", "perror", "fread", "fwrite", "fflush",
@@ -103,7 +104,9 @@ Lib libraryContract(StringRef N) {
               "remove", "rename", "mkdir", "rmdir", "access", "stat", "fstat",
               "lstat", "bind", "connect", "accept", "listen", "setsockopt",
               "getsockopt", "send", "recv", "sendto", "recvfrom", "select",
-              "poll", "pipe", "waitpid", "system", "strcoll", "mkstemp", "getlogin_r", "ttyname_r", "ptsname_r"},
+              "poll", "pipe", "waitpid", "system", "strcoll", "mkstemp",
+              "getlogin_r", "ttyname_r", "ptsname_r", "mblen", "mbtowc", "wctomb",
+              "mbstowcs", "wcstombs", "fgetpos", "fsetpos", "frexp", "wmemcmp"},
              Lib::Reads)
       .Cases({"strlen", "strnlen", "strcmp", "strncmp", "strcasecmp",
               "strncasecmp", "memcmp", "strcspn", "strspn", "strlcpy", "strlcat",
