@@ -43,12 +43,11 @@ static void assert_is_array(cJSON *array_item)
 
 static void assert_not_array(cJSON *item, const char *json)
 {
-    parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
+    parse_buffer buffer = { 0, 0, 0, 0 };
     /* strlen runs first: a call between the two dependent assignments is rejected */
     const size_t buffer_length = strlen(json) + sizeof("");
     buffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(json);
     buffer.length = buffer_length;
-    buffer.hooks = global_hooks;
 
     TEST_ASSERT_FALSE(parse_array(item, &buffer));
     assert_is_invalid(item);
@@ -56,12 +55,11 @@ static void assert_not_array(cJSON *item, const char *json)
 
 static void assert_parse_array(cJSON *item, const char *json)
 {
-    parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
+    parse_buffer buffer = { 0, 0, 0, 0 };
     /* strlen runs first: a call between the two dependent assignments is rejected */
     const size_t buffer_length = strlen(json) + sizeof("");
     buffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(json);
     buffer.length = buffer_length;
-    buffer.hooks = global_hooks;
 
     TEST_ASSERT_TRUE(parse_array(item, &buffer));
     assert_is_array(item);

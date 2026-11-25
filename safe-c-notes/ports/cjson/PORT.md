@@ -168,3 +168,16 @@ Usability (Safe C rejects or traps on safe code):
     `cJSON_Duplicate_rec`), so deep recursion overflows. At -O2 the frame is
     64 bytes.
 13. `strncmp` on a slice (also found in jsmn).
+
+## Ownership on (2026-11-25)
+
+cJSON.c compiles with ownership on (test-ports.sh checks it); its tests run with it off. Written by one agent, reviewed here.
+cJSON.c about 1,080 changed lines; `__unsafe` 20 to 8; 13 `_Trusted` functions, 85 lines.
+
+**Not sound: references.** `adopt_item`, `adopt_string` and `create_reference` put a pointer cJSON does not own in an owner field, and only
+`type` flags keep it from being freed. No mark says that. known-gaps/references.c has programs that compile and are use after frees.
+Dropping the `cJSON_IsReference` test in `cJSON_Delete` is accepted too.
+
+Behavior changes: AddItemTo*, InsertItemInArray and ReplaceItem* always take the item and free it on failure (**callers that free on failure
+now free twice**); AddItemToArray and AddItemToObject walk to the tail (40,000 items: 0.001 s to 0.78 s); Detach and Replace via pointer reject
+an item that is not a child; Duplicate copies a constant key.

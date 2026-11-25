@@ -441,14 +441,14 @@ __unsafe static void cjson_functions_should_not_crash_with_null_pointers(void)
     TEST_ASSERT_NULL(cJSON_CreateFloatArray(NULL, 10));
     TEST_ASSERT_NULL(cJSON_CreateDoubleArray(NULL, 10));
     TEST_ASSERT_NULL(cJSON_CreateStringArray(NULL, 10));
-    cJSON_AddItemToArray(NULL, item);
+    cJSON_AddItemToArray(NULL, cJSON_CreateNull());
     cJSON_AddItemToArray(item, NULL);
     cJSON_AddItemToObject(item, "item", NULL);
     cJSON_AddItemToObject(item, NULL, item);
-    cJSON_AddItemToObject(NULL, "item", item);
+    cJSON_AddItemToObject(NULL, "item", cJSON_CreateNull());
     cJSON_AddItemToObjectCS(item, "item", NULL);
     cJSON_AddItemToObjectCS(item, NULL, item);
-    cJSON_AddItemToObjectCS(NULL, "item", item);
+    cJSON_AddItemToObjectCS(NULL, "item", cJSON_CreateNull());
     cJSON_AddItemReferenceToArray(NULL, item);
     cJSON_AddItemReferenceToArray(item, NULL);
     cJSON_AddItemReferenceToObject(item, "item", NULL);
@@ -467,23 +467,22 @@ __unsafe static void cjson_functions_should_not_crash_with_null_pointers(void)
     cJSON_DeleteItemFromObjectCaseSensitive(NULL, "item");
     cJSON_DeleteItemFromObjectCaseSensitive(item, NULL);
     TEST_ASSERT_FALSE(cJSON_InsertItemInArray(array, 0, NULL));
-    TEST_ASSERT_FALSE(cJSON_InsertItemInArray(array, 1, item));
-    TEST_ASSERT_FALSE(cJSON_InsertItemInArray(NULL, 0, item));
+    TEST_ASSERT_FALSE(cJSON_InsertItemInArray(array, 1, cJSON_CreateNull()));
+    TEST_ASSERT_FALSE(cJSON_InsertItemInArray(NULL, 0, cJSON_CreateNull()));
     TEST_ASSERT_FALSE(cJSON_InsertItemInArray(item, 0, NULL));
-    /* unsafe: ReplaceItemViaPointer frees the replaced item only when it
-       succeeds; these calls fail and the test keeps using item, which the
-       always-takes annotation cannot express */
+    /* the calls that add an item take it even when they fail, so each gets its own;
+       unsafe: item is both the container and the item */
     __unsafe {
-    TEST_ASSERT_FALSE(cJSON_ReplaceItemViaPointer(NULL, item, item));
+    TEST_ASSERT_FALSE(cJSON_ReplaceItemViaPointer(NULL, item, cJSON_CreateNull()));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemViaPointer(item, NULL, item));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemViaPointer(item, item, NULL));
     }
     TEST_ASSERT_FALSE(cJSON_ReplaceItemInArray(item, 0, NULL));
-    TEST_ASSERT_FALSE(cJSON_ReplaceItemInArray(NULL, 0, item));
-    TEST_ASSERT_FALSE(cJSON_ReplaceItemInObject(NULL, "item", item));
+    TEST_ASSERT_FALSE(cJSON_ReplaceItemInArray(NULL, 0, cJSON_CreateNull()));
+    TEST_ASSERT_FALSE(cJSON_ReplaceItemInObject(NULL, "item", cJSON_CreateNull()));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemInObject(item, NULL, item));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemInObject(item, "item", NULL));
-    TEST_ASSERT_FALSE(cJSON_ReplaceItemInObjectCaseSensitive(NULL, "item", item));
+    TEST_ASSERT_FALSE(cJSON_ReplaceItemInObjectCaseSensitive(NULL, "item", cJSON_CreateNull()));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemInObjectCaseSensitive(item, NULL, item));
     TEST_ASSERT_FALSE(cJSON_ReplaceItemInObjectCaseSensitive(item, "item", NULL));
     TEST_ASSERT_NULL(cJSON_Duplicate(NULL, true));
@@ -547,25 +546,23 @@ static void ensure_should_fail_on_failed_realloc(void)
 static void skip_utf8_bom_should_skip_bom(void)
 {
     const unsigned char string[] = "\xEF\xBB\xBF{}";
-    parse_buffer buffer = {0, 0, 0, 0, {0, 0, 0}};
+    parse_buffer buffer = {0, 0, 0, 0 };
     buffer.content = string;
     buffer.length = sizeof(string);
-    buffer.hooks = global_hooks;
 
-    TEST_ASSERT_TRUE(skip_utf8_bom(&buffer) == &buffer);
+    TEST_ASSERT_TRUE(skip_utf8_bom(&buffer));
     TEST_ASSERT_EQUAL_UINT(3U, (unsigned int)buffer.offset);
 }
 
 static void skip_utf8_bom_should_not_skip_bom_if_not_at_beginning(void)
 {
     const unsigned char string[] = " \xEF\xBB\xBF{}";
-    parse_buffer buffer = {0, 0, 0, 0, {0, 0, 0}};
+    parse_buffer buffer = {0, 0, 0, 0 };
     buffer.content = string;
     buffer.length = sizeof(string);
-    buffer.hooks = global_hooks;
     buffer.offset = 1;
 
-    TEST_ASSERT_NULL(skip_utf8_bom(&buffer));
+    TEST_ASSERT_FALSE(skip_utf8_bom(&buffer));
 }
 
 static void cjson_get_string_value_should_get_a_string(void)

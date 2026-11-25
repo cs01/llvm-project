@@ -33,14 +33,13 @@ static void assert_print_object(const char * const expected, const char * const 
 
     printbuffer formatted_buffer = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
     printbuffer unformatted_buffer = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
-    parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
+    parse_buffer parsebuffer = { 0, 0, 0, 0 };
 
     /* buffer for parsing */
     /* strlen runs first: a call between the two dependent assignments is rejected */
     const size_t parsebuffer_length = strlen(input) + sizeof("");
     parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(input);
     parsebuffer.length = parsebuffer_length;
-    parsebuffer.hooks = global_hooks;
 
     /* buffer for formatted printing */
     /* unsafe: a stack buffer in an owned field; nothing here frees it */

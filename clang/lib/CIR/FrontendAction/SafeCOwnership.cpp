@@ -406,7 +406,8 @@ public:
       Bad(FD->getLocation(), "a '_Static' result points to nothing that owns memory");
     auto IsBorrow = [&](QualType T) {
       return view(T) || (T->isPointerType() && !T->isFunctionPointerType() &&
-                         !isOwned(T) && pointerKind(T) != "unchecked");
+                         !isOwned(T) && pointerKind(T) != "unchecked" &&
+                         pointerKind(T) != "static");
     };
     auto First = llvm::find_if(FD->parameters(), [&](const ParmVarDecl *P) {
       return IsBorrow(P->getType());
@@ -440,6 +441,10 @@ public:
                !pointsToUnchecked(T) && !FD->isMain())
         Bad(P->getLocation(), "a pointer to a pointer parameter has no rule; "
                               "pass the struct that holds the pointer");
+      else if (T->isPointerType() && pointerKind(T) == "static" &&
+               hasOwners(T->getPointeeType()))
+        Bad(P->getLocation(), "a '_Static' parameter points to nothing that owns "
+                              "memory");
       else if (changesView(T)) {
         unsigned Changed = llvm::count_if(FD->parameters(), [&](const ParmVarDecl *Q) {
           return changesView(Q->getType());
@@ -1891,6 +1896,12 @@ void FunctionCheck::call(cir::CallOp Op) {
       return fail("this argument has no ownership rule");
     if (int(I) == OutArg && (V->K == Val::Local || V->K == Val::Null))
       continue;
+    if (Ours && I < NumParams() && pointerKind(ParamType(I)) == "static") {
+      if (!isStatic(A))
+        return fail("this parameter is '_Static': a literal or the address of a "
+                    "global");
+      continue;
+    }
     if (Ours && I < NumParams() && pointerKind(ParamType(I)) == "unchecked") {
       toUnchecked(A);
       if (Failed())
@@ -2124,7 +2135,8 @@ void FunctionCheck::call(cir::CallOp Op) {
   for (unsigned I = 0; I < NumParams() && First < 0; ++I) {
     QualType PT = ParamType(I);
     if (R.view(PT) ||
-        (PT->isPointerType() && !PT->isFunctionPointerType() && !isOwned(PT) && pointerKind(PT) != "unchecked"))
+        (PT->isPointerType() && !PT->isFunctionPointerType() && !isOwned(PT) &&
+         pointerKind(PT) != "unchecked" && pointerKind(PT) != "static"))
       First = I;
   }
   const Use *From = nullptr;
@@ -2598,7 +2610,8 @@ std::optional<Rejected> FunctionCheck::run() {
       Vals[A] = mk(Val::View, A);
       continue;
     }
-    if (T->isFunctionPointerType() || pointerKind(T) == "unchecked") {
+    if (T->isFunctionPointerType() || pointerKind(T) == "unchecked" ||
+        pointerKind(T) == "static") {
       St.N[A] = plain(Node::Static);
       Vals[A] = mk(Val::Pointer, A);
       continue;

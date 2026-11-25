@@ -51,12 +51,11 @@ static void assert_is_child(cJSON *child_item, const char *name, int type)
 
 static void assert_not_object(cJSON *item, const char *json)
 {
-    parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
+    parse_buffer parsebuffer = { 0, 0, 0, 0 };
     /* strlen runs first: a call between the two dependent assignments is rejected */
     const size_t parsebuffer_length = strlen(json) + sizeof("");
     parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(json);
     parsebuffer.length = parsebuffer_length;
-    parsebuffer.hooks = global_hooks;
 
     TEST_ASSERT_FALSE(parse_object(item, &parsebuffer));
     assert_is_invalid(item);
@@ -65,12 +64,11 @@ static void assert_not_object(cJSON *item, const char *json)
 
 static void assert_parse_object(cJSON *item, const char *json)
 {
-    parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
+    parse_buffer parsebuffer = { 0, 0, 0, 0 };
     /* strlen runs first: a call between the two dependent assignments is rejected */
     const size_t parsebuffer_length = strlen(json) + sizeof("");
     parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(json);
     parsebuffer.length = parsebuffer_length;
-    parsebuffer.hooks = global_hooks;
 
     TEST_ASSERT_TRUE(parse_object(item, &parsebuffer));
     assert_is_object(item);

@@ -44,12 +44,11 @@ static void assert_is_number(cJSON *number_item)
 
 static void assert_parse_number(cJSON *item, const char *string, int integer, double real)
 {
-    parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
+    parse_buffer buffer = { 0, 0, 0, 0 };
     /* strlen runs first: a call between the two dependent assignments is rejected */
     const size_t buffer_length = strlen(string) + sizeof("");
     buffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(string);
     buffer.length = buffer_length;
-    buffer.hooks = global_hooks;
 
     TEST_ASSERT_TRUE(parse_number(item, &buffer));
     assert_is_number(item);
@@ -59,12 +58,11 @@ static void assert_parse_number(cJSON *item, const char *string, int integer, do
 
 static void assert_parse_big_number(cJSON *item, const char *string)
 {
-    parse_buffer buffer = { 0, 0, 0, 0, { 0, 0, 0 } };
+    parse_buffer buffer = { 0, 0, 0, 0 };
     /* strlen runs first: a call between the two dependent assignments is rejected */
     const size_t buffer_length = strlen(string) + sizeof("");
     buffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(string);
     buffer.length = buffer_length;
-    buffer.hooks = global_hooks;
 
     TEST_ASSERT_TRUE(parse_number(item, &buffer));
     assert_is_number(item);

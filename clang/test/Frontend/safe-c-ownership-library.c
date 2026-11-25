@@ -55,7 +55,15 @@ int wrapped(char *_Owned _Nullable p, int c) {
   return r;
 }
 
+void set_name(struct op *o, const char *_Static n) { o->name = n; }
+void named(struct op *o) { set_name(o, day(1)); }
+
 // Rejected.
+int zero(const int *_Static p) { return *p; }
+int named_local(void) {
+  int x = 0;
+  return zero(&x); // expected-error {{this parameter is '_Static'}}
+}
 int wrapped_stale(char *_Owned _Nullable p, int c) {
   char *_Nullable q = c ? p : 0;
   my_free(p);

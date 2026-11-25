@@ -1,0 +1,14 @@
+#include <stdio.h>
+#include <string.h>
+struct hooks { void (*f)(int); };
+struct n { struct n *_Owned _Nullable next; struct n *_Unchecked _Nullable prev; };
+/* R1 */ void copy(struct hooks *a, const struct hooks *b) { *a = *b; }
+/* R3 */ struct n *_Unchecked _Nullable up(const struct n *x) { return x->prev; }
+#define AT(b, i) ((b) + (i))
+/* R4 */ int cast(const unsigned char *__counted_by(n) b, int n) { return n > 4 ? memcmp(AT(b, 1), "abc", 3) : 0; }
+/* R5 */ void walk(struct n *l) { struct n *_Nullable before = 0, *_Nullable c = l->next; while (c && c->prev) { before = c; c = c->next; } if (before) before->next = _Take(l->next); }
+/* R6 */ int sz(void) { char a[4]; return snprintf((char *)a, 4, "x"); }
+/* R7 */ int r7(void) { unsigned char a[4]; return snprintf((char *)a, 4, "x"); }
+/* R8 */ struct n *_Unchecked _Nullable up2(const struct n *x) { struct n *_Unchecked _Nullable p = x->prev; return p; }
+/* R9 */ char f9(void *_Owned _Nullable p, void (*d)(void *_Owned _Nullable), char *_Owned _Nullable s) { d(p); d(s); return 0; }
+/* R10 */ int one(struct n *l){struct n *_Nullable b=0;for(struct n *_Nullable c=l->next;c;c=c->next)b=c;if(b)b->next=0;return 0;}

@@ -33,7 +33,7 @@ static void assert_print_value(const char * const input)
     unsigned char printed[1024];
     cJSON item[1];
     printbuffer buffer = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
-    parse_buffer parsebuffer = { 0, 0, 0, 0, { 0, 0, 0 } };
+    parse_buffer parsebuffer = { 0, 0, 0, 0 };
     /* unsafe: a stack buffer in an owned field; nothing here frees it */
     __unsafe { buffer.buffer = printed; }
     buffer.length = sizeof(printed);
@@ -48,7 +48,6 @@ static void assert_print_value(const char * const input)
     parsebuffer.content = (const unsigned char*)__unsafe_null_terminated_to_indexable(input);
 
     parsebuffer.length = parsebuffer_length;
-    parsebuffer.hooks = global_hooks;
 
     memset(item, 0, sizeof(item));
 
