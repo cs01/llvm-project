@@ -142,3 +142,5 @@ int g(struct n *a, int c) { struct n *_Nullable z = a->k; if (c) exit(1); free(_
 #include <stdlib.h>
 void g(const char *s);
 int f(void) { const char *_Nullable __null_terminated e = getenv("A"); if (!e) return 0; g(e); return *e; }
+//// unreachable
+int f(int *_Owned p, int c) { free(p); if (c) __builtin_unreachable(); return 0; }

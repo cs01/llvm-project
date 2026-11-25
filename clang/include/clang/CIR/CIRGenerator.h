@@ -101,6 +101,9 @@ public:
   const clang::Decl *getDeclForMangledName(llvm::StringRef mangledName);
 
   void emitDeferredDecls();
+
+  /// Generate these even if nothing refers to them.
+  void emitEvenIfUnused(llvm::ArrayRef<const clang::FunctionDecl *> fns);
 };
 
 } // namespace cir

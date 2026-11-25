@@ -33,6 +33,7 @@
 #include "clang/StaticAnalyzer/Frontend/FrontendActions.h"
 #include "llvm/Option/OptTable.h"
 #include "llvm/Support/BuryPointer.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -42,6 +43,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "clang/CIR/Dialect/Passes.h"
 #include "clang/CIR/FrontendAction/CIRGenAction.h"
+#include "clang/CIR/FrontendAction/SafeCOwnership.h"
 #endif
 
 using namespace clang;
@@ -200,6 +202,12 @@ CreateFrontendBaseAction(CompilerInstance &CI) {
 #endif
 }
 
+// Being compared with the script it replaces (clang/utils/safe-c/core) before it
+// is always on.
+static llvm::cl::opt<bool> SafeCOwnershipIR(
+    "safe-c-ownership-ir",
+    llvm::cl::desc("Safe C: check ownership on ClangIR"), llvm::cl::init(false));
+
 std::unique_ptr<FrontendAction>
 CreateFrontendAction(CompilerInstance &CI) {
   // Create the underlying action.
@@ -208,6 +216,18 @@ CreateFrontendAction(CompilerInstance &CI) {
     return nullptr;
 
   const FrontendOptions &FEOpts = CI.getFrontendOpts();
+
+#if CLANG_ENABLE_CIR
+  if (CI.getLangOpts().SafeC && SafeCOwnershipIR &&
+      (FEOpts.ProgramAction == frontend::ParseSyntaxOnly ||
+       FEOpts.ProgramAction == frontend::EmitObj ||
+       FEOpts.ProgramAction == frontend::EmitAssembly ||
+       FEOpts.ProgramAction == frontend::EmitLLVM ||
+       FEOpts.ProgramAction == frontend::EmitBC)) {
+    CI.getCodeGenOpts().ClearASTBeforeBackend = false;
+    Act = cir::wrapWithSafeCOwnership(std::move(Act));
+  }
+#endif
 
   if (CI.getLangOpts().HLSL)
     Act = std::make_unique<HLSLFrontendAction>(std::move(Act));

@@ -224,3 +224,11 @@ void CIRGenerator::HandleVTable(CXXRecordDecl *rd) {
 
   cgm->emitVTable(rd);
 }
+
+void CIRGenerator::emitEvenIfUnused(
+    llvm::ArrayRef<const clang::FunctionDecl *> fns) {
+  if (diags.hasErrorOccurred() || !cgm)
+    return;
+  for (const clang::FunctionDecl *fd : fns)
+    (void)cgm->getAddrOfFunction(clang::GlobalDecl(fd));
+}
