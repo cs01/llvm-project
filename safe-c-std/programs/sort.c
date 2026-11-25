@@ -1,10 +1,11 @@
 /* sort [-nru] [-t c] [-k column] [file ...]: ported from suckless sbase (MIT), with fewer options.
    All lines are in one text; what is sorted is where each one is. */
 #include "../args.h"
-#include "../vec.h"
 
 struct span { size_t at, len; };
-VEC(spans, struct span);
+#define VEC_NAME spans
+#define VEC_TYPE struct span
+#include "../vec.h"
 struct options { int number, reverse, unique, separator; long column; };
 
 static struct str skip(struct str s, int separator) {
@@ -100,11 +101,19 @@ static int output(struct spans *lines, const struct text *all, struct options o)
   return ok;
 }
 
+static int column(int argc, char *__null_terminated _Static const *__counted_by(argc) argv, long *out) {
+  str_long n = args_int(argc, argv, "-k");
+  if (!n.ok)
+    return 0;
+  *out = n.value;
+  return 1;
+}
+
 int main(int argc, char *__null_terminated *__counted_by(argc) argv) {
   struct options o = {0, 0, 0, 0, 1};
   int i = 1;
   for (; i < argc && args_flags(argv[i]); i++) {
-    if (strcmp(argv[i], "-k") == 0 && args_int(argc, argv, "-k", &o.column))
+    if (strcmp(argv[i], "-k") == 0 && column(argc, argv, &o.column))
       i++;
     else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc)
       o.separator = *argv[++i];

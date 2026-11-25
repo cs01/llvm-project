@@ -3,14 +3,15 @@
    The file is one text. An edit replaces some bytes of it with others; undo does the opposite. */
 #include "../args.h"
 #include "../file.h"
-#include "../vec.h"
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 
 /* At 'at', 'removed' bytes became 'added' bytes; both are kept in history.bytes, one after the other. */
 struct change { size_t at, removed, added, bytes; };
-VEC(changes, struct change);
+#define VEC_NAME changes
+#define VEC_TYPE struct change
+#include "../vec.h"
 struct history {
   struct changes changes;
   struct text bytes;
@@ -279,7 +280,7 @@ static void press(struct editor *e, int k, const char *__null_terminated path) {
     break;
   case CTRL('g'): find_next(e); break;
   case CTRL('s'):
-    if (file_write(path, doc)) {
+    if (file_write(path, doc).ok) {
       e->history.saved = e->history.now;
       text_set(&e->message, STR("saved"));
     } else {
@@ -309,7 +310,7 @@ int main(int argc, char *__null_terminated *__counted_by(argc) argv) {
   if (argc != 2)
     return fputs("usage: edit FILE\n", stderr), 1;
   struct editor e = {.rows = 24, .columns = 80};
-  file_read(argv[1], &e.doc);
+  file_read(argv[1], &e.doc); /* a new file starts empty */
   text_set(&e.message, STR("^S save  ^Q quit  ^Z undo  ^Y redo  ^F find"));
   struct termios before;
   int raw = terminal_raw(&before);

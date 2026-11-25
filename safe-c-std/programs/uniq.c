@@ -47,6 +47,15 @@ static int uniq(FILE *f, struct options o) {
   return 0;
 }
 
+/* The number after argv[i]. */
+static int number(int argc, char *__null_terminated _Static const *__counted_by(argc) argv, int i, long *out) {
+  str_long n = args_int(argc, argv, argv[i]);
+  if (!n.ok)
+    return 0;
+  *out = n.value;
+  return 1;
+}
+
 int main(int argc, char *__null_terminated *__counted_by(argc) argv) {
   struct options o = {0, 0, 0, 0, 0};
   int i = 1;
@@ -57,9 +66,9 @@ int main(int argc, char *__null_terminated *__counted_by(argc) argv) {
       o.repeated = 1;
     else if (strcmp(argv[i], "-u") == 0)
       o.single = 1;
-    else if (strcmp(argv[i], "-f") == 0 && args_int(argc, argv, "-f", &o.fields))
+    else if (strcmp(argv[i], "-f") == 0 && number(argc, argv, i, &o.fields))
       i++;
-    else if (strcmp(argv[i], "-s") == 0 && args_int(argc, argv, "-s", &o.chars))
+    else if (strcmp(argv[i], "-s") == 0 && number(argc, argv, i, &o.chars))
       i++;
     else
       return fputs("usage: uniq [-c] [-d | -u] [-f n] [-s n] [file]\n", stderr), 1;

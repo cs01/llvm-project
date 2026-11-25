@@ -4,6 +4,7 @@
      text  text this struct owns: it grows, and text_free frees it */
 #ifndef SAFEC_TEXT_H
 #define SAFEC_TEXT_H
+#include "result.h"
 #include "safec.h"
 #include <limits.h>
 #include <stdint.h>
@@ -73,23 +74,28 @@ static inline struct str str_trim(struct str s) {
   return str_part(s, b, e - b);
 }
 
-/* All of s as a number: 1 and *out, or 0 if it is not one or does not fit. */
-static inline int str_int(struct str s, long *out) {
+/* All of s as a number. */
+enum str_number_error { STR_EMPTY, STR_NOT_A_NUMBER, STR_TOO_BIG };
+typedef RESULT(str_long, long, enum str_number_error) str_long;
+static inline str_long str_int(struct str s) {
   size_t i = s.len > 0 && s.p[0] == '-';
   int minus = i == 1;
   long v = 0;
+  if (s.len == 0)
+    return ERR(str_long, STR_EMPTY);
   if (i == s.len)
-    return 0;
+    return ERR(str_long, STR_NOT_A_NUMBER);
   for (; i < s.len; i++) {
     int d = s.p[i] - '0';
-    if (d < 0 || d > 9 || v < (LONG_MIN + d) / 10)
-      return 0;
+    if (d < 0 || d > 9)
+      return ERR(str_long, STR_NOT_A_NUMBER);
+    if (v < (LONG_MIN + d) / 10)
+      return ERR(str_long, STR_TOO_BIG);
     v = v * 10 - d; /* counts down: there is one more negative number */
   }
   if (!minus && v == LONG_MIN)
-    return 0;
-  *out = minus ? v : -v;
-  return 1;
+    return ERR(str_long, STR_TOO_BIG);
+  return OK(str_long, minus ? v : -v);
 }
 
 struct text {

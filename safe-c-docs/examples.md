@@ -184,10 +184,12 @@ error: a signal may arrive in the middle of 'malloc' or 'printf', so a handler c
 compiles as C99 with other compilers.
 
 ```c
-long n, total = 0;
-for (struct str rest = csv; rest.len; rest = str_after(rest, ','))
-  if (str_int(str_trim(str_before(rest, ',')), &n))
-    total += n;
+long total = 0;
+for (struct str rest = csv; rest.len; rest = str_after(rest, ',')) {
+  str_long n = str_int(str_trim(str_before(rest, ',')));
+  if (n.ok)
+    total += n.value;
+}
 ```
 
 ## Containers, files and options
@@ -195,8 +197,9 @@ for (struct str rest = csv; rest.len; rest = str_after(rest, ','))
 [vec.h](../safe-c-std/vec.h), [map.h](../safe-c-std/map.h), [file.h](../safe-c-std/file.h) and [args.h](../safe-c-std/args.h), with no `__unsafe` in them:
 
 ```c
-VEC(ints, int);
-MAP(counts, int);
+#define MAP_NAME counts
+#define MAP_VALUE int
+#include "map.h"
 
 struct counts m = {0};
 if (!counts_put(&m, STR("apple"), 1)) return 1;

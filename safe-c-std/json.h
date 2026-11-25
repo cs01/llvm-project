@@ -1,14 +1,14 @@
 /* JSON, kept in one array of values and one text. Values point to each other
    by index, so there is one thing to free; index 0 is the document.
      struct json j = {0};
-     if (!json_parse(&j, text)) ...
+     json_result r = json_parse(&j, text);
+     if (!r.ok) ... r.err.at ...              where it stopped
      size_t name = json_get(&j, 0, STR("name"));     0 if it is not there
      struct str s = json_text(&j, name);
      json_free(&j); */
 #ifndef SAFEC_JSON_H
 #define SAFEC_JSON_H
 #include "text.h"
-#include "vec.h"
 #if defined(__clang__)
 #pragma clang assume_nonnull begin
 #endif
@@ -28,9 +28,11 @@ struct json_value {
   };
 };
 #if defined(__clang__)
-#pragma clang assume_nonnull end /* VEC has its own */
+#pragma clang assume_nonnull end /* vec.h has its own */
 #endif
-VEC(json_values, struct json_value);
+#define VEC_NAME json_values
+#define VEC_TYPE struct json_value
+#include "vec.h"
 #if defined(__clang__)
 #pragma clang assume_nonnull begin
 #endif
@@ -289,18 +291,23 @@ static inline int json_value_(struct json *j, struct str s, size_t *at, struct j
   return json_values_set(&j->values, i, v);
 }
 
-/* 1, or 0 if s is not JSON (or there is no memory) and j is empty. */
-static inline int json_parse(struct json *j, struct str s) {
+/* Not JSON (or no memory): the byte where it stopped. */
+struct json_error { size_t at; };
+typedef RESULT(json_result, size_t, struct json_error) json_result;
+
+/* The value is how many values there are; on an error j is empty. */
+static inline json_result json_parse(struct json *j, struct str s) {
   struct json_span none = {0, 0};
   size_t at = 0, root = 0;
   json_free(j);
   if (json_value_(j, s, &at, none, 0, &root)) {
     json_space_(s, &at);
     if (at == s.len)
-      return 1;
+      return OK(json_result, j->values.len);
   }
   json_free(j);
-  return 0;
+  struct json_error e = {at};
+  return ERR(json_result, e);
 }
 
 #if defined(__clang__)

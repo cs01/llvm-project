@@ -10,6 +10,7 @@ Ideas that wait while the language is frozen ([rules.md](rules.md)). Each comes 
 | Lifetimes, as in Rust | none of the programs needed them, and they would stop it reading as C |
 | Threads | out of scope |
 | Plain C libraries | out of scope: call them from `__unsafe` |
+| A result checked where it is set, `if ((n = f()).ok)` | write `n = f(); if (n.ok)` |
 | `strtol`'s end pointer | it can write to text that must not change; pass `NULL` and use `str_int` |
 
 What is not frozen: proofs of the rules there are, fixes for holes, wrappers, and error messages.

@@ -3,21 +3,25 @@
 #define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); return 1; } } while (0)
 
 static long sum(struct str csv) {
-  long total = 0, n;
-  for (struct str rest = csv; rest.len; rest = str_after(rest, ','))
-    if (str_int(str_trim(str_before(rest, ',')), &n))
-      total += n;
+  long total = 0;
+  for (struct str rest = csv; rest.len; rest = str_after(rest, ',')) {
+    str_long n = str_int(str_trim(str_before(rest, ',')));
+    if (n.ok)
+      total += n.value;
+  }
   return total;
 }
+
+static int is(str_long r, enum str_number_error e) { return !r.ok && r.err == e; }
 
 int main(void) {
   CHECK(sum(STR("1, 20 ,x,-3,")) == 18);
   CHECK(sum(STR("")) == 0 && sum(STR(",,")) == 0);
   long v = 7;
-  CHECK(str_int(STR("9223372036854775807"), &v) && v == LONG_MAX);
-  CHECK(str_int(STR("-9223372036854775808"), &v) && v == LONG_MIN);
-  CHECK(!str_int(STR("9223372036854775808"), &v) && !str_int(STR("-9223372036854775809"), &v));
-  CHECK(!str_int(STR("-"), &v) && !str_int(STR(""), &v) && !str_int(STR("1x"), &v));
+  str_long a = str_int(STR("9223372036854775807")), b = str_int(STR("-9223372036854775808"));
+  CHECK(a.ok && a.value == LONG_MAX && b.ok && b.value == LONG_MIN);
+  CHECK(is(str_int(STR("9223372036854775808")), STR_TOO_BIG) && is(str_int(STR("-9223372036854775809")), STR_TOO_BIG));
+  CHECK(is(str_int(STR("-")), STR_NOT_A_NUMBER) && is(str_int(STR("")), STR_EMPTY) && is(str_int(STR("1x")), STR_NOT_A_NUMBER));
   CHECK(str_eq(str_after(STR("a=b=c"), '='), STR("b=c")) && str_after(STR("a"), '=').len == 0);
   CHECK(str_eq(str_trim(STR(" \t ")), STR("")) && !str_eq(STR("a"), STR("b")));
   CHECK(str_write(STR(""), "", stdout));

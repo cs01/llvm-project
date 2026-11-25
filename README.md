@@ -17,7 +17,7 @@ It does not make every C program safe, and it is not proven sound: see [Limits](
 int main(void) {
   struct text in = {0};
   struct json j = {0};
-  if (!file_read("people.json", &in) || !json_parse(&j, text_str(&in)))
+  if (!file_read("people.json", &in).ok || !json_parse(&j, text_str(&in)).ok)
     return 1;
   for (size_t p = json_first(&j, 0); p; p = json_at(&j, p).next) {
     struct str name = json_text(&j, json_get(&j, p, STR("name")));
@@ -69,6 +69,7 @@ small functions around the terminal.
 | a union and a comment saying which member | `_Tagged_by(kind)` and `_When(...)` on each member |
 | a pointer that may be null, and hoping | `_Nullable`, and the compiler makes you check |
 | a parameter you only read | `const`: then nothing it points to changes in the call |
+| returning `int` for success and hoping it is checked | `RESULT(name, T, E)`: reading the value before checking `ok` is an error; `TRY` returns the error early |
 
 ## The standard library
 
@@ -81,8 +82,9 @@ Where C has no safe way to do something, small headers in [safe-c-std](safe-c-st
 
 | Header | For | Instead of |
 |---|---|---|
+| [`result.h`](safe-c-std/result.h) | `RESULT`, `OK`, `ERR`, `TRY` | `int` return codes |
 | [`text.h`](safe-c-std/text.h) | `str` and `text`: split, trim, compare, numbers, lines | `strtok`, `strchr`, `atoi`, `getline` |
-| [`vec.h`](safe-c-std/vec.h) | a growing array of plain data | `realloc` by hand |
+| [`vec.h`](safe-c-std/vec.h) | a growing array of plain data, once per type (`#define VEC_NAME`, `VEC_TYPE`) | `realloc` by hand |
 | [`map.h`](safe-c-std/map.h) | text to plain data | hash tables by hand |
 | [`file.h`](safe-c-std/file.h) | read a whole file; replace one all at once | `fread` loops, half-written files |
 | [`args.h`](safe-c-std/args.h) | options in `argv` | indexing `argv` |

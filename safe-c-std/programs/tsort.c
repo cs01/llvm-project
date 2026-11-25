@@ -1,12 +1,15 @@
 /* tsort [file]: ported from suckless sbase (MIT). The graph's pointers are indexes; 0 is none. */
 #include "../args.h"
-#include "../vec.h"
 #include <ctype.h>
 
 struct vertex { size_t name, len, next, edges, in; int colour; };
 struct edge { size_t to, next; };
-VEC(vertices, struct vertex);
-VEC(edges, struct edge);
+#define VEC_NAME vertices
+#define VEC_TYPE struct vertex
+#include "../vec.h"
+#define VEC_NAME edges
+#define VEC_TYPE struct edge
+#include "../vec.h"
 struct graph { struct vertices v; struct edges e; struct text names; };
 enum { WHITE, GREY, BLACK };
 

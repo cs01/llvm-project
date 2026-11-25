@@ -46,9 +46,12 @@ int main(void) {
   while ((n = fread(part, 1, sizeof part, stdin)) > 0)
     if (!text_add(&in, part, n))
       return 1;
-  int ok = json_parse(&j, text_str(&in));
-  if (ok)
+  json_result r = json_parse(&j, text_str(&in));
+  int ok = r.ok;
+  if (r.ok)
     print(&j, 0), putchar('\n');
+  else
+    fprintf(stderr, "not JSON, at byte %zu\n", r.err.at);
   json_free(&j);
   text_free(&in);
   return !ok;

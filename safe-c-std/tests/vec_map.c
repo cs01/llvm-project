@@ -1,10 +1,15 @@
 /* Growing arrays and maps. */
-#include "../map.h"
-#include "../vec.h"
+#include "../text.h"
 struct pair { int a; double b; };
-VEC(ints, int);
-VEC(pairs, struct pair);
-MAP(counts, int);
+#define VEC_NAME ints
+#define VEC_TYPE int
+#include "../vec.h"
+#define VEC_NAME pairs
+#define VEC_TYPE struct pair
+#include "../vec.h"
+#define MAP_NAME counts
+#define MAP_VALUE int
+#include "../map.h"
 #define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); return 1; } } while (0)
 static int at(struct ints *v, size_t i) { int *_Nullable p = ints_at(v, i); return p ? *p : -1; }
 static int get(struct counts *m, struct str k) { int *_Nullable p = counts_get(m, k); return p ? *p : -1; }
