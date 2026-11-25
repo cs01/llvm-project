@@ -126,3 +126,22 @@ promise. There is no hatch smaller than a function, so nothing unchecked flows i
 through a signature. It is a count, not a free pass: each slice of the variety gate reports trusted
 functions and lines. Fits = at most 5% of its lines trusted; fits with a type = trusted lines are only in
 one reusable type under 100 lines; otherwise it does not fit.
+
+## Variety gate: verdict (2026-11-24): at most 1 of 4, the bar was 2. The core is not a path to general C or Linux.
+
+Judged by reading the code, not by writing the slices: three are ruled out by their interfaces, which
+no amount of rewriting inside a function changes. Linux slice by the rule: the four files have no list or refcount, so
+the next hash in drivers/base that has one, `firmware_loader/sysfs_upload.c`.
+
+| slice | verdict | why |
+|---|---|---|
+| cmark node tree | does not fit | `cmark_node_unlink(node)` and `insert_before(node, sibling)` change the parent and siblings, which are not inside `node`. A `_Trusted` body cannot help: the signature would promise the opposite. Fits only as an index pool, with every signature changed. |
+| redis dict | does not fit | keys and values are `void *`, 11 callbacks in `dictType`, and `dictTwoPhaseUnlinkFree(d, link, ...)` takes a container and a pointer into it. A trusted dict would be the whole 4,049-line file. |
+| zlib inflate | not today | `next_in`/`next_out` are borrows in a struct; needs local-only structs (designed, not built). `strm` back pointer and three pointers into the struct's own array would become indices. Allocation callbacks. |
+| Linux sysfs_upload.c | does not fit | `container_of`, a work item that outlives the call, owner and back pointer both ways (`fw_upload`, `fw_sysfs`, `fw_upload_priv`), `ops` callbacks, reference counts taken in one function and dropped in another, mixed owner and borrow fields. |
+
+One missing idea accounts for most of it: an object changed through one pointer while others to it stay valid (shared
+mutable). Rust handles that with reference counts, cells, locks, pinning and generics; the core has none.
+
+What still stands: the core suits tree-shaped owners (parson's core, checked and run). Proof and blind
+attack were still running when this was written; they decide only whether that narrow claim holds.
