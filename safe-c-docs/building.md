@@ -23,7 +23,7 @@ One flag; no other flags are needed:
 
 - `-fbounds-safety` (Apple's bounds checks).
 - Pointers are non-null unless marked `_Nullable`, checked by flow analysis.
-- Clang's lifetime analysis, plus Safe C's ownership rules on top of it.
+- Safe C's ownership rules, checked on ClangIR.
 - Clang's thread-safety analysis (`-Wthread-safety`), for `_Guarded_by`,
   `_Requires`, `_Acquires` and `_Releases`.
 - `_FORTIFY_SOURCE` off: its checks are replaced by the bounds checks.

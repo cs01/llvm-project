@@ -1,7 +1,7 @@
 # Results
 
-> Being rewritten. `_Exclusive`, `_Takes`, `_Returns_owned`, `_Lifetimebound`, `_Drop` and
-> `_Unsynchronized` no longer exist; [annotations](annotations.md) is current.
+> Measured before the ownership checker was replaced (2026-11-25) and not rerun. For the ports as they are now, with ownership on in
+> four of five, see each port's PORT.md in [safe-c-notes/ports](../safe-c-notes/ports).
 
 [Back to the README](../README.md)
 

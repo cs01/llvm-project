@@ -63,7 +63,7 @@ The same code compiles as plain C on any compiler: the annotations come from one
    later.
 
 Every annotation, with its Rust equivalent: [annotations](safe-c-docs/annotations.md).
-Eight classic bugs, written as small examples, and their errors: [examples](safe-c-docs/examples.md).
+Twelve bugs as small examples, and their errors: [examples](safe-c-docs/examples.md).
 
 ## Status
 
@@ -78,7 +78,7 @@ Eight classic bugs, written as small examples, and their errors: [examples](safe
 | Data races | only data marked `_Guarded_by` a lock |
 
 **Maturity.** Early. Tested on macOS (arm64) against Apple's SDK. Linux builds but is not usable yet
-(glibc's headers have no annotations). Ported so far: jsmn, cJSON, lz4, inih, parson. Some rule sets have small Lean models with
+(glibc's headers have no annotations). Ported: jsmn, inih, parson and cJSON with ownership on (cJSON's references are not sound), lz4 without. Some rule sets have small Lean models with
 soundness proofs; they are not Clang, and Clang is not sound (see
 [results](safe-c-docs/results.md)).
 Every open item: [open issues](safe-c-notes/review-2026-11-23.md).

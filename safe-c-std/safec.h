@@ -36,7 +36,7 @@
    @annotation `_Guarded_by(m)` | Safe C (Clang's `guarded_by`) | data read or written only while holding lock `m`; Clang's thread-safety analysis checks it | `Mutex<T>` | `struct _Capability("mutex") mtx { int state; }; struct mtx stats_lock; int hits _Guarded_by(stats_lock);`
    @annotation `_Requires(m)`, `_Acquires(m)`, `_Releases(m)` | Safe C (Clang's thread-safety attributes) | a function's callers must hold `m`; or it takes or releases `m` | a `MutexGuard` held across a call | `void bump(void) _Requires(&stats_lock);`
    @annotation `_Trusted` | Safe C | a function whose ownership is not checked inside; its callers are held to its signature | a safe function around an `unsafe` body | `_Trusted void swap(struct node *a, struct node *b);`
-   @annotation `__unsafe` | Safe C | a block or function where Safe C's rules are lifted, for code that cannot be checked | `unsafe { }` | `int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }`
+   @annotation `__unsafe` | Safe C | a block or function where Safe C's rules are lifted, except ownership (that is `_Trusted`) | `unsafe { }` | `int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }`
    @annotation `#pragma clang safe_c legacy` | Safe C | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C | first line of a header not yet ported
    Everything else needs nothing: an unannotated pointer is non-null and points to
    exactly one element, like Rust's `&T`. */

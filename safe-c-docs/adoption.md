@@ -1,8 +1,5 @@
 # Adopting Safe C
 
-> Being rewritten. `_Exclusive`, `_Takes`, `_Returns_owned`, `_Lifetimebound`, `_Drop` and
-> `_Unsynchronized` no longer exist; [annotations](annotations.md) is current.
-
 [Back to the README](../README.md)
 
 ## Same code, any compiler
@@ -13,9 +10,7 @@ Safe C does not lock you in. Every annotation comes from one header, `safec.h`:
   safety rules are enforced.
 - **With GCC or any Clang** (Xcode's, a stock one), `safec.h` defines every annotation
   as nothing, or as the plain GNU C it stands for. The same source compiles as ordinary
-  C, without the checks. Two need GNU C: `_Take` is a statement expression (on MSVC it does
-  not build) and `_Drop` is the `cleanup` attribute (on MSVC it expands to nothing, so
-  the cleanup does not run).
+  C, without the checks. `_Take` needs GNU C (a statement expression): it does not build on MSVC.
 
 `safec.h` is a single file with no dependencies. The Safe C compiler ships it; for other
 compilers, copy [`clang/lib/Headers/safec.h`](../clang/lib/Headers/safec.h) into your project
@@ -36,7 +31,9 @@ builds and ships at every step.
   | 0. Plain C | untouched | builds as before |
   | 1. Annotated interface | the header has `_Nullable`, `__counted_by`, ... | every safe caller is checked against it |
   | 2. Safe, with `__unsafe` | `-fsafe-c`, the hard spots wrapped in `__unsafe` | everything outside those blocks is checked |
-  | 3. Fully safe | `-fsafe-c`, no `__unsafe` | the full guarantee |
+  | 3. Fully checked | `-fsafe-c`, no `__unsafe` or `_Trusted` | every rule is checked |
+
+  Ownership can be left off for a file that is not ready: `-mllvm -safe-c-ownership=false`.
 
 - **Calling code that is not safe yet.** Put `#pragma clang safe_c legacy` at the top of
   a header that is not ready. Safe C then treats it like a system header: its code is not

@@ -166,7 +166,6 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 can write past the end of its destination, which nothing checks; "
      "use the size-bounded form, as in 'wcslcat(dst, src, N)' with N the "
      "destination's length in wide characters"},
-    {"spawned-here", true, "handed to the thread here"},
     {"union-member-untracked", false,
      "%0 is reached through something whose tag cannot be followed here (an "
      "array element or a call result); take a pointer to the struct first "
@@ -341,20 +340,11 @@ const SafeCDiagInfo SafeCDiagTable[] = {
      "%0 is not checked: nothing compares its arguments with its format (wide "
      "formats have no checking in the compiler); format with 'snprintf' and "
      "convert, or pass the text to 'fputws'"},
-    {"param-escape-ends", true, "it ends here"},
     {"compound-literal-store", false,
      "this compound literal's storage ends with the block it is written in, "
      "and the pointer assigned here may outlive it; declare it as a named "
      "variable in the block where the pointer is used (as in "
      "'int vals[] = {1, 2};'), or initialize a new pointer with it"},
-    {"used-after-drop", false,
-     "this memory was freed when the '_Drop' variable holding it went out "
-     "of scope; keep the variable alive as long as the copy, or move the "
-     "pointer out of it with '_Take' to keep the memory"},
-    {"dropped-here", true,
-     "allocated into a '_Drop' variable here, which frees it at the end of "
-     "its scope"},
-    {"field-borrow-ended-here", true, "the borrow ends here"},
 };
 } // namespace
 

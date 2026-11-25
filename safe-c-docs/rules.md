@@ -1,8 +1,5 @@
 # The rules
 
-> Being rewritten. `_Exclusive`, `_Takes`, `_Returns_owned`, `_Lifetimebound`, `_Drop` and
-> `_Unsynchronized` no longer exist; [annotations](annotations.md) is current.
-
 This is the one place that says what Safe C accepts. It has two kinds of content: the
 rules in words (edit them here, together with the compiler), and lists generated from the
 compiler's source, which cannot drift from it.
@@ -51,22 +48,27 @@ shows what they access.
 
 | Rule | Lean |
 |---|---|
-| A field or global pointer is `_Owned`, `_Static` or `_Unchecked`; a struct of borrows is `_View` | Own |
-| What is freed or given away is a whole block this code owns, on every path | - |
-| Giving away moves: the old name is not used again; `_Take` moves out of a place | Own |
-| `_Drop` runs once, on a value that is not given away by name | Drop |
+| A field pointer is `_Owned`, `_Static`, `_Unchecked` or a function; a struct of borrows is a `_View` | Core (owners) |
+| A global holds no owner and no borrow | - |
+| An owner is moved by use; `_Take` moves one out of a field, leaving null | Core |
+| A function that takes an owner always takes it | Core |
+| `free` and the like take an owner; `realloc` takes it even when it fails | Core |
+| Memory that will hold owners starts zeroed | Core |
 
 ## 5. A borrow ends before what it borrows
 
 | Rule | Lean |
 |---|---|
-| A borrow of a block ends when the block is freed, and of a local when its scope ends | Own |
-| A borrow of an owned field ends when the field is taken or replaced, or its object is lent exclusively | Own |
-| A result borrows its one borrowed parameter, or the `_Lifetimebound` one; through a function pointer, all of them | - |
-| An out argument may hold what the other arguments carry; `_Noescape` ones are not kept | Out |
-| Arguments of one call do not overlap what it is lent exclusively or given | Out (one level) |
-| A pointer to a place that holds a borrow names that place where it is used | - |
-| A borrow of a global's owned memory ends with any call that may touch globals, and does not leave the file | Out (no files) |
+| Any pointer that is not an owner is a borrow, in a local or parameter only | Core |
+| Changing what an object owns ends every other borrow with the same root, except its ancestors | Core |
+| Nothing can be changed through `const T *` that T owns | Core |
+| Two arguments do not reach the same owner if the call may change one | Core |
+| A returned borrow comes from the first borrowed parameter | Core |
+| A pointer to a local does not outlive its block | - |
+| A `_View` is as if each of its pointers were a variable; behind a pointer it changes as `x = f(x)` | Core, CoreView (shape only) |
+| A call through a function pointer is a call to any function with its marks | CoreIndirect (lemma) |
+| An `_Unchecked` pointer is followed only in a `_Trusted` function | - |
+| A pointer a library returns until the next call (`getenv`) ends at that call | - |
 
 ## 6. Files agree
 
@@ -79,12 +81,10 @@ shows what they access.
 
 | Rule | Lean |
 |---|---|
-| A thread is given an owner, static data or null | - |
-| A mutable global is guarded, atomic, thread-local, or `_Unsynchronized` | - |
 | Guarded data is reached only with its lock, and no pointer to it is kept | - |
-| A signal handler touches only what it may | - |
+| A signal handler calls nothing but `write` and `_exit` | - |
 
-Not covered: a counted pointer and its count under one lock, shared owners, deadlock.
+Not covered: every other data race.
 
 ## Lists
 
@@ -101,7 +101,7 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 
 **Type attributes** (24): `PtrBidiIndexable`, `PtrIndexable`, `PtrSingle`, `PtrUnsafeIndexable`, `PtrTerminatedBy`, `PtrEndedBy`, `CountedBy`, `CountedByOrNull`, `SizedBy`, `SizedByOrNull`, `TypeNonNull`, `TypeNullable`, `TypeNullableResult`, `TypeNullUnspecified`, `AnnotateType`, `LifetimeBound`, `NoEscape`, `VectorSize`, `ExtVectorType`, `NoReturn`, `MayAlias`, `Mode`, `CDecl`, `NoThrow`
 
-**Errors** (67; the bounds, null and lifetime errors of Clang itself are not listed):
+**Errors** (66; the bounds, null and lifetime errors of Clang itself are not listed):
 
 | Rule | Message |
 |---|---|
@@ -161,7 +161,6 @@ Not covered: a counted pointer and its count under one lock, shared owners, dead
 | `union-member-unchecked` | %select{reading\|writing}0 %1 needs the tag '%2' known to be %3 here, or the union's bytes could be another member's; check it first (as in %select{'if (x.%2 == %3)' or 'case %3:'\|'if (x.%2)'\|'if (!x.%2)'}4)%select{\|, or set it ('x.%2 = %3;') before writing}0 |
 | `union-member-untracked` | %0 is reached through something whose tag cannot be followed here (an array element or a call result); take a pointer to the struct first ('struct T *e = &a[i];') and check 'e''s tag before using 'e->...' |
 | `union-member-unwritten` | the tag '%1' now names %0, but %0 has not been written since the tag changed, so the union still holds another member's bytes; write %0 first |
-| `used-after-drop` | this memory was freed when the '_Drop' variable holding it went out of scope; keep the variable alive as long as the copy, or move the pointer out of it with '_Take' to keep the memory |
 | `valist` | nothing checks these arguments against the format; write one function marked 'format(printf, ...)' that passes its own format and '...' on once, between 'va_start' and 'va_end' |
 | `vector-index` | the lane index of a vector is not checked; use a constant, or store the vector into an array first |
 | `vla-param` | a parameter whose row length is another parameter is not checked; pass one row at a time, or a flat array with '__counted_by(rows * cols)' |
