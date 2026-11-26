@@ -12,6 +12,9 @@ Ideas that wait while the language is frozen ([rules.md](rules.md)). Each comes 
 | Plain C libraries | out of scope: call them from `__unsafe` |
 | A result checked where it is set, `if ((n = f()).ok)` | write `n = f(); if (n.ok)` |
 | A result kept in a variable that is never read | not a memory error: the value still cannot be read unchecked |
+| Implicit narrowing is an error (`long` to `int`, `size_t` to `uint16_t`); a cast says it is meant | minmea's bug #106 was one (`strtol` into an `int`, then `abs(INT_MIN)`): 5 such lines in minmea, 0 in our own code, 21 bounded ones in heatshrink that would need casts |
+| Signed overflow traps instead of wrapping, with a per-file switch for arithmetic that means to wrap | would have stopped minmea's two overflows at the line; costs a little speed. For flight code, the one to want |
+| Fixed-width types only (`int32_t`, not `int`) | portability, not memory safety: left to MISRA and linters |
 | `strtol`'s end pointer | it can write to text that must not change; pass `NULL` and use `str_int` |
 
 What is not frozen: proofs of the rules there are, fixes for holes, wrappers, and error messages.
