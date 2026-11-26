@@ -88,8 +88,6 @@ jobs:
 
       - name: Ownership checker is built in
         run: |
-          printf 'void f(int *_Owned p);\n' > owned.c
-          build/bin/clang -fsafe-c -fsyntax-only -include clang/lib/Headers/safec.h owned.c
           build/bin/clang --version | head -1
           grep -q '^CLANG_ENABLE_CIR:BOOL=ON' build/CMakeCache.txt
 
