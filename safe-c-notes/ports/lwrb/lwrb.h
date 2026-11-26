@@ -1,0 +1,184 @@
+/**
+ * \file            lwrb.h
+ * \brief           LwRB - Lightweight ring buffer
+ */
+
+/*
+ * Copyright (c) 2026 Tilen MAJERLE
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without restriction,
+ * including without limitation the rights to use, copy, modify, merge,
+ * publish, distribute, sublicense, and/or sell copies of the Software,
+ * and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE
+ * AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * This file is part of LwRB - Lightweight ring buffer library.
+ *
+ * Author:          Tilen MAJERLE <tilen@majerle.eu>
+ * Version:         v3.4.0
+ */
+#ifndef LWRB_HDR_H
+#define LWRB_HDR_H
+
+#include "safec.h"
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+/* Must be included outside of extern "C" block, C++23 implements it with templates */
+#if !defined(LWRB_DISABLE_ATOMIC) || __DOXYGEN__
+#include <stdatomic.h>
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
+/**
+ * \defgroup        LWRB Lightweight ring buffer manager
+ * \brief           Lightweight ring buffer manager
+ * \{
+ */
+
+#if !defined(LWRB_DISABLE_ATOMIC) || __DOXYGEN__
+/**
+ * \brief           Atomic type for size variable.
+ * Default value is set to be `unsigned 32-bits` type
+ */
+typedef atomic_ulong lwrb_sz_atomic_t;
+
+/**
+ * \brief           Size variable for all library operations.
+ * Default value is set to be `unsigned 32-bits` type
+ */
+typedef unsigned long lwrb_sz_t;
+#else
+/*
+ * LWRB_DISABLE_ATOMIC is defined, so the atomic type is dropped in favor of a
+ * plain one. This is not "atomicity off, everything else still guaranteed" -
+ * there is no ordering or visibility guarantee between the write and read
+ * side left in the library at all. If you define this, it is entirely up to
+ * the application to make sure the target handles concurrent access safely.
+ *
+ * WARNING: Pointers become plain (not even volatile) variables. The compiler may
+ * reorder the data copy after the pointer update, so the other context can
+ * observe a new pointer before the data behind it is written or read.
+ */
+typedef unsigned long lwrb_sz_atomic_t;
+typedef unsigned long lwrb_sz_t;
+#endif
+
+/**
+ * \brief           Event type for buffer operations
+ */
+typedef enum {
+    LWRB_EVT_READ,  /*!< Read event */
+    LWRB_EVT_WRITE, /*!< Write event */
+    LWRB_EVT_RESET, /*!< Reset event */
+} lwrb_evt_type_t;
+
+/**
+ * \brief           Buffer structure forward declaration
+ */
+struct lwrb;
+
+/**
+ * \brief           Event callback function type
+ * \param[in]       buff: Buffer handle for event
+ * \param[in]       evt: Event type
+ * \param[in]       bp: Number of bytes written or read (when used), depends on event type
+ */
+typedef void (*lwrb_evt_fn)(struct lwrb* buff, lwrb_evt_type_t evt, lwrb_sz_t bp);
+
+/* List of flags */
+#define LWRB_FLAG_READ_ALL  ((uint16_t)0x0001)
+#define LWRB_FLAG_WRITE_ALL ((uint16_t)0x0001)
+
+/**
+ * \brief           Buffer structure
+ */
+typedef struct lwrb {
+    uint8_t* _Static _Nullable __counted_by_or_null(size) buff; /*!< (Safe C: a buffer that lives as long as the program.) Pointer to buffer data. Buffer is considered initialized when `buff != NULL` and `size > 0` */
+    lwrb_sz_t size;  /*!< Size of buffer data. Size of actual buffer is `1` byte less than value holds */
+    lwrb_sz_atomic_t r_ptr; /*!< Next read pointer.
+                                Buffer is considered empty when `r == w` and full when `w == r - 1` */
+    lwrb_sz_atomic_t w_ptr; /*!< Next write pointer.
+                                Buffer is considered empty when `r == w` and full when `w == r - 1` */
+    lwrb_evt_fn _Nullable evt_fn; /*!< Pointer to event callback function */
+    void* _Unchecked _Nullable arg; /*!< (Safe C: stored and handed back, never followed here.) Event custom user argument */
+} lwrb_t;
+
+/*
+ * Thread safety
+ *
+ * Library is lock-free for exactly one write context and one read context.
+ * A "context" is one thread or one interrupt - it may call functions many times,
+ * but never concurrently with itself.
+ *
+ * - WRITE CONTEXT: only modifies the write pointer. Safe while read context runs in parallel.
+ * - READ CONTEXT:  only modifies the read pointer. Safe while write context runs in parallel.
+ * - ANY CONTEXT:   modifies nothing, may be called from anywhere.
+ * - NOT SAFE:      application must guarantee exclusive access (no other context active).
+ *
+ * Two writers, two readers, or calling read context functions from the write context
+ * (and vice versa) concurrently requires application locking.
+ */
+
+/* Setup and control - NOT SAFE, call when no other context uses the buffer */
+uint8_t lwrb_init(lwrb_t* buff, uint8_t* _Static __counted_by(size) buffdata, lwrb_sz_t size);
+void lwrb_free(lwrb_t* buff);
+void lwrb_reset(lwrb_t* buff);
+void lwrb_set_evt_fn(lwrb_t* buff, lwrb_evt_fn fn);
+void lwrb_set_arg(lwrb_t* buff, void* _Unchecked _Nullable arg);
+
+/* ANY CONTEXT */
+uint8_t lwrb_is_ready(lwrb_t* buff);
+void* _Unchecked _Nullable lwrb_get_arg(lwrb_t* buff);
+lwrb_sz_t lwrb_get_free(const lwrb_t* buff);
+lwrb_sz_t lwrb_get_full(const lwrb_t* buff);
+
+/* WRITE CONTEXT */
+lwrb_sz_t lwrb_write(lwrb_t* buff, const uint8_t* __counted_by(btw) data, lwrb_sz_t btw);
+uint8_t lwrb_write_ex(lwrb_t* buff, const uint8_t* __counted_by(btw) data, lwrb_sz_t btw, lwrb_sz_t* _Nullable bwritten, uint16_t flags);
+uint8_t* _Static _Nullable lwrb_get_linear_block_write_address(const lwrb_t* buff);
+lwrb_sz_t lwrb_get_linear_block_write_length(const lwrb_t* buff);
+lwrb_sz_t lwrb_advance(lwrb_t* buff, lwrb_sz_t len);
+uint8_t lwrb_write_byte(lwrb_t* buff, uint8_t val);
+
+/* READ CONTEXT */
+lwrb_sz_t lwrb_read(lwrb_t* buff, uint8_t* __counted_by(btr) data, lwrb_sz_t btr);
+uint8_t lwrb_read_ex(lwrb_t* buff, uint8_t* __counted_by(btr) data, lwrb_sz_t btr, lwrb_sz_t* _Nullable bread, uint16_t flags);
+lwrb_sz_t lwrb_peek(const lwrb_t* buff, lwrb_sz_t skip_count, uint8_t* __counted_by(btp) data, lwrb_sz_t btp);
+uint8_t lwrb_find(const lwrb_t* buff, const uint8_t* __counted_by(len) bts, lwrb_sz_t len, lwrb_sz_t start_offset, lwrb_sz_t* found_idx);
+uint8_t* _Static _Nullable lwrb_get_linear_block_read_address(const lwrb_t* buff);
+lwrb_sz_t lwrb_get_linear_block_read_length(const lwrb_t* buff);
+lwrb_sz_t lwrb_skip(lwrb_t* buff, lwrb_sz_t len);
+uint8_t lwrb_read_byte(lwrb_t* buff, uint8_t* val);
+
+/* Extended functions (LWRB_DEV) */
+lwrb_sz_t lwrb_overwrite(lwrb_t* buff, const uint8_t* __counted_by(btw) data, lwrb_sz_t btw);
+lwrb_sz_t lwrb_move(lwrb_t* dest, lwrb_t* src);
+
+/**
+ * \}
+ */
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
+
+#endif /* LWRB_HDR_H */

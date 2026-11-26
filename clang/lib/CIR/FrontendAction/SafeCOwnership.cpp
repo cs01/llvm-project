@@ -217,6 +217,29 @@ public:
              return hasOwners(F->getType());
            });
   }
+  /// Changing it could free something: it holds an owner or a borrow. (Not
+  /// '_Static', '_Unchecked' or function pointers, which nothing frees.)
+  bool canFree(QualType T) const {
+    // (The marks are sugar on the type: read them before it is made canonical.)
+    while (const auto *AT = Ctx.getAsArrayType(T))
+      T = AT->getElementType();
+    if (T->isFunctionPointerType())
+      return false;
+    if (T->isPointerType() || T->isBlockPointerType()) {
+      StringRef K = pointerKind(T);
+      return K != "static" && K != "unchecked";
+    }
+    T = T.getCanonicalType();
+    if (const auto *AT = T->getAs<AtomicType>())
+      return canFree(AT->getValueType());
+    const RecordDecl *RD = T->getAsRecordDecl();
+    RD = RD ? RD->getDefinition() : nullptr;
+    if (RD && !mine(RD))
+      return true;
+    return RD && llvm::any_of(RD->fields(), [&](const FieldDecl *F) {
+             return canFree(F->getType());
+           });
+  }
   void error(SourceLocation L, const Twine &Msg) {
     DiagnosticsEngine &D = Ctx.getDiagnostics();
     D.Report(L, D.getCustomDiagID(DiagnosticsEngine::Error, "%0")) << Msg.str();
@@ -2273,6 +2296,12 @@ void FunctionCheck::call(cir::CallOp Op) {
     bool Owners = ownersIn(pointee(Args[I].getType()));
     bool Const = PT->getPointeeType().isConstQualified();
     if (isStaticBase(B)) {
+      // (A struct whose pointers are all '_Static' frees nothing when changed:
+      // a ring buffer in a global, over a global array.)
+      auto RT = mlir::dyn_cast<cir::RecordType>(pointee(Args[I].getType()));
+      auto RIt = RT && RT.getName() ? Records.find(RT.getName().getValue()) : Records.end();
+      if (RIt != Records.end() && !R.canFree(R.Ctx.getCanonicalTagType(RIt->second)))
+        Owners = false;
       if (!Const && Owners && val(Args[I])->K == Val::Static)
         return fail("static data is passed to '" + Name + "', which may change it");
       continue;
