@@ -41,7 +41,7 @@ struct json {
   struct text text;
 };
 
-static inline void json_free(struct json *j) {
+static inline void json_free(struct json *_Empties j) {
   json_values_free(&j->values);
   text_free(&j->text);
 }

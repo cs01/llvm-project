@@ -968,6 +968,7 @@ error:
 /* A parser function changes the reader, so it may not also return an owner: it fills in a slot. */
 static JSON_Status parsed(JSON_Slot *out, JSON_Value *_Owned _Nullable value) {
     JSON_Status status = value ? JSONSuccess : JSONFailure;
+    json_value_free(_Take(out->value)); /* (empty here; this says so) */
     out->value = value;
     return status;
 }
@@ -990,6 +991,7 @@ static JSON_Status get_quoted_key(JSON_Reader *reader, JSON_Name *out) {
         parson_free(key);
         return JSONFailure;
     }
+    release_string(_Take(out->chars)); /* (empty here; this says so) */
     out->chars = end_string(key, length);
     return JSONSuccess;
 }
@@ -1037,6 +1039,7 @@ static JSON_Status parse_object_value(JSON_Reader *reader, size_t nesting, JSON_
     SKIP_WHITESPACES(reader);
     if (*reader->p == '}') { /* empty object */
         SKIP_CHAR(reader);
+        json_value_free(_Take(out->value)); /* (empty here; this says so) */
         out->value = output_value;
         return JSONSuccess;
     }
@@ -1085,6 +1088,7 @@ static JSON_Status parse_object_value(JSON_Reader *reader, size_t nesting, JSON_
         return JSONFailure;
     }
     SKIP_CHAR(reader);
+    json_value_free(_Take(out->value)); /* (empty here; this says so) */
     out->value = output_value;
     return JSONSuccess;
 }
@@ -1106,6 +1110,7 @@ static JSON_Status parse_array_value(JSON_Reader *reader, size_t nesting, JSON_S
     SKIP_WHITESPACES(reader);
     if (*reader->p == ']') { /* empty array */
         SKIP_CHAR(reader);
+        json_value_free(_Take(out->value)); /* (empty here; this says so) */
         out->value = output_value;
         return JSONSuccess;
     }
@@ -1139,6 +1144,7 @@ static JSON_Status parse_array_value(JSON_Reader *reader, size_t nesting, JSON_S
             return JSONFailure;
     }
     SKIP_CHAR(reader);
+    json_value_free(_Take(out->value)); /* (empty here; this says so) */
     out->value = output_value;
     return JSONSuccess;
 }

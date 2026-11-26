@@ -63,7 +63,8 @@ small functions around the terminal.
 
 | Instead of | Write |
 |---|---|
-| hoping every `malloc` is freed | nothing: an owner that is never freed, returned or handed on is an error |
+| hoping every `malloc` is freed | nothing: an owner never freed, returned or handed on is an error, and so is freeing a struct before what its fields own |
+| a `*_free` function that might miss a field | `_Empties` on its parameter: the compiler checks it leaves every owning field empty |
 | a pointer per node, freed one by one | one array of nodes and indexes into it (`VEC`): one thing to free |
 | `char *` with a length somewhere else | `struct str` to look at text, `struct text` to own it |
 | setting a pointer and then its length | `_Set(p, n, new_p, new_n)`, both at once |

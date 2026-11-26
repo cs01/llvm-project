@@ -189,6 +189,13 @@ char *getenv(const char *__null_terminated);
 #else /* plain clang: [[]] after _Nullable would not parse */
 #define _Static
 #endif
+/* On a parameter: the function leaves what the struct's fields own freed,
+   and its callers know it: void text_free(struct text *_Empties t). */
+#if defined(__SAFE_C__)
+#define _Empties [[clang::annotate_type("safec_empties")]]
+#else
+#define _Empties
+#endif
 /* On a function: its ownership is not checked inside; its callers are held to
    its signature all the same. */
 #define _Trusted __attribute__((annotate("safec_trusted")))
@@ -219,6 +226,7 @@ char *getenv(const char *__null_terminated);
 #define _Owned
 #define _Static
 #define _Unchecked
+#define _Empties
 #define _View
 #define _Trusted
 /* Evaluates lv twice; fine for the plain lvalues take is used on. */

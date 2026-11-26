@@ -136,8 +136,11 @@ int main(int argc, char *__null_terminated *__counted_by(argc) argv) {
     ok = read_lines(stdin, &all, &lines);
   for (; ok && i < argc; i++) {
     FILE *_Owned _Nullable f = fopen(argv[i], "r");
-    if (!f)
-      return perror(argv[i]), 2;
+    if (!f) {
+      perror(argv[i]);
+      ok = 0;
+      break;
+    }
     ok = read_lines(f, &all, &lines);
     fclose(f);
   }

@@ -111,7 +111,7 @@ static inline struct str text_str(const struct text *t) {
   return str_part(all, 0, t->len);
 }
 
-static inline void text_free(struct text *t) {
+static inline void text_free(struct text *_Empties t) {
   free(_Take(t->p));
   t->len = 0;
 }
@@ -228,7 +228,7 @@ static inline struct str strings_at(const struct strings *s, size_t i) {
   return str_part(text_str(&s->bytes), s->where[i].at, s->where[i].len);
 }
 
-static inline void strings_free(struct strings *s) {
+static inline void strings_free(struct strings *_Empties s) {
   text_free(&s->bytes);
   free(_Take(s->where));
   s->count = 0;

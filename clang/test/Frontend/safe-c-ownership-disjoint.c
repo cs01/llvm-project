@@ -6,9 +6,9 @@
 struct box { int *_Owned _Nullable p; };
 struct two { struct box a, b; };
 struct nd { struct box a; struct nd *_Owned _Nullable next; };
-void clr(struct box *b) { free(_Take(b->p)); }
+void clr(struct box *_Empties b) { free(_Take(b->p)); }
 int *_Nullable get(struct box *b) { return b->p; }
-void both(struct two *t) { clr(&t->a); clr(&t->b); }
+void both(struct two *_Empties t) { clr(&t->a); clr(&t->b); }
 int mix(struct box *x, struct box *y) { clr(y); return get(x) != NULL; }
 void drop(struct nd *_Owned _Nullable n) {
   if (!n) return;

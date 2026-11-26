@@ -13,9 +13,17 @@ void abort(void) __attribute__((noreturn));
 
 struct node { int v; struct node *_Owned _Nullable next; };
 struct list { struct node *_Owned _Nullable head; };
+// Frees a node and the rest of its list.
+static void node_free(struct node *_Owned _Nullable n) {
+  if (!n)
+    return;
+  node_free(_Take(n->next));
+  free(n);
+}
 
 // Accepted.
 void push(struct list *l, struct node *_Owned n) {
+  node_free(_Take(n->next));
   n->next = _Take(l->head);
   l->head = n;
 }
@@ -39,7 +47,7 @@ struct node *_Owned _Nullable add(struct node *p, struct node *_Owned n) {
 }
 void use(struct node *p, struct node *_Owned n) {
   struct node *_Owned _Nullable back = add(p, n);
-  free(back);
+  node_free(back);
 }
 _Trusted void swap(struct node *a, struct node *b) {
   struct node *_Nullable t = a->next;
@@ -49,22 +57,23 @@ _Trusted void swap(struct node *a, struct node *b) {
 
 // Rejected.
 static void twice(struct list *l, struct node *_Owned n) { // unused, still checked
+  node_free(_Take(l->head));
   l->head = n;
-  free(n); // expected-error {{freed after it was stored on line}}
+  node_free(n); // expected-error {{passed to 'node_free' after it was stored on line}}
 }
 int stale(struct list *l) {
   struct node *_Nullable n = l->head;
-  free(_Take(l->head));
+  node_free(_Take(l->head));
   return n ? n->v : 0; // expected-error {{after '_Take' on line}}
 }
 void through_const(const struct list *l) {
   struct node *_Nullable n = first(l);
   if (n)
-    free(_Take(n->next)); // expected-error {{this pointer is 'const'}}
+    node_free(_Take(n->next)); // expected-error {{this pointer is 'const'}}
 }
 int other(struct list *l, const struct list *k) {
   struct node *_Nullable n = first(k);
-  free(_Take(l->head)); // another root
+  node_free(_Take(l->head)); // another root
   return n ? n->v : 0;
 }
 int aliased(struct list *l) {

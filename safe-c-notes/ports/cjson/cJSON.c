@@ -351,6 +351,7 @@ CJSON_PUBLIC(void) cJSON_Delete(cJSON *_Nullable _Owned item)
 static cJSON *_Nullable append_after(cJSON * const tail, cJSON *_Owned item)
 {
     item->prev = tail;
+    cJSON_Delete(_Take(tail->next)); /* (empty here; this says so) */
     tail->next = item;
     return tail->next;
 }
@@ -373,6 +374,7 @@ static cJSON *_Nullable append_child(cJSON * const parent, cJSON *_Owned item)
     if (next == NULL)
     {
         item->prev = item;
+        cJSON_Delete(_Take(parent->child)); /* (empty here; this says so) */
         parent->child = item;
         return parent->child;
     }
@@ -393,6 +395,7 @@ static cJSON *_Nullable append_child(cJSON * const parent, cJSON *_Owned item)
 /* Moves a parsed string into the key, for parse_object. */
 static void key_from_valuestring(cJSON * const item)
 {
+    release_string(&global_hooks, _Take(item->string)); /* (empty here; this says so) */
     item->string = _Take(item->valuestring);
 }
 
@@ -628,7 +631,7 @@ _Trusted static unsigned char *_Owned _Nullable __counted_by_or_null(size) reall
 }
 
 /* Moves the buffer out of p and reallocates it. */
-static unsigned char *_Owned _Nullable __counted_by_or_null(size) reallocate_buffer(printbuffer * p, size_t size)
+static unsigned char *_Owned _Nullable __counted_by_or_null(size) reallocate_buffer(printbuffer *_Empties p, size_t size)
 {
     unsigned char *_Nullable _Owned pointer = _Take(p->buffer);
     p->buffer = NULL;
@@ -724,6 +727,7 @@ static unsigned char *_Nullable __bidi_indexable ensure(printbuffer * const p, s
         old = _Take(p->buffer);
         release(&p->hooks, old);
     }
+    release(&p->hooks, _Take(p->buffer)); /* (empty here; this says so) */
     p->length = newsize;
     p->buffer = newbuffer;
 
@@ -1092,6 +1096,7 @@ static cJSON_bool parse_string(cJSON * const item _Noescape, parse_buffer * cons
     item->type = cJSON_String;
     /* zero terminate the output */
     output_length = (size_t)(output_pointer - output);
+    release_string(&global_hooks, _Take(item->valuestring)); /* (empty here; this says so) */
     item->valuestring = end_string(output, output_length);
 
     input_buffer->offset = (size_t) (input_end - input_buffer->content);
@@ -1728,6 +1733,7 @@ static cJSON_bool parse_array(cJSON * const item _Noescape, parse_buffer * const
         /* parsed while this code still owned it; the list holds it from now on */
         if (current_item == NULL)
         {
+            cJSON_Delete(_Take(item->child)); /* (empty here; this says so) */
             item->child = new_item;
             current_item = item->child;
         }
@@ -1907,6 +1913,7 @@ static cJSON_bool parse_object(cJSON * const item _Noescape, parse_buffer * cons
         /* parsed while this code still owned it; the list holds it from now on */
         if (current_item == NULL)
         {
+            cJSON_Delete(_Take(item->child)); /* (empty here; this says so) */
             item->child = new_item;
             current_item = item->child;
         }
@@ -2556,11 +2563,13 @@ CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON * array, int which, cJSON
     after_inserted->prev = newitem;
     if (first)
     {
+        cJSON_Delete(_Take(newitem->next)); /* (empty here; this says so) */
         newitem->next = _Take(array->child);
         array->child = newitem;
     }
     else if (before != NULL)
     {
+        cJSON_Delete(_Take(newitem->next)); /* (empty here; this says so) */
         newitem->next = _Take(before->next);
         before->next = newitem;
     }
@@ -2582,6 +2591,7 @@ static void take_place(cJSON * const replacement, cJSON *_Nullable const replace
         return;
     }
     replacement->prev = replaced->prev;
+    cJSON_Delete(_Take(replacement->next)); /* (empty here; this says so) */
     replacement->next = _Take(replaced->next);
     next = replacement->next;
     if (next != NULL)
@@ -2922,6 +2932,7 @@ CJSON_PUBLIC(cJSON *_Owned _Nullable) cJSON_CreateIntArray(const int *_Nullable 
         }
         if (tail == NULL)
         {
+            cJSON_Delete(_Take(a->child)); /* (empty here; this says so) */
             a->child = n;
             tail = a->child;
         }
@@ -2962,6 +2973,7 @@ CJSON_PUBLIC(cJSON *_Owned _Nullable) cJSON_CreateFloatArray(const float *_Nulla
         }
         if (tail == NULL)
         {
+            cJSON_Delete(_Take(a->child)); /* (empty here; this says so) */
             a->child = n;
             tail = a->child;
         }
@@ -3002,6 +3014,7 @@ CJSON_PUBLIC(cJSON *_Owned _Nullable) cJSON_CreateDoubleArray(const double *_Nul
         }
         if (tail == NULL)
         {
+            cJSON_Delete(_Take(a->child)); /* (empty here; this says so) */
             a->child = n;
             tail = a->child;
         }
@@ -3049,6 +3062,7 @@ CJSON_PUBLIC(cJSON *_Owned _Nullable) cJSON_CreateStringArray(const char *_Unche
         }
         if (tail == NULL)
         {
+            cJSON_Delete(_Take(a->child)); /* (empty here; this says so) */
             a->child = n;
             tail = a->child;
         }
@@ -3130,6 +3144,7 @@ CJSON_PUBLIC(cJSON *_Owned _Nullable) cJSON_Duplicate(const cJSON *item, cJSON_b
         }
         if (tail == NULL)
         {
+            cJSON_Delete(_Take(newitem->child)); /* (empty here; this says so) */
             newitem->child = newchild;
             tail = newitem->child;
         }

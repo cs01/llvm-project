@@ -116,7 +116,7 @@ static inline int MAP_(remove)(struct MAP_NAME *m, struct str key) {
   m->len--;
   return 1;
 }
-static inline void MAP_(free)(struct MAP_NAME *m) {
+static inline void MAP_(free)(struct MAP_NAME *_Empties m) {
   free(_Take(m->p));
   m->len = m->filled = 0;
   text_free(&m->keys);

@@ -55,6 +55,7 @@ shows what they access.
 | A global holds no owner and no borrow | - |
 | An owner is moved by use; `_Take` moves one out of a field or variable, leaving null | Core |
 | An owner is freed, returned or handed on before it ends: at a return, when it is given another value, and when a loop declares it again. A pointer tested null (`if (!p)`, `p == NULL`) holds nothing. `(void)_Take(p)` lets one go on purpose (it leaks, which is not unsafe) | - |
+| A struct is freed after what its owning fields hold (each `_Take`n out, set to null, or never set since `calloc`); an owning field is given a value only when it holds nothing (`if (!n->next)`, or after `_Take`); a struct on the stack ends with its owning fields empty. A parameter marked `_Empties` is left that way, which is checked, and its callers know it. Structs the struct embeds count; arrays of owners do not | - |
 | A function that takes an owner always takes it | Core |
 | `free` and the like take an owner; `realloc` takes it even when it fails | Core |
 | Memory that will hold owners starts zeroed | Core |

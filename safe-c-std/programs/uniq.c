@@ -37,8 +37,11 @@ static int uniq(FILE *f, struct options o) {
       continue;
     }
     print(&last, times, o);
-    if (!text_set(&last, text_str(&line)))
+    if (!text_set(&last, text_str(&line))) {
+      text_free(&line);
+      text_free(&last);
       return 1;
+    }
     times = 1;
   }
   print(&last, times, o);

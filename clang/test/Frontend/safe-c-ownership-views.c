@@ -12,6 +12,13 @@
 void free(void *_Nullable);
 struct node { int v; struct node *_Owned _Nullable next; };
 struct list { struct node *_Owned _Nullable head; };
+// Frees a node and the rest of its list.
+static void node_free(struct node *_Owned _Nullable n) {
+  if (!n)
+    return;
+  node_free(_Take(n->next));
+  free(n);
+}
 struct _View it { const struct node *_Nullable cur; int count; };
 
 // Accepted.
@@ -79,22 +86,22 @@ void points_to_other(struct it *i, const struct it *j) {
 int advanced_stale(struct list *l) {
   struct it i = {l->head, 0};
   advance(&i);
-  free(_Take(l->head));
+  node_free(_Take(l->head));
   return value(&i); // expected-error {{after '_Take' on line}}
 }
 int field(struct list *l) {
   struct it i = {l->head, 0};
-  free(_Take(l->head));
+  node_free(_Take(l->head));
   return i.cur ? i.cur->v : 0; // expected-error {{after '_Take' on line}}
 }
 int result(struct list *l) {
   struct it i = begin(l);
-  free(_Take(l->head));
+  node_free(_Take(l->head));
   return value(&i); // expected-error {{after '_Take' on line}}
 }
 int copied(struct list *l) {
   struct it i = {l->head, 0}, j = i;
-  free(_Take(l->head));
+  node_free(_Take(l->head));
   return next(j).count; // expected-error {{after '_Take' on line}}
 }
 int scope(void) {

@@ -3,7 +3,8 @@
 #include <stdio.h>
 struct node { int v; uint32_t to_slot, to_gen; };
 POOL(node, struct node);
-#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); return 1; } } while (0)
+/* (exit, not return: a failed check ends the test, with whatever it holds) */
+#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
 
 static int test(node_pool *p) {
   node_id a, b, c;
@@ -38,6 +39,7 @@ int main(void) {
   int r = test(&p);
   node_free(&p);
   node_id a = {0, 1};
-  if (node_get(&p, a) != NULL) return 1;
-  return r;
+  int gone = node_get(&p, a) == NULL;
+  node_free(&p); /* (node_get takes the pool, so it might have refilled it) */
+  return gone ? r : 1;
 }

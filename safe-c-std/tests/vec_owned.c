@@ -2,7 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); return 1; } } while (0)
+/* (exit, not return: a failed check ends the test, with whatever it holds) */
+#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
 
 #define VEC_NAME names
 #define VEC_TYPE char *_Owned _Nullable __null_terminated
@@ -44,11 +45,12 @@ int main(void) {
   int empty = none == NULL;
   free(none);
   CHECK(n.len == 0 && empty);
+  names_free(&n); /* (names_pop takes the vector, so it might have refilled it) */
 
   struct people ps = {0};
   for (int i = 0; i < 20; i++) {
     struct person *_Owned _Nullable p = calloc(1, sizeof *p);
-    if (!p) return 1;
+    if (!p) exit(1);
     p->age = i;
     p->name = strdup("x");
     CHECK(people_add(&ps, p));

@@ -98,7 +98,7 @@ static inline int VEC_(pop)(struct VEC_NAME *v, VEC_TYPE *out) {
   return 1;
 }
 
-static inline void VEC_(free)(struct VEC_NAME *v) {
+static inline void VEC_(free)(struct VEC_NAME *_Empties v) {
   free(_Take(v->p));
   v->len = 0;
 }
@@ -157,7 +157,7 @@ static inline VEC_TYPE VEC_(pop)(struct VEC_NAME *v) {
   return _Take(v->p[v->len]);
 }
 
-static inline void VEC_(free)(struct VEC_NAME *v) {
+static inline void VEC_(free)(struct VEC_NAME *_Empties v) {
   for (size_t i = 0; v->p && i < v->len && i < v->cap; i++)
     VEC_FREE(_Take(v->p[i]));
   free(_Take(v->p));

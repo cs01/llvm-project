@@ -159,8 +159,48 @@ struct Node {
   }
 };
 
+/// Which owning fields of a struct are known to hold nothing: of a struct
+/// variable, or of what a pointer variable points to. A path is the member
+/// indexes from the struct to the field, through structs it embeds.
+struct Fields {
+  using Path = SmallVector<unsigned, 4>;
+  bool AllEmpty = false;
+  SmallVector<std::pair<Path, bool>, 4> Over; // a path, and whether it is empty
+  bool empty(ArrayRef<unsigned> P) const {
+    for (const auto &O : Over)
+      if (ArrayRef<unsigned>(O.first) == P)
+        return O.second;
+    return AllEmpty;
+  }
+  void set(ArrayRef<unsigned> P, bool E) {
+    llvm::erase_if(Over, [&](const auto &O) { return ArrayRef<unsigned>(O.first) == P; });
+    if (E != AllEmpty)
+      Over.push_back({Path(P.begin(), P.end()), E});
+  }
+  bool operator==(const Fields &O) const {
+    if (AllEmpty != O.AllEmpty || Over.size() != O.Over.size())
+      return false;
+    for (const auto &X : Over)
+      if (O.empty(X.first) != X.second)
+        return false;
+    return true;
+  }
+  /// What both paths agree is empty.
+  static Fields join(const Fields &A, const Fields &B) {
+    Fields J;
+    J.AllEmpty = A.AllEmpty && B.AllEmpty;
+    for (const auto *F : {&A, &B})
+      for (const auto &O : F->Over)
+        J.set(O.first, A.empty(O.first) && B.empty(O.first));
+    return J;
+  }
+};
+
 struct State {
   llvm::MapVector<Value, Node> N;
+  // Absent: the variable is not declared on this path. Fields() with nothing
+  // empty: nothing known.
+  llvm::DenseMap<Value, Fields> F;
 };
 
 /// What an SSA value is, the same on every path.
@@ -879,6 +919,135 @@ private:
     N->Field = M.getIndex();
     N->Record = RT;
   }
+  const RecordDecl *recordOf(mlir::Type T) const {
+    auto RT = mlir::dyn_cast<cir::RecordType>(T);
+    auto It = RT && RT.getName() ? Records.find(RT.getName().getValue()) : Records.end();
+    return It == Records.end() ? nullptr : It->second;
+  }
+  /// The owning pointer fields of a struct, by path, through the structs it
+  /// embeds. (Not arrays of owners: their elements are not followed.)
+  void leaves(const RecordDecl *RD, Fields::Path &At,
+              SmallVectorImpl<Fields::Path> &Out) const {
+    if (!RD || RD->isUnion() || !R.mine(RD) || At.size() > 8)
+      return;
+    unsigned I = 0;
+    for (const FieldDecl *F : RD->fields()) {
+      QualType T = F->getType();
+      At.push_back(I++);
+      if (T->isPointerType() && pointerKind(T) == "owned")
+        Out.push_back(At);
+      else if (const RecordDecl *In = T->getAsRecordDecl())
+        leaves(In->getDefinition(), At, Out);
+      At.pop_back();
+    }
+  }
+  SmallVector<Fields::Path, 4> leaves(const RecordDecl *RD) const {
+    SmallVector<Fields::Path, 4> Out;
+    Fields::Path At;
+    leaves(RD, At, Out);
+    return Out;
+  }
+  /// 'n->next', 'b.text.bytes': what a path is called.
+  std::string pathName(Value Root, ArrayRef<unsigned> P) const {
+    std::string Out = nameOf(Root);
+    if (Out.size() > 1 && Out.front() == '\'')
+      Out = Out.substr(1, Out.size() - 2);
+    auto VIt = Vars.find(Root);
+    bool Ptr = VIt != Vars.end() && VIt->second.Pointer;
+    const RecordDecl *RD = nullptr;
+    if (VIt != Vars.end() && VIt->second.VD) {
+      QualType T = VIt->second.VD->getType();
+      RD = (Ptr ? T->getPointeeType() : T)->getAsRecordDecl();
+    }
+    bool First = true;
+    for (unsigned I : P) {
+      const FieldDecl *F = nullptr;
+      if (RD)
+        for (const FieldDecl *X : RD->fields())
+          if (X->getFieldIndex() == I)
+            F = X;
+      Out += (First && Ptr) ? "->" : ".";
+      Out += F ? F->getNameAsString() : std::to_string(I);
+      RD = F ? F->getType()->getAsRecordDecl() : nullptr;
+      First = false;
+    }
+    return "'" + Out + "'";
+  }
+  /// Which variable's fields an address is in, and the path to it: a struct
+  /// variable, or what a pointer variable points to.
+  std::optional<std::pair<Value, Fields::Path>> place(Value Addr) const {
+    Fields::Path P;
+    while (auto M = Addr.getDefiningOp<cir::GetMemberOp>()) {
+      P.push_back(M.getIndex());
+      Addr = M.getAddr();
+    }
+    std::reverse(P.begin(), P.end());
+    if (Vars.count(Addr) && !Vars.lookup(Addr).Pointer)
+      return std::make_pair(Addr, P);
+    if (auto L = Addr.getDefiningOp<cir::LoadOp>())
+      if (Vars.count(L.getAddr()) && Vars.lookup(L.getAddr()).Pointer)
+        return std::make_pair(L.getAddr(), P);
+    return std::nullopt;
+  }
+  /// The struct a place's fields belong to.
+  const RecordDecl *placeRecord(Value Root, ArrayRef<unsigned> P) const {
+    auto VIt = Vars.find(Root);
+    if (VIt == Vars.end() || !VIt->second.VD)
+      return nullptr;
+    QualType T = VIt->second.VD->getType();
+    const RecordDecl *RD = (VIt->second.Pointer ? T->getPointeeType() : T)->getAsRecordDecl();
+    for (unsigned I : P) {
+      const FieldDecl *F = nullptr;
+      if (RD)
+        for (const FieldDecl *X : RD->fields())
+          if (X->getFieldIndex() == I)
+            F = X;
+      RD = F ? F->getType()->getAsRecordDecl() : nullptr;
+    }
+    return RD ? RD->getDefinition() : nullptr;
+  }
+  /// The first owning field under a place that may hold something, if any.
+  std::optional<Fields::Path> fullField(Value Root, ArrayRef<unsigned> Prefix) const {
+    const RecordDecl *RD = placeRecord(Root, Prefix);
+    auto It = S->F.find(Root);
+    for (Fields::Path L : leaves(RD)) {
+      Fields::Path Full(Prefix.begin(), Prefix.end());
+      Full.append(L.begin(), L.end());
+      if (It == S->F.end() || !It->second.empty(Full))
+        return Full;
+    }
+    return std::nullopt;
+  }
+  /// Every owning field under a place becomes empty, or unknown.
+  void setFields(Value Root, ArrayRef<unsigned> Prefix, bool Empty) {
+    if (Prefix.empty()) {
+      if (Empty) {
+        S->F[Root] = Fields();
+        S->F[Root].AllEmpty = true;
+      } else {
+        S->F[Root] = Fields();
+      }
+      return;
+    }
+    Fields &Fs = S->F[Root];
+    for (Fields::Path L : leaves(placeRecord(Root, Prefix))) {
+      Fields::Path Full(Prefix.begin(), Prefix.end());
+      Full.append(L.begin(), L.end());
+      Fs.set(Full, Empty);
+    }
+  }
+  /// The pointer variable or struct variable a value is the address of.
+  std::optional<std::pair<Value, Fields::Path>> placeOf(Value V) const {
+    for (unsigned I = 0; I < 8; ++I)
+      if (auto C = V.getDefiningOp<cir::CastOp>(); C && C.getKind() == cir::CastKind::bitcast)
+        V = C.getSrc();
+    if (Vars.count(V) && !Vars.lookup(V).Pointer)
+      return std::make_pair(V, Fields::Path());
+    if (auto L = V.getDefiningOp<cir::LoadOp>())
+      if (Vars.count(L.getAddr()) && Vars.lookup(L.getAddr()).Pointer)
+        return std::make_pair(L.getAddr(), Fields::Path());
+    return place(V);
+  }
   /// An owner that may still hold memory here.
   bool holds(const Node &N) const {
     return (N.K == Node::Own && !N.Null) || (N.K == Node::Dead && N.Leaky);
@@ -913,7 +1082,10 @@ private:
   }
   /// The pointer that a branch tests for null: (owner variable, true when the
   /// test is true means null).
+  /// (The pointer's load, for a field: see fieldNullTest.)
+  mutable cir::LoadOp TestedLoad;
   std::optional<std::pair<Value, bool>> nullTest(Value C) const {
+    TestedLoad = cir::LoadOp();
     bool Flip = false;
     for (unsigned I = 0; I < 16; ++I) {
       mlir::Operation *Op = C.getDefiningOp();
@@ -927,8 +1099,9 @@ private:
         }
         if (K == cir::CastKind::ptr_to_bool) {
           auto L = Cast.getSrc().getDefiningOp<cir::LoadOp>();
-          if (!L || !Vars.count(L.getAddr()))
+          if (!L)
             return std::nullopt;
+          TestedLoad = L;
           return std::make_pair(L.getAddr(), Flip);
         }
         return std::nullopt;
@@ -954,8 +1127,9 @@ private:
         };
         Value P = IsNull(Cmp.getRhs()) ? Cmp.getLhs() : IsNull(Cmp.getLhs()) ? Cmp.getRhs() : Value();
         auto L = P ? P.getDefiningOp<cir::LoadOp>() : cir::LoadOp();
-        if (!L || !Vars.count(L.getAddr()))
+        if (!L)
           return std::nullopt;
+        TestedLoad = L;
         bool EqMeansNull = Cmp.getKind() == cir::CmpOpKind::eq;
         return std::make_pair(L.getAddr(), EqMeansNull != Flip);
       }
@@ -1568,6 +1742,26 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
       Changed = true;
     }
   }
+  // Fields: only what every path says is empty.
+  {
+    llvm::DenseMap<Value, Fields> J;
+    // (A variable declared on one path only keeps what that path knows.)
+    for (auto &KV : Was.F)
+      if (auto It = O.F.find(KV.first); It != O.F.end())
+        J[KV.first] = Fields::join(KV.second, It->second);
+      else
+        J[KV.first] = KV.second;
+    for (auto &KV : O.F)
+      if (!Was.F.count(KV.first))
+        J[KV.first] = KV.second;
+    if (J.size() != Old.F.size())
+      Changed = true;
+    else
+      for (auto &KV : J)
+        if (auto It = Old.F.find(KV.first); It == Old.F.end() || !(It->second == KV.second))
+          Changed = true;
+    Old.F = std::move(J);
+  }
   if (Changed)
     Work.push_back(To);
 }
@@ -1580,6 +1774,13 @@ void FunctionCheck::alloca_(cir::AllocaOp Op) {
     return fail("a variable-length array of owners has no rule");
   if (Vars.count(V) && Vars[V].Owned && lost(V, "when its block ends"))
     return;
+  // A struct variable starts empty: its pointers are set before they are read.
+  if (const RecordDecl *RD = recordOf(T); RD && !leaves(RD).empty()) {
+    S->F[V] = Fields();
+    S->F[V].AllEmpty = true;
+  } else {
+    S->F.erase(V);
+  }
   for (auto &KV : S->N)
     if (KV.second.Parent == V) {
       KV.second = Node();
@@ -2030,6 +2231,7 @@ void FunctionCheck::store(cir::StoreOp Op) {
           return fail("this copies a struct that owns memory; fill it field by "
                       "field");
         killDescendants(A, "it was overwritten" + here());
+        setFields(A, {}, true);
       }
       return;
     }
@@ -2043,6 +2245,7 @@ void FunctionCheck::store(cir::StoreOp Op) {
       Node *N = node(V);
       if (!N)
         return fail("this parameter has no ownership rule");
+      S->F[A] = Fields();
       if (X.Owned) {
         S->N.erase(V);
         S->N[A] = plain(Node::Own);
@@ -2076,7 +2279,10 @@ void FunctionCheck::store(cir::StoreOp Op) {
     if (!XV)
       return fail("a pointer value with no ownership rule");
     Val SV = *XV;
+    S->F[A] = Fields();
     if (X.Owned) {
+      if (SV.K == Val::Owner && SV.Zeroed)
+        setFields(A, {}, true);
       if (lost(A, "when it is given another value" + here()))
         return;
       bool Null = XV->K == Val::Null;
@@ -2142,13 +2348,26 @@ void FunctionCheck::store(cir::StoreOp Op) {
     for (mlir::Operation *Q = Op->getPrevNode(); Q; Q = Q->getPrevNode()) {
       if (auto L = mlir::dyn_cast<cir::LoadOp>(Q); L && L.getAddr() == D) {
         Val *LV = val(L.getResult());
-        if (LV && LV->K == Val::Owner)
+        if (LV && LV->K == Val::Owner) {
+          if (auto Pl = place(D))
+            S->F[Pl->first].set(Pl->second, true);
           return;
+        }
         break;
       }
       if (!mlir::isa<cir::ConstantOp>(Q))
         break;
     }
+  // An owning field that may hold something is not given another value.
+  if (auto Pl = place(D)) {
+    auto FIt = S->F.find(Pl->first);
+    if (fieldOf(D) && pointerKind(fieldOf(D)->getType()) == "owned" &&
+        (FIt == S->F.end() || !FIt->second.empty(Pl->second)))
+      return fail(pathName(Pl->first, Pl->second) +
+                  " may still own memory when it is given another value; free it "
+                  "first (free(_Take(...))), or move it out with '_Take'");
+    S->F[Pl->first].set(Pl->second, XV && XV->K == Val::Null);
+  }
   takeOwner(V, "stored");
   if (Failed())
     return;
@@ -2204,6 +2423,46 @@ void FunctionCheck::call(cir::CallOp Op) {
   };
   mlir::OperandRange Args = Op.getArgOperands();
   bool ResPtr = Res && isPtr(Res.getType());
+  // A call that may change a struct's fields: what was known of them is not.
+  // One whose parameter is '_Empties' leaves them empty. (A library function
+  // does not set this program's owning fields: writing over pointers is not
+  // allowed it.)
+  if (Ours) {
+    SmallVector<std::pair<Value, Fields::Path>, 2> Emptied;
+    for (auto [I, A] : llvm::enumerate(Args)) {
+      if (!isPtr(A.getType()))
+        continue;
+      QualType PT = (Ours && I < NumParams()) ? ParamType(I) : QualType();
+      if (!PT.isNull() && PT->isPointerType() &&
+          (PT->getPointeeType().isConstQualified() || isOwned(PT)))
+        continue;
+      Val *V = val(A);
+      if (V && (V->K == Val::Owner || V->K == Val::Null || V->K == Val::Static))
+        continue;
+      auto Pl = placeOf(A);
+      if (Pl && !PT.isNull() && pointerKind(PT) == "empties") {
+        Emptied.push_back(*Pl);
+        continue;
+      }
+      if (Pl) {
+        setFields(Pl->first, Pl->second, false);
+        continue;
+      }
+      // Something else that reaches them.
+      Value From = V && V->Of ? V->Of : Value();
+      if (!From || !node(From))
+        continue;
+      Value Root = rootOf(*S, From);
+      SmallVector<Value, 4> Gone;
+      for (auto &KV : S->F)
+        if (node(KV.first) && rootOf(*S, KV.first) == Root)
+          Gone.push_back(KV.first);
+      for (Value G : Gone)
+        S->F[G] = Fields();
+    }
+    for (auto &E : Emptied)
+      setFields(E.first, E.second, true);
+  }
   if (!Ours)
     for (Value A : Args)
       if (viewOf(A.getType()))
@@ -2289,6 +2548,34 @@ void FunctionCheck::call(cir::CallOp Op) {
       return;
     }
     if (K == Lib::Frees) {
+      // A struct is freed after what its fields own.
+      if (Name == "free" && !Args.empty()) {
+        Value A0 = Args[0];
+        mlir::Type Orig = A0.getType();
+        for (unsigned I = 0; I < 8; ++I)
+          if (auto C = A0.getDefiningOp<cir::CastOp>(); C && C.getKind() == cir::CastKind::bitcast) {
+            A0 = C.getSrc();
+            Orig = A0.getType();
+          }
+        const RecordDecl *RD = isPtr(Orig) ? recordOf(pointee(Orig)) : nullptr;
+        // (Only for an owner still held: freeing one given away has its own error.)
+        Val *AV = val(A0);
+        const Node *AN = AV && AV->K == Val::OwnerOf ? node(AV->Of) : node(A0);
+        if (!AN) // (a cast to 'void *' carries the owner's node)
+          AN = node(Args[0]);
+        bool Held = AN && AN->K == Node::Own && !AN->Null;
+        if (RD && Held && !leaves(RD).empty()) {
+          auto Pl = placeOf(A0);
+          if (!Pl || !Pl->second.empty())
+            return fail("this frees a struct whose fields may still own memory; free "
+                        "what they own first, in a function of its own (as in "
+                        "'node_free(_Take(...))')");
+          if (auto Full = fullField(Pl->first, {}))
+            return fail(nameOf(Pl->first) + " is freed while " +
+                        pathName(Pl->first, *Full) +
+                        " may still own memory; free that first (free(_Take(...)))");
+        }
+      }
       takeOwner(Args[0], Name == "free" ? "freed" : "closed");
       return;
     }
@@ -2598,6 +2885,25 @@ void FunctionCheck::ret(cir::ReturnOp Op) {
     if (Failed())
       return;
   }
+  // Struct variables end here: their owning fields hold nothing. An
+  // '_Empties' parameter is left that way too.
+  for (auto &KV : Vars) {
+    const Var &X = KV.second;
+    if (!X.VD || X.Name.empty() || X.Name.front() == '.')
+      continue;
+    bool Empties = isa<ParmVarDecl>(X.VD) && pointerKind(X.VD->getType()) == "empties";
+    if (X.Pointer ? !Empties : isa<ParmVarDecl>(X.VD))
+      continue;
+    if (!X.Pointer && !X.VD->getType()->getAsRecordDecl())
+      continue;
+    if (!node(KV.first)) // not declared on this path
+      continue;
+    if (auto Full = fullField(KV.first, {}))
+      return fail(pathName(KV.first, *Full) + " may still own memory when the function "
+                  "returns; " + (Empties ? "an '_Empties' parameter is left empty"
+                                         : "free it, or pass the struct to a function "
+                                           "whose parameter is '_Empties'"));
+  }
   leaks();
 }
 
@@ -2739,9 +3045,15 @@ void FunctionCheck::operation(mlir::Operation *Op) {
       if (!T)
         return flow(To, Ops, *S);
       State E = *S;
-      if (auto It = E.N.find(T->first);
-          It != E.N.end() && It->second.K == Node::Own && Taken == T->second)
-        It->second.Null = true;
+      if (Taken == T->second) {
+        if (Vars.count(T->first)) {
+          if (auto It = E.N.find(T->first); It != E.N.end() && It->second.K == Node::Own)
+            It->second.Null = true;
+        } else if (auto Pl = place(T->first)) {
+          // 'if (!n->next)': on this branch the field holds nothing.
+          E.F[Pl->first].set(Pl->second, true);
+        }
+      }
       flow(To, Ops, E);
     };
     if (!K || *K)

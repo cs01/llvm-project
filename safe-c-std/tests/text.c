@@ -1,6 +1,7 @@
 /* Splitting, numbers and growing text, with no strtok, strchr or strcpy. */
 #include "../text.h"
-#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); return 1; } } while (0)
+/* (exit, not return: a failed check ends the test, with whatever it holds) */
+#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
 
 static long sum(struct str csv) {
   long total = 0;
@@ -33,7 +34,7 @@ int main(void) {
   FILE *_Owned _Nullable f = tmpfile();
   CHECK(f != NULL);
   if (!f)
-    return 1;
+    exit(1);
   fputs("abcd\n\nxy", f);
   rewind(f);
   int lines = 0;

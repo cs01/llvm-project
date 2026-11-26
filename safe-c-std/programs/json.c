@@ -44,8 +44,10 @@ int main(void) {
   char part[4096];
   size_t n = 0;
   while ((n = fread(part, 1, sizeof part, stdin)) > 0)
-    if (!text_add(&in, part, n))
+    if (!text_add(&in, part, n)) {
+      text_free(&in);
       return 1;
+    }
   json_result r = json_parse(&j, text_str(&in));
   int ok = r.ok;
   if (r.ok)

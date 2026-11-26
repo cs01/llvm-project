@@ -83,7 +83,7 @@
     }                                                                          \
     return true;                                                               \
   }                                                                            \
-  static inline void name##_free(name##_pool *p) {                             \
+  static inline void name##_free(name##_pool *_Empties p) {                        \
     free(_Take(p->slots));                                                     \
     p->slots = NULL;                                                           \
     p->cap = 0;                                                                \

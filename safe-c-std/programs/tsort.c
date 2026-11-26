@@ -152,10 +152,13 @@ int main(int argc, char *__null_terminated *__counted_by(argc) argv) {
   int ok = vertices_add(&g.v, head) && edges_add(&g.e, none);
   if (argc > 1 && strcmp(argv[1], "-") != 0) {
     FILE *_Owned _Nullable f = fopen(argv[1], "r");
-    if (!f)
-      return perror(argv[1]), 2;
-    ok = ok && load(&g, f);
-    fclose(f);
+    if (!f) {
+      perror(argv[1]);
+      ok = 0;
+    } else {
+      ok = ok && load(&g, f);
+      fclose(f);
+    }
   } else {
     ok = ok && load(&g, stdin);
   }

@@ -10,7 +10,8 @@ struct pair { int a; double b; };
 #define MAP_NAME counts
 #define MAP_VALUE int
 #include "../map.h"
-#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); return 1; } } while (0)
+/* (exit, not return: a failed check ends the test, with whatever it holds) */
+#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
 static int at(struct ints *v, size_t i) { int *_Nullable p = ints_at(v, i); return p ? *p : -1; }
 static int get(struct counts *m, struct str k) { int *_Nullable p = counts_get(m, k); return p ? *p : -1; }
 int main(void) {
@@ -58,6 +59,7 @@ int main(void) {
     CHECK(counts_put(&m, STR("same"), i) && counts_remove(&m, STR("same")));
   counts_free(&m);
   CHECK(get(&m, odd) == -1);
+  counts_free(&m); /* (get takes the map, so it might have refilled it) */
   puts("ok");
   return 0;
 }

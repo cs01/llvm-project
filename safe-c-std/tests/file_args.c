@@ -2,7 +2,8 @@
 #include "../args.h"
 #include "../file.h"
 #include <errno.h>
-#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); return 1; } } while (0)
+/* (exit, not return: a failed check ends the test, with whatever it holds) */
+#define CHECK(x) do { if (!(x)) { printf("line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
 int main(int argc, char *__null_terminated *__counted_by(argc) argv) {
   CHECK(args_find(argc, argv, "--no") == 0 && args_value(argc, argv, "--no") == 0);
   struct text t = {0};

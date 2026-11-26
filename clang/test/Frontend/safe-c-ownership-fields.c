@@ -10,6 +10,13 @@
 void free(void *_Nullable);
 struct node { int v; struct node *_Owned _Nullable next; };
 struct list { struct node *_Owned _Nullable head; };
+// Frees a node and the rest of its list.
+static void node_free(struct node *_Owned _Nullable n) {
+  if (!n)
+    return;
+  node_free(_Take(n->next));
+  free(n);
+}
 
 // Accepted.
 struct ops { int (*add)(int, int); const char *_Static name; };
@@ -29,9 +36,17 @@ struct tree {
   struct tree *_Unchecked _Nullable up;
   int v;
 };
+// Frees a tree: its kid first.
+static void tree_free(struct tree *_Owned _Nullable t) {
+  if (!t)
+    return;
+  tree_free(_Take(t->kid));
+  free(t);
+}
 _Trusted int up_value(const struct tree *_Unchecked _Nullable u) { return u ? u->v : 0; }
 void attach(struct tree *p, struct tree *_Owned k) {
   k->up = p;
+  tree_free(_Take(p->kid));
   p->kid = k;
 }
 int parent_is(const struct tree *t, const struct tree *p) {
@@ -56,7 +71,7 @@ void last_node(struct list *l) {
   for (struct node *_Nullable c = l->head; c; c = c->next)
     last = c;
   if (last)
-    last->next = 0;
+    node_free(_Take(last->next));
 }
 void copy_ops(struct ops *a, const struct ops *b) { *a = *b; }
 struct tree *_Unchecked _Nullable parent(const struct tree *t) { return t->up; }
@@ -68,7 +83,7 @@ int round_again(struct list *l, int k) {
     if (p) // expected-error {{after '_Take' on line}}
       return p->v;
     p = l->head;
-    free(_Take(l->head));
+    node_free(_Take(l->head));
   }
   return 0;
 }
@@ -94,11 +109,12 @@ void freed(struct tree *t) {
   free(t->up); // expected-error {{this is a borrow, not an owner}}
 }
 void owned(struct tree *t) {
+  tree_free(_Take(t->kid));
   t->kid = t->up; // expected-error {{this is a borrow, not an owner}}
 }
 void stale(struct tree *t, struct tree *_Owned p) {
-  free(p);
-  t->up = p; // expected-error {{copied after it was freed on line}}
+  tree_free(p);
+  t->up = p; // expected-error {{copied after it was passed to 'tree_free' on line}}
 }
 int param(int *_Unchecked p) {
   return *p; // expected-error {{an '_Unchecked' pointer is followed only}}
@@ -108,7 +124,7 @@ int jumped_over(struct list *l, int c) {
   struct node *_Nullable p = l->head;
   if (c)
     goto out;
-  free(_Take(l->head));
+  node_free(_Take(l->head));
   int k = 3;
   c = k;
 out:
@@ -121,7 +137,7 @@ int cleanup_label(int c, struct node *_Owned n) {
   int k = 2;
   r = k;
 done:
-  free(n);
+  node_free(n);
   return r;
 }
 unsigned long address(const struct node *n) { return (unsigned long)n; }
