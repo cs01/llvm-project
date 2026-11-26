@@ -16,12 +16,13 @@ it, but code calling `minmea_scan` directly can overflow). In its place each fie
 (`scan_f`, `scan_T`, ...), and each parser calls them in the order its format string listed. `strtol` with an end pointer became a
 function that does the same on the sentence's bytes.
 
-**Bugs in the original**, found by comparing the two:
+**Bugs in the original**, which comparing the two turned up. All three were already reported upstream, and are open at c43c9e7:
 
-| Input | What happens |
-|---|---|
-| a number with ten or more decimals, `4807.0000000001` | the scale overflows `int` (undefined behaviour); in practice the value's scale becomes garbage, so a position is wrong with no error. The port drops the extra digits, as minmea already does when the value itself is too long |
-| ZDA hour offset `2147483648` | it becomes `INT_MIN` and `abs(INT_MIN)` is undefined: whether the sentence is accepted depends on the compiler. The port refuses it |
+| Input | What happens | Upstream |
+|---|---|---|
+| a number with ten or more decimals, `4807.0000000001` | the scale overflows `int` (undefined behaviour); in practice the value's scale becomes garbage, so a position is wrong with no error. The port drops the extra digits, as minmea already does when the value itself is too long | #56, #104, #106 |
+| ZDA hour offset `2147483648` | it becomes `INT_MIN` and `abs(INT_MIN)` is undefined: whether the sentence is accepted depends on the compiler. The port refuses it | #106 |
+| a field read with `minmea_scan`'s `s` format | copied into the caller's buffer with no size: a stack overflow | #102, PR #98 |
 
 **What Safe C stopped at while porting:** `*sentence++ != '$'` on an empty string steps a string pointer past its terminator, which C
 allows and Safe C does not; it is tested first now. `memset` over a `struct tm` (it holds a pointer) became `*tm = (struct tm){0}`.
