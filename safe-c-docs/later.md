@@ -6,7 +6,7 @@ Ideas that wait while the language is frozen ([rules.md](rules.md)). Each comes 
 |---|---|
 | `?:` choosing between two pointers | write `if`; seen once, in the editor |
 | One mark for a wrapper around system calls (today `_Trusted __unsafe`) | wording, not safety |
-| Owners inside containers and unions (a vector of strings) | indexes into one array covered every program so far |
+| Owners inside unions, and in `map.h` | `vec.h` holds owners now (`VEC_OWNED`); nothing has needed the rest |
 | Lifetimes, as in Rust | none of the programs needed them, and they would stop it reading as C |
 | Threads | out of scope |
 | Plain C libraries | out of scope: call them from `__unsafe` |

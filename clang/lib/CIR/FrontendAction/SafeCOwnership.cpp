@@ -2571,8 +2571,22 @@ void FunctionCheck::operation(mlir::Operation *Op) {
   if (auto B = mlir::dyn_cast<cir::BrOp>(Op))
     return flow(B.getDest(), B.getDestOperands(), *S);
   if (auto B = mlir::dyn_cast<cir::BrCondOp>(Op)) {
-    flow(B.getDestTrue(), B.getDestOperandsTrue(), *S);
-    flow(B.getDestFalse(), B.getDestOperandsFalse(), *S);
+    // A constant condition goes one way: 'do { ... } while (0)' runs once.
+    std::optional<bool> K;
+    mlir::Value Cond = B.getCond();
+    if (auto Cast = Cond.getDefiningOp<cir::CastOp>();
+        Cast && Cast.getKind() == cir::CastKind::int_to_bool)
+      Cond = Cast.getSrc();
+    if (auto C = Cond.getDefiningOp<cir::ConstantOp>()) {
+      if (auto Bo = mlir::dyn_cast<cir::BoolAttr>(C.getValue()))
+        K = Bo.getValue();
+      else if (auto I = mlir::dyn_cast<cir::IntAttr>(C.getValue()))
+        K = !I.getValue().isZero();
+    }
+    if (!K || *K)
+      flow(B.getDestTrue(), B.getDestOperandsTrue(), *S);
+    if (!K || !*K)
+      flow(B.getDestFalse(), B.getDestOperandsFalse(), *S);
     return;
   }
   if (auto Sw = mlir::dyn_cast<cir::SwitchFlatOp>(Op)) {

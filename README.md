@@ -84,7 +84,7 @@ Where C has no safe way to do something, small headers in [safe-c-std](safe-c-st
 |---|---|---|
 | [`result.h`](safe-c-std/result.h) | `RESULT`, `OK`, `ERR`, `TRY` | `int` return codes |
 | [`text.h`](safe-c-std/text.h) | `str` and `text`: split, trim, compare, numbers, lines | `strtok`, `strchr`, `atoi`, `getline` |
-| [`vec.h`](safe-c-std/vec.h) | a growing array of plain data, once per type (`#define VEC_NAME`, `VEC_TYPE`) | `realloc` by hand |
+| [`vec.h`](safe-c-std/vec.h) | a growing array, once per type (`#define VEC_NAME`, `VEC_TYPE`); of owners too (`VEC_OWNED`), such as strings from `strdup` | `realloc` by hand |
 | [`map.h`](safe-c-std/map.h) | text to plain data | hash tables by hand |
 | [`file.h`](safe-c-std/file.h) | read a whole file; replace one all at once | `fread` loops, half-written files |
 | [`args.h`](safe-c-std/args.h) | options in `argv` | indexing `argv` |
@@ -119,7 +119,7 @@ Every mark: [annotations](safe-c-docs/annotations.md). Every rule: [rules](safe-
 | **Not proven sound** | small Lean models cover ownership; fields, views, strings and bounds are argued and tested, not proved, and Clang itself is not proved |
 | **Attacked four times** | blind attacks found 34, 32, 33, then 19 root causes, all fixed; the fixes and the later rules have not been attacked |
 | **Threads** | data races are checked only for data marked `_Guarded_by` a lock |
-| **Containers hold plain data** | a vector of strings is one text and indexes |
+| **Containers** | `vec.h` holds owners (`VEC_OWNED`); `map.h` holds plain data |
 | **Platform** | macOS (arm64) with Apple's SDK; Linux builds, but glibc's headers have no annotations |
 | **Cost** | 0% to 7% run time on the programs above, against the same code in plain Clang; ported libraries from 0.58x to 1.28x |
 
