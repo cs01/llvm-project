@@ -4,5 +4,6 @@ int main(void) {
   char *_Owned _Nullable s = malloc(16);
   free(s);
   free(s);                // freed twice
+  // error: 's' is freed after it was freed on line 5
   return 0;
 }

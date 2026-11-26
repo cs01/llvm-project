@@ -163,7 +163,8 @@ int short_by_one(void) {
 }
 ```
 ```
-error: passing array 'x' (which has 3 elements) to parameter 'v' ... with count value of 4 always fails
+error: passing array 'x' (which has 3 elements) to parameter 'v' of type
+'const int *__single __counted_by(n)' (aka 'const int *__single') with count value of 4 always fails
 ```
 
 ### 11. Null
@@ -172,7 +173,7 @@ error: passing array 'x' (which has 3 elements) to parameter 'v' ... with count 
 int value(const struct node *_Nullable n) { return n->v; }
 ```
 ```
-error: dereference of nullable pointer
+error: dereference of nullable pointer 'const struct node *__single _Nullable'
 ```
 
 ### 12. `malloc` in a signal handler

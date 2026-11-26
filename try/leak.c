@@ -5,6 +5,7 @@ int main(int argc, char **argv) {
   if (!p) return 1;
   if (argc > 1)
     return 2;             // p is never freed on this path
+    // error: 'p' still owns memory when the function returns; free it first, or give it away
   free(p);
   return 0;
 }

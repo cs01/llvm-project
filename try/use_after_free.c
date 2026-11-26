@@ -6,4 +6,5 @@ int main(void) {
   if (!n) return 1;
   free(n);
   return n->v;            // used after free
+  // error: 'n' is used after it was freed on line 7
 }

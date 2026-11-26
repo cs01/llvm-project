@@ -1,10 +1,8 @@
-/* Leaks Safe C does not catch yet: owners inside structs.
-   Every function marked LEAK compiles today with no error.
-   The functions marked OK show the correct way, which the planned rule would require.
+/* Leaks of owners inside structs. Each function marked LEAK is an error, shown under the line it
+   points at; the function marked OK after it is the correct way, and compiles.
 
    Run from the top of the repository:
-     SDKROOT=$(xcrun --show-sdk-path) build.noindex/bin/clang -fsafe-c -fsyntax-only try/struct_leaks.c
-   Today: no errors. With the planned rule: one error per LEAK. */
+     SDKROOT=$(xcrun --show-sdk-path) build.noindex/bin/clang -fsafe-c -fsyntax-only try/struct_leaks.c */
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,6 +15,7 @@ struct node {
 /* LEAK 1: frees the node, but its name and the rest of the list are lost. */
 void node_free_wrong(struct node *_Owned n) {
   free(n);
+  // error: 'n' is freed while 'n->name' may still own memory; free that first (free(_Take(...)))
 }
 
 /* OK: free what the node owns first. _Take moves each owner out and leaves null. */
@@ -31,6 +30,8 @@ void node_free(struct node *_Owned _Nullable n) {
 /* LEAK 2: setting an owning field to NULL loses whatever it held. */
 void cut_wrong(struct node *n) {
   n->next = NULL;
+  // error: 'n->next' may still own memory when it is given another value; free it first
+  // (free(_Take(...))), or move it out with '_Take'
 }
 
 /* OK: free it on the way out. */
@@ -45,6 +46,7 @@ void make_and_drop_wrong(void) {
     return;
   n->name = strdup("Ada");
   free(n);
+  // error: 'n' is freed while 'n->name' may still own memory; free that first (free(_Take(...)))
 }
 
 /* OK */
@@ -74,6 +76,8 @@ int use_wrong(void) {
     return 1;
   b.bytes = m, b.cap = 64;
   return b.bytes ? b.bytes[0] : 0;
+  // error: 'b.bytes' may still own memory when the function returns; free it, or pass the struct to
+  // a function whose parameter is '_Empties'
 }
 
 /* OK */

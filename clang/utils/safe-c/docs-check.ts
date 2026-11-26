@@ -1,5 +1,6 @@
 // The C in the docs compiles as they say: every example in safe-c-docs/examples.md gives the error printed
-// under it (or none, under "Code that compiles"), and the README's program builds and runs.
+// under it (or none, under "Code that compiles"), the README's program builds and runs, and each
+// program in try/ gives the errors written under its lines.
 //   bun clang/utils/safe-c/docs-check.ts      (SAFEC= another compiler)
 import { readFileSync, writeFileSync, mkdtempSync } from "fs";
 import { join } from "path";
@@ -9,6 +10,7 @@ const cc = process.env.SAFEC || join(root, "build.noindex/bin/clang");
 const sdk = Bun.spawnSync(["xcrun", "--show-sdk-path"]).stdout.toString().trim();
 const dir = mkdtempSync(join(tmpdir(), "docs-"));
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+const bare = (e: string) => norm(e).replace(/ on line \d+/g, "");
 let bad = 0, n = 0;
 const compile = (name: string, src: string, extra: string[] = []) => {
   const f = join(dir, name);
@@ -44,9 +46,10 @@ for (let i = 1; i < blocks.length; i++) {
     report(`examples.md: ${title}`, errors.length === 0, errors[0] ?? "");
     continue;
   }
-  const want = norm(next.replace(/^error: /, "")).split(" ... ");
-  const ok = errors.some((e) => { let at = 0; return want.every((w) => { const k = norm(e).indexOf(w, at); if (k < 0) return false; at = k + w.length; return true; }); });
-  report(`examples.md: ${title}`, ok, `wanted "${want.join(" ... ")}", got ${JSON.stringify(errors.slice(0, 2))}`);
+  // The whole message, word for word; only line numbers are left out of the docs.
+  const want = norm(next.replace(/^error: /, ""));
+  const ok = errors.some((e) => bare(e) === want);
+  report(`examples.md: ${title}`, ok, `wanted "${want}", got ${JSON.stringify(errors.map(bare))}`);
 }
 
 // README: the program builds and runs, and each error it shows is what the compiler says.
@@ -67,7 +70,31 @@ for (const part of errs.split(/\n\s*\n/)) {
   const want = norm(part.split("\n").filter((l) => l.startsWith("//")).map((l) => l.slice(2)).join(" ")).replace(/^error: /, "");
   const fn = code.includes("person") ? `double f(struct json *j, size_t person) {\n${code}\n}\n` : `int f(struct json *j, struct str text) {\n${code}\n}\n`;
   const got = compile("readme_err.c", `#include "json.h"\n${fn}`);
-  report(`README: "${want.slice(0, 40)}..."`, got.some((e) => norm(e).startsWith(want.replace(/ on line \d+/, "")) || norm(e).includes(want.replace(/ on line \d+/, ""))), JSON.stringify(got.slice(0, 2)));
+  report(`README: "${want.slice(0, 40)}..."`, got.some((e) => bare(e) === bare(want)), JSON.stringify(got.map(bare)));
+}
+// try/: each "// error:" comment is the compiler's error for the line above it, in order, line numbers
+// included; overflow.c compiles and stops at the bad read.
+for (const name of ["use_after_free", "leak", "double_free", "struct_leaks"]) {
+  const f = join(root, "try", name + ".c");
+  const lines = readFileSync(f, "utf8").split("\n");
+  // Each comment: its text and the code line it sits under (1-based).
+  const want: { under: number; text: string }[] = [];
+  lines.forEach((l, i) => {
+    if (!/^\s*\/\/ error: /.test(l)) return;
+    let j = i + 1, text = l.replace(/^\s*\/\/ error: /, "");
+    while (j < lines.length && /^\s*\/\/ (?!error:)/.test(lines[j])) text += " " + lines[j++].replace(/^\s*\/\/ /, "");
+    want.push({ under: i, text: norm(text) });
+  });
+  const r = Bun.spawnSync([cc, "-fsafe-c", "-isysroot", sdk, "-fsyntax-only", f]);
+  const got = [...r.stderr.toString().matchAll(/^[^\n]*?:(\d+):\d+: error: (.*)$/gm)];
+  const ok = got.length === want.length && got.every((g, k) => norm(g[2]) === want[k].text && +g[1] === want[k].under);
+  report(`try/${name}.c`, ok, `wanted ${JSON.stringify(want)}, got ${JSON.stringify(got.map((g) => g[1] + ": " + g[2]))}`);
+}
+{
+  const exe = join(dir, "overflow");
+  const b = Bun.spawnSync([cc, "-fsafe-c", "-isysroot", sdk, join(root, "try/overflow.c"), "-o", exe]);
+  const run = b.exitCode === 0 ? Bun.spawnSync([exe]) : null;
+  report("try/overflow.c", run?.signalCode === "SIGTRAP", b.stderr.toString().slice(0, 200) || String(run?.exitCode));
 }
 console.log(`docs: ${n - bad} of ${n} as the docs say`);
 process.exit(bad ? 1 : 0);
