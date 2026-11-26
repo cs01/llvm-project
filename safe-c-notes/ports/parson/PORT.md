@@ -201,6 +201,8 @@ Bounds and nullability found all of 1, 2, 3 and 6.
 
 ## What checked callers can still do wrong
 
+(Written for an earlier version of the checker: `_Exclusive` and the rules these examples get around are gone. Kept as a record.)
+
 Both compile with no error and no `__unsafe` in the caller; both confirmed
 by building the same caller plain with ASan.
 

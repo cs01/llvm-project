@@ -99,6 +99,9 @@ Where C has no safe way to do something, small headers in [safe-c-std](safe-c-st
 
 ## Get started
 
+To see it first: [try/](try) has small programs with one bug each, and the command to compile them.
+
+
 1. **Build the compiler** ([building](safe-c-docs/building.md)), then compile one file: `clang -fsafe-c parser.c`. Start with the
    file that reads untrusted input.
 2. **Fix what it reports.** Errors say what is wrong and what to write.
