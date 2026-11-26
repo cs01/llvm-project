@@ -63,6 +63,7 @@ small functions around the terminal.
 
 | Instead of | Write |
 |---|---|
+| hoping every `malloc` is freed | nothing: an owner that is never freed, returned or handed on is an error |
 | a pointer per node, freed one by one | one array of nodes and indexes into it (`VEC`): one thing to free |
 | `char *` with a length somewhere else | `struct str` to look at text, `struct text` to own it |
 | setting a pointer and then its length | `_Set(p, n, new_p, new_n)`, both at once |
@@ -103,7 +104,7 @@ Where C has no safe way to do something, small headers in [safe-c-std](safe-c-st
    | `_Nullable` | the pointer may be null |
    | `__counted_by(n)` | the pointer has a length, `n` |
    | `_Owned` | whoever holds it must free it |
-   | `_Take(place)` | move an owner out of a field, leaving null |
+   | `_Take(place)` | move an owner out of a field, leaving null; `(void)_Take(p)` lets it go on purpose |
    | `_View` | a struct that borrows, kept on the stack |
 
 4. **Not ready to fix a spot?** `__unsafe { }` around it, or `#pragma clang safe_c legacy` at the top of a header. A plain C

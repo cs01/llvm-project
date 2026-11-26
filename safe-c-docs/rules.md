@@ -53,7 +53,8 @@ shows what they access.
 |---|---|
 | A field pointer is `_Owned`, `_Static`, `_Unchecked` or a function; a struct of borrows is a `_View` | Core (owners) |
 | A global holds no owner and no borrow | - |
-| An owner is moved by use; `_Take` moves one out of a field, leaving null | Core |
+| An owner is moved by use; `_Take` moves one out of a field or variable, leaving null | Core |
+| An owner is freed, returned or handed on before it ends: at a return, when it is given another value, and when a loop declares it again. A pointer tested null (`if (!p)`, `p == NULL`) holds nothing. `(void)_Take(p)` lets one go on purpose (it leaks, which is not unsafe) | - |
 | A function that takes an owner always takes it | Core |
 | `free` and the like take an owner; `realloc` takes it even when it fails | Core |
 | Memory that will hold owners starts zeroed | Core |

@@ -143,9 +143,13 @@ struct Node {
   int Field = -1;
   mlir::Type Record;
   bool Same = false; // Borrow: the very pointer Parent is now. Dropped likewise.
+  // Own: known to be null on this path, so it holds nothing. Dead: on another
+  // path it was not freed, which a return reports.
+  bool Null = false, Leaky = false;
   bool sameAs(const Node &O) const {
     return K == O.K && Parent == O.Parent && Field == O.Field &&
-           Record == O.Record && Same == O.Same;
+           Record == O.Record && Same == O.Same && Null == O.Null &&
+           Leaky == O.Leaky;
   }
   void hang(Value From) {
     Parent = From;
@@ -168,6 +172,7 @@ struct Val {
   Value Of; // Pointer, Address: the node; Local, OwnerOf: the variable
   bool Zeroed = false, Typed = false; // Owner
   bool Table = false; // Static: inside a constant table of static pointers
+  bool Took = false;  // Owner: moved out by '_Take'; dropped unused, it is let go
 };
 
 struct Rejected {
@@ -874,6 +879,90 @@ private:
     N->Field = M.getIndex();
     N->Record = RT;
   }
+  /// An owner that may still hold memory here.
+  bool holds(const Node &N) const {
+    return (N.K == Node::Own && !N.Null) || (N.K == Node::Dead && N.Leaky);
+  }
+  /// What A, an owner, holds would be lost now.
+  bool lost(Value A, const Twine &When) {
+    const Node *N = node(A);
+    if (!N || !holds(*N))
+      return false;
+    fail(nameOf(A) + (N->K == Node::Dead ? " may still own memory (it is not freed on every path) "
+                                          : " still owns memory ") +
+         When + "; free it first, or give it away");
+    return true;
+  }
+  /// The owners a return would lose: variables, and results never kept.
+  void leaks() {
+    for (auto &KV : S->N) {
+      if (!holds(KV.second))
+        continue;
+      auto VIt = Vars.find(KV.first);
+      bool Var = VIt != Vars.end() && VIt->second.Owned && !VIt->second.Name.empty();
+      Val *X = val(KV.first);
+      // ('(void)_Take(p)' lets it go on purpose.)
+      bool Result = !Var && X && X->K == Val::Owner && !(X->Took && KV.first.use_empty());
+      if (Var && lost(KV.first, "when the function returns"))
+        return;
+      if (Result && holds(KV.second))
+        return fail("this call's result owns memory that is never freed; keep it in an "
+                    "'_Owned' variable and free it, or cast it to (void) only if it "
+                    "is freed elsewhere");
+    }
+  }
+  /// The pointer that a branch tests for null: (owner variable, true when the
+  /// test is true means null).
+  std::optional<std::pair<Value, bool>> nullTest(Value C) const {
+    bool Flip = false;
+    for (unsigned I = 0; I < 16; ++I) {
+      mlir::Operation *Op = C.getDefiningOp();
+      if (!Op)
+        return std::nullopt;
+      if (auto Cast = mlir::dyn_cast<cir::CastOp>(Op)) {
+        auto K = Cast.getKind();
+        if (K == cir::CastKind::int_to_bool || K == cir::CastKind::bool_to_int) {
+          C = Cast.getSrc();
+          continue;
+        }
+        if (K == cir::CastKind::ptr_to_bool) {
+          auto L = Cast.getSrc().getDefiningOp<cir::LoadOp>();
+          if (!L || !Vars.count(L.getAddr()))
+            return std::nullopt;
+          return std::make_pair(L.getAddr(), Flip);
+        }
+        return std::nullopt;
+      }
+      if (mlir::isa<cir::NotOp>(Op)) {
+        Flip = !Flip;
+        C = Op->getOperand(0);
+        continue;
+      }
+      if (auto Cmp = mlir::dyn_cast<cir::CmpOp>(Op)) {
+        if (Cmp.getKind() != cir::CmpOpKind::eq && Cmp.getKind() != cir::CmpOpKind::ne)
+          return std::nullopt;
+        auto IsNull = [](Value V) {
+          for (unsigned K = 0; K < 4; ++K) {
+            if (auto C = V.getDefiningOp<cir::ConstantOp>())
+              return C.isNullPtr();
+            auto Cast = V.getDefiningOp<cir::CastOp>();
+            if (!Cast || Cast.getKind() != cir::CastKind::bitcast)
+              return false;
+            V = Cast.getSrc();
+          }
+          return false;
+        };
+        Value P = IsNull(Cmp.getRhs()) ? Cmp.getLhs() : IsNull(Cmp.getLhs()) ? Cmp.getRhs() : Value();
+        auto L = P ? P.getDefiningOp<cir::LoadOp>() : cir::LoadOp();
+        if (!L || !Vars.count(L.getAddr()))
+          return std::nullopt;
+        bool EqMeansNull = Cmp.getKind() == cir::CmpOpKind::eq;
+        return std::make_pair(L.getAddr(), EqMeansNull != Flip);
+      }
+      return std::nullopt;
+    }
+    return std::nullopt;
+  }
   void killDescendants(Value Of, const Twine &Why) {
     killIf([&](Value V) { return V != Of && isAncestor(*S, Of, V); }, Why);
   }
@@ -1388,6 +1477,18 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
     const Node &X = KV.second;
     const Node *Y = node(O, K);
     if (!Y) {
+      // (An owner that holds memory on the other path: remembered, so a
+      // loop that declares it again reports what the last pass kept.)
+      if (holds(X)) {
+        Node J;
+        J.Why = "it is not set on every path";
+        J.Leaky = true;
+        if (!J.sameAs(Old.N[K])) {
+          Old.N[K] = J;
+          Changed = true;
+        }
+        continue;
+      }
       Old.N.erase(K);
       Changed = true;
       continue;
@@ -1395,6 +1496,12 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
     Node J;
     if (X.K == Node::Dead || Y->K == Node::Dead) {
       J.Why = X.K == Node::Dead ? X.Why : Y->Why;
+      // Freed on one path and still held on the other.
+      J.Leaky = (X.K == Node::Dead && X.Leaky) || (Y->K == Node::Dead && Y->Leaky) ||
+                (X.K == Node::Own && !X.Null) || (Y->K == Node::Own && !Y->Null);
+    } else if (X.K == Node::Own && Y->K == Node::Own) {
+      J = X;
+      J.Null = X.Null && Y->Null;
     } else if (X.sameAs(*Y)) {
       J = X;
       J.Capable = X.Capable && Y->Capable;
@@ -1420,6 +1527,14 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
       Changed = true;
     }
   }
+  for (auto &KV : O.N)
+    if (!node(Was, KV.first) && holds(KV.second)) {
+      Node J;
+      J.Why = "it is not set on every path";
+      J.Leaky = true;
+      Old.N[KV.first] = J;
+      Changed = true;
+    }
   // A parent only one side knows: the nearest ancestor both know, or none.
   for (auto &KV : Old.N) {
     Node &N = KV.second;
@@ -1463,6 +1578,8 @@ void FunctionCheck::alloca_(cir::AllocaOp Op) {
   reparent(V);
   if (Op.isDynamic() && ownersIn(T))
     return fail("a variable-length array of owners has no rule");
+  if (Vars.count(V) && Vars[V].Owned && lost(V, "when its block ends"))
+    return;
   for (auto &KV : S->N)
     if (KV.second.Parent == V) {
       KV.second = Node();
@@ -1739,6 +1856,33 @@ void FunctionCheck::load(cir::LoadOp Op) {
       Vals[Res] = mk(Val::Pointer, Res);
       return;
     }
+    // '_Take(p)' of an owner variable: the value moves out, and p is null.
+    if (X.Owned && N->K == Node::Own) {
+      bool Take = false;
+      for (mlir::Operation *Q = Op->getNextNode(); Q; Q = Q->getNextNode()) {
+        if (auto St = mlir::dyn_cast<cir::StoreOp>(Q); St && St.getAddr() == Op.getAddr()) {
+          auto C = St.getValue().getDefiningOp<cir::ConstantOp>();
+          Take = C && C.isNullPtr();
+          break;
+        }
+        if (!mlir::isa<cir::ConstantOp>(Q))
+          break;
+      }
+      if (Take) {
+        bool Null = N->Null;
+        killDescendants(A, "'_Take'" + here());
+        reparent(Res);
+        S->N[Res] = plain(Node::Own);
+        S->N[Res].Null = Null;
+        S->N[A] = plain(Node::Own);
+        S->N[A].Null = true;
+        Val V = mk(Val::Owner);
+        V.Typed = true;
+        V.Took = true;
+        Vals[Res] = V;
+        return;
+      }
+    }
     Node New;
     if (N->K == Node::Dead)
       New = *N;
@@ -1807,6 +1951,7 @@ void FunctionCheck::load(cir::LoadOp Op) {
     setNode(Res, plain(Node::Own));
     Val N = mk(Val::Owner);
     N.Typed = true;
+    N.Took = true;
     Vals[Res] = N;
     return;
   }
@@ -1932,11 +2077,15 @@ void FunctionCheck::store(cir::StoreOp Op) {
       return fail("a pointer value with no ownership rule");
     Val SV = *XV;
     if (X.Owned) {
+      if (lost(A, "when it is given another value" + here()))
+        return;
+      bool Null = XV->K == Val::Null;
       takeOwner(V, "moved");
       if (Failed())
         return;
       killDescendants(A, "its owner was given another value" + here());
       S->N[A] = plain(Node::Own);
+      S->N[A].Null = Null;
       return;
     }
     if (SV.K == Val::Null || SV.K == Val::Static) {
@@ -2449,6 +2598,7 @@ void FunctionCheck::ret(cir::ReturnOp Op) {
     if (Failed())
       return;
   }
+  leaks();
 }
 
 void FunctionCheck::operation(mlir::Operation *Op) {
@@ -2583,10 +2733,21 @@ void FunctionCheck::operation(mlir::Operation *Op) {
       else if (auto I = mlir::dyn_cast<cir::IntAttr>(C.getValue()))
         K = !I.getValue().isZero();
     }
+    // On the branch where an owner is null, it holds nothing.
+    auto T = nullTest(B.getCond());
+    auto Edge = [&](bool Taken, mlir::Block *To, mlir::ValueRange Ops) {
+      if (!T)
+        return flow(To, Ops, *S);
+      State E = *S;
+      if (auto It = E.N.find(T->first);
+          It != E.N.end() && It->second.K == Node::Own && Taken == T->second)
+        It->second.Null = true;
+      flow(To, Ops, E);
+    };
     if (!K || *K)
-      flow(B.getDestTrue(), B.getDestOperandsTrue(), *S);
+      Edge(true, B.getDestTrue(), B.getDestOperandsTrue());
     if (!K || !*K)
-      flow(B.getDestFalse(), B.getDestOperandsFalse(), *S);
+      Edge(false, B.getDestFalse(), B.getDestOperandsFalse());
     return;
   }
   if (auto Sw = mlir::dyn_cast<cir::SwitchFlatOp>(Op)) {

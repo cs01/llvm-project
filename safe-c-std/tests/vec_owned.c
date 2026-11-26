@@ -32,13 +32,18 @@ int main(void) {
   CHECK(first && strcmp(first, "Grace") == 0);
   CHECK(names_at(&n, 100) == NULL);
   char *_Owned _Nullable __null_terminated mine = names_take(&n, 1);
-  CHECK(mine && strcmp(mine, "Ada") == 0 && names_at(&n, 1) == NULL);
+  int took = mine && strcmp(mine, "Ada") == 0 && names_at(&n, 1) == NULL;
   free(mine);
+  CHECK(took);
   char *_Owned _Nullable __null_terminated last = names_pop(&n);
-  CHECK(last && strcmp(last, "Ada") == 0 && n.len == 99);
+  int popped = last && strcmp(last, "Ada") == 0 && n.len == 99;
   free(last);
+  CHECK(popped);
   names_free(&n);
-  CHECK(n.len == 0 && names_pop(&n) == NULL);
+  char *_Owned _Nullable __null_terminated none = names_pop(&n);
+  int empty = none == NULL;
+  free(none);
+  CHECK(n.len == 0 && empty);
 
   struct people ps = {0};
   for (int i = 0; i < 20; i++) {

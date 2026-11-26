@@ -2096,6 +2096,9 @@ static parson_bool_t has_parent(const JSON_Value *value) {
 static void json_value_reject(JSON_Value *_Owned _Nullable value) {
     if (value != NULL && !has_parent(value)) {
         json_value_free(value);
+    } else {
+        /* Its parent owns it (or it is null): let go. */
+        (void)_Take(value);
     }
 }
 
@@ -2271,13 +2274,13 @@ JSON_Status json_object_dotset_value(JSON_Object * _Nullable object, const char 
     }
     new_value = json_value_init_object();
     new_object = json_value_get_object(new_value);
-    if (new_object == NULL) {
+    if (new_value == NULL || new_object == NULL) {
         json_value_reject(value);
         release_string(name_copy);
         json_value_free(new_value);
         return JSONFailure;
     }
-    if (new_value == NULL || json_object_dotset_value(new_object, dot_pos + 1, value) != JSONSuccess) {
+    if (json_object_dotset_value(new_object, dot_pos + 1, value) != JSONSuccess) {
         release_string(name_copy);
         json_value_free(new_value);
         return JSONFailure;

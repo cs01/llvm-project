@@ -377,12 +377,17 @@ static cJSON *_Nullable append_child(cJSON * const parent, cJSON *_Owned item)
         return parent->child;
     }
     next->prev = item;
-    while (next != NULL)
+    while ((tail != NULL) && (tail->next != NULL))
     {
-        tail = next;
-        next = next->next;
+        tail = tail->next;
     }
-    return (tail != NULL) ? append_after(tail, item) : NULL;
+    if (tail == NULL)
+    {
+        /* (Never: next is not null.) Freed, so no path drops item. */
+        cJSON_Delete(item);
+        return NULL;
+    }
+    return append_after(tail, item);
 }
 
 /* Moves a parsed string into the key, for parse_object. */
@@ -2208,8 +2213,15 @@ _Trusted static cJSON *_Owned _Nullable create_reference(const cJSON *_Unchecked
    that), it is left alone. */
 static cJSON_bool add_item_to_array(cJSON *_Nullable array, cJSON *_Owned _Nullable item)
 {
-    if ((item == NULL) || (array == item))
+    if (item == NULL)
     {
+        return false;
+    }
+    if (array == item)
+    {
+        /* It is the container itself, which only unchecked code can pass:
+           freeing it would free the container, so it is let go. */
+        (void)_Take(item);
         return false;
     }
     if (array == NULL)
@@ -2278,6 +2290,8 @@ CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObject(cJSON * object, const char *strin
 {
     if (object == item)
     {
+        /* It is the object itself: let go, as above. */
+        (void)_Take(item);
         return false;
     }
     return add_new_to_object(object, string, item) != NULL;
@@ -2286,8 +2300,15 @@ CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObject(cJSON * object, const char *strin
 /* Add an item to an object with constant string as key */
 CJSON_PUBLIC(cJSON_bool) cJSON_AddItemToObjectCS(cJSON * object, const char *_Unchecked _Nullable string, cJSON *_Owned _Nullable item)
 {
-    if ((item == NULL) || (object == item))
+    if (item == NULL)
     {
+        return false;
+    }
+    if (object == item)
+    {
+        /* It is the container itself, which only unchecked code can pass:
+           freeing it would free the container, so it is let go. */
+        (void)_Take(item);
         return false;
     }
     if ((object == NULL) || (string == NULL))
@@ -2495,8 +2516,15 @@ CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON * array, int which, cJSON
     cJSON *_Nullable after_inserted = NULL;
     cJSON_bool first = true;
 
-    if ((newitem == NULL) || (array == newitem))
+    if (newitem == NULL)
     {
+        return false;
+    }
+    if (array == newitem)
+    {
+        /* It is the container itself, which only unchecked code can pass:
+           freeing it would free the container, so it is let go. */
+        (void)_Take(newitem);
         return false;
     }
     if ((which < 0) || (array == NULL))
@@ -2536,6 +2564,12 @@ CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON * array, int which, cJSON
         newitem->next = _Take(before->next);
         before->next = newitem;
     }
+    else
+    {
+        /* (Never: the loop set before.) Freed, so no path drops newitem. */
+        cJSON_Delete(newitem);
+        return false;
+    }
     return true;
 }
 
@@ -2564,8 +2598,15 @@ CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON * const parent, cJSON
     cJSON *_Unchecked _Nullable last = NULL;
     cJSON_bool first = true;
 
-    if ((replacement == NULL) || (parent == replacement))
+    if (replacement == NULL)
     {
+        return false;
+    }
+    if (parent == replacement)
+    {
+        /* It is the container itself, which only unchecked code can pass:
+           freeing it would free the container, so it is let go. */
+        (void)_Take(replacement);
         return false;
     }
     if (parent == NULL)
@@ -2575,7 +2616,9 @@ CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON * const parent, cJSON
     }
     if ((item != NULL) && (replacement == item))
     {
-        /* only code without ownership checks can pass this: it is already there */
+        /* only code without ownership checks can pass this: it is already
+           there, and the tree owns it */
+        (void)_Take(replacement);
         return true;
     }
 
@@ -2609,6 +2652,12 @@ CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemViaPointer(cJSON * const parent, cJSON
         take_place(replacement, replaced);
         before->next = replacement;
     }
+    else
+    {
+        /* (Never: the loop set before.) Freed, so no path drops replacement. */
+        cJSON_Delete(replacement);
+        return false;
+    }
     if (last != NULL)
     {
         set_tail(parent, last);
@@ -2631,8 +2680,15 @@ CJSON_PUBLIC(cJSON_bool) cJSON_ReplaceItemInArray(cJSON * array, int which, cJSO
 
 static cJSON_bool replace_item_in_object(cJSON *_Nullable object, const char *_Nullable string, cJSON *_Owned _Nullable replacement, cJSON_bool case_sensitive)
 {
-    if ((replacement == NULL) || (object == replacement))
+    if (replacement == NULL)
     {
+        return false;
+    }
+    if (object == replacement)
+    {
+        /* It is the container itself, which only unchecked code can pass:
+           freeing it would free the container, so it is let go. */
+        (void)_Take(replacement);
         return false;
     }
     if (string == NULL)
