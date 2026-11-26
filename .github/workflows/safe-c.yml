@@ -75,7 +75,7 @@ jobs:
         run: |
           SYSROOT=""
           if [ "$RUNNER_OS" = "macOS" ]; then SYSROOT="-isysroot $(xcrun --show-sdk-path)"; fi
-          build/bin/clang -fsafe-c -fsyntax-only -mllvm -safe-c-ownership=true clang/test/Frontend/safe-c-ownership-disjoint.c 2>&1 | grep -q "is tested after" ||
+          build/bin/clang -fsafe-c $SYSROOT -fsyntax-only clang/test/Frontend/safe-c-ownership-disjoint.c 2>&1 | grep -q "is tested after" ||
             { echo 'the ownership checker is not in this build'; exit 1; }
           for t in safe-c-std/tests/*.c; do
             build/bin/clang -fsafe-c $SYSROOT -O1 $t -o wrapper
