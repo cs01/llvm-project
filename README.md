@@ -17,8 +17,11 @@ It does not make every C program safe, and it is not proven sound: see [Limits](
 int main(void) {
   struct text in = {0};
   struct json j = {0};
-  if (!file_read("people.json", &in).ok || !json_parse(&j, text_str(&in)).ok)
+  if (!file_read("people.json", &in).ok || !json_parse(&j, text_str(&in)).ok) {
+    json_free(&j);
+    text_free(&in);
     return 1;
+  }
   for (size_t p = json_first(&j, 0); p; p = json_at(&j, p).next) {
     struct str name = json_text(&j, json_get(&j, p, STR("name")));
     str_write(name, "\n", stdout);
@@ -32,14 +35,15 @@ No marks at all: they are in the headers. What goes wrong is an error:
 
 ```c
 struct str name = json_text(j, 1);
-json_parse(j, text);
+(void)json_parse(j, text);
 return name.p[0];
 // error: 'name.p' is used after the call to 'json_parse' on line 4
 
 struct json_value v = json_at(j, json_get(j, person, STR("age")));
 return v.number;
 // error: reading 'number' needs the tag 'kind' known to be JSON_NUMBER here, or the
-// union's bytes could be another member's; check it first (as in 'if (x.kind == JSON_NUMBER)')
+// union's bytes could be another member's; check it first (as in 'if (x.kind == JSON_NUMBER)'
+// or 'case JSON_NUMBER:')
 ```
 
 ## Real bugs

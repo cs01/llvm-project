@@ -8,12 +8,19 @@ Each error is copied from the compiler (line numbers left out). They share:
 struct node { int v; struct node *_Owned _Nullable next; };
 struct list { struct node *_Owned _Nullable head; };
 void clear(struct list *l);
+void node_free(struct node *_Owned _Nullable n);   /* frees n and the rest of its list */
 ```
 
 ## Code that compiles
 
 ```c
+void node_free(struct node *_Owned _Nullable n) {
+  if (!n) return;
+  node_free(_Take(n->next));
+  free(n);
+}
 void push(struct list *l, struct node *_Owned n) {
+  node_free(_Take(n->next));   /* n's own list, if it brought one */
   n->next = _Take(l->head);
   l->head = n;
 }
@@ -38,13 +45,14 @@ int total(const struct list *l) {
 ### 1. Freed after being given away
 
 ```c
-void push(struct list *l, struct node *_Owned n) {
+void replace(struct list *l, struct node *_Owned n) {
+  node_free(_Take(l->head));
   l->head = n;
-  free(n);
+  node_free(n);
 }
 ```
 ```
-error: 'n' is freed after it was stored
+error: 'n' is passed to 'node_free' after it was stored
 ```
 
 ### 2. A call frees what you hold
@@ -65,7 +73,7 @@ error: 'n' is tested after the call to 'clear'
 ```c
 void each(struct list *l) {
   for (struct node *_Nullable n = l->head; n; n = n->next)
-    free(_Take(l->head));
+    node_free(_Take(l->head));
 }
 ```
 ```
@@ -127,7 +135,7 @@ error: two arguments of 'both' reach the same owner and it may change one; make 
 struct _View it { const struct node *_Nullable cur; };
 int stale(struct list *l) {
   struct it i = {l->head};
-  free(_Take(l->head));
+  node_free(_Take(l->head));
   return i.cur ? i.cur->v : 0;
 }
 ```
@@ -202,7 +210,7 @@ for (struct str rest = csv; rest.len; rest = str_after(rest, ',')) {
 #include "map.h"
 
 struct counts m = {0};
-if (!counts_put(&m, STR("apple"), 1)) return 1;
+if (!counts_put(&m, STR("apple"), 1)) { counts_free(&m); return 1; }
 int *_Nullable n = counts_get(&m, STR("apple"));
 if (n) (*n)++;
 counts_free(&m);

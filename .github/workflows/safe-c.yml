@@ -42,6 +42,9 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja ccache
 
+      - uses: oven-sh/setup-bun@v2
+        if: runner.os == 'macOS'
+
       - uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: safe-c-${{ matrix.name }}
@@ -84,6 +87,7 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then
             SAFEC=$PWD/build/bin/clang bash clang/utils/safe-c/libc/check.sh
             SAFEC=$PWD/build/bin/clang bash safe-c-std/misuse/check.sh
+            SAFEC=$PWD/build/bin/clang bun clang/utils/safe-c/docs-check.ts
           fi
 
       - name: Ownership checker is built in
