@@ -180,6 +180,60 @@ static inline int text_line(struct text *t, FILE *f) {
   }
 }
 
+/* A growing list of strings: all the bytes in one text, and where each is.
+     struct strings names = {0};
+     if (!strings_add(&names, STR("Ada"))) ...      no memory
+     struct str s = strings_at(&names, 0);          empty if there is no such one
+     strings_count(&names); strings_free(&names);
+   What strings_at returns ends at the next strings_add or strings_free. */
+struct strings_span_ {
+  size_t at, len;
+};
+struct strings {
+  struct text bytes;
+  size_t cap;
+  struct strings_span_ *_Owned _Nullable __counted_by(cap) where;
+  size_t count;
+};
+
+static inline size_t strings_count(const struct strings *s) {
+  return s->count;
+}
+
+static inline int strings_add(struct strings *s, struct str x) {
+  if (!s->where || s->count >= s->cap) {
+    if (s->count > SIZE_MAX / 4 / sizeof(struct strings_span_))
+      return 0;
+    size_t cap = s->count * 2 + 8;
+    struct strings_span_ *_Owned _Nullable bigger = calloc(cap, sizeof(struct strings_span_));
+    if (!bigger)
+      return 0;
+    if (s->where && s->count <= s->cap)
+      memcpy(bigger, s->where, s->count * sizeof(struct strings_span_));
+    free(_Take(s->where));
+    _Set(s->where, s->cap, bigger, cap);
+  }
+  size_t at = s->bytes.len;
+  if (!s->where || !text_add(&s->bytes, x.p, x.len))
+    return 0;
+  struct strings_span_ w = {at, x.len};
+  s->where[s->count] = w;
+  s->count++;
+  return 1;
+}
+
+static inline struct str strings_at(const struct strings *s, size_t i) {
+  if (!s->where || i >= s->count || i >= s->cap)
+    return STR("");
+  return str_part(text_str(&s->bytes), s->where[i].at, s->where[i].len);
+}
+
+static inline void strings_free(struct strings *s) {
+  text_free(&s->bytes);
+  free(_Take(s->where));
+  s->count = 0;
+}
+
 #if defined(__clang__)
 #pragma clang assume_nonnull end
 #endif

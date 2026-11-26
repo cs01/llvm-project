@@ -43,6 +43,15 @@ int main(void) {
   CHECK(lines == 3 && v == 2);
   text_free(&t);
   CHECK(text_str(&t).len == 0);
+  struct strings names = {0};
+  CHECK(strings_count(&names) == 0 && strings_at(&names, 0).len == 0);
+  for (int i = 0; i < 1000; i++)
+    CHECK(strings_add(&names, i % 2 ? STR("Ada") : STR("")));
+  CHECK(strings_count(&names) == 1000 && str_eq(strings_at(&names, 999), STR("Ada")));
+  CHECK(str_eq(strings_at(&names, 998), STR("")) && strings_at(&names, 1000).len == 0);
+  strings_free(&names);
+  CHECK(strings_count(&names) == 0 && strings_at(&names, 0).len == 0 && strings_add(&names, STR("x")));
+  strings_free(&names);
   puts("ok");
   return 0;
 }
