@@ -23,3 +23,5 @@ int temp(void) { char b[] = "/tmp/aXXXXXX"; return mkstemp(b); }
 int who(void) { char b[64]; return getlogin_r(b, sizeof b) + ttyname_r(0, b, sizeof b); }
 int same(const char *a, const char *b) { return strcoll(a, b); }
 long num(const char *s) { return strtol(s, NULL, 10); }
+
+long when_utc(struct tm *t) { return (long)timegm(t) + (long)mktime(t); }

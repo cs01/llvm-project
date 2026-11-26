@@ -112,7 +112,7 @@ Lib libraryContract(StringRef N) {
       .Cases({"strlen", "strnlen", "strcmp", "strncmp", "strcasecmp",
               "strncasecmp", "memcmp", "strcspn", "strspn", "strlcpy", "strlcat",
               "bzero", "atoi", "atol", "atof", "time", "clock_gettime",
-              "setenv", "unsetenv", "gettimeofday", "mktime", "strftime", "pthread_mutex_lock",
+              "setenv", "unsetenv", "gettimeofday", "mktime", "timegm", "strftime", "pthread_mutex_lock",
               "pthread_mutex_unlock", "pthread_mutex_trylock", "sigemptyset",
               "sigfillset", "sigaddset"},
              Lib::Reads)
