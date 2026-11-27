@@ -26,7 +26,11 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/HeaderSearchOptions.h"
+#include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/Sema.h"
+#include "llvm/Support/Path.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/CommandLine.h"
 #include <functional>
@@ -300,6 +304,10 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"format-pointer", false,
      "only a function can check its arguments against a format, and this is "
      "not one; call the function by name"},
+    {"range-designator", false,
+     "'[a ... b] = x' runs 'x' once and copies the result into every "
+     "element, so an owner or a call there would be shared by all of them; "
+     "use a constant, or set the elements in a loop"},
     {"vla-pointers", false,
      "a variable-length array is not zeroed, and %0 holds pointers, which "
      "would be garbage; use a fixed size, or 'calloc'"},
@@ -1165,6 +1173,16 @@ public:
       S.SafeCDiag(St->getBeginLoc(), "not-in-safe-c") << St->getStmtClassName();
       break;
     }
+    if (const auto *D = dyn_cast<DesignatedInitExpr>(St))
+      for (const DesignatedInitExpr::Designator &Des : D->designators())
+        // Plain data and no side effects: copying it is what the programmer
+        // means. (Not isEvaluatable: it asserts on a syntactic init list.)
+        if (Des.isArrayRangeDesignator() &&
+            (D->getInit()->HasSideEffects(S.Context) ||
+             !S.isSafeCPlainData(S.Context, D->getInit()->getType(), true))) {
+          S.SafeCDiag(D->getBeginLoc(), "range-designator");
+          break;
+        }
     if (const auto *C = dyn_cast<CastExpr>(St))
       switch (C->getCastKind()) {
       case CK_BitCast:
@@ -2814,8 +2832,20 @@ static void checkDeclAllowed(Sema &S, const Decl *D) {
                   llvm::any_of(FD->parameters(), [&](const ParmVarDecl *P) {
                     return Bounded(P->getType());
                   });
+    // safec.h's own annotated redeclarations (for C libraries that do not
+    // annotate themselves, glibc and musl) are not a user's. The driver
+    // includes it by full path, so it is not found as a system header.
+    auto IsSafeCHeader = [&] {
+      llvm::SmallString<128> H(
+          S.getPreprocessor().getHeaderSearchInfo().getHeaderSearchOpts()
+              .ResourceDir);
+      llvm::sys::path::append(H, "include", "safec.h");
+      return S.getSourceManager().getFilename(
+                 S.getSourceManager().getExpansionLoc(FD->getLocation())) ==
+             H.str();
+    };
     if (!FD->isThisDeclarationADefinition() && FD->getBuiltinID() &&
-        (Marked || Memory.contains(FD->getName())))
+        (Marked || Memory.contains(FD->getName())) && !IsSafeCHeader())
       S.SafeCDiag(FD->getLocation(), "redeclared") << FD;
   }
   if (D->isImplicit() ||

@@ -10,6 +10,7 @@
 
 typedef __SIZE_TYPE__ size_t;
 void *malloc(size_t);
+void *realloc(void *, size_t);
 
 struct node { int v; long next; };
 
@@ -20,3 +21,13 @@ __attribute__((ownership_returns(malloc))) struct node *make(void) { return mall
 // SAFEC-NOT: @malloc
 // PLAIN-LABEL: define {{.*}} @make(
 // PLAIN: call {{.*}}ptr @malloc(i64 {{.*}}16)
+
+// realloc(NULL, n) allocates like malloc(n): zeroed the same way. A realloc of a
+// real pointer stays a realloc.
+__attribute__((ownership_returns(malloc))) struct node *make2(void) { return realloc(0, sizeof(struct node)); }
+
+// SAFEC-LABEL: define {{.*}} @make2(
+// SAFEC: call noalias ptr @calloc(i64 1, i64 16)
+// SAFEC-NOT: @realloc
+// PLAIN-LABEL: define {{.*}} @make2(
+// PLAIN: call {{.*}}ptr @realloc(ptr {{.*}}null, i64 {{.*}}16)

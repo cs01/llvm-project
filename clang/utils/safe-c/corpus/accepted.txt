@@ -1,0 +1,4 @@
+# Programs the compiler now accepts that it once rejected, each signed off by a maintainer.
+# Format: ACCEPT corpus/path # who, why
+ACCEPT spatial/p/w12/l107.c # claude 2026-11-27: a 128-bit constant count crashed the compiler; it is now checked at run time and this program traps there (count far beyond the array), checked at -O0 and -O2
+ACCEPT spatial/p/w12/l108.c # claude 2026-11-27: same as l107 with a _BitInt(70) count; traps at run time

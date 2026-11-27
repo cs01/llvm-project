@@ -1821,7 +1821,8 @@ LValue ScalarExprEmitter::emitCompoundAssignLValue(
   LValue lhsLV = cgf.emitLValue(e->getLHS());
 
   if (lhsTy->getAs<AtomicType>()) {
-    cgf.cgm.errorNYI(result.getLoc(), "atomic lvalue assign");
+    // (result is not set yet here: report at the expression.)
+    cgf.cgm.errorNYI(e->getSourceRange(), "atomic lvalue assign");
     return LValue();
   }
 

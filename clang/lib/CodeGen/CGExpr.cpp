@@ -7584,6 +7584,28 @@ RValue CodeGenFunction::EmitCallExpr(const CallExpr *E,
       return RValue::get(Call);
     }
 
+  // Safe C: realloc(NULL, n) allocates like malloc(n), so it is zeroed the same
+  // way; otherwise its bytes can be read before they are written, and hold what
+  // an earlier allocation left there.
+  if (getLangOpts().SafeC && E->getNumArgs() == 2)
+    if (const FunctionDecl *FD = E->getDirectCallee();
+        FD && FD->getIdentifier() && FD->getName() == "realloc" &&
+        FD->isExternC() && FD->getNumParams() == 2 &&
+        E->getArg(0)->IgnoreParenImpCasts()->isNullPointerConstant(
+            getContext(), Expr::NPC_ValueDependentIsNotNull)) {
+      llvm::Value *Size = EmitScalarExpr(E->getArg(1));
+      Size = Builder.CreateZExtOrTrunc(Size, SizeTy);
+      llvm::FunctionCallee Calloc = CGM.CreateRuntimeFunction(
+          llvm::FunctionType::get(VoidPtrTy, {SizeTy, SizeTy}, false),
+          "calloc");
+      llvm::CallInst *Call =
+          EmitNounwindRuntimeCall(Calloc, {llvm::ConstantInt::get(SizeTy, 1),
+                                           Size});
+      Call->addRetAttr(llvm::Attribute::NoAlias);
+      *CallOrInvoke = Call;
+      return RValue::get(Call);
+    }
+
   if (const auto *CE = dyn_cast<CXXMemberCallExpr>(E))
     return EmitCXXMemberCallExpr(CE, ReturnValue, CallOrInvoke);
 

@@ -2617,7 +2617,10 @@ void InitListChecker::CheckFlexibleArrayInitCount(InitListExpr *IList) {
   for (FieldDecl *FD : RD->fields())
     Field = FD;
   assert(Field);
-  assert(Field->getType()->isIncompleteArrayType());
+  // A union holding a struct that ends in a flexible array is marked as having
+  // one too, but its own last field need not be that array (it asserted).
+  if (!Field->getType()->isIncompleteArrayType())
+    return;
 
   SourceLocation BestSourceLoc = InitExpr->getBeginLoc();
   if (BestSourceLoc.isInvalid())

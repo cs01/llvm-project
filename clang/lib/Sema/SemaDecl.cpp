@@ -8016,6 +8016,11 @@ void Sema::deduceBoundsSafetyPointerTypes(ValueDecl *Decl) {
     // Unspecified local variables with global storage (e.g. static local)
     // should get the default ABI attributes.
     ShouldAutoBound = Var->isLocalVarDecl() && Var->hasLocalStorage();
+    // Safe C: an atomic local pointer keeps the one-word __single default. An
+    // automatic __bidi_indexable one (pointer plus bounds) is not atomic, and
+    // converting into it crashed when an attribute sat between the two.
+    if (getLangOpts().SafeC && Var->getType()->isAtomicType())
+      ShouldAutoBound = false;
   }
   Decl->setType(Context.getBoundsSafetyAutoPointerType(
       Decl->getType(), CurPointerAbi, ShouldAutoBound));
@@ -15343,7 +15348,9 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
         !Written->isValueTerminatedType() &&
         Written->getAs<PointerType>()->getPointerAttributes().isUnspecified())
       if (QualType InitTy = Init->IgnoreParens()->getType();
-          InitTy->isValueTerminatedType() &&
+          // (A terminated array, char g[__null_terminated 4], has no
+          // pointee yet; it decays to a terminated pointer on its own.)
+          InitTy->isPointerType() && InitTy->isValueTerminatedType() &&
           Context.hasSameUnqualifiedType(
               Written->getPointeeType().getUnqualifiedType(),
               InitTy->getPointeeType().getUnqualifiedType()) &&

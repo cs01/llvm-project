@@ -4489,6 +4489,17 @@ CharUnits CIRGenModule::computeNonVirtualBaseClassOffset(
 
 DiagnosticBuilder CIRGenModule::errorNYI(SourceLocation loc,
                                          llvm::StringRef feature) {
+  // Under Safe C every function goes through ClangIR for the ownership check,
+  // so a construct ClangIR lacks is the user's problem, not a compiler
+  // developer's: say what to do about it.
+  if (getLangOpts().SafeC) {
+    unsigned diagID = diags.getCustomDiagID(
+        DiagnosticsEngine::Error,
+        "Safe C cannot check this yet: its ownership check runs on ClangIR, "
+        "which does not support it (%0); write it another way, or move it "
+        "into a small function marked '_Trusted __unsafe'");
+    return diags.Report(loc, diagID) << feature;
+  }
   unsigned diagID = diags.getCustomDiagID(
       DiagnosticsEngine::Error, "ClangIR code gen Not Yet Implemented: %0");
   return diags.Report(loc, diagID) << feature;

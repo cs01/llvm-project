@@ -12,7 +12,7 @@
 
 ```sh
 cmake -G Ninja -S llvm -B build -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON \
-  -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD=AArch64
+  -DLLVM_ENABLE_PROJECTS=clang -DCLANG_ENABLE_CIR=ON -DLLVM_TARGETS_TO_BUILD=AArch64
 ninja -C build clang
 build/bin/clang -fsafe-c -isysroot $(xcrun --show-sdk-path) example.c
 ```
