@@ -10,7 +10,7 @@ LOG=$(mktemp -d); fails=0
 
 # name | command. Each command's last line of output is shown; its exit status decides pass or fail.
 GATES=(
-  "lit|$B/bin/llvm-lit -s clang/test/*/safe-c-* clang/test/Sema/LifetimeSafety"
+  "lit|$B/bin/llvm-lit -s clang/test/*/safe-c-* clang/test/Sema/LifetimeSafety clang/test/BoundsSafety"
   "headers|cmp clang/lib/Headers/safec.h safe-c-std/safec.h && echo 'safec.h: both copies identical'"
   "libc|bash clang/utils/safe-c/libc/check.sh"
   "misuse|bash safe-c-std/misuse/check.sh"
