@@ -15343,7 +15343,9 @@ void Sema::AddInitializerToDecl(Decl *RealDecl, Expr *Init, bool DirectInit) {
         !Written->isValueTerminatedType() &&
         Written->getAs<PointerType>()->getPointerAttributes().isUnspecified())
       if (QualType InitTy = Init->IgnoreParens()->getType();
-          InitTy->isValueTerminatedType() &&
+          // (A terminated array, char g[__null_terminated 4], has no
+          // pointee yet; it decays to a terminated pointer on its own.)
+          InitTy->isPointerType() && InitTy->isValueTerminatedType() &&
           Context.hasSameUnqualifiedType(
               Written->getPointeeType().getUnqualifiedType(),
               InitTy->getPointeeType().getUnqualifiedType()) &&

@@ -446,7 +446,7 @@ REJECT attack4/own/p/f-07.c
 REJECT attack4/own/p/f-08.c
 REJECT attack4/own/p/f-09.c
 REJECT attack4/own/p/f-10.c
-CRASH attack4/own/p/f-11.c
+REJECT attack4/own/p/f-11.c
 REJECT attack4/own/p/f-12.c
 REJECT attack4/own/p/f-13.c
 REJECT attack4/own/p/f-14.c
@@ -1149,8 +1149,8 @@ REJECT attack4/own/p/m-55.c
 REJECT attack4/own/p/m-56.c
 REJECT attack4/own/p/m-57.c
 REJECT attack4/own/p/m-58.c
-CRASH attack4/own/p/m-59.c
-CRASH attack4/own/p/m-60.c
+REJECT attack4/own/p/m-59.c
+REJECT attack4/own/p/m-60.c
 REJECT attack4/own/p/m-61.c
 REJECT attack4/own/p/n-00.c
 REJECT attack4/own/p/n-01.c
@@ -1398,7 +1398,7 @@ REJECT attack4/own/p/u-arr7.c
 REJECT attack4/own/p/u-arr8.c
 REJECT attack4/own/p/u-arr9.c
 REJECT attack4/own/p/u-at0.c
-CRASH attack4/own/p/u-at1.c
+REJECT attack4/own/p/u-at1.c
 REJECT attack4/own/p/u-at2.c
 REJECT attack4/own/p/u-at3.c
 REJECT attack4/own/p/u-at4.c
@@ -1822,7 +1822,7 @@ REJECT attack4/rest/p/a10_at12.c
 REJECT attack4/rest/p/a10_at13.c
 REJECT attack4/rest/p/a10_at14.c
 REJECT attack4/rest/p/a10_at15.c
-CRASH attack4/rest/p/a10_at16.c
+REJECT attack4/rest/p/a10_at16.c
 REJECT attack4/rest/p/a10_at17.c
 REJECT attack4/rest/p/a10_at18.c
 REJECT attack4/rest/p/a10_at19.c
@@ -2122,7 +2122,7 @@ REJECT attack4/rest/p/a4_nt_array12.c
 REJECT attack4/rest/p/a4_nt_array2.c
 REJECT attack4/rest/p/a4_nt_array3.c
 REJECT attack4/rest/p/a4_nt_array4.c
-CRASH attack4/rest/p/a4_nt_array5.c
+REJECT attack4/rest/p/a4_nt_array5.c
 REJECT attack4/rest/p/a4_nt_array6.c
 REJECT attack4/rest/p/a4_nt_array7.c
 REJECT attack4/rest/p/a4_nt_array8.c
@@ -2838,7 +2838,7 @@ REJECT attack4/rest/p/b15_n4.c
 ACCEPT attack4/rest/p/b15_n40.c
 REJECT attack4/rest/p/b15_n41.c
 REJECT attack4/rest/p/b15_n42.c
-CRASH attack4/rest/p/b15_n43.c
+REJECT attack4/rest/p/b15_n43.c
 REJECT attack4/rest/p/b15_n44.c
 REJECT attack4/rest/p/b15_n45.c
 REJECT attack4/rest/p/b15_n46.c
@@ -9887,7 +9887,7 @@ REJECT spatial/p/w6/f060.c
 REJECT spatial/p/w6/f061.c
 REJECT spatial/p/w6/f062.c
 REJECT spatial/p/w6/f063.c
-CRASH spatial/p/w6/f064.c
+REJECT spatial/p/w6/f064.c
 REJECT spatial/p/w6/f065.c
 REJECT spatial/p/w6/f066.c
 ACCEPT spatial/p/w7/g001.c

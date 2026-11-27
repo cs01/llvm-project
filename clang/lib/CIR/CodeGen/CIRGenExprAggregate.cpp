@@ -1153,8 +1153,11 @@ void AggExprEmitter::withReturnValueSlot(
 }
 
 void AggExprEmitter::VisitInitListExpr(InitListExpr *e) {
-  if (e->hadArrayRangeDesignator())
-    llvm_unreachable("GNU array range designator extension");
+  if (e->hadArrayRangeDesignator()) {
+    // Reachable from user code ([0 ... 3] = x): an error, not a crash.
+    cgf.cgm.errorNYI(e->getSourceRange(), "GNU array range designator");
+    return;
+  }
 
   if (e->isTransparent())
     return Visit(e->getInit(0));

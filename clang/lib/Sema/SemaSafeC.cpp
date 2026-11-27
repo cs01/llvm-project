@@ -300,6 +300,14 @@ const SafeCDiagInfo SafeCDiagTable[] = {
     {"format-pointer", false,
      "only a function can check its arguments against a format, and this is "
      "not one; call the function by name"},
+    {"atomic-wide", false,
+     "%0 is a pointer with bounds, wider than one atomic word: a read could "
+     "see the address from one store and the bounds from another; make it "
+     "'__single'"},
+    {"range-designator", false,
+     "'[a ... b] = x' runs 'x' once and copies the result into every "
+     "element, so an owner or a call there would be shared by all of them; "
+     "use a constant, or set the elements in a loop"},
     {"vla-pointers", false,
      "a variable-length array is not zeroed, and %0 holds pointers, which "
      "would be garbage; use a fixed size, or 'calloc'"},
@@ -1165,6 +1173,16 @@ public:
       S.SafeCDiag(St->getBeginLoc(), "not-in-safe-c") << St->getStmtClassName();
       break;
     }
+    if (const auto *D = dyn_cast<DesignatedInitExpr>(St))
+      for (const DesignatedInitExpr::Designator &Des : D->designators())
+        // Plain data and no side effects: copying it is what the programmer
+        // means. (Not isEvaluatable: it asserts on a syntactic init list.)
+        if (Des.isArrayRangeDesignator() &&
+            (D->getInit()->HasSideEffects(S.Context) ||
+             !S.isSafeCPlainData(S.Context, D->getInit()->getType(), true))) {
+          S.SafeCDiag(D->getBeginLoc(), "range-designator");
+          break;
+        }
     if (const auto *C = dyn_cast<CastExpr>(St))
       switch (C->getCastKind()) {
       case CK_BitCast:
@@ -1208,6 +1226,11 @@ public:
     return true;
   }
   /// `atomic_store(a + i, v)`: the operation takes a plain address.
+  void checkAtomicWide(const ValueDecl *D) {
+    if (const auto *AT = D->getType()->getAs<AtomicType>();
+        AT && AT->getValueType()->isPointerTypeWithBounds())
+      S.SafeCDiag(D->getLocation(), "atomic-wide") << D->getType();
+  }
   void checkAtomicPointer(const Expr *P) {
     if (!P->getType()->isPointerType())
       return;
@@ -1455,6 +1478,7 @@ public:
   }
 
   bool VisitVarDecl(VarDecl *VD) {
+    checkAtomicWide(VD);
     if (VD->hasAttr<FormatAttr>())
       S.SafeCDiag(VD->getLocation(), "format-pointer");
     if (VD->isLocalVarDecl() && S.Context.getAsVariableArrayType(VD->getType())) {
