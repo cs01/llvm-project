@@ -58,13 +58,32 @@ async function asan(name: string): Promise<string> {
   const b = Bun.spawn(["/usr/bin/clang", "-w", "-g", "-fsanitize=address,null,bounds,alignment", "-fno-sanitize-recover=all", "-isysroot", sdk,
     "-I", std, "-include", join(std, "safec.h"), f, "-o", exe], { stdout: "ignore", stderr: "ignore" });
   if ((await b.exited) !== 0) return "";
-  const r = Bun.spawn(["perl", "-e", "alarm 20; exec @ARGV", exe], { env: { ...process.env, ASAN_OPTIONS: "detect_leaks=0:symbolize=0" }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const r = Bun.spawn(["perl", "-e", "alarm 20; exec @ARGV", exe], { env: { ...process.env, ASAN_OPTIONS: "detect_leaks=0:symbolize=0:allocator_may_return_null=1" }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const err = await new Response(r.stderr).text();
   const k = (err.match(/AddressSanitizer: [a-zA-Z-]+|runtime error: [a-z A-Z-]+/) ?? [""])[0];
-  return k && !(await traps(name)) ? k : "";
+  return k && !(await safeCBuildSafe(name)) ? k : "";
 }
 // Safe C stops some memory errors at run time instead of compile time (a bounds or null trap). Such a program is not a hole
 // if its Safe C build traps (or is refused at link) at -O0 and at -O2.
+// The exact judge: the Safe C build itself, with ASan, at -O0 and -O2. (allocator_may_return_null: an overflowing calloc
+// returns NULL, as libc does, instead of ASan reporting it.) The fork has no sanitizer runtime, so its objects
+// link against an LLVM whose ASan ABI matches (ASAN_LINK, default Homebrew's). Without one, fall back to traps() above.
+const asanLink = process.env.ASAN_LINK || "/opt/homebrew/opt/llvm/bin/clang";
+const haveAsanLink = Bun.spawnSync(["test", "-x", asanLink]).exitCode === 0;
+async function safeCBuildSafe(name: string): Promise<boolean> {
+  if (!haveAsanLink) return traps(name);
+  for (const o of ["-O0", "-O2"]) {
+    const obj = join(dir, name) + o + ".o", exe = join(dir, name) + o + ".sa";
+    const c = Bun.spawn([cc, "-fsafe-c", "-w", "-g", o, "-fsanitize=address", "-isysroot", sdk, "-I", std, "-c", join(dir, name), "-o", obj], { stdout: "ignore", stderr: "ignore" });
+    if ((await c.exited) !== 0) return true; // rejected at this level: nothing to run
+    const l = Bun.spawn([asanLink, "-fsanitize=address", obj, "-o", exe], { stdout: "ignore", stderr: "ignore" });
+    if ((await l.exited) !== 0) return true; // refused at link (the type guard)
+    const r = Bun.spawn(["perl", "-e", "alarm 20; exec @ARGV", exe], { env: { ...process.env, ASAN_OPTIONS: "detect_leaks=0:symbolize=0:allocator_may_return_null=1" }, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+    const err = await new Response(r.stderr).text();
+    if (/AddressSanitizer/.test(err)) return false;
+  }
+  return true;
+}
 async function traps(name: string): Promise<boolean> {
   for (const o of ["-O0", "-O2"]) {
     const exe = join(dir, name) + o;
@@ -95,8 +114,8 @@ for (const n of todo) {
 const judged = await pool(loosened, asan);
 for (const [n, k] of judged) if (k) holes.push(`${n}: ${k}`);
 loosened.splice(0, loosened.length, ...loosened.filter((n) => !judged.get(n) && !allowed.has(n)));
-// --audit: every accepted program, not only the new ones (slow). Candidates only: a Safe C build can also end normally and
-// be safe (strlen scans for its terminator within bounds; ASan's build has no such scan), so each needs a look.
+// --audit: every accepted program, not only the new ones (slow). Exact when an ASan runtime for the fork is found
+// (safeCBuildSafe); otherwise candidates, since a Safe C build can end normally and be safe.
 const audit: string[] = [];
 if (arg("audit") !== undefined)
   for (const [n, k] of await pool(todo.filter((n) => got.get(n) === "ACCEPT"), asan)) if (k) audit.push(`${n}: ${k}`);

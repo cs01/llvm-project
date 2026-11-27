@@ -81,6 +81,10 @@ clang/utils/safe-c/check-all.sh lit corpus   # just these
 Run the narrowest gate while you work (one lit test: `build.noindex/bin/llvm-lit -v clang/test/Sema/safe-c-union.c`), and every
 gate before you open a pull request.
 
+For a change that accepts more code, also run `bun clang/utils/safe-c/corpus/check.ts --audit` (about 10 minutes): it builds
+every accepted program with Safe C and ASan and must report no holes. It needs an ASan runtime whose ABI matches the fork
+(Homebrew's LLVM, or `ASAN_LINK=path/to/clang`).
+
 ## Rules for a change
 
 These exist because a gate that can be edited cannot be trusted.
