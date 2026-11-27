@@ -36,7 +36,8 @@ for pattern in \
   'stdalign.h' 'stdint.h' \
   'limits.h' 'float.h' 'inttypes.h' 'iso646.h' \
   '__clang_hip_*.h' '__wasm*.h' \
-  'unwind.h' 'tgmath.h' 'varargs.h'; do
+  'unwind.h' 'tgmath.h' 'varargs.h' \
+  'safec.h' 'ptrcheck.h'; do
   for h in "$ROOT"/clang/lib/Headers/$pattern; do
     [ -f "$h" ] && cp "$h" "$RESOURCE_DST/"
   done
