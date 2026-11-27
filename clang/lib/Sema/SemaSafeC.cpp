@@ -26,7 +26,11 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/HeaderSearchOptions.h"
+#include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/Sema.h"
+#include "llvm/Support/Path.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/CommandLine.h"
 #include <functional>
@@ -2828,8 +2832,20 @@ static void checkDeclAllowed(Sema &S, const Decl *D) {
                   llvm::any_of(FD->parameters(), [&](const ParmVarDecl *P) {
                     return Bounded(P->getType());
                   });
+    // safec.h's own annotated redeclarations (for C libraries that do not
+    // annotate themselves, glibc and musl) are not a user's. The driver
+    // includes it by full path, so it is not found as a system header.
+    auto IsSafeCHeader = [&] {
+      llvm::SmallString<128> H(
+          S.getPreprocessor().getHeaderSearchInfo().getHeaderSearchOpts()
+              .ResourceDir);
+      llvm::sys::path::append(H, "include", "safec.h");
+      return S.getSourceManager().getFilename(
+                 S.getSourceManager().getExpansionLoc(FD->getLocation())) ==
+             H.str();
+    };
     if (!FD->isThisDeclarationADefinition() && FD->getBuiltinID() &&
-        (Marked || Memory.contains(FD->getName())))
+        (Marked || Memory.contains(FD->getName())) && !IsSafeCHeader())
       S.SafeCDiag(FD->getLocation(), "redeclared") << FD;
   }
   if (D->isImplicit() ||
