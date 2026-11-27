@@ -47,6 +47,8 @@ echo "Embedded sysroot: $(du -sh "$SYSROOT" | cut -f1)"
 # (-resource-dir), libc and libc++ at /include (-isystem).
 EMBED_FLAGS="--embed-file $RESOURCE_DST@/lib/clang/$CLANG_VER/include"
 EMBED_FLAGS+=" --embed-file $SYSROOT/include@/include"
+# Safe C: safec.h and the safe library headers, at /safe-c-std (-I).
+EMBED_FLAGS+=" --embed-file $ROOT/safe-c-std@/safe-c-std"
 
 LAUNCHER=()
 if command -v ccache >/dev/null; then
@@ -57,6 +59,7 @@ fi
 emcmake cmake -S "$ROOT/llvm" -B "$BUILD_DIR" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DLLVM_ENABLE_PROJECTS=clang \
+  -DCLANG_ENABLE_CIR=ON \
   -DLLVM_TARGETS_TO_BUILD=WebAssembly \
   -DLLVM_ENABLE_THREADS=OFF \
   -DLLVM_ENABLE_EH=OFF \

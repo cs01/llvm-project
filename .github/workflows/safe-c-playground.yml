@@ -1,0 +1,64 @@
+# Safe C playground: builds clang (with ClangIR, for the ownership checker) to WebAssembly with
+# Emscripten, and attaches clang.wasm + clang.js to the safe-c-playground-latest prerelease.
+# Runs on pushes to the safe-c-playground branch only while it is an experiment: a multi-hour build.
+name: Safe C playground
+
+on:
+  push:
+    branches: [safe-c-playground]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      # LLVM plus MLIR does not fit in the runner's default free space.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 'latest'
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build cmake ccache
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-safe-c-wasm-${{ github.sha }}
+          restore-keys: ccache-safe-c-wasm-
+
+      - name: Build clang.wasm
+        run: playground/build.sh
+
+      - name: Sizes
+        run: |
+          mkdir -p artifacts
+          cp build-wasm/bin/clang.wasm build-wasm/bin/clang.js artifacts/
+          gzip -k artifacts/clang.wasm artifacts/clang.js
+          ls -lh artifacts/
+          df -h /
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: safe-c-playground-wasm
+          path: artifacts/*
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          tag_name: safe-c-playground-latest
+          name: Safe C playground (latest)
+          prerelease: true
+          files: artifacts/*
+          body: |
+            clang.wasm + clang.js for the Safe C playground, built from ${{ github.sha }}.
+            Experimental: compile errors only; libc headers are Emscripten's, without bounds annotations.
