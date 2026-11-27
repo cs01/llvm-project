@@ -1,0 +1,2 @@
+# Programs the compiler now accepts that it once rejected, each signed off by a maintainer.
+# Format: ACCEPT corpus/path # who, why
