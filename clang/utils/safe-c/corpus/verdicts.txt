@@ -10288,7 +10288,7 @@ REJECT spatial/p/w9/i080.c
 REJECT spatial/p/w9/i081.c
 REJECT spatial/p/w9/i082.c
 REJECT spatial/p/w9/i083.c
-ACCEPT spatial/p/w9/i084.c
+REJECT spatial/p/w9/i084.c
 REJECT spatial/p/w9/i085.c
 REJECT spatial/p/w9/i086.c
 REJECT spatial/p/w9/i087.c

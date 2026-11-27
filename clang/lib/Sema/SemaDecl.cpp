@@ -19390,6 +19390,21 @@ void Sema::AddKnownFunctionAttributes(FunctionDecl *FD) {
   if (FD->isInvalidDecl())
     return;
 
+  // Safe C: C leaves passing NULL to a library function undefined unless the
+  // function says otherwise, and most C libraries mark those parameters
+  // nonnull. Apple's <time.h> does not for these, so ctime(0) compiled and
+  // crashed inside libc. (Not optimizing: the checker enforces it, nothing
+  // assumes it.)
+  if (getLangOpts().SafeC && FD->isExternC() && FD->getIdentifier() &&
+      llvm::is_contained({"ctime", "localtime", "gmtime", "mktime", "ctime_r",
+                          "localtime_r", "gmtime_r", "asctime_r", "difftime",
+                          "strftime"},
+                         FD->getName()))
+    for (ParmVarDecl *PVD : FD->parameters())
+      if (QualType T = PVD->getType();
+          T->isPointerType() && !T->getNullability())
+        PVD->setType(Context.getAttributedType(attr::TypeNonNull, T, T));
+
   // Both format and format_arg attributes require a function prototype.
   const bool HasPrototype = FD->getType()->isFunctionProtoType();
 
