@@ -2190,9 +2190,12 @@ QualType Sema::UsualArithmeticConversions(ExprResult &LHS, ExprResult &RHS,
   QualType RHSType = RHS.get()->getType().getUnqualifiedType();
 
   // BoundsSafety: "pointer" op "pointer" -> cast it to raw pointer.
+  // (Not for 'p += q': its LHS is still a glvalue, which this cast cannot take,
+  // and pointer-to-pointer compound assignment is an error the caller reports.)
   auto *LPTy = LHSType->getAs<PointerType>();
   auto *RPTy = RHSType->getAs<PointerType>();
-  if (ACK != ArithConvKind::Conditional && LPTy && RPTy &&
+  if (ACK != ArithConvKind::Conditional && ACK != ArithConvKind::CompAssign &&
+      LPTy && RPTy &&
       (!LPTy->hasRawPointerLayout() || !RPTy->hasRawPointerLayout())) {
     if (!LPTy->hasRawPointerLayout())
       LHS = ImpCastExprToType(LHS.get(),
@@ -2210,8 +2213,16 @@ QualType Sema::UsualArithmeticConversions(ExprResult &LHS, ExprResult &RHS,
   if (Context.hasSameType(LHSType, RHSType)
       /* TO_UPSTREAM(BoundsSafety) ON*/
       && (!Context.getLangOpts().BoundsSafety ||
-          Context.canMergeTypeBounds(LHSType, RHSType) ==
-              ASTContext::BSPTMK_CanMerge)
+          (Context.canMergeTypeBounds(LHSType, RHSType) ==
+               ASTContext::BSPTMK_CanMerge &&
+           // getCommonSugaredType keeps count and terminator sugar only when
+           // both sides have it (ptr += ptr with one counted side asserted).
+           LHSType->isCountAttributedType() ==
+               RHSType->isCountAttributedType() &&
+           LHSType->isValueTerminatedType() ==
+               RHSType->isValueTerminatedType() &&
+           LHSType->isDynamicRangePointerType() ==
+               RHSType->isDynamicRangePointerType()))
       /* TO_UPSTREAM(BoundsSafety) OFF*/
   )
     return Context.getCommonSugaredType(LHSType, RHSType);
@@ -8722,6 +8733,13 @@ bool Sema::CheckDynamicCountSizeForAssignment(
     SourceLocation Loc, const Twine &Designator,
     DependentValuesMap &DependentValues, Expr *LHSMemberBase) {
   const auto *LDCPTy = LHSTy->getAs<CountAttributedType>();
+  // A count naming a member of an anonymous struct or union was already an
+  // error; replacing that member in the count would build a field reference
+  // C cannot have (it asserted). Nothing more to check.
+  if (LDCPTy)
+    for (const auto &DI : LDCPTy->dependent_decls())
+      if (!isa<FieldDecl, VarDecl>(DI.getDecl()))
+        return true;
   // RHS may be a function or an array type.
   // Do not diagnose here. It must be the second time to visit this conversion.
   ExprResult RHS = DefaultFunctionArrayLvalueConversion(
@@ -8772,7 +8790,11 @@ bool Sema::CheckDynamicCountSizeForAssignment(
   const auto &ReplacingValues = Transform.GetReplacingValues();
 
   Expr::EvalResult Res;
-  if (CountExpr->EvaluateAsInt(Res, Context)) {
+  // A constant that does not fit in 64 bits (an __int128 or _BitInt count) is
+  // checked like an unknown one, at run time: the known-count path reads it as
+  // a uint64_t (it asserted).
+  if (CountExpr->EvaluateAsInt(Res, Context) &&
+      Res.Val.getInt().getSignificantBits() <= 64) {
     const llvm::APSInt &CountVal = Res.Val.getInt();
     return checkDynamicCountSizeForAssignmentWithKnownCount(
         *this, LHSTy, RHSExpr, Action, Loc, Designator, DependentValues,

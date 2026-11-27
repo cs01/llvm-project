@@ -270,7 +270,7 @@ REJECT attack4/own/p/c-62.c
 REJECT attack4/own/p/c-63.c
 REJECT attack4/own/p/c-64.c
 REJECT attack4/own/p/c-65.c
-CRASH attack4/own/p/c-66.c
+REJECT attack4/own/p/c-66.c
 REJECT attack4/own/p/c-67.c
 REJECT attack4/own/p/c-68.c
 REJECT attack4/own/p/c-69.c
@@ -1418,7 +1418,7 @@ REJECT attack4/own/p/u-bf7.c
 REJECT attack4/own/p/u-bf8.c
 REJECT attack4/own/p/u-bf9.c
 REJECT attack4/own/p/u-bidi0.c
-CRASH attack4/own/p/u-bidi1.c
+REJECT attack4/own/p/u-bidi1.c
 REJECT attack4/own/p/u-bidi2.c
 REJECT attack4/own/p/u-bidi3.c
 REJECT attack4/own/p/u-bidi4.c
@@ -1438,7 +1438,7 @@ REJECT attack4/own/p/u-bool7.c
 REJECT attack4/own/p/u-bool8.c
 REJECT attack4/own/p/u-bool9.c
 REJECT attack4/own/p/u-cnt0.c
-CRASH attack4/own/p/u-cnt1.c
+REJECT attack4/own/p/u-cnt1.c
 REJECT attack4/own/p/u-cnt2.c
 REJECT attack4/own/p/u-cnt3.c
 REJECT attack4/own/p/u-cnt4.c
@@ -1915,8 +1915,8 @@ REJECT attack4/rest/p/a10_ve5.c
 REJECT attack4/rest/p/a10_ve6.c
 ACCEPT attack4/rest/p/a10_ve7.c
 REJECT attack4/rest/p/a10_ve8.c
-CRASH attack4/rest/p/a1_cnt_anon.c
-CRASH attack4/rest/p/a1_cnt_anonunion.c
+REJECT attack4/rest/p/a1_cnt_anon.c
+REJECT attack4/rest/p/a1_cnt_anonunion.c
 REJECT attack4/rest/p/a1_cnt_bitfield.c
 REJECT attack4/rest/p/a1_cnt_div.c
 ACCEPT attack4/rest/p/a1_cnt_expr.c
@@ -2871,7 +2871,7 @@ REJECT attack4/rest/p/b16_o11.c
 REJECT attack4/rest/p/b16_o12.c
 REJECT attack4/rest/p/b16_o13.c
 REJECT attack4/rest/p/b16_o14.c
-CRASH attack4/rest/p/b16_o15.c
+REJECT attack4/rest/p/b16_o15.c
 ACCEPT attack4/rest/p/b16_o16.c
 REJECT attack4/rest/p/b16_o17.c
 REJECT attack4/rest/p/b16_o18.c
@@ -3269,7 +3269,7 @@ ACCEPT attack4/rest/p/b6_g5.c
 REJECT attack4/rest/p/b6_g50.c
 ACCEPT attack4/rest/p/b6_g51.c
 REJECT attack4/rest/p/b6_g6.c
-CRASH attack4/rest/p/b6_g7.c
+REJECT attack4/rest/p/b6_g7.c
 REJECT attack4/rest/p/b6_g8.c
 REJECT attack4/rest/p/b6_g9.c
 REJECT attack4/rest/p/b7_c1.c
@@ -8719,8 +8719,8 @@ ACCEPT spatial/p/w12/l103.c
 ACCEPT spatial/p/w12/l104.c
 ACCEPT spatial/p/w12/l105.c
 ACCEPT spatial/p/w12/l106.c
-CRASH spatial/p/w12/l107.c
-CRASH spatial/p/w12/l108.c
+ACCEPT spatial/p/w12/l107.c
+ACCEPT spatial/p/w12/l108.c
 REJECT spatial/p/w12/l109.c
 ACCEPT spatial/p/w12/l110.c
 REJECT spatial/p/w12/l111.c
@@ -9493,7 +9493,7 @@ REJECT spatial/p/w2/b09.c
 REJECT spatial/p/w2/b10.c
 REJECT spatial/p/w2/b11.c
 REJECT spatial/p/w2/b12.c
-CRASH spatial/p/w2/b13.c
+REJECT spatial/p/w2/b13.c
 REJECT spatial/p/w2/b14.c
 REJECT spatial/p/w2/b15.c
 REJECT spatial/p/w2/b16.c
@@ -9604,11 +9604,11 @@ REJECT spatial/p/w3/c007.c
 REJECT spatial/p/w3/c008.c
 REJECT spatial/p/w3/c009.c
 REJECT spatial/p/w3/c010.c
-CRASH spatial/p/w3/c011.c
-CRASH spatial/p/w3/c012.c
+REJECT spatial/p/w3/c011.c
+REJECT spatial/p/w3/c012.c
 REJECT spatial/p/w3/c013.c
 REJECT spatial/p/w3/c014.c
-CRASH spatial/p/w3/c015.c
+REJECT spatial/p/w3/c015.c
 REJECT spatial/p/w3/c016.c
 REJECT spatial/p/w3/c017.c
 REJECT spatial/p/w3/c018.c

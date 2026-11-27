@@ -571,7 +571,22 @@ public:
       MateredExprs = &CommonExprs;
     }
 
-    assert(!Ty->getCountExpr()->HasSideEffects(Ctx));
+    // A count naming a member of an anonymous struct or union was already
+    // reported as an error: there is nothing to build a check from.
+    for (const auto &DI : Ty->dependent_decls())
+      if (!isa<FieldDecl, VarDecl>(DI.getDecl()))
+        return ExprError();
+    // A volatile count can change between the check and the use, so no check
+    // built from it would hold. (Reading it is a side effect; this asserted.)
+    if (Ty->getCountExpr()->HasSideEffects(Ctx)) {
+      SemaRef.Diag(WrappedValue->getBeginLoc(),
+                   SemaRef.getDiagnostics().getCustomDiagID(
+                       DiagnosticsEngine::Error,
+                       "the count of this pointer is read with side effects "
+                       "(it is 'volatile'), so it can change between the "
+                       "bounds check and the use; remove 'volatile'"));
+      return ExprError();
+    }
     ExprResult CountR = DeclReplacer.TransformExpr(Ty->getCountExpr());
     if (CountR.isInvalid())
       return ExprError();
@@ -2254,7 +2269,11 @@ Sema::DependentValuesMap getDependentInits(Sema &SemaRef,
     ValueDecl *D = DI.getDecl();
     auto *VD = dyn_cast<VarDecl>(D);
     auto *FD = dyn_cast<FieldDecl>(D);
-    assert(FD || (VD && !isa<ParmVarDecl>(VD)));
+    // A count naming a member of an anonymous struct or union (an
+    // IndirectFieldDecl) was already reported as an error; nothing to map.
+    if (!FD && !VD)
+      continue;
+    assert(FD || !isa<ParmVarDecl>(VD));
 
     // We allow the dependent decl to be an __unsafe_late_const, but we don't
     // know its value, thus we don't replace it.
@@ -3538,6 +3557,9 @@ void DynamicCountPointerAssignmentAnalysis::run() {
   if (dcl->isTemplated()) // delay processing until template has been
                           // instantiated
     return;
+  // After an error nothing is compiled, and a count that was itself an error
+  // (one naming a member of an anonymous struct) crashes the checks built
+  // here. Skip, as the other flow analyses do.
 
   CFG *cfg = AC.getCFG();
   if (!cfg)

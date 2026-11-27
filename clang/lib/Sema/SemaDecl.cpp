@@ -8016,6 +8016,11 @@ void Sema::deduceBoundsSafetyPointerTypes(ValueDecl *Decl) {
     // Unspecified local variables with global storage (e.g. static local)
     // should get the default ABI attributes.
     ShouldAutoBound = Var->isLocalVarDecl() && Var->hasLocalStorage();
+    // Safe C: an atomic local pointer keeps the one-word __single default. An
+    // automatic __bidi_indexable one (pointer plus bounds) is not atomic, and
+    // converting into it crashed when an attribute sat between the two.
+    if (getLangOpts().SafeC && Var->getType()->isAtomicType())
+      ShouldAutoBound = false;
   }
   Decl->setType(Context.getBoundsSafetyAutoPointerType(
       Decl->getType(), CurPointerAbi, ShouldAutoBound));
