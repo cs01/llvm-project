@@ -5,6 +5,8 @@
 // RUN:   | FileCheck %s --check-prefix=SAFEC
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -emit-llvm -o - -fsafe-c \
 // RUN:   -fno-builtin %s | FileCheck %s --check-prefix=SAFEC
+// RUN: %clang_cc1 -triple arm64-apple-macosx14.0 -emit-llvm -o - -fsafe-c %s \
+// RUN:   | FileCheck %s --check-prefix=DARWIN
 // RUN: %clang_cc1 -triple x86_64-unknown-linux-gnu -emit-llvm -o - %s \
 // RUN:   | FileCheck %s --check-prefix=PLAIN
 
@@ -31,3 +33,18 @@ __attribute__((ownership_returns(malloc))) struct node *make2(void) { return rea
 // SAFEC-NOT: @realloc
 // PLAIN-LABEL: define {{.*}} @make2(
 // PLAIN: call {{.*}}ptr @realloc(ptr {{.*}}null, i64 {{.*}}16)
+
+// realloc(p, n) zeroes the bytes it adds, from the allocator's size of the old
+// block (not p's bounds, which can be smaller than the block).
+__attribute__((ownership_returns(malloc))) struct node *grow(struct node *p) { return realloc(p, 4 * sizeof(struct node)); }
+
+// SAFEC-LABEL: define {{.*}} @grow(
+// SAFEC: call i64 @malloc_usable_size(ptr
+// SAFEC: %[[OLD:.*]] = phi i64
+// SAFEC: %[[NEW:.*]] = call ptr @realloc(ptr {{.*}}, i64 64)
+// SAFEC: icmp ugt i64 64, %[[OLD]]
+// SAFEC: call void @llvm.memset
+// PLAIN-LABEL: define {{.*}} @grow(
+// PLAIN-NOT: malloc_usable_size
+// DARWIN-LABEL: define {{.*}} @grow(
+// DARWIN: call i64 @malloc_size(ptr

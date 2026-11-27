@@ -129,6 +129,7 @@ Every mark: [annotations](safe-c-docs/annotations.md). Every rule: [rules](safe-
 | **Attacked four times** | blind attacks found 34, 32, 33, then 19 root causes, all fixed; the fixes and the later rules have not been attacked |
 | **Threads** | data races are checked only for data marked `_Guarded_by` a lock |
 | **Containers** | `vec.h` holds owners (`VEC_OWNED`); `map.h` holds plain data |
+| **Heap contents** | `malloc` and `realloc` return zeroed bytes; a block another library allocated (`strdup` in libc) can still bring a few stale bytes of slack through a `realloc` |
 | **Platform** | macOS (arm64) with Apple's SDK; Linux builds, but glibc's headers have no annotations |
 | **Cost** | 0% to 7% run time on the programs above, against the same code in plain Clang; ported libraries from 0.58x to 1.28x |
 

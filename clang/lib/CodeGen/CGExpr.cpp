@@ -7606,6 +7606,56 @@ RValue CodeGenFunction::EmitCallExpr(const CallExpr *E,
       return RValue::get(Call);
     }
 
+  // Safe C: the bytes realloc(p, n) adds are zeroed too. The old size is the
+  // allocator's (malloc_size, malloc_usable_size), not p's bounds, which can be
+  // smaller than the block (a one-element pointer to an array): zeroing from
+  // there would wipe live data. Bytes between the size asked for and the
+  // block's size were zeroed by calloc (malloc is emitted as calloc, and calloc
+  // clears the whole block) and bounds keep code from writing them.
+  if (getLangOpts().SafeC && E->getNumArgs() == 2)
+    if (const FunctionDecl *FD = E->getDirectCallee();
+        FD && FD->getIdentifier() && FD->getName() == "realloc" &&
+        FD->isExternC() && FD->getNumParams() == 2) {
+      llvm::Value *Old = EmitScalarExpr(E->getArg(0));
+      llvm::Value *Size = Builder.CreateZExtOrTrunc(
+          EmitScalarExpr(E->getArg(1)), SizeTy);
+      Old = Builder.CreatePointerCast(Old, VoidPtrTy);
+      llvm::FunctionCallee UsableSize = CGM.CreateRuntimeFunction(
+          llvm::FunctionType::get(SizeTy, {VoidPtrTy}, false),
+          getTarget().getTriple().isOSDarwin() ? "malloc_size"
+                                               : "malloc_usable_size");
+      // malloc_size(NULL) is not defined everywhere: ask only for a block.
+      llvm::BasicBlock *Entry = Builder.GetInsertBlock();
+      llvm::BasicBlock *Ask = createBasicBlock("safec.realloc.size");
+      llvm::BasicBlock *Grow = createBasicBlock("safec.realloc");
+      Builder.CreateCondBr(Builder.CreateIsNotNull(Old), Ask, Grow);
+      EmitBlock(Ask);
+      llvm::Value *Known = EmitNounwindRuntimeCall(UsableSize, {Old});
+      llvm::BasicBlock *AskEnd = Builder.GetInsertBlock();
+      EmitBlock(Grow);
+      llvm::PHINode *OldSize = Builder.CreatePHI(SizeTy, 2, "safec.oldsize");
+      OldSize->addIncoming(llvm::ConstantInt::get(SizeTy, 0), Entry);
+      OldSize->addIncoming(Known, AskEnd);
+      llvm::FunctionCallee Realloc = CGM.CreateRuntimeFunction(
+          llvm::FunctionType::get(VoidPtrTy, {VoidPtrTy, SizeTy}, false),
+          "realloc");
+      llvm::CallInst *New = EmitNounwindRuntimeCall(Realloc, {Old, Size});
+      llvm::BasicBlock *Zero = createBasicBlock("safec.realloc.zero");
+      llvm::BasicBlock *Done = createBasicBlock("safec.realloc.done");
+      Builder.CreateCondBr(
+          Builder.CreateAnd(Builder.CreateIsNotNull(New),
+                            Builder.CreateICmpUGT(Size, OldSize)),
+          Zero, Done);
+      EmitBlock(Zero);
+      Builder.CreateMemSet(
+          Builder.CreateInBoundsGEP(Int8Ty, New, OldSize),
+          Builder.getInt8(0), Builder.CreateSub(Size, OldSize),
+          llvm::MaybeAlign(1));
+      EmitBlock(Done);
+      *CallOrInvoke = New;
+      return RValue::get(New);
+    }
+
   if (const auto *CE = dyn_cast<CXXMemberCallExpr>(E))
     return EmitCXXMemberCallExpr(CE, ReturnValue, CallOrInvoke);
 
