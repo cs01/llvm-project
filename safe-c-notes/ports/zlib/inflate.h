@@ -97,7 +97,7 @@ struct inflate_state {
     unsigned wsize;             /* window size or zero if not using window */
     unsigned whave;             /* valid bytes in the window */
     unsigned wnext;             /* window write index */
-    unsigned char FAR *window;  /* allocated sliding window, if needed */
+    unsigned char FAR *_Nullable window; /* allocated sliding window, if needed (Safe C: null until then) */
         /* bit accumulator */
     unsigned long hold;         /* input bit accumulator */
     unsigned bits;              /* number of bits in hold */

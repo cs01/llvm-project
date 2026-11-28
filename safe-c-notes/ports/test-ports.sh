@@ -119,4 +119,6 @@ r=; "$safec" -fsafe-c -isysroot "$sdk" -O2 -c -o "$out/puff-safe.o" "$here/puff/
   /usr/bin/clang -O2 -Dpuff=orig_puff -c -o "$out/puff-orig.o" "$here/puff/orig/puff.c" &&
   /usr/bin/clang -O2 -o "$out/puff-diff" "$here/puff/test/diff.c" "$out/puff-safe.o" "$out/puff-orig.o" -lz &&
   r=$("$out/puff-diff" 20000 1) && echo "puff: $r" || { echo "puff: FAILED $r"; fail=1; }
+# zlib: the port's inflate_fast against stock zlib, on streams from zlib.
+r=$(SAFEC="$safec" bash "$here/zlib/test/run.sh" 5000) && echo "zlib: $r" || { echo "zlib: FAILED $r"; fail=1; }
 exit $fail

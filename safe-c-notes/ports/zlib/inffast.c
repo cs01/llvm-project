@@ -47,6 +47,19 @@
       requires strm->avail_out >= 258 for each loop to avoid checking for
       output space.
  */
+/* Safe C: the window before inflate() allocates it, which holds nothing
+   (whave is 0), so no code reads it */
+static unsigned char no_window[1];
+
+/* Safe C: copies n bytes forward, so from may be up to n bytes behind to (a
+   match that repeats itself). Both ranges are checked once, at the call, not
+   once per byte. */
+local void copy_bytes(unsigned char *__counted_by(n) to,
+                      const unsigned char *__counted_by(n) from, unsigned n) {
+    for (unsigned i = 0; i < n; i++)
+        to[i] = from[i];
+}
+
 void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
     struct inflate_state FAR *state;
     z_const unsigned char FAR *in;      /* local strm->next_in */
@@ -75,11 +88,30 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
     unsigned char FAR *from;    /* where to copy match from */
 
     /* copy state to local variables */
-    state = (struct inflate_state FAR *)strm->state;
-    in = strm->next_in;
+    /* Safe C: inflate(), not ported, vouches for these buffers and their
+       sizes. From here on every access is checked against them. The code
+       tables are given the most inftrees.c builds (the fixed tables are
+       smaller, and their codes never point past their ends). */
+    __unsafe {
+        state = __unsafe_forge_single(struct inflate_state FAR *, strm->state);
+        in = __unsafe_forge_bidi_indexable(z_const unsigned char *,
+                                           strm->next_in, strm->avail_in);
+        beg = __unsafe_forge_bidi_indexable(unsigned char *,
+                                            (unsigned char *__unsafe_indexable)strm->next_out -
+                                                (start - strm->avail_out), start);
+        /* (the window is allocated on first use: until then it is null,
+           with a size, and holds nothing, whave == 0) */
+        window = no_window;
+        if (state->window)
+            window = __unsafe_forge_bidi_indexable(unsigned char *, state->window,
+                                                   state->wsize);
+        lcode = __unsafe_forge_bidi_indexable(code const *, state->lencode,
+                                              ENOUGH_LENS * sizeof(code));
+        dcode = __unsafe_forge_bidi_indexable(code const *, state->distcode,
+                                              ENOUGH_DISTS * sizeof(code));
+    }
     last = in + (strm->avail_in - 5);
-    out = strm->next_out;
-    beg = out - (start - strm->avail_out);
+    out = beg + (start - strm->avail_out);
     end = out + (strm->avail_out - 257);
 #ifdef INFLATE_STRICT
     dmax = state->dmax;
@@ -87,11 +119,8 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
     wsize = state->wsize;
     whave = state->whave;
     wnext = state->wnext;
-    window = state->window;
     hold = state->hold;
     bits = state->bits;
-    lcode = state->lencode;
-    dcode = state->distcode;
     lmask = (1U << state->lenbits) - 1;
     dmask = (1U << state->distbits) - 1;
 
@@ -199,9 +228,9 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
                         from += wsize - op;
                         if (op < len) {         /* some from window */
                             len -= op;
-                            do {
-                                *out++ = *from++;
-                            } while (--op);
+                            copy_bytes(out, from, op);
+                            out += op;
+                            from += op;
                             from = out - dist;  /* rest from output */
                         }
                     }
@@ -210,16 +239,16 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
                         op -= wnext;
                         if (op < len) {         /* some from end of window */
                             len -= op;
-                            do {
-                                *out++ = *from++;
-                            } while (--op);
+                            copy_bytes(out, from, op);
+                            out += op;
+                            from += op;
                             from = window;
                             if (wnext < len) {  /* some from start of window */
                                 op = wnext;
                                 len -= op;
-                                do {
-                                    *out++ = *from++;
-                                } while (--op);
+                                copy_bytes(out, from, op);
+                                out += op;
+                                from += op;
                                 from = out - dist;      /* rest from output */
                             }
                         }
@@ -228,37 +257,19 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
                         from += wnext - op;
                         if (op < len) {         /* some from window */
                             len -= op;
-                            do {
-                                *out++ = *from++;
-                            } while (--op);
+                            copy_bytes(out, from, op);
+                            out += op;
+                            from += op;
                             from = out - dist;  /* rest from output */
                         }
                     }
-                    while (len > 2) {
-                        *out++ = *from++;
-                        *out++ = *from++;
-                        *out++ = *from++;
-                        len -= 3;
-                    }
-                    if (len) {
-                        *out++ = *from++;
-                        if (len > 1)
-                            *out++ = *from++;
-                    }
+                    copy_bytes(out, from, len);
+                    out += len;
                 }
                 else {
                     from = out - dist;          /* copy direct from output */
-                    do {                        /* minimum length is three */
-                        *out++ = *from++;
-                        *out++ = *from++;
-                        *out++ = *from++;
-                        len -= 3;
-                    } while (len > 2);
-                    if (len) {
-                        *out++ = *from++;
-                        if (len > 1)
-                            *out++ = *from++;
-                    }
+                    copy_bytes(out, from, len);   /* minimum length is three */
+                    out += len;
                 }
             }
             else if ((op & 64) == 0) {          /* 2nd level distance code */
@@ -294,8 +305,12 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
     hold &= (1U << bits) - 1;
 
     /* update state and return */
-    strm->next_in = in;
-    strm->next_out = out;
+    /* Safe C: back into inflate()'s stream, unchecked like the entry:
+       next_out may be one past the end of the buffer, as when avail_out is 0 */
+    __unsafe {
+        strm->next_in = __unsafe_forge_single(z_const unsigned char *, in);
+        strm->next_out = __unsafe_forge_single(unsigned char *, out);
+    }
     strm->avail_in = (unsigned)(in < last ? 5 + (last - in) : 5 - (in - last));
     strm->avail_out = (unsigned)(out < end ?
                                  257 + (end - out) : 257 - (out - end));
