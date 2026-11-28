@@ -79,7 +79,6 @@
  * 2.3  21 Jan 2013     - Check for invalid code length codes in dynamic blocks
  */
 
-#include <setjmp.h>             /* for setjmp(), longjmp(), and jmp_buf */
 #include "puff.h"               /* prototype for puff() */
 
 #define local static            /* for local function definitions */
@@ -95,21 +94,22 @@
 #define FIXLCODES 288           /* number of fixed literal/length codes */
 
 /* input and output state */
-struct state {
+struct _View state {   /* Safe C: borrows the caller's buffers, lives on the stack */
     /* output state */
-    unsigned char *out;         /* output buffer */
+    unsigned char *_Nullable __counted_by_or_null(outlen) out; /* output buffer */
     unsigned long outlen;       /* available space at out */
     unsigned long outcnt;       /* bytes written to out so far */
 
     /* input state */
-    const unsigned char *in;    /* input buffer */
+    const unsigned char *__counted_by(inlen) in;    /* input buffer */
     unsigned long inlen;        /* available input at in */
     unsigned long incnt;        /* bytes read so far */
     int bitbuf;                 /* bit buffer */
     int bitcnt;                 /* number of bits in bit buffer */
 
-    /* input limit error return state for bits() and decode() */
-    jmp_buf env;
+    /* Safe C: set when bits() or decode() ran out of input; the caller of
+       each returns 2 (the original longjmp()ed back to puff()) */
+    int eof;
 };
 
 /*
@@ -130,8 +130,10 @@ local int bits(struct state *s, int need)
     /* load at least need bits into val */
     val = s->bitbuf;
     while (s->bitcnt < need) {
-        if (s->incnt == s->inlen)
-            longjmp(s->env, 1);         /* out of input */
+        if (s->incnt == s->inlen) {
+            s->eof = 1;                 /* out of input */
+            return 0;
+        }
         val |= (long)(s->in[s->incnt++]) << s->bitcnt;  /* load eight bits */
         s->bitcnt += 8;
     }
@@ -204,8 +206,10 @@ local int stored(struct state *s)
  * seen in the function decode() below.
  */
 struct huffman {
-    short *count;       /* number of symbols of each length */
-    short *symbol;      /* canonically ordered symbols */
+    /* Safe C: the tables are in the struct, not pointed to, so their sizes
+       are part of the type */
+    short count[MAXBITS+1];     /* number of symbols of each length */
+    short symbol[FIXLCODES];    /* canonically ordered symbols */
 };
 
 /*
@@ -269,7 +273,7 @@ local int decode(struct state *s, const struct huffman *h)
     int index;          /* index of first code of length len in symbol table */
     int bitbuf;         /* bits from stream */
     int left;           /* bits left in next or left to process */
-    short *next;        /* next number of codes */
+    const short *next;  /* next number of codes */
 
     bitbuf = s->bitbuf;
     left = s->bitcnt;
@@ -295,8 +299,10 @@ local int decode(struct state *s, const struct huffman *h)
         left = (MAXBITS+1) - len;
         if (left == 0)
             break;
-        if (s->incnt == s->inlen)
-            longjmp(s->env, 1);         /* out of input */
+        if (s->incnt == s->inlen) {
+            s->eof = 1;                 /* out of input */
+            return -10;
+        }
         bitbuf = s->in[s->incnt++];
         if (left > 8)
             left = 8;
@@ -337,7 +343,7 @@ local int decode(struct state *s, const struct huffman *h)
  * - Within a given code length, the symbols are kept in ascending order for
  *   the code bits definition.
  */
-local int construct(struct huffman *h, const short *length, int n)
+local int construct(struct huffman *h, const short *__counted_by(n) length, int n)
 {
     int symbol;         /* current symbol when stepping through length[] */
     int len;            /* current length when stepping through h->count[] */
@@ -536,8 +542,6 @@ local int codes(struct state *s,
 local int fixed(struct state *s)
 {
     static int virgin = 1;
-    static short lencnt[MAXBITS+1], lensym[FIXLCODES];
-    static short distcnt[MAXBITS+1], distsym[MAXDCODES];
     static struct huffman lencode, distcode;
 
     /* build fixed huffman tables if first call (may not be thread safe) */
@@ -546,10 +550,6 @@ local int fixed(struct state *s)
         short lengths[FIXLCODES];
 
         /* construct lencode and distcode */
-        lencode.count = lencnt;
-        lencode.symbol = lensym;
-        distcode.count = distcnt;
-        distcode.symbol = distsym;
 
         /* literal/length table */
         for (symbol = 0; symbol < 144; symbol++)
@@ -668,17 +668,11 @@ local int dynamic(struct state *s)
     int index;                          /* index of lengths[] */
     int err;                            /* construct() return value */
     short lengths[MAXCODES];            /* descriptor code lengths */
-    short lencnt[MAXBITS+1], lensym[MAXLCODES];         /* lencode memory */
-    short distcnt[MAXBITS+1], distsym[MAXDCODES];       /* distcode memory */
     struct huffman lencode, distcode;   /* length and distance codes */
     static const short order[19] =      /* permutation of code length codes */
         {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
 
     /* construct lencode and distcode */
-    lencode.count = lencnt;
-    lencode.symbol = lensym;
-    distcode.count = distcnt;
-    distcode.symbol = distsym;
 
     /* get number of lengths in each table, check lengths */
     nlen = bits(s, 5) + 257;
@@ -790,10 +784,10 @@ local int dynamic(struct state *s)
  *   block (if it was a fixed or dynamic block) are undefined and have no
  *   expected values to check.
  */
-int puff(unsigned char *dest,           /* pointer to destination pointer */
-         unsigned long *destlen,        /* amount of output space */
-         const unsigned char *source,   /* pointer to source data pointer */
-         unsigned long *sourcelen)      /* amount of input available */
+struct puff_result puff_n(unsigned char *_Nullable __counted_by_or_null(destlen) dest,
+                          unsigned long destlen,
+                          const unsigned char *__counted_by(sourcelen) source,
+                          unsigned long sourcelen)
 {
     struct state s;             /* input/output state */
     int last, type;             /* block information */
@@ -801,20 +795,19 @@ int puff(unsigned char *dest,           /* pointer to destination pointer */
 
     /* initialize output state */
     s.out = dest;
-    s.outlen = *destlen;                /* ignored if dest is NIL */
+    s.outlen = destlen;                 /* ignored if dest is NIL */
     s.outcnt = 0;
 
     /* initialize input state */
     s.in = source;
-    s.inlen = *sourcelen;
+    s.inlen = sourcelen;
     s.incnt = 0;
     s.bitbuf = 0;
     s.bitcnt = 0;
 
-    /* return if bits() or decode() tries to read past available input */
-    if (setjmp(s.env) != 0)             /* if came back here via longjmp() */
-        err = 2;                        /* then skip do-loop, return error */
-    else {
+    s.eof = 0;
+
+    {
         /* process blocks until last block or error */
         do {
             last = bits(&s, 1);         /* one if last block */
@@ -826,15 +819,36 @@ int puff(unsigned char *dest,           /* pointer to destination pointer */
                         (type == 2 ?
                             dynamic(&s) :
                             -1));       /* type == 3, invalid */
+            if (s.eof)
+                err = 2;                /* bits() or decode() ran out of input */
             if (err != 0)
                 break;                  /* return with error */
         } while (!last);
     }
 
-    /* update the lengths and return */
+    /* the lengths, on success or a data error */
+    struct puff_result r = {err, destlen, sourcelen};
     if (err <= 0) {
-        *destlen = s.outcnt;
-        *sourcelen = s.incnt;
+        r.outlen = s.outcnt;
+        r.inlen = s.incnt;
     }
-    return err;
+    return r;
+}
+
+/* Safe C: the original interface, for C callers. The counts behind pointers are
+   the only thing unchecked: the caller vouches that dest and source hold
+   *destlen and *sourcelen bytes, as with the original. */
+_Trusted __unsafe int puff(unsigned char *_Nullable __unsafe_indexable dest,
+                           unsigned long *destlen,
+                           const unsigned char *__unsafe_indexable source,
+                           unsigned long *sourcelen)
+{
+    unsigned long dn = dest ? *destlen : 0, sn = *sourcelen;
+    struct puff_result r = puff_n(__unsafe_forge_bidi_indexable(unsigned char *, dest, dn), dn,
+                                  __unsafe_forge_bidi_indexable(const unsigned char *, source, sn), sn);
+    if (r.err <= 0) {
+        *destlen = r.outlen;
+        *sourcelen = r.inlen;
+    }
+    return r.err;
 }

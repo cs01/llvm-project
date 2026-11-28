@@ -25,11 +25,25 @@
 /*
  * See puff.c for purpose and usage.
  */
+#include "safec.h"              /* Safe C marks; nothing for other compilers */
+
 #ifndef NIL
 #  define NIL ((unsigned char *)0)      /* for no output option */
 #endif
 
-int puff(unsigned char *dest,           /* pointer to destination pointer */
+int puff(unsigned char *_Nullable __unsafe_indexable dest, /* pointer to destination pointer */
          unsigned long *destlen,        /* amount of output space */
-         const unsigned char *source,   /* pointer to source data pointer */
+         const unsigned char *__unsafe_indexable source, /* pointer to source data pointer */
          unsigned long *sourcelen);     /* amount of input available */
+
+/* Safe C: the same, with the counts by value. err is puff()'s return value;
+   outlen and inlen are what puff() sets *destlen and *sourcelen to, and are
+   the sizes given when err > 0. */
+struct puff_result {
+    int err;
+    unsigned long outlen, inlen;
+};
+struct puff_result puff_n(unsigned char *_Nullable __counted_by_or_null(destlen) dest,
+                          unsigned long destlen,
+                          const unsigned char *__counted_by(sourcelen) source,
+                          unsigned long sourcelen);

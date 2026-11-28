@@ -133,7 +133,7 @@ Every mark: [annotations](safe-c-docs/annotations.md). Every rule: [rules](safe-
 | **Platform** | macOS (arm64) with Apple's SDK; Linux builds, but glibc's headers have no annotations |
 | **Cost** | 0% to 7% run time on the programs above, against the same code in plain Clang; ported libraries from 0.58x to 1.28x |
 
-Ported libraries: jsmn, inih, parson and cJSON with ownership on (cJSON's references are not sound), lz4 without. Every open item:
+Ported libraries: jsmn, inih, parson, puff (zlib's reference inflate) and cJSON with ownership on (cJSON's references are not sound), lz4 without. Every open item:
 [open issues](safe-c-notes/review-2026-11-23.md), and `clang/utils/safe-c/holes`.
 
 ## Juliet
