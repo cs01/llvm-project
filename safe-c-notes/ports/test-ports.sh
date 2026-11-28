@@ -47,7 +47,7 @@ run() { # name, compiler command, sources...
     fi
   done
   echo "$label $name: $pass/$total"
-  [ "$pass" = "$total" ] || fail=1
+  [ "$pass" = "$total" ] && [ "$total" -gt 0 ] || fail=1
 }
 
 # inih's tests print what the handler saw. Each build must exit 0 and print
@@ -85,7 +85,7 @@ alloc unittest_alloc.c -DINI_CUSTOM_ALLOCATOR=1 -DINI_USE_STACK=0 -DINI_ALLOW_RE
 file_error unittest_file_error.c
 EOF
   echo "inih $name: $pass/$total"
-  [ "$pass" = "$total" ] || fail=1
+  [ "$pass" = "$total" ] && [ "$total" -gt 0 ] || fail=1
 }
 
 for spec in "${configs[@]}"; do

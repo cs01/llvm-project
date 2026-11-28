@@ -7,6 +7,8 @@ on:
   push:
     branches: [safe-c]
     tags: ['safe-c-v*']
+  pull_request:
+    branches: [safe-c]
   workflow_dispatch:
 
 # Only the newest push is worth a multi-hour build.
@@ -18,6 +20,19 @@ permissions:
   contents: write
 
 jobs:
+  lean:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Lean model
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          export PATH=$HOME/.elan/bin:$PATH
+          bash safe-c-lean/check.sh
+
   build:
     strategy:
       fail-fast: false
@@ -67,28 +82,16 @@ jobs:
         run: ninja -C build clang FileCheck count not split-file llvm-config
 
       # Linux has no annotated libc yet (README, Limits): it is built and packaged, not tested.
-      - name: Safe C tests (lit)
+      - name: Ownership checker is in this build
         if: runner.os == 'macOS'
         run: |
-          shopt -s nullglob
-          build/bin/llvm-lit -sv clang/test/*/safe-c-* clang/test/Sema/LifetimeSafety
+          build/bin/clang -fsafe-c -isysroot $(xcrun --show-sdk-path) -fsyntax-only clang/test/Frontend/safe-c-ownership-disjoint.c 2>&1 |
+            grep -q "is tested after" || { echo 'the ownership checker is not in this build'; exit 1; }
 
-      - name: Standard library tests
+      # The same gates as clang/utils/safe-c/check-all.sh locally; lean runs in its own job.
+      - name: Gates
         if: runner.os == 'macOS'
-        run: |
-          SYSROOT=""
-          if [ "$RUNNER_OS" = "macOS" ]; then SYSROOT="-isysroot $(xcrun --show-sdk-path)"; fi
-          build/bin/clang -fsafe-c $SYSROOT -fsyntax-only clang/test/Frontend/safe-c-ownership-disjoint.c 2>&1 | grep -q "is tested after" ||
-            { echo 'the ownership checker is not in this build'; exit 1; }
-          for t in safe-c-std/tests/*.c; do
-            build/bin/clang -fsafe-c $SYSROOT -O1 $t -o wrapper
-            ./wrapper
-          done
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            SAFEC=$PWD/build/bin/clang bash clang/utils/safe-c/libc/check.sh
-            SAFEC=$PWD/build/bin/clang bash safe-c-std/misuse/check.sh
-            SAFEC=$PWD/build/bin/clang bun clang/utils/safe-c/docs-check.ts
-          fi
+        run: SAFEC=$PWD/build/bin/clang clang/utils/safe-c/check-all.sh lit headers libc misuse docs corpus holes cve ports
 
       - name: Ownership checker is built in
         run: |

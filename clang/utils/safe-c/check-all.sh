@@ -30,7 +30,7 @@ for g in "${GATES[@]}"; do
   t0=$(date +%s)
   bash -c "$cmd" >"$LOG/$name" 2>&1; rc=$?
   t=$(( $(date +%s) - t0 ))
-  [ $rc = 0 ] && res=pass || { res=FAIL; fails=$((fails + 1)); }
+  [ $rc = 0 ] && res=pass || { res=FAIL; fails=$((fails + 1)); [ -n "$CI" ] && cat "$LOG/$name"; }
   printf '%-8s %-6s %6s  %s\n' "$name" "$res" "$t" "$(grep -v '^\s*$' "$LOG/$name" | tail -1 | cut -c1-110)"
 done
 [ $fails -gt 0 ] && echo "$fails gate(s) failed; full output in $LOG"
