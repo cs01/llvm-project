@@ -11,9 +11,10 @@ Result: `inffast.c` compiles under `-fsafe-c` (ownership off: zlib's headers are
 
 | Change | Why |
 |---|---|
-| On entry, one `__unsafe` block gives the locals bounds: the input (`avail_in`), the output from where this `inflate()` call began (`start`), the window (`wsize`), the code tables (the most `inftrees.c` builds) | `inflate()` is not ported; this is where it vouches for its buffers. Every access after it is checked |
+| On entry, one `__unsafe` block gives the locals bounds: the input (`avail_in`), the output from where this `inflate()` call began (`start`), the window (`wsize`), the code tables (their sizes, below) | `inflate()` is not ported; this is where it vouches for its buffers. Every access after it is checked |
 | On exit, one `__unsafe` block stores `next_in` and `next_out` back | `next_out` may be one past the end of the buffer, which a plain pointer field cannot hold |
 | Every match copy (6 loops: from the window, around its end, from the output) is one call to `copy_bytes(to, from, n)`, whose parameters are `__counted_by(n)` | each copy is checked once, not once per byte |
+| `inflate_state` records each code table's size (`lensize`, `distsize`), set where `inflate.c` builds the tables and in `inflate_fixed()` | the first version gave both tables the largest size `inftrees.c` can build, 852 and 592 entries, so an index past the 512-entry fixed table would not have trapped |
 | `window` in `inflate.h` is `_Nullable` | it is null until `inflate()` first needs it; Safe C traps on loading a null pointer from a field not marked so |
 
 ## Tests
@@ -24,6 +25,7 @@ Result: `inffast.c` compiles under `-fsafe-c` (ownership off: zlib's headers are
 |---|---|
 | 20,000 streams from zlib (raw, zlib and gzip wrappers, every level and strategy, small windows), a third cut short, a third with bits flipped, read out in chunks of 1 to 4,096 bytes so copies cross the window | every return code and byte the same as stock zlib |
 | zlib's "invalid distance too far back" check deleted from the port | traps at the copy |
+| The fixed length table's size given as 256 instead of 512 | traps at the lookup |
 
 ## Cost
 

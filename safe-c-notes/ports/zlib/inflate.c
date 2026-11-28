@@ -116,6 +116,7 @@ int ZEXPORT inflateResetKeep(z_streamp strm) {
     state->hold = 0;
     state->bits = 0;
     state->lencode = state->distcode = state->next = state->codes;
+    state->lensize = state->distsize = 0;
     state->sane = 1;
     state->back = -1;
     Tracev((stderr, "inflate: reset\n"));
@@ -890,6 +891,7 @@ int ZEXPORT inflate(z_streamp strm, int flush) {
             state->lenbits = 9;
             ret = inflate_table(LENS, state->lens, state->nlen, &(state->next),
                                 &(state->lenbits), state->work);
+            state->lensize = (unsigned)(state->next - state->lencode);
             if (ret) {
                 strm->msg = (z_const char *)"invalid literal/lengths set";
                 state->mode = BAD;
@@ -899,6 +901,7 @@ int ZEXPORT inflate(z_streamp strm, int flush) {
             state->distbits = 6;
             ret = inflate_table(DISTS, state->lens + state->nlen, state->ndist,
                             &(state->next), &(state->distbits), state->work);
+            state->distsize = (unsigned)(state->next - state->distcode);
             if (ret) {
                 strm->msg = (z_const char *)"invalid distances set";
                 state->mode = BAD;

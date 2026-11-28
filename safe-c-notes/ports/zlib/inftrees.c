@@ -396,8 +396,10 @@ void inflate_fixed(struct inflate_state FAR *state) {
 #endif /* BUILDFIXED */
     state->lencode = lenfix;
     state->lenbits = 9;
+    state->lensize = 512;       /* Safe C: the sizes of lenfix and distfix */
     state->distcode = distfix;
     state->distbits = 5;
+    state->distsize = 32;
 }
 
 #ifdef MAKEFIXED

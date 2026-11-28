@@ -90,8 +90,8 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
     /* copy state to local variables */
     /* Safe C: inflate(), not ported, vouches for these buffers and their
        sizes. From here on every access is checked against them. The code
-       tables are given the most inftrees.c builds (the fixed tables are
-       smaller, and their codes never point past their ends). */
+       tables' sizes are set where they are built (inflate.c and
+       inflate_fixed()). */
     __unsafe {
         state = __unsafe_forge_single(struct inflate_state FAR *, strm->state);
         in = __unsafe_forge_bidi_indexable(z_const unsigned char *,
@@ -106,9 +106,9 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
             window = __unsafe_forge_bidi_indexable(unsigned char *, state->window,
                                                    state->wsize);
         lcode = __unsafe_forge_bidi_indexable(code const *, state->lencode,
-                                              ENOUGH_LENS * sizeof(code));
+                                              state->lensize * sizeof(code));
         dcode = __unsafe_forge_bidi_indexable(code const *, state->distcode,
-                                              ENOUGH_DISTS * sizeof(code));
+                                              state->distsize * sizeof(code));
     }
     last = in + (strm->avail_in - 5);
     out = beg + (start - strm->avail_out);

@@ -111,6 +111,8 @@ struct inflate_state {
     code const FAR *distcode;   /* starting table for distance codes */
     unsigned lenbits;           /* index bits for lencode */
     unsigned distbits;          /* index bits for distcode */
+    unsigned lensize;           /* Safe C: entries in the table at lencode */
+    unsigned distsize;          /* Safe C: entries in the table at distcode */
         /* dynamic table building */
     unsigned ncode;             /* number of code length code lengths */
     unsigned nlen;              /* number of length code lengths */
