@@ -505,17 +505,6 @@ StringRef clang::safeCPointerKind(QualType T) {
   return safec::pointerKind(T);
 }
 
-static bool hasKind(const ValueDecl *D, StringRef K) {
-  return safeCPointerKind(D->getType()) == K;
-}
-
-static bool hasSafeCAnnotation(const Decl *D, StringRef Name) {
-  for (const auto *A : D->specific_attrs<AnnotateAttr>())
-    if (A->getAnnotation() == Name)
-      return true;
-  return false;
-}
-
 /// The annotation of \p D named \p Name, if any.
 static const AnnotateAttr *getSafeCAnnotation(const Decl *D, StringRef Name) {
   for (const auto *A : D->specific_attrs<AnnotateAttr>())
@@ -1526,7 +1515,7 @@ public:
       // the values its members name.
       if (const auto *ET = TagField->getType()->getAs<EnumType>()) {
         for (const EnumConstantDecl *E :
-             ET->getOriginalDecl()->getDefinitionOrSelf()->enumerators())
+             ET->getDecl()->getDefinitionOrSelf()->enumerators())
           Require(E->getInitVal(), E->getName().str());
       } else {
         whenValues(S.Context, F->getType()->getAsRecordDecl(),
@@ -2245,9 +2234,9 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F,
   }
   if (const auto *BO = dyn_cast<BinaryOperator>(St); BO && BO->isAssignmentOp()) {
     const Expr *L = BO->getLHS()->IgnoreParenImpCasts();
-    if (const auto *ME = dyn_cast<MemberExpr>(L))
+    if (const auto *ME = dyn_cast<MemberExpr>(L)) {
       if (const auto *Fld = dyn_cast<FieldDecl>(ME->getMemberDecl());
-          Fld && isTagField(Fld))
+          Fld && isTagField(Fld)) {
         if (std::optional<TagPath> P = structPath(L)) {
           // The same tag of another struct may be this one under another
           // name (`q = &x; q->kind = ...`): forget those.
@@ -2269,6 +2258,8 @@ static void transfer(const ASTContext &Ctx, const Stmt *St, TagFacts &F,
           unwriteIf(F, [&](const TagPath &Q) { return Q.Fields.back() == Fld; });
           return;
         }
+      }
+    }
     // Reassigning a variable, or a struct holding a tag, forgets its tags.
     if (std::optional<TagPath> P = structPath(L))
       if (P->Fields.empty() || L->getType()->isRecordType())
@@ -2697,7 +2688,7 @@ void clang::checkSafeCTaggedAccess(Sema &S, Decl *Fn, Stmt *Body) {
                                : toString(V, 10);
                     if (const auto *ET = TagF->getType()->getAs<EnumType>())
                       for (const EnumConstantDecl *EC :
-                           ET->getOriginalDecl()->getDefinitionOrSelf()->enumerators())
+                           ET->getDecl()->getDefinitionOrSelf()->enumerators())
                         if (llvm::APSInt::isSameValue(EC->getInitVal(), V))
                           Want = EC->getName().str();
                   }
