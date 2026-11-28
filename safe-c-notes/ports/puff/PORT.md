@@ -13,7 +13,7 @@ port). `puff()`, the original interface, is a small `_Trusted __unsafe` wrapper 
 | `setjmp`/`longjmp` on running out of input became a flag, `s->eof`, that `bits()` and `decode()` set; `puff_n` returns 2 when it is set, as the original did | `longjmp` goes back past checks |
 | The Huffman tables are arrays in `struct huffman`, not pointers to arrays on the side | their sizes are then part of the type, and every index is checked |
 | `struct state` is a `_View` with `__counted_by` on `in` and `out` | it borrows the caller's buffers |
-| The match copy takes two `__counted_by(len)` slices, `to` and `from`, and copies between them | one check per copy instead of one per byte: the cost below went from 0.86x to 1.00x |
+| The match copy takes two `_Slice`s, `to` and `from`, and copies between them | one check per copy instead of one per byte: the cost below went from 0.86x to 1.00x |
 | `puff_n(dest, destlen, source, sourcelen)` takes the counts by value and returns `{err, outlen, inlen}` | a count read through a pointer could be changed through another name |
 
 Lines: puff.c +70/-42 in all, with the wrapper and puff.h. The decoding loops are unchanged.

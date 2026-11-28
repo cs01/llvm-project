@@ -509,12 +509,9 @@ local int codes(struct state *s,
                     /* Safe C: the source and destination as two slices, so
                        their bounds are checked once per copy, not per byte
                        (0.86x the original's speed per byte, 1.00x this way) */
-                    int n = len;
-                    unsigned char *__counted_by(n) to = s->out + s->outcnt;
-                    int m = len;
-                    const unsigned char *__counted_by(m) from =
-                        s->out + (s->outcnt - dist);
-                    for (int i = 0; i < n; i++)
+                    _Slice(unsigned char, to, s->out, s->outcnt, len);
+                    _Slice(const unsigned char, from, s->out, s->outcnt - dist, len);
+                    for (unsigned long i = 0; i < to_n; i++)
                         to[i] = from[i];
                     s->outcnt += len;
                 }

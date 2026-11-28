@@ -15,6 +15,7 @@ safe choice. You annotate only where a pointer does more:
 | `__counted_by(n)` | points to `n` elements; `n` is another parameter or field | `&[T]` (a slice: pointer plus length) | `int sum(const int *__counted_by(n) v, size_t n);` | Apple |
 | `__sized_by(n)` | points to `n` bytes | `&[u8]` | `void fill(void *__sized_by(n) dst, size_t n);` | Apple |
 | `__ended_by(end)` | valid up to the pointer `end` | a slice given as two pointers (`slice::from_ptr_range`) | `int scan(const char *__ended_by(end) p, const char *end);` | Apple |
+| `_Slice(T, name, base, start, n)` | declares `name`, `n` elements of `base` from index `start`, and its count `name_n`; checked once where it is made, so a loop over it has no check per element (a slice that does not fit stops the program there) | `&buf[start..start + n]` | `_Slice(const unsigned char, from, out, at - dist, len);` | Safe C |
 | `__null_terminated` | a string ending in 0 (string literals and libc strings are already) | `&CStr` | `size_t my_strlen(const char *__null_terminated s);` | Apple |
 | `_Owned` | on a parameter: the function takes ownership (frees it, or keeps it to free later); the caller may not use it afterwards | taking a `Box<T>` by value (a move) | `void json_delete(struct json *_Owned item);` | Safe C |
 | `T *_Owned` (field, local, result) | this pointer is responsible for freeing its target; it is moved, never copied | `Box<T>` | `struct node { int v; struct node *_Owned _Nullable next; };` | Safe C |
@@ -28,6 +29,7 @@ safe choice. You annotate only where a pointer does more:
 | `_Requires(m)`, `_Acquires(m)`, `_Releases(m)` | a function's callers must hold `m`; or it takes or releases `m` | a `MutexGuard` held across a call | `void bump(void) _Requires(&stats_lock);` | Safe C (Clang's thread-safety attributes) |
 | `_Trusted` | a function whose ownership is not checked inside; its callers are held to its signature | a safe function around an `unsafe` body | `_Trusted void swap(struct node *a, struct node *b);` | Safe C |
 | `__unsafe` | a block or function where Safe C's rules are lifted, except ownership (that is `_Trusted`) | `unsafe { }` | `int first(va_list ap) { int v; __unsafe { v = va_arg(ap, int); } return v; }` | Safe C |
+| `__unsafe _No_bounds_checks` | on a function: compiled without run-time bounds, null and integer checks, for an audited hot loop; say in a comment why every access is in bounds | `get_unchecked` | `__unsafe _No_bounds_checks static void copy(...)` | Safe C |
 | `#pragma clang safe_c legacy` | in a header not yet ported: its declarations are trusted, its code unchecked | an `extern "C"` block over unaudited C | first line of a header not yet ported | Safe C |
 
 The Rust column is the closest equivalent, not an exact one. `T *` may free or replace what T owns, which ends

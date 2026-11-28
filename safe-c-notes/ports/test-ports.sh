@@ -115,7 +115,7 @@ for spec in "${configs[@]}"; do
 done
 # puff: the Safe C build against the original (orig/) and zlib, on streams from
 # zlib, cut short and with bits flipped.
-"$safec" -fsafe-c -isysroot "$sdk" -O2 -c -o "$out/puff-safe.o" "$here/puff/puff.c" &&
+r=; "$safec" -fsafe-c -isysroot "$sdk" -O2 -c -o "$out/puff-safe.o" "$here/puff/puff.c" &&
   /usr/bin/clang -O2 -Dpuff=orig_puff -c -o "$out/puff-orig.o" "$here/puff/orig/puff.c" &&
   /usr/bin/clang -O2 -o "$out/puff-diff" "$here/puff/test/diff.c" "$out/puff-safe.o" "$out/puff-orig.o" -lz &&
   r=$("$out/puff-diff" 20000 1) && echo "puff: $r" || { echo "puff: FAILED $r"; fail=1; }

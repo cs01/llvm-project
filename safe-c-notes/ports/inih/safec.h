@@ -245,6 +245,16 @@ char *getenv(const char *__null_terminated);
 #define _Set(ptr, count, new_ptr, new_count) \
   ((void)((ptr) = (new_ptr), (count) = (new_count)))
 
+/* A slice: n elements of a buffer from index start, bounds-checked once where
+   it is made, so a loop over it needs no check per element:
+     _Slice(const unsigned char, from, s->out, s->outcnt - dist, len);
+     for (size_t i = 0; i < from_n; i++) ...
+   Declares the pointer name and its count name_n. A slice that does not fit
+   in the buffer stops the program where it is made. */
+#define _Slice(T, name, base, start, n) \
+  __SIZE_TYPE__ name##_n = (n);         \
+  T *__counted_by(name##_n) name = (base) + (start)
+
 /* Tagged unions, like Rust's enums with data:
      struct shape {
        enum kind kind;
