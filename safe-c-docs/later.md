@@ -15,6 +15,7 @@ Ideas that wait while the language is frozen ([rules.md](rules.md)). Each comes 
 | Implicit narrowing is an error (`long` to `int`, `size_t` to `uint16_t`); a cast says it is meant | minmea's bug #106 was one (`strtol` into an `int`, then `abs(INT_MIN)`): 5 such lines in minmea, 0 in our own code, 21 bounded ones in heatshrink that would need casts |
 | Signed overflow traps instead of wrapping, with a per-file switch for arithmetic that means to wrap | would have stopped minmea's two overflows at the line; costs a little speed. For flight code, the one to want |
 | Fixed-width types only (`int32_t`, not `int`) | portability, not memory safety: left to MISRA and linters |
+| Which function frees an owner, `_Owned(arena_free)`: an owner with no name is freed by `free`, and one with a name only by that function; an arena's owner then cannot reach `free` | mixing allocators is a real bug (glib's `g_free`, OpenSSL's `OPENSSL_free`, arenas), but none of our programs has two. Library handles (`FILE`, `DIR`) are already checked, and system headers can say it today with GCC's `malloc(dealloc, index)` |
 | `strtol`'s end pointer | it can write to text that must not change; pass `NULL` and use `str_int` |
 
 What is not frozen: proofs of the rules there are, fixes for holes, wrappers, and error messages.
