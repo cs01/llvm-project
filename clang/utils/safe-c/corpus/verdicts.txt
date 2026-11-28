@@ -2965,7 +2965,7 @@ REJECT attack4/rest/p/b2_fr15.c
 REJECT attack4/rest/p/b2_fr16.c
 REJECT attack4/rest/p/b2_fr17.c
 ACCEPT attack4/rest/p/b2_fr18.c
-ACCEPT attack4/rest/p/b2_fr19.c
+REJECT attack4/rest/p/b2_fr19.c
 ACCEPT attack4/rest/p/b2_fr2.c
 ACCEPT attack4/rest/p/b2_fr3.c
 REJECT attack4/rest/p/b2_fr4.c

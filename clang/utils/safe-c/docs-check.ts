@@ -97,4 +97,6 @@ for (const name of ["use_after_free", "leak", "double_free", "struct_leaks"]) {
   report("try/overflow.c", run?.signalCode === "SIGTRAP", b.stderr.toString().slice(0, 200) || String(run?.exitCode));
 }
 console.log(`docs: ${n - bad} of ${n} as the docs say`);
+// A parser that stops matching would check fewer; 23 today.
+if (n < 23) { console.log(`only ${n} checked, expected at least 23`); bad++; }
 process.exit(bad ? 1 : 0);

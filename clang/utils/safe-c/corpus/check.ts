@@ -51,6 +51,9 @@ const parse = (f: string) => new Map(read(f).split("\n").filter((l) => l && !l.s
   const [v, ...n] = l.split(" "); return [n.join(" ").split(" # ")[0], v] as [string, string];
 }));
 const was = parse("verdicts.txt"), allowed = parse("accepted.txt");
+// A program dropped from the corpus would stop being checked, quietly; verdicts.txt is the list that must all still be here.
+const have = new Set(progs), gone = [...was.keys()].filter((n) => !have.has(n));
+if (gone.length) { console.log(`missing from the corpus (${gone.length}):\n  ${gone.slice(0, 30).join("\n  ")}`); process.exit(1); }
 
 // A plain build with ASan: does the program have a memory error? (Same flags as the red-team judges.)
 async function asan(name: string): Promise<string> {
@@ -92,7 +95,8 @@ async function traps(name: string): Promise<boolean> {
     if ((await b.exited) !== 0) return true;
     const r = Bun.spawn(["perl", "-e", "alarm 20; exec @ARGV", exe], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
     await r.exited;
-    if (!["SIGTRAP", "SIGILL", "SIGABRT"].includes(r.signalCode ?? "")) return false;
+    // Not SIGABRT: macOS malloc aborts on a double free, so an abort would hide one.
+    if (!["SIGTRAP", "SIGILL"].includes(r.signalCode ?? "")) return false;
   }
   return true;
 }
