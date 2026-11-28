@@ -13,6 +13,7 @@ port). `puff()`, the original interface, is a small `_Trusted __unsafe` wrapper 
 | `setjmp`/`longjmp` on running out of input became a flag, `s->eof`, that `bits()` and `decode()` set; `puff_n` returns 2 when it is set, as the original did | `longjmp` goes back past checks |
 | The Huffman tables are arrays in `struct huffman`, not pointers to arrays on the side | their sizes are then part of the type, and every index is checked |
 | `struct state` is a `_View` with `__counted_by` on `in` and `out` | it borrows the caller's buffers |
+| The match copy takes two `__counted_by(len)` slices, `to` and `from`, and copies between them | one check per copy instead of one per byte: the cost below went from 0.86x to 1.00x |
 | `puff_n(dest, destlen, source, sourcelen)` takes the counts by value and returns `{err, outlen, inlen}` | a count read through a pointer could be changed through another name |
 
 Lines: puff.c +70/-42 in all, with the wrapper and puff.h. The decoding loops are unchanged.
@@ -37,7 +38,12 @@ other memory.
 | Decoder | MB/s | vs original |
 |---|---|---|
 | original puff | 341 | 1.00x |
-| Safe C puff | 289 to 295 | 0.85x to 0.86x |
+| Safe C puff, a check on every byte of the match copy | 289 to 295 | 0.85x to 0.86x |
+| Safe C puff, the copy between two slices (this port) | 341 | 1.00x |
+| the port built without Safe C (no checks) | 341 | 0.99x |
 | zlib's inflate | 1,912 to 1,967 | 5.6x to 5.75x |
+
+All of the 14% was the checks in one loop, and checking each copy's slices once took all of it back. With the distance check deleted,
+the slice version still traps, at the slice.
 
 puff is written to be read, not to be fast, and zlib's inflate is the one programs use.
