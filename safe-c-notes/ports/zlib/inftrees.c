@@ -46,9 +46,11 @@ const char inflate_copyright[] =
 #ifdef CONTRACTS
 #include <c_contracts.h>
 #endif
-int ZLIB_INTERNAL inflate_table(codetype type, unsigned short FAR *lens,
-                                unsigned codes, code FAR * FAR *table,
-                                unsigned FAR *bits, unsigned short FAR *work)
+int ZLIB_INTERNAL inflate_table(codetype type,
+                                unsigned short FAR *__counted_by(codes) lens,
+                                unsigned codes, code FAR *__bidi_indexable FAR *table,
+                                unsigned FAR *bits,
+                                unsigned short FAR *__counted_by(codes) work)
 #ifdef CONTRACTS
     /* What the doc-comment above entitles a caller to provide, written as a
        contract rather than as a harness. `codes` is bounded and the root fixed
@@ -218,6 +220,8 @@ int ZLIB_INTERNAL inflate_table(codetype type, unsigned short FAR *lens,
     /* set up for code type */
     switch (type) {
     case CODES:
+        base = extra = work;    /* Safe C: never read (match is above every
+                                   symbol), but not null, as zlib 1.2 had it */
         match = 20;
         break;
     case LENS:
@@ -225,7 +229,7 @@ int ZLIB_INTERNAL inflate_table(codetype type, unsigned short FAR *lens,
         extra = lext;
         match = 257;
         break;
-    case DISTS:
+    default:                    /* DISTS (Safe C: so every path sets base) */
         base = dbase;
         extra = dext;
     }
@@ -394,12 +398,12 @@ void inflate_fixed(struct inflate_state FAR *state) {
 #ifdef BUILDFIXED
     z_once(&built, buildtables);
 #endif /* BUILDFIXED */
-    state->lencode = lenfix;
+    state->lencode = lenfix;    /* Safe C: each table with its size, together */
+    state->lensize = 512;
     state->lenbits = 9;
-    state->lensize = 512;       /* Safe C: the sizes of lenfix and distfix */
     state->distcode = distfix;
-    state->distbits = 5;
     state->distsize = 32;
+    state->distbits = 5;
 }
 
 #ifdef MAKEFIXED

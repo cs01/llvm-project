@@ -244,9 +244,9 @@ extern z_const char * const z_errmsg[10]; /* indexed by 2-zlib_error */
 #endif
 
 #ifndef Z_SOLO
-   voidpf ZLIB_INTERNAL zcalloc(voidpf opaque, unsigned items,
+   voidpf _Nullable ZLIB_INTERNAL zcalloc(voidpf _Nullable opaque, unsigned items,
                                 unsigned size);
-   void ZLIB_INTERNAL zcfree(voidpf opaque, voidpf ptr);
+   void ZLIB_INTERNAL zcfree(voidpf _Nullable opaque, voidpf ptr);
 #endif
 
 #define ZALLOC(strm, items, size) \

@@ -91,13 +91,16 @@ struct inflate_state {
     unsigned dmax;              /* zlib header max distance (INFLATE_STRICT) */
     unsigned long check;        /* protected copy of check value */
     unsigned long total;        /* protected copy of output count */
-    gz_headerp head;            /* where to save gzip header information */
+    gz_headerp _Nullable head;  /* where to save gzip header information */
         /* sliding window */
     unsigned wbits;             /* log base 2 of requested window size */
     unsigned wsize;             /* window size or zero if not using window */
     unsigned whave;             /* valid bytes in the window */
     unsigned wnext;             /* window write index */
-    unsigned char FAR *_Nullable window; /* allocated sliding window, if needed (Safe C: null until then) */
+    unsigned char FAR *_Nullable __counted_by_or_null(walloc) window;
+                                /* allocated sliding window, if needed (Safe C:
+                                   null until then) */
+    unsigned walloc;            /* Safe C: bytes allocated at window */
         /* bit accumulator */
     unsigned long hold;         /* input bit accumulator */
     unsigned bits;              /* number of bits in hold */
@@ -107,8 +110,10 @@ struct inflate_state {
         /* for table and code decoding */
     unsigned extra;             /* extra bits needed */
         /* fixed and dynamic code tables */
-    code const FAR *lencode;    /* starting table for length/literal codes */
-    code const FAR *distcode;   /* starting table for distance codes */
+    code const FAR *__counted_by(lensize) lencode;
+                                /* starting table for length/literal codes */
+    code const FAR *__counted_by(distsize) distcode;
+                                /* starting table for distance codes */
     unsigned lenbits;           /* index bits for lencode */
     unsigned distbits;          /* index bits for distcode */
     unsigned lensize;           /* Safe C: entries in the table at lencode */
@@ -118,7 +123,9 @@ struct inflate_state {
     unsigned nlen;              /* number of length code lengths */
     unsigned ndist;             /* number of distance code lengths */
     unsigned have;              /* number of code lengths in lens[] */
-    code FAR *next;             /* next available space in codes[] */
+    code FAR *__bidi_indexable next;
+                                /* next available space in codes[] (Safe C:
+                                   carries the bounds of codes[]) */
     unsigned short lens[320];   /* temporary storage for code lengths */
     unsigned short work[288];   /* work area for code table building */
     code codes[ENOUGH];         /* space for code tables */
@@ -126,3 +133,31 @@ struct inflate_state {
     int back;                   /* bits back of last unprocessed length/lit */
     unsigned was;               /* initial length of match */
 };
+
+/* Safe C: zlib.h declares strm->state as a pointer to struct internal_state,
+   which is never defined, so applications cannot see inside it. inflate
+   keeps its struct inflate_state there (inflateInit2_(), inflateCopy()).
+   This is the one place that pointer is turned back into an inflate_state.
+   Every caller has passed inflateStateCheck() first, which checks that the
+   state is not null and points back to this stream (state->strm == strm). */
+local struct inflate_state FAR *inflate_state_of(z_streamp strm) {
+    struct inflate_state FAR *state;
+    __unsafe { /* vouches: strm->state was set by inflateInit2_ or inflateCopy */
+        state = __unsafe_forge_single(struct inflate_state FAR *, strm->state);
+    }
+    return state;
+}
+
+/* Safe C: the window, or before it is allocated a one-byte stand-in, so that
+   readers need no null check. Without a window whave is 0, so zlib reads
+   nothing from it; a read that went wrong lands outside either and traps. */
+local unsigned char FAR *__bidi_indexable window_of(
+        struct inflate_state FAR *state) {
+    static unsigned char no_window[1];
+    if (state->window == Z_NULL) return no_window;
+    return state->window;
+}
+
+/* Safe C: stands in for a null input pointer (next_in, a dictionary), which
+   zlib.h allows only with a length of 0, so it is never read. */
+local const unsigned char no_input[1];

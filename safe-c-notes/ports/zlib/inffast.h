@@ -8,4 +8,7 @@
    subject to change. Applications should only use zlib.h.
  */
 
-void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start);
+/* Safe C: beg is where inflate() began writing in this call, start bytes
+   before the end of the output buffer (strm->next_out + strm->avail_out) */
+void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start,
+                                unsigned char FAR *__counted_by(start) beg);

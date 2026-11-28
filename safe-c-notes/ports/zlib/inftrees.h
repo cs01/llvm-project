@@ -63,8 +63,10 @@ typedef enum {
     DISTS
 } codetype;
 
-int ZLIB_INTERNAL inflate_table(codetype type, unsigned short FAR *lens,
-                                unsigned codes, code FAR * FAR *table,
-                                unsigned FAR *bits, unsigned short FAR *work);
+int ZLIB_INTERNAL inflate_table(codetype type,
+                                unsigned short FAR *__counted_by(codes) lens,
+                                unsigned codes, code FAR *__bidi_indexable FAR *table,
+                                unsigned FAR *bits,
+                                unsigned short FAR *__counted_by(codes) work);
 struct inflate_state;
 void ZLIB_INTERNAL inflate_fixed(struct inflate_state FAR *state);

@@ -36,6 +36,10 @@
 #else
 # include "zconf.h"
 #endif
+/* Safe C: the bounds marks below (__counted_by, _Nullable). For other
+   compilers safec.h defines them as nothing. */
+#include "safec.h"
+#include "zunported.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,26 +86,27 @@ extern "C" {
   even in the case of corrupted input.
 */
 
-typedef voidpf (*alloc_func)(voidpf opaque, uInt items, uInt size);
-typedef void   (*free_func)(voidpf opaque, voidpf address);
+typedef voidpf _Nullable (*alloc_func)(voidpf _Nullable opaque, uInt items,
+                                      uInt size);
+typedef void   (*free_func)(voidpf _Nullable opaque, voidpf address);
 
 struct internal_state;
 
 typedef struct z_stream_s {
-    z_const Bytef *next_in;     /* next input byte */
+    z_const Bytef *_Nullable __counted_by(avail_in) next_in; /* next input byte */
     uInt     avail_in;  /* number of bytes available at next_in */
     uLong    total_in;  /* total number of input bytes read so far */
 
-    Bytef    *next_out; /* next output byte will go here */
+    Bytef    *_Nullable __counted_by(avail_out) next_out; /* next output byte will go here */
     uInt     avail_out; /* remaining free space at next_out */
     uLong    total_out; /* total number of bytes output so far */
 
-    z_const char *msg;  /* last error message, NULL if no error */
-    struct internal_state FAR *state; /* not visible by applications */
+    z_const char *_Nullable msg; /* last error message, NULL if no error */
+    struct internal_state FAR *_Nullable state; /* not visible by applications */
 
-    alloc_func zalloc;  /* used to allocate the internal state */
-    free_func  zfree;   /* used to free the internal state */
-    voidpf     opaque;  /* private data object passed to zalloc and zfree */
+    alloc_func _Nullable zalloc; /* used to allocate the internal state */
+    free_func  _Nullable zfree;  /* used to free the internal state */
+    voidpf _Nullable opaque; /* private data object passed to zalloc and zfree */
 
     int     data_type;  /* best guess about the data type: binary or text
                            for deflate, or the decoding state for inflate */
@@ -120,12 +125,13 @@ typedef struct gz_header_s {
     uLong   time;       /* modification time */
     int     xflags;     /* extra flags (not used when writing a gzip file) */
     int     os;         /* operating system */
-    Bytef   *extra;     /* pointer to extra field or Z_NULL if none */
+    Bytef   *_Nullable __counted_by_or_null(extra_max) extra; /* pointer to extra field or Z_NULL if none
+                           (Safe C: holds extra_max bytes, as when reading) */
     uInt    extra_len;  /* extra field length (valid if extra != Z_NULL) */
     uInt    extra_max;  /* space at extra (only when reading header) */
-    Bytef   *name;      /* pointer to zero-terminated file name or Z_NULL */
+    Bytef   *_Nullable __counted_by_or_null(name_max) name; /* pointer to zero-terminated file name or Z_NULL */
     uInt    name_max;   /* space at name (only when reading header) */
-    Bytef   *comment;   /* pointer to zero-terminated comment or Z_NULL */
+    Bytef   *_Nullable __counted_by_or_null(comm_max) comment; /* pointer to zero-terminated comment or Z_NULL */
     uInt    comm_max;   /* space at comment (only when reading header) */
     int     hcrc;       /* true if there was or will be a header crc */
     int     done;       /* true when done reading gzip header (not used
@@ -911,7 +917,7 @@ ZEXTERN int ZEXPORT inflateInit2(z_streamp strm,
 */
 
 ZEXTERN int ZEXPORT inflateSetDictionary(z_streamp strm,
-                                         const Bytef *dictionary,
+                                         const Bytef *_Nullable __counted_by(dictLength) dictionary,
                                          uInt  dictLength);
 /*
      Initializes the decompression dictionary from the given uncompressed byte
@@ -1806,7 +1812,8 @@ ZEXTERN void ZEXPORT gzclearerr(gzFile file);
    library.
 */
 
-ZEXTERN uLong ZEXPORT adler32(uLong adler, const Bytef *buf, uInt len);
+ZEXTERN uLong ZEXPORT adler32(uLong adler, const Bytef *_Nullable __counted_by(len) buf,
+                                uInt len);
 /*
      Update a running Adler-32 checksum with the bytes buf[0..len-1] and
    return the updated checksum. An Adler-32 value is in the range of a 32-bit
@@ -1826,7 +1833,8 @@ ZEXTERN uLong ZEXPORT adler32(uLong adler, const Bytef *buf, uInt len);
      if (adler != original_adler) error();
 */
 
-ZEXTERN uLong ZEXPORT adler32_z(uLong adler, const Bytef *buf,
+ZEXTERN uLong ZEXPORT adler32_z(uLong adler,
+                                const Bytef *_Nullable __counted_by(len) buf,
                                 z_size_t len);
 /*
      Same as adler32(), but with a size_t length.  Note that a long is 32 bits
@@ -1845,7 +1853,8 @@ ZEXTERN uLong ZEXPORT adler32_combine(uLong adler1, uLong adler2,
    negative, the result has no meaning or utility.
 */
 
-ZEXTERN uLong ZEXPORT crc32(uLong crc, const Bytef *buf, uInt len);
+ZEXTERN uLong ZEXPORT crc32(uLong crc, const Bytef *_Nullable __counted_by(len) buf,
+                                uInt len);
 /*
      Update a running CRC-32 with the bytes buf[0..len-1] and return the
    updated CRC-32. A CRC-32 value is in the range of a 32-bit unsigned integer.
@@ -1863,7 +1872,8 @@ ZEXTERN uLong ZEXPORT crc32(uLong crc, const Bytef *buf, uInt len);
      if (crc != original_crc) error();
 */
 
-ZEXTERN uLong ZEXPORT crc32_z(uLong crc, const Bytef *buf,
+ZEXTERN uLong ZEXPORT crc32_z(uLong crc,
+                              const Bytef *_Nullable __counted_by(len) buf,
                               z_size_t len);
 /*
      Same as crc32(), but with a size_t length.  Note that a long is 32 bits on

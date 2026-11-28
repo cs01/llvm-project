@@ -47,10 +47,6 @@
       requires strm->avail_out >= 258 for each loop to avoid checking for
       output space.
  */
-/* Safe C: the window before inflate() allocates it, which holds nothing
-   (whave is 0), so no code reads it */
-static unsigned char no_window[1];
-
 /* Safe C: copies n bytes forward, so from may be up to n bytes behind to (a
    match that repeats itself). Both ranges are checked once, at the call, not
    once per byte. */
@@ -60,12 +56,12 @@ local void copy_bytes(unsigned char *__counted_by(n) to,
         to[i] = from[i];
 }
 
-void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
+void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start,
+                                unsigned char FAR *__counted_by(start) beg) {
     struct inflate_state FAR *state;
     z_const unsigned char FAR *in;      /* local strm->next_in */
     z_const unsigned char FAR *last;    /* have enough input while in < last */
     unsigned char FAR *out;     /* local strm->next_out */
-    unsigned char FAR *beg;     /* inflate()'s initial strm->next_out */
     unsigned char FAR *end;     /* while out < end, enough space available */
 #ifdef INFLATE_STRICT
     unsigned dmax;              /* maximum distance from zlib header */
@@ -88,28 +84,16 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
     unsigned char FAR *from;    /* where to copy match from */
 
     /* copy state to local variables */
-    /* Safe C: inflate(), not ported, vouches for these buffers and their
-       sizes. From here on every access is checked against them. The code
-       tables' sizes are set where they are built (inflate.c and
-       inflate_fixed()). */
-    __unsafe {
-        state = __unsafe_forge_single(struct inflate_state FAR *, strm->state);
-        in = __unsafe_forge_bidi_indexable(z_const unsigned char *,
-                                           strm->next_in, strm->avail_in);
-        beg = __unsafe_forge_bidi_indexable(unsigned char *,
-                                            (unsigned char *__unsafe_indexable)strm->next_out -
-                                                (start - strm->avail_out), start);
-        /* (the window is allocated on first use: until then it is null,
-           with a size, and holds nothing, whave == 0) */
-        window = no_window;
-        if (state->window)
-            window = __unsafe_forge_bidi_indexable(unsigned char *, state->window,
-                                                   state->wsize);
-        lcode = __unsafe_forge_bidi_indexable(code const *, state->lencode,
-                                              state->lensize * sizeof(code));
-        dcode = __unsafe_forge_bidi_indexable(code const *, state->distcode,
-                                              state->distsize * sizeof(code));
-    }
+    /* Safe C: every buffer comes with its size: next_in and next_out with
+       avail_in and avail_out (zlib.h), beg with start (from inflate()), the
+       window with walloc, the code tables with lensize and distsize
+       (inflate.h). next_in is not null: inflate() calls this only with
+       avail_in >= 6. */
+    state = inflate_state_of(strm);
+    in = strm->next_in != Z_NULL ? strm->next_in : no_input;
+    window = window_of(state);
+    lcode = state->lencode;
+    dcode = state->distcode;
     last = in + (strm->avail_in - 5);
     out = beg + (start - strm->avail_out);
     end = out + (strm->avail_out - 257);
@@ -305,15 +289,16 @@ void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start) {
     hold &= (1U << bits) - 1;
 
     /* update state and return */
-    /* Safe C: back into inflate()'s stream, unchecked like the entry:
-       next_out may be one past the end of the buffer, as when avail_out is 0 */
-    __unsafe {
-        strm->next_in = __unsafe_forge_single(z_const unsigned char *, in);
-        strm->next_out = __unsafe_forge_single(unsigned char *, out);
-    }
-    strm->avail_in = (unsigned)(in < last ? 5 + (last - in) : 5 - (in - last));
-    strm->avail_out = (unsigned)(out < end ?
-                                 257 + (end - out) : 257 - (out - end));
+    /* Safe C: each pointer is stored with its count, and checked against it
+       (the counts are worked out first: a pointer and its count must be set
+       one right after the other) */
+    len = (unsigned)(in < last ? 5 + (last - in) : 5 - (in - last));
+    op = (unsigned)(out < end ?
+                    257 + (end - out) : 257 - (out - end));
+    strm->next_in = in;
+    strm->avail_in = len;
+    strm->next_out = out;
+    strm->avail_out = op;
     state->hold = hold;
     state->bits = bits;
     return;
