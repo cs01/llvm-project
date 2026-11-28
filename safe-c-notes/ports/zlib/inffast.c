@@ -47,15 +47,6 @@
       requires strm->avail_out >= 258 for each loop to avoid checking for
       output space.
  */
-/* Safe C: copies n bytes forward, so from may be up to n bytes behind to (a
-   match that repeats itself). Both ranges are checked once, at the call, not
-   once per byte. */
-local void copy_bytes(unsigned char *__counted_by(n) to,
-                      const unsigned char *__counted_by(n) from, unsigned n) {
-    for (unsigned i = 0; i < n; i++)
-        to[i] = from[i];
-}
-
 void ZLIB_INTERNAL inflate_fast(z_streamp strm, unsigned start,
                                 unsigned char FAR *__counted_by(start) beg) {
     struct inflate_state FAR *state;

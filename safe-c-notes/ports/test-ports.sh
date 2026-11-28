@@ -9,7 +9,7 @@ out=$(mktemp -d)
 fail=0
 # The vendored safec.h copies (for compilers without Safe C) must match the
 # real one, or the non-Safe-C builds test a different header.
-for copy in "$here"/cjson/safec.h "$here"/jsmn/safec.h "$here"/lz4/safec.h "$here"/inih/safec.h "$here"/parson/safec.h "$here"/puff/safec.h "$here"/../../safe-c-std/safec.h; do
+for copy in "$here"/cjson/safec.h "$here"/jsmn/safec.h "$here"/lz4/safec.h "$here"/inih/safec.h "$here"/parson/safec.h "$here"/puff/safec.h "$here"/zlib/safec.h "$here"/../../safe-c-std/safec.h; do
   cmp -s "$copy" "$here/../../clang/lib/Headers/safec.h" ||
     { echo "stale: $copy (cp clang/lib/Headers/safec.h there)"; fail=1; }
 done
@@ -119,6 +119,7 @@ r=; "$safec" -fsafe-c -isysroot "$sdk" -O2 -c -o "$out/puff-safe.o" "$here/puff/
   /usr/bin/clang -O2 -Dpuff=orig_puff -c -o "$out/puff-orig.o" "$here/puff/orig/puff.c" &&
   /usr/bin/clang -O2 -o "$out/puff-diff" "$here/puff/test/diff.c" "$out/puff-safe.o" "$out/puff-orig.o" -lz &&
   r=$("$out/puff-diff" 20000 1) && echo "puff: $r" || { echo "puff: FAILED $r"; fail=1; }
-# zlib: the port's inflate_fast against stock zlib, on streams from zlib.
-r=$(SAFEC="$safec" bash "$here/zlib/test/run.sh" 5000) && echo "zlib: $r" || { echo "zlib: FAILED $r"; fail=1; }
+# zlib: the port's inflate (inflate.c, inftrees.c, inffast.c) against stock zlib,
+# on streams from zlib, and CVE-2022-37434 (test/cve.c).
+r=$(SAFEC="$safec" bash "$here/zlib/test/run.sh" 5000) && echo "$r" | sed "s/^/zlib: /" || { echo "zlib: FAILED $r"; fail=1; }
 exit $fail

@@ -24,4 +24,11 @@ for f in inflate inftrees inffast; do
   "$cc" $safe $w -Dz_errmsg=safe_z_errmsg -c $f.c -o "$out/safe/$f.o"
 done
 "$cc" -O2 -I. test/diff.c "$out"/stock/*.o "$out"/safe/*.o -o "$out/diff" 2>/dev/null
-if [ "${1:-}" = bench ]; then "$out/diff" bench "$2"; else "$out/diff" "${1:-5000}" "${SEED:-1}"; fi
+if [ "${1:-}" = bench ]; then "$out/diff" bench "$2"; exit; fi
+"$out/diff" "${1:-5000}" "${SEED:-1}"
+# the rest of the API (headers, dictionaries, inflateCopy, inflateSync)
+"$cc" -O2 -w -I. test/api.c "$out"/stock/*.o "$out"/safe/*.o -o "$out/api"
+"$out/api"
+# CVE-2022-37434 (test/cve.c) against the port alone
+"$cc" -O2 -w -I. test/cve.c "$out"/safe/*.o -o "$out/cve"
+"$out/cve"

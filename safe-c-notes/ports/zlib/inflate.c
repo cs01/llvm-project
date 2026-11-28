@@ -1156,9 +1156,8 @@ int ZEXPORT inflate(z_streamp strm, int flush) {
             if (copy > left) copy = left;
             left -= copy;
             state->length -= copy;
-            do {
-                *put++ = *from++;
-            } while (--copy);
+            copy_bytes(put, from, copy);    /* Safe C: checked once */
+            put += copy;
             if (state->length == 0) state->mode = LEN;
             break;
         case LIT:

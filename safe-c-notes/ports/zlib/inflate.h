@@ -161,3 +161,13 @@ local unsigned char FAR *__bidi_indexable window_of(
 /* Safe C: stands in for a null input pointer (next_in, a dictionary), which
    zlib.h allows only with a length of 0, so it is never read. */
 local const unsigned char no_input[1];
+
+/* Safe C: copies n bytes forward, so from may be up to n bytes behind to (a
+   match that repeats itself). Both ranges are checked once, at the call, not
+   once per byte. */
+local void copy_bytes(unsigned char FAR *__counted_by(n) to,
+                      const unsigned char FAR *__counted_by(n) from,
+                      unsigned n) {
+    for (unsigned i = 0; i < n; i++)
+        to[i] = from[i];
+}
