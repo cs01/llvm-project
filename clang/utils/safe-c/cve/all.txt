@@ -44,8 +44,12 @@ int main(void) { code t[4] = {{-1, 1, 'a'}, {0, 2, 'b'}, {1, V(1, 3), 'c'}, {2, 
 //// TIF004
 // libtiff OJPEG: decoding with a decoder that was never set up.
 struct state { int decoder_ok; unsigned char *_Owned _Nullable buf; };
+#ifdef GOOD
+static int decode_raw(struct state *sp) { return sp->decoder_ok && sp->buf ? sp->buf[0] : 0; }
+#else
 static int decode_raw(struct state *sp) { return sp->buf[0]; }
-int main(void) { struct state s = {0}; printf("%d\n", decode_raw(&s)); }
+#endif
+int main(void) { struct state s = {0}; printf("%d\n", decode_raw(&s)); free(_Take(s.buf)); }
 //// SND013
 // libsndfile psf_binheader_writef: room is checked for size, not size + 1.
 typedef struct { size_t len; unsigned char *_Owned _Nullable __counted_by(len) ptr; size_t indx; } header;
@@ -69,7 +73,11 @@ int main(void) { header h = {0, NULL, 0}; size_t n = 16; unsigned char *_Owned _
 // libpng: an indexed image with no palette; the palette is read unchecked.
 struct color { unsigned char r, g, b; };
 struct png2 { int num; struct color *_Owned _Nullable __counted_by(num) palette; };
+#ifdef GOOD
+static int first(const struct png2 *p) { return p->palette ? p->palette[0].r : 0; }
+#else
 static int first(const struct png2 *p) { return p->palette[0].r; }
+#endif
 int main(void) { struct png2 p = {0, NULL}; printf("%d\n", first(&p)); }
 //// SQL013
 // SQLite where.c: the term array is not grown before one more term is added.
@@ -128,13 +136,25 @@ int main(void) { size_t n = 64; unsigned char *_Owned _Nullable d = calloc(n, 1)
 struct ns { struct ns *_Owned _Nullable next; int type; const char *_Static _Nullable href; };
 struct attr { int priv[8]; const char *_Static _Nullable name; int atype; };
 static int add_id(const struct attr *a) { return a->atype; }
+#ifdef GOOD
+int main(void) { struct attr a = {0}; printf("%d\n", add_id(&a)); }
+#else
 int main(void) { struct ns n = {0}; printf("%d\n", add_id((const struct attr *)&n)); }
+#endif
 //// XML002b
 // The same through void *, as libxml2's generic code would.
 struct ns { int type; int v; };
 struct attr { int priv[16]; int atype; };
+#ifdef GOOD
+static int add_id(const struct attr *a) { return a->atype; }
+#else
 static int add_id(const void *p) { const struct attr *a = p; return a->atype; }
+#endif
+#ifdef GOOD
+int main(void) { struct attr a = {0}; printf("%d\n", add_id(&a)); }
+#else
 int main(void) { struct ns *_Owned _Nullable n = calloc(1, sizeof *n); if (!n) return 1; printf("%d\n", add_id(n)); free(n); }
+#endif
 //// SQL019
 // SQLite printf: precision is not limited; the buffer size and the digit count disagree.
 static const double arRound[] = {5.0e-01, 5.0e-02, 5.0e-03, 5.0e-04, 5.0e-05, 5.0e-06, 5.0e-07, 5.0e-08, 5.0e-09, 5.0e-10};

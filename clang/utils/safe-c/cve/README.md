@@ -4,7 +4,7 @@ Magma v1.2 is a fuzzing benchmark of real bugs in real C libraries, each as a pa
 sqlite3 and libxml2, the first 20 by sha1 of the patch's path, fixed before any was read. 3 are not memory bugs (XML003 reads external files,
 TIF014 uses too much memory, SQL012 is a logic error).
 
-The other 17: **3 rejected at compile time** (PNG007 and TIF004, null; XML002, type confusion), **14 stopped at run time**, each with a good input
+The other 17: **3 rejected at compile time** (PNG007 and TIF004, null; XML002, type confusion; each with a fixed version that compiles and runs), **14 stopped at run time**, each with a good input
 that runs. 0 missed. `run.sh` checks it.
 
 What this does not show:
@@ -15,7 +15,7 @@ What this does not show:
 
 ## Use after free
 
-`uaf.sh`: the 4 bugs whose CVE is described as a use after free, among the 110 of Magma's bugs with CVE numbers in the C libraries (libpng, libtiff,
+`uaf.txt` (also run by `run.sh`): the 4 bugs whose CVE is described as a use after free, among the 110 of Magma's bugs with CVE numbers in the C libraries (libpng, libtiff,
 libsndfile, libxml2, lua, sqlite3, openssl, php). PNG002 (CVE-2019-7317), SSL002 (CVE-2016-6309, two ways), XML012 (CVE-2016-1836), XML013
 (CVE-2016-1837). **4 of 4 rejected at compile time**, and the fixed version of each is accepted and runs. PNG002 holds the freed pointer in a local, where
 libpng reads it again from the struct. The same limits as above: reductions by hand.

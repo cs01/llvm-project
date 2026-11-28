@@ -70,13 +70,13 @@ clang/utils/safe-c/check-all.sh lit corpus   # just these
 | `lit` | Each rule's tests: the errors are exactly the expected ones |
 | `corpus` | About 10,000 programs written to break Safe C. Fails if the compiler newly **accepts** a program and ASan finds a memory error in it (a hole), if it newly accepts one not signed off in `corpus/accepted.txt`, or if it crashes on a new one |
 | `holes` | Every hole found so far stays closed |
-| `cve` | 21 real bugs from the Magma benchmark stay blocked, and their fixed versions still compile and run |
+| `cve` | 21 real bugs from the Magma benchmark (23 programs) stay blocked, and their fixed versions still compile and run; fails if fewer programs ran |
 | `libc` | What each C99 library function is allowed to do |
 | `misuse` | Wrong uses of the `safe-c-std` headers are rejected |
 | `docs` | Every example in the docs gives the error it shows, word for word |
 | `ports` | Ported libraries build and pass their own tests |
 | `headers` | The two copies of `safec.h` match |
-| `lean` | The Lean model builds with no `sorry` |
+| `lean` | The Lean model builds, every file is imported, and no proof is skipped (`sorry`, `axiom`, ...) |
 
 Run the narrowest gate while you work (one lit test: `build.noindex/bin/llvm-lit -v clang/test/Sema/safe-c-union.c`), and every
 gate before you open a pull request.

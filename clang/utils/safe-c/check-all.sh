@@ -19,7 +19,7 @@ GATES=(
   "holes|bash clang/utils/safe-c/holes/check.sh"
   "cve|bash clang/utils/safe-c/cve/run.sh"
   "ports|bash safe-c-notes/ports/test-ports.sh"
-  "lean|cd safe-c-lean && lake build 2>&1 | tail -3 && ! grep -rn sorry SafeC"
+  "lean|bash safe-c-lean/check.sh"
 )
 
 want=" $* "

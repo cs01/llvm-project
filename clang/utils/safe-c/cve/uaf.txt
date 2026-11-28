@@ -12,7 +12,7 @@ static int safe_execute(struct image *i, int (*function)(struct image *)) {
   if (c) c->error_buf = saved;
   return result;
 }
-int main(void) { struct image i = {NULL}; i.opaque = calloc(1, sizeof(struct control)); return safe_execute(&i, free_function) - 1; }
+int main(void) { struct image i = {NULL}; i.opaque = calloc(1, sizeof(struct control)); int r = safe_execute(&i, free_function) - 1; free(_Take(i.opaque)); return r; }
 //// SSL002
 // OpenSSL CVE-2016-6309: the message buffer is reallocated, and the pointer into it is not moved.
 struct buf { size_t max; unsigned char *_Owned _Nullable __counted_by(max) data; };
@@ -31,7 +31,7 @@ static int read_message(struct buf *b) {
   if (GOOD) { if (!b->data) return 0; msg = b->data + 4; }
   return msg[0];
 }
-int main(void) { struct buf b = {0, NULL}; if (!grow(&b, 64)) return 1; int r = read_message(&b); free(_Take(b.data)); return r; }
+int main(void) { struct buf b = {0, NULL}; if (!grow(&b, 64)) { free(_Take(b.data)); return 1; } int r = read_message(&b); free(_Take(b.data)); return r; }
 //// SSL002f
 // The same with the pointer in a field, as OpenSSL has it (s->init_msg).
 #if GOOD
@@ -63,7 +63,7 @@ static int name(struct in *i, size_t len) {
   if (GOOD) { if (!i->base) return -1; end = i->base; }
   return end[0];
 }
-int main(void) { struct in i = {0, NULL, 0}; if (!grow(&i)) return 1; int r = name(&i, 3); free(_Take(i.base)); return r; }
+int main(void) { struct in i = {0, NULL, 0}; if (!grow(&i)) { free(_Take(i.base)); return 1; } int r = name(&i, 3); free(_Take(i.base)); return r; }
 //// XML013
 // libxml2 CVE-2016-1837: the start of a literal is kept as a pointer while the parser reads on.
 struct in { size_t len; char *_Owned _Nullable __counted_by(len) base; size_t cur; };
@@ -86,4 +86,4 @@ static int literal(struct in *i) {
   if (GOOD) { if (!i->base || start >= i->len) return -1; q = i->base + start; }
   return *q;
 }
-int main(void) { struct in i = {0, NULL, 0}; if (!next(&i)) return 1; int r = literal(&i); free(_Take(i.base)); return r; }
+int main(void) { struct in i = {0, NULL, 0}; if (!next(&i)) { free(_Take(i.base)); return 1; } int r = literal(&i); free(_Take(i.base)); return r; }
