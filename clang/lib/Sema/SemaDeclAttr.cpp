@@ -1944,7 +1944,10 @@ static void handleRestrictAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 
   // FIXME: we should add this attribute to Clang's AST, so that clang-analyzer
   // can use it, see -Wmismatched-dealloc in GCC for what we can do with this.
-  S.Diag(AL.getLoc(), diag::warn_attribute_form_ignored) << AL;
+  // (Safe C's ownership check reads it: what the allocator returns must be
+  // freed by the deallocator.)
+  if (!S.getLangOpts().SafeC)
+    S.Diag(AL.getLoc(), diag::warn_attribute_form_ignored) << AL;
   D->addAttr(::new (S.Context)
                  RestrictAttr(S.Context, AL, DeallocE, DeallocPtrIdx));
 }

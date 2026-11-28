@@ -4,6 +4,17 @@ Safe C keeps the C library. The compiler knows what each function frees, keeps a
 they are (`clang/utils/safe-c/libc/check.sh`). These are errors that say what to use instead. The table is made from the compiler's
 own list.
 
+A library in a system header can say what it frees in its declarations, and the compiler reads that before its own list. Two forms
+work: GCC's `malloc(deallocator, index)`, which glibc's headers already use, and Clang's `ownership_returns` and `ownership_takes`:
+
+```c
+void conn_close(int flags, struct conn *c);
+struct conn *conn_open(const char *host) __attribute__((malloc(conn_close, 2)));
+```
+
+What `conn_open` returns is an owner, and only `conn_close` may free it. Freeing it with something else is an error, and so is
+`pclose` on what `fopen` returned.
+
 <!-- generated:libc -->
 Each is a compile error that says what to use (47 functions):
 

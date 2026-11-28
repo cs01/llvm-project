@@ -49,7 +49,8 @@ bool ownedAtEveryLevel(QualType T) {
 //===----------------------------------------------------------------------===//
 // Library contracts, by what a call does with pointers. A function whose
 // prototype has no pointer needs none. Left out on purpose: strtok, va_list, and
-// whatever keeps a pointer (putenv, setvbuf, pthread_create).
+// whatever keeps a pointer (putenv, setvbuf, pthread_create). A system header
+// can give its own: see attrContract.
 //===----------------------------------------------------------------------===//
 
 enum class Lib {
@@ -70,10 +71,26 @@ enum class Lib {
   UntilNextCall // returns a pointer into storage a later call may change
 };
 
-Lib libraryContract(StringRef N) {
+StringRef libName(StringRef N) {
   if (N.consume_front("__builtin_"))
     N.consume_front("___");
   N.consume_back("_chk");
+  return N;
+}
+
+// The function that frees what a library function in the table returns, for
+// libraries whose headers do not say (Apple's do not).
+StringRef tableCloser(StringRef N) {
+  return llvm::StringSwitch<StringRef>(libName(N))
+      .Cases({"malloc", "calloc", "realloc", "strdup", "strndup", "realpath"}, "free")
+      .Cases({"fopen", "fdopen", "tmpfile"}, "fclose")
+      .Case("popen", "pclose")
+      .Case("opendir", "closedir")
+      .Default("");
+}
+
+Lib libraryContract(StringRef N) {
+  N = libName(N);
   return llvm::StringSwitch<Lib>(N)
       .Cases({"free", "fclose", "pclose", "closedir"}, Lib::Frees)
       .Case("realloc", Lib::Reallocs)
@@ -132,8 +149,15 @@ StringRef cName(StringRef N) {
 
 using Value = mlir::Value;
 
+// What made an owner, and the only functions that may free it.
+struct Maker {
+  std::string Name;
+  SmallVector<std::string, 2> Closers;
+};
+
 struct Node {
   enum Kind { Own, Dead, Static, Borrow } K = Dead;
+  const Maker *Made = nullptr; // Own: null when not known
   Value Parent;          // Borrow
   bool Capable = false;  // Borrow: may change what the object owns
   std::string Why;       // Dead: what ended it
@@ -149,7 +173,7 @@ struct Node {
   bool sameAs(const Node &O) const {
     return K == O.K && Parent == O.Parent && Field == O.Field &&
            Record == O.Record && Same == O.Same && Null == O.Null &&
-           Leaky == O.Leaky;
+           Leaky == O.Leaky && Made == O.Made;
   }
   void hang(Value From) {
     Parent = From;
@@ -232,6 +256,63 @@ public:
   std::string ResourceDir; // safec.h and the compiler's other headers
   FileRules(Sema &S, StringRef ResourceDir)
       : Ctx(S.Context), S(S), ResourceDir(ResourceDir) {}
+
+  /// A library function's contract from its declaration: GCC's
+  /// 'malloc(dealloc, index)' (glibc's headers use it) and Clang's
+  /// 'ownership_returns/takes/holds'. Owner sets who may free the result;
+  /// Frees sets the argument freed and its family.
+  Lib attrContract(const FunctionDecl *F, unsigned &Arg,
+                   SmallVectorImpl<std::string> &Closers, std::string &Family) {
+    // Clang's ownership attributes name a family; "malloc" is free's.
+    auto Fam = [](StringRef M) { return M == "malloc" ? std::string("free") : M.str(); };
+    bool Takes = false;
+    for (const FunctionDecl *D : F->redecls()) {
+      for (const auto *A : D->specific_attrs<RestrictAttr>())
+        if (const FunctionDecl *Dealloc = deallocator(A))
+          if (!llvm::is_contained(Closers, Dealloc->getName()))
+            Closers.push_back(Dealloc->getName().str());
+      for (const auto *A : D->specific_attrs<OwnershipAttr>()) {
+        std::string M = Fam(A->getModule()->getName());
+        if (A->getOwnKind() == OwnershipAttr::Returns) {
+          if (!llvm::is_contained(Closers, M))
+            Closers.push_back(M);
+        } else if (A->args_size()) {
+          Takes = true;
+          Arg = A->args_begin()->getASTIndex();
+          Family = M;
+        }
+      }
+    }
+    if (!Closers.empty())
+      return Lib::Owner;
+    if (Takes)
+      return Lib::Frees;
+    if (auto It = deallocs().find(F->getCanonicalDecl()); It != deallocs().end()) {
+      Arg = It->second;
+      Family = F->getName().str();
+      return Lib::Frees;
+    }
+    return Lib::None;
+  }
+  static const FunctionDecl *deallocator(const RestrictAttr *A) {
+    const auto *E = dyn_cast_or_null<DeclRefExpr>(A->getDeallocator());
+    return E ? dyn_cast<FunctionDecl>(E->getDecl()) : nullptr;
+  }
+  /// Every function some declaration in the file names as a deallocator, and
+  /// the parameter it frees.
+  const llvm::DenseMap<const FunctionDecl *, unsigned> &deallocs() {
+    if (!Deallocs) {
+      Deallocs.emplace();
+      for (const Decl *D : Ctx.getTranslationUnitDecl()->decls())
+        if (const auto *FD = dyn_cast<FunctionDecl>(D))
+          for (const auto *A : FD->specific_attrs<RestrictAttr>())
+            if (const FunctionDecl *Dealloc = deallocator(A))
+              (*Deallocs)[Dealloc->getCanonicalDecl()] =
+                  A->getDeallocatorPtrArgIndex().getASTIndex();
+    }
+    return *Deallocs;
+  }
+  std::optional<llvm::DenseMap<const FunctionDecl *, unsigned>> Deallocs;
 
   bool trusted(const FunctionDecl *FD) const {
     for (const FunctionDecl *R : FD->redecls())
@@ -697,6 +778,7 @@ class FunctionCheck {
   llvm::DenseMap<Value, Var> Vars;
   llvm::DenseMap<Value, std::string> Globals;
   llvm::DenseSet<Value> Temporaries;
+  std::map<std::string, Maker> Makers; // what Node::Made points to, one per name so the state converges
   llvm::DenseMap<mlir::Block *, State> In;
   SmallVector<mlir::Block *, 16> Work;
   int FirstBorrow = -1;
@@ -1676,6 +1758,8 @@ void FunctionCheck::flow(mlir::Block *To, mlir::ValueRange Args, State O) {
     } else if (X.K == Node::Own && Y->K == Node::Own) {
       J = X;
       J.Null = X.Null && Y->Null;
+      if (X.Made != Y->Made)
+        J.Made = nullptr;
     } else if (X.sameAs(*Y)) {
       J = X;
       J.Capable = X.Capable && Y->Capable;
@@ -2071,10 +2155,12 @@ void FunctionCheck::load(cir::LoadOp Op) {
       }
       if (Take) {
         bool Null = N->Null;
+        const Maker *Made = N->Made;
         killDescendants(A, "'_Take'" + here());
         reparent(Res);
         S->N[Res] = plain(Node::Own);
         S->N[Res].Null = Null;
+        S->N[Res].Made = Made;
         S->N[A] = plain(Node::Own);
         S->N[A].Null = true;
         Val V = mk(Val::Owner);
@@ -2286,12 +2372,15 @@ void FunctionCheck::store(cir::StoreOp Op) {
       if (lost(A, "when it is given another value" + here()))
         return;
       bool Null = XV->K == Val::Null;
+      const Node *VN = node(V);
+      const Maker *Made = VN && VN->K == Node::Own ? VN->Made : nullptr;
       takeOwner(V, "moved");
       if (Failed())
         return;
       killDescendants(A, "its owner was given another value" + here());
       S->N[A] = plain(Node::Own);
       S->N[A].Null = Null;
+      S->N[A].Made = Made;
       return;
     }
     if (SV.K == Val::Null || SV.K == Val::Static) {
@@ -2413,7 +2502,14 @@ void FunctionCheck::call(cir::CallOp Op) {
       Through ? nullptr
               : dyn_cast_or_null<FunctionDecl>(Gen.getDeclForMangledName(Sym));
   const bool Ours = Through || ours(Callee);
-  const Lib K0 = Ours ? Lib::None : libraryContract(Name);
+  Lib K0 = Ours ? Lib::None : libraryContract(Name);
+  unsigned FreeArg = 0;
+  std::string FreeFamily = libName(Name).str();
+  SmallVector<std::string, 2> Closers;
+  if (!Ours && Callee && K0 == Lib::None)
+    K0 = R.attrContract(Callee, FreeArg, Closers, FreeFamily);
+  if (Closers.empty() && !tableCloser(Name).empty())
+    Closers.push_back(tableCloser(Name).str());
   const int OutArg = K0 == Lib::EndOut ? 1 : K0 == Lib::OwnerOut ? 0 : -1;
   auto NumParams = [&] {
     return Through ? Through->getNumParams() : Callee->getNumParams();
@@ -2525,7 +2621,10 @@ void FunctionCheck::call(cir::CallOp Op) {
     }
   }
   auto NewOwner = [&](bool Zeroed, bool Typed) {
-    setNode(Res, plain(Node::Own));
+    Node O = plain(Node::Own);
+    if (!Closers.empty())
+      O.Made = &Makers.try_emplace(Name.str(), Maker{Name.str(), Closers}).first->second;
+    setNode(Res, O);
     Val N = mk(Val::Owner);
     N.Zeroed = Zeroed;
     N.Typed = Typed;
@@ -2548,6 +2647,23 @@ void FunctionCheck::call(cir::CallOp Op) {
       return;
     }
     if (K == Lib::Frees) {
+      if (FreeArg >= Args.size())
+        return fail("'" + Name + "' frees an argument it is not given");
+      // What one library makes, another's free may not free.
+      {
+        Value A = Args[FreeArg];
+        for (unsigned I = 0; I < 8; ++I)
+          if (auto C = A.getDefiningOp<cir::CastOp>(); C && C.getKind() == cir::CastKind::bitcast)
+            A = C.getSrc();
+        Val *AV = val(A);
+        const Node *AN = AV && AV->K == Val::OwnerOf ? node(AV->Of) : node(A);
+        if (!AN)
+          AN = node(Args[FreeArg]);
+        if (AN && AN->K == Node::Own && AN->Made &&
+            !llvm::is_contained(AN->Made->Closers, FreeFamily))
+          return fail("this was made by '" + AN->Made->Name + "', so '" +
+                      AN->Made->Closers[0] + "' must free it, not '" + Name + "'");
+      }
       // A struct is freed after what its fields own.
       if (Name == "free" && !Args.empty()) {
         Value A0 = Args[0];
@@ -2576,7 +2692,7 @@ void FunctionCheck::call(cir::CallOp Op) {
                         " may still own memory; free that first (free(_Take(...)))");
         }
       }
-      takeOwner(Args[0], Name == "free" ? "freed" : "closed");
+      takeOwner(Args[FreeArg], Name == "free" ? "freed" : "closed");
       return;
     }
     if (K == Lib::Reallocs) {
